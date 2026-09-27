@@ -25,8 +25,7 @@
 
 ## 보류·이월
 
-- CS 이슈 아카이브 2건(Testcontainers 1.21.3 ↔ Docker 29 API 버전 불일치 / 영속 상태 애그리거트에 `save()`=merge 시 새 자식의 복사본이 영속화되어 원본 id가 비는 문제) — 보류 이유: 이번 명세 금지영역에 study-note 포함 · 재개 조건: 다음 사이클 마감에서 아카이브 범위 사용자 확인
-- study-note `commerce/seat-reservation-lab/README.md` 작업 기록 append — 이번 범위 밖 · 재개 조건: 사용자 요청
+- study-note `archive/2026-09-28`(이슈 카드 2 + 작업 기록, 커밋 `fdd7a0d7`·`f31b845f`) — 미병합·미push · 보류 이유: 개정 규칙(`issue/`)이 미병합 브랜치 `docs/nextjs-app-render` 위에만 있어, main에 병합하면 그 브랜치의 미병합 커밋 32개가 함께 들어감 · 재개 조건: `docs/nextjs-app-render`가 main에 병합된 뒤 archive 브랜치를 main 위로 옮겨 병합·push
 
 ## 완료 이력
 

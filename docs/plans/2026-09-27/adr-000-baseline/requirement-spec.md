@@ -95,6 +95,13 @@
   - 만료 배치: 만료 홀드만 제거, 좌석이 HELD면 AVAILABLE (기준선 의미 그대로 — 중복 홀드 상황의 동작도 바꾸지 않음)
 - 특성테스트: 기존 16개. 내부 구조(SeatHoldRepository)에 기대는 픽스처·단언은 DB 수준(JdbcTemplate)으로 먼저 옮겨 green을 세운 뒤 변환 착수
 
+## 11. 변경 합의 (2026-09-28) — 사이클 마감 범위 확장
+
+- 원문: "스터디 노트에 이슈는 정리 진행하고 스터디 노트에 이슈 커밋 해놓자 … 작업 기록도 스터디 노트에 기록하자. 그리고 메인에는 PR작성 후 병합처리하자"
+- §4 금지영역에서 study-note 해제 — 대상: `issue/` 카드 2장 + 인덱스, `lab/backend-labs/commerce/seat-reservation-lab/README.md` 작업 기록 append
+- Q/A: 카드 기준 = 개정 규칙 `issue/`(미병합 `docs/nextjs-app-render` @ b5af227f 기반 `archive/2026-09-28` worktree) · 작업 기록도 같은 브랜치 · study-note는 **커밋까지만**(main 병합 시 미병합 32커밋이 딸려 들어가므로 병합·push 안 함) · seat-reservation-lab PR = merge commit
+- 불변: 기존 study-note 체크아웃(docs/nextjs-app-render, 미커밋 변경 있음)은 건드리지 않는다
+
 ---
 
 ## 승인 상태

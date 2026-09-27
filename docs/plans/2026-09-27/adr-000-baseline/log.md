@@ -23,7 +23,12 @@
 | 20:46 | 스모크(bootTestRun): 선점 201 → 타 사용자 409 → 확정 200 / 만료 배치로 HELD→AVAILABLE | 리팩토링 후 실경로 동일 |
 | 20:49 | 누락 발견: 변경 표에 약속한 좌석 애그리거트 단위 테스트 미작성 → ProductSeatTest 5개 추가(Spring·DB 없음) | 전체 22 green |
 | 20:55 | 사이클 마감: NEXT.md 생성(N1 = ADR-001 하네스), measurement-log 1행 | — |
-| 20:55 | 아카이브 보류(금지영역: study-note) — CS 이슈 2건 NEXT `보류·이월`에 등재 | 사용자 보고 |
+| 20:55 | 아카이브 보류(금지영역: study-note) — CS 이슈 2건 NEXT `보류·이월`에 등재 | 사용자 보고 → 09-28 해제 |
+| 09-28 | 범위 확장 합의(spec §11): study-note 이슈 아카이브·작업 기록 + PR 병합 | study-note 상태: 체크아웃 docs/nextjs-app-render(미병합 32·미커밋 변경), issue/ 이동은 그 브랜치에만 → b5af227f 기반 archive/2026-09-28 worktree(`../study-note-wt-archive-0928`) |
+| 09-28 | 아카이브 매칭: 기존 카드와 같은 원리 없음 → 새 카드 2 (cross-cutting/infra/client-api-version-floor, kotlin/spring/jpa-save-merge-copy) | 원 식별자(노출 스캔 입력): seat-reservation-lab, backend-labs, com.jun.labs, ProductSeat, SeatHold, HoldSeatService, junhyeong9812, 경로 /home/jun |
+| 09-28 | 카드 근거(카드에는 미기재): 이슈1 = build.gradle.kts `extra["testcontainers.version"]`, 실패 로그 "client version 1.32 is too old. Minimum supported API version is 1.44", ~/.testcontainers.properties `docker.api.version=1.44`가 있었는데도 1.32 전송 / 이슈2 = HoldSeatService `saveAndFlush(seat)` → `hold.id!!` NPE(10 red) → `flush()`로 17 green | — |
+| 09-28 | study-note 노출 스캔(추가 222행 — 원 식별자·경로·IP·시크릿 패턴) | 0건 → 커밋 `fdd7a0d7`(issue 카드 2 + 인덱스 4) |
+| 09-28 | study-note 작업 기록 append(lab README 끝, `## 작업 기록` 첫 생성) + 스캔 0건 | 커밋 `f31b845f` — 브랜치 archive/2026-09-28, 병합·push 보류(NEXT 등재) |
 
 ## 리뷰 ledger
 
