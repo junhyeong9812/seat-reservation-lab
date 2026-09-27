@@ -1,6 +1,21 @@
 spring:
   application:
     name: seat-reservation-lab
+  # 기본값을 두지 않는다 — 로컬 5432의 다른 DB에 실수로 붙지 않게. 로컬 실행은 ./gradlew bootTestRun (Testcontainers)
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
 
 server:
   port: 8101
+
+seat:
+  hold:
+    ttl: 5m
+    max-per-user: 2
+    expiry-interval: 10s
