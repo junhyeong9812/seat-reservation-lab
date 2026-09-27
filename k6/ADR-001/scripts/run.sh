@@ -129,15 +129,15 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
       sleep 5
     done ) > /dev/null 2>&1 & echo $!
   case "$cell" in
-    S3*)   # 좌석 상태 곡선 — 가벼운 집계만(전체 판정은 회차 끝 1회). 폴링 소요시간(poll_ms)도 남긴다 (간섭 판단용)
+    S3*)   # 좌석 상태 곡선 — DB 직접 가벼운 집계(전체 판정은 회차 끝 1회). poll_ms = ssh 포함 왕복 (간섭 판단용)
       ( while :; do
-          t0=$(date +%s%N); j=$(counts true); t1=$(date +%s%N)
+          t0=$(date +%s%N); j=$(db_counts true); t1=$(date +%s%N)
           [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
           sleep 5
         done ) > /dev/null 2>&1 & echo $! ;;
-    S4)    # 누적 홀드 수만 가볍게 (100만 석 전체 판정은 무거워 부하에 간섭한다)
+    S4)    # 누적 홀드 수만 — DB 직접 (100만 석 전체 판정은 무거워 부하에 간섭한다)
       ( while :; do
-          t0=$(date +%s%N); j=$(counts); t1=$(date +%s%N)
+          t0=$(date +%s%N); j=$(db_counts false); t1=$(date +%s%N)
           [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
           sleep 10
         done ) > /dev/null 2>&1 & echo $! ;;

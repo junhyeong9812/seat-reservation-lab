@@ -57,6 +57,14 @@ counts() {  # 인자: seatStatus(true|false, 선택)
   curl -fsS --max-time 10 "$BASE_URL/internal/counts${1:+?seatStatus=$1}"
 }
 
+# 부하 중 폴링은 앱을 거치지 않고 DB 컨테이너에 직접 묻는다 — 앱이 포화돼 요청이 적체돼도 곡선이 끊기지 않게(실측: L1 S3A에서 앱 경유 폴링 대부분 유실)
+db_counts() {  # 인자: seatStatus(true|false)
+  local seat_sql=""
+  [[ "${1:-false}" == true ]] && seat_sql=", (SELECT count(*) FILTER (WHERE status='AVAILABLE') FROM product_seat) AS available, (SELECT count(*) FILTER (WHERE status='HELD') FROM product_seat) AS held, (SELECT count(*) FILTER (WHERE status='RESERVED') FROM product_seat) AS reserved"
+  timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" \
+    "docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(t) FROM (SELECT (SELECT count(*) FROM seat_hold) AS hold_rows, (SELECT count(*) FROM reservation WHERE status='CONFIRMED') AS confirmed, now() AS checked_at $seat_sql) t\""
+}
+
 actuator() {  # 인자: 경로
   curl -fsS --max-time 10 "$BASE_URL/actuator/$1"
 }
