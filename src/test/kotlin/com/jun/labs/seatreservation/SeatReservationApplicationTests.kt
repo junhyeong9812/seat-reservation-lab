@@ -1,10 +1,9 @@
 package com.jun.labs.seatreservation
 
+import com.jun.labs.seatreservation.support.IntegrationTest
 import org.junit.jupiter.api.Test
-import org.springframework.boot.test.context.SpringBootTest
 
-@SpringBootTest
-class SeatReservationApplicationTests {
+class SeatReservationApplicationTests : IntegrationTest() {
 
     @Test
     fun contextLoads() {
