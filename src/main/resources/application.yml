@@ -14,6 +14,13 @@ spring:
 server:
   port: 8101
 
+# actuator는 loadtest 프로필에서만 연다 (application-loadtest.yml)
+management:
+  endpoints:
+    web:
+      exposure:
+        exclude: "*"
+
 seat:
   hold:
     ttl: 5m

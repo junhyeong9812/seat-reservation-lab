@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.assertEquals
 
@@ -46,6 +47,13 @@ class SeatHoldApiTest : IntegrationTest() {
         }
 
         assertEquals(SeatStatus.RESERVED, seatStatus(seat))
+    }
+
+    @Test
+    fun `loadtest 프로필이 없으면 내부 엔드포인트와 actuator가 없다`() {
+        mockMvc.post("/internal/reset").andExpect { status { isNotFound() } }
+        mockMvc.get("/internal/consistency").andExpect { status { isNotFound() } }
+        mockMvc.get("/actuator/health").andExpect { status { isNotFound() } }
     }
 
     @Test
