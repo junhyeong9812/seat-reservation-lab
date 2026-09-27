@@ -43,7 +43,12 @@ S4 한계 = 세 기준을 모두 기록: 엄격(p99 < 500ms · 에러 < 1%) / �
 ## 매트릭스
 
 자원 단계 L1/L2/L4 = 앱·DB 각각 CPU 1/2/4 (메모리 고정: 앱 1GB · DB 2GB, 커넥션 풀 10) × 셀 × 5회.
-각 회차: DB 시드 → 예열(20s) → DB 재시드 → 측정 → (S3는 배치 정리 대기) → 판정.
+각 회차: 컨테이너 새로 기동 → DB 시드 → 예열(20s) → DB 재시드 → 측정 → (S3는 TTL + 배치 유예만큼 관측 유지) → 판정 → 산출물 검증.
+
+- 측정 대상 = 커밋 하나: 서버의 앱과 k6 시나리오 모두 `--sha`의 커밋에서 꺼낸다(작업트리가 달라도 재현).
+- S4는 앱 TTL을 60분으로 두어 만료 배치를 배제하고, 누적 홀드 수를 10초마다 `/internal/counts`로 기록한다.
+- S3는 409일 때만 다른 좌석으로 재시도하고(최대 3회), 에러면 그 입장을 중단(`session_error`)한다.
+- 같은 결과 ID로 다시 실행하면 거부한다(원시 결과 덮어쓰기 방지).
 
 빌드는 서버의 컨테이너 안에서 하므로 k6 PC에는 k6·jq·python3·ssh 키만 있으면 된다.
 
@@ -59,15 +64,19 @@ k6/ADR-001/scripts/summarize.py k6/ADR-001/results/<matrix-id>     # 표 산출
 
 | 파일 | 내용 |
 |------|------|
-| `MATRIX.log` | 전 회차 한 줄씩 — 시각 · 단계 · 셀 · 회차 · 상태(`ok` 또는 실패 사유) |
+| `plan.json` | 실행 전에 남긴 계획(단계·셀·회차) — 요약은 이 계획 기준이라 실행되지 않은 회차가 '미측정'으로 드러난다 |
+| `MATRIX.log` | 전 회차 한 줄씩 — 시각 · 단계 · 셀 · 회차 · 상태(`ok` 또는 누적된 실패 사유) |
 | `SUMMARY.md` · `summary.json` | `summarize.py` 산출 표 (중앙값 [최소–최대]) |
-| `curves/<L>-<셀>.csv` | S3 DB 상태 곡선, 시간축 = 경과 / TTL (원본·축소 모양 비교용) |
+| `curves/L<n>-<셀>-db.csv` | S3 DB 상태 곡선(누적 확정 포함), 시간축 = (시각 − k6 시작) / TTL |
+| `curves/L<n>-<셀>-rehold.csv` | S3 재선점·중복 선점 누적 곡선 — 같은 좌석의 다음 성공이 앞 홀드 만료 후면 재선점, 전이면 중복 |
 | `L<n>/<셀>/rep<k>/meta.json` | 측정 SHA · 앱/k6 설정 · 시작·종료 · k6 종료코드 · 상태 |
 | `…/k6-summary.json` | k6 요약 원본 (지연 분위수·카운터·S4 단계별 서브메트릭) |
-| `…/k6-requests.csv.gz` | S1·S2 요청 단위 원시 기록 |
-| `…/k6-dashboard.html` | S3·S4 시계열 집계 (k6 웹 대시보드 내보내기) |
+| `…/k6-requests.csv.gz` | 요청 단위 원시 기록 (전 시나리오). S3는 선점 성공마다 `hold_ok_seat`(좌석·만료시각) 포함 |
+| `…/k6-dashboard.html` | S3·S4 시계열 집계 (k6 웹 대시보드 내보내기 — 원시 CSV의 보조) |
 | `…/consistency.json` | 측정 직후 DB 판정 |
-| `…/timeline-db.jsonl` | S3 동안 5초마다 DB 판정 (좌석 상태 곡선) |
+| `…/timeline-db.jsonl` | S3: 5초마다 DB 판정 / S4: 10초마다 누적 홀드 수 — 각 줄에 폴링 소요시간(`poll_ms`) |
 | `…/timeline-server.jsonl` · `timeline-client.jsonl` | 서버 컨테이너 전부(운영 서비스 포함)·k6 PC 자원 시계열 — 잡음 판단용 |
 | `…/app-config.json` | 실제 적용된 설정(TTL·배치 주기·풀 크기), JVM이 본 CPU 수, 컨테이너 CPU·메모리 제한 |
 | `…/server-*.txt` · `client-*.txt` | 측정 전후 호스트 상태 |
+| `…/app.log.gz` · `db.log.gz` | 그 회차 구간의 컨테이너 로그 |
+| `…/k6-stdout.log.gz` · `recovery.log` · `compose.log` | k6 경고 · 초기화 재시도 · 기동 기록 |

@@ -191,8 +191,11 @@ rep_status() {  # 인자: 폴더 base k6_exit
   for f in k6-summary.json consistency.json app-config.json seed.json; do
     { [[ -s "$dir/$f" ]] && jq empty "$dir/$f" 2>/dev/null; } || reasons+=("invalid-$f")
   done
-  for f in k6-requests.csv.gz app.log.gz db.log.gz server-before.txt server-after.txt timeline-server.jsonl; do
+  for f in server-before.txt server-after.txt client-before.txt client-after.txt timeline-server.jsonl; do
     [[ -s "$dir/$f" ]] || reasons+=("missing-$f")
+  done
+  for f in k6-requests.csv.gz app.log.gz db.log.gz k6-stdout.log.gz; do   # 압축 파일은 무결성까지
+    { [[ -s "$dir/$f" ]] && gzip -t "$dir/$f" 2>/dev/null; } || reasons+=("corrupt-or-missing-$f")
   done
   if [[ "$base" == S3* || "$base" == S4 ]]; then
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
@@ -239,6 +242,12 @@ for level in $LEVELS; do
   for cell in $(expand_cells); do
     for rep in $(seq 1 "$REPS"); do
       run_rep "$level" "$cell" "$rep"
+      FIRST_REP_DONE="${FIRST_REP_DONE:-}"
+      if [[ -z "$FIRST_REP_DONE" ]] && (( UNHEALTHY_STREAK > 0 )); then   # 첫 회차부터 못 뜨면 빌드·배포 문제 — 즉시 중단
+        echo "$(date -Is) ABORT first-rep-unhealthy" >> "$MATRIX_LOG"; log "first rep unhealthy — abort"
+        compose_down "$SHA"; exit 4
+      fi
+      FIRST_REP_DONE=1
       if (( UNHEALTHY_STREAK >= 3 )); then
         echo "$(date -Is) ABORT unhealthy-3-in-a-row" >> "$MATRIX_LOG"; log "3 consecutive unhealthy — abort"
         compose_down "$SHA"; exit 4

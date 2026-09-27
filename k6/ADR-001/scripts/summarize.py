@@ -156,7 +156,12 @@ def s3_curve(rep_dir, meta, root, level, cell):
         first_at = lambda frac: next((r["t_over_ttl"] for r in db_rows if r["confirmed"] >= frac * seats), None)
         out.update(t50=first_at(0.5), t90=first_at(0.9),
                    poll_ms_max=max((r["poll_ms"] or 0) for r in db_rows))
-    events = hold_events(rep_dir / "k6-requests.csv.gz", ttl)
+    try:
+        events = hold_events(rep_dir / "k6-requests.csv.gz", ttl)
+    except (EOFError, OSError, ValueError, KeyError, StopIteration) as e:
+        # 손상된 원시 파일 하나가 전체 요약을 멈추지 않게 — 그 회차만 곡선 오류로 표시한다
+        out["curve_error"] = f"{type(e).__name__}: {e}"
+        events = None
     if events is not None:
         cum = {"rehold": 0, "duplicate": 0}
         ev_rows = []
@@ -245,6 +250,7 @@ def main(root):
         for (level, cell), reps in rows:
             ok = [r for r in reps if r["status"] == "ok"]
             bad = [f'{r["rep"]}:{r["status"]}' for r in reps if r["status"] != "ok"]
+            bad += [f'{r["rep"]}:curve-error' for r in ok if (r.get("curve") or {}).get("curve_error")]
             lines.append("| " + " | ".join([level, cell, str(len(ok)), *row_fn(ok), ", ".join(bad) or "-"]) + " |")
         lines.append("")
 
