@@ -27,6 +27,9 @@ class LoadtestController(
         return result
     }
 
+    @GetMapping("/counts")
+    fun counts(): Map<String, Any?> = loadtestDataService.counts()
+
     @GetMapping("/consistency")
     fun consistency(@RequestParam graceSeconds: Long?): Map<String, Any?> =
         loadtestDataService.consistency(graceSeconds ?: (properties.expiryInterval.seconds * 2))

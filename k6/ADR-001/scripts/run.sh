@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ADR-001 측정 실행기 (k6 PC에서 실행). 측정 대상 = 로컬 커밋 SHA 하나.
+# ADR-001 측정 실행기 (k6 PC에서 실행). 측정 대상 = 로컬 커밋 SHA 하나 — 서버의 앱과 k6 시나리오 모두 그 커밋에서 꺼낸다.
 #
 #   scripts/run.sh --sha <SHA> [--levels "1 2 4"] [--reps 5] [--cells "S1 S2 S4 S3A S3B S3"] [--id <matrix-id>]
 #
 # 결과: results/<matrix-id>/L<level>/<cell>/rep<k>/ 에 회차별 원시 결과 전부.
-# 실패한 회차도 폴더와 status 파일을 남긴다 (무음 스킵 금지) — MATRIX.log 에 전 회차 결과가 한 줄씩 쌓인다.
+# 계획(plan.json)을 먼저 남기고, 성공·실패 모든 회차를 MATRIX.log 한 줄 + 회차 폴더 status/meta로 기록한다 (무음 스킵 금지).
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 set +e   # 한 회차 실패가 매트릭스 전체를 멈추지 않게 — 실패는 status로 기록한다
@@ -21,22 +21,35 @@ while (( $# )); do
   esac
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
-SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")"
-MATRIX_ID="${MATRIX_ID:-$(date +%Y%m%d-%H%M)-$SHA}"
+SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
+MATRIX_ID="${MATRIX_ID:-$(date +%Y%m%d-%H%M%S)-$SHA}"
 OUT_ROOT="$ADR_DIR/results/$MATRIX_ID"
+# 기존 결과를 덮어쓰지 않는다 — 근거 보존
+[[ -e "$OUT_ROOT" ]] && { echo "results/$MATRIX_ID already exists — refuse to overwrite" >&2; exit 2; }
 mkdir -p "$OUT_ROOT"
 MATRIX_LOG="$OUT_ROOT/MATRIX.log"
+SUMMARIZE="$ADR_DIR/scripts/summarize.py"
 
-# ---- 셀 정의: 앱 설정 그룹 · 시드 · k6 스크립트 · k6 환경 -------------------------------------------
-# 앱 설정 그룹 — 같은 그룹이면 컨테이너를 재기동하지 않는다
-config_of() { case "$1" in S3A|S3B) echo scaled ;; *) echo base ;; esac; }
+# k6 시나리오도 측정 SHA에서 꺼낸다 — 작업트리가 바뀌어도 기록된 SHA로 재현된다
+K6_TREE="$(mktemp -d)"
+trap 'rm -rf "$K6_TREE"' EXIT
+git -C "$REPO_ROOT" archive "$SHA" k6/ADR-001/scenarios | tar -x -C "$K6_TREE" \
+  || { echo "cannot extract scenarios from $SHA" >&2; exit 2; }
+SCENARIOS="$K6_TREE/k6/ADR-001/scenarios"
+
+# ---- 셀 정의 ----------------------------------------------------------------------------------------
+# 앱 설정 그룹. S4는 측정 시간(약 7분)보다 긴 TTL로 만료 배치를 배제한다 — 배치가 처리량 측정에 끼어들지 않게.
+config_of() { case "$1" in S3A|S3B) echo scaled ;; S4) echo s4 ;; *) echo base ;; esac; }
 config_env() {
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s" ;;
+    s4)     echo "HOLD_TTL=60m EXPIRY_INTERVAL=10s" ;;
   esac
 }
-seed_of() { case "$1" in S4) echo "100 10000" ;; *) echo "1 10000" ;; esac; }
+ttl_s_of()   { case "$(config_of "$1")" in scaled) echo 30 ;; s4) echo 3600 ;; *) echo 300 ;; esac; }
+grace_of()   { case "$(config_of "$1")" in scaled) echo 2 ;; *) echo 20 ;; esac; }   # 배치 주기 × 2
+seed_of()    { case "$1" in S4) echo "100 10000" ;; *) echo "1 10000" ;; esac; }
 script_of() {
   case "$1" in
     S1) echo s1-same-seat.js ;; S2) echo s2-same-user.js ;; S4) echo s4-throughput.js ;;
@@ -49,40 +62,37 @@ expand_cells() {
     case "$c" in S3|S3A|S3B) for a in 0 20 50; do echo "$c-a$a"; done ;; *) echo "$c" ;; esac
   done
 }
-k6_env_of() {
+k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전부 명시한다 (meta.json에 그대로 남는다)
   local cell="$1" base="${1%-a*}" abandon=0
   [[ "$cell" == *-a* ]] && abandon="${cell##*-a}"
   local ab; ab=$(awk "BEGIN{print $abandon/100}")
   case "$base" in
-    S3)  echo "RATE=300 TOTAL=200000 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=$ab" ;;
-    S3A) echo "RATE=300 TOTAL=20000 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
-    S3B) echo "RATE=3000 TOTAL=200000 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
-    *)   echo "" ;;
+    S1)  echo "VUS=1000 SEAT_ID=1" ;;
+    S2)  echo "USERS=100 PER_USER=10" ;;
+    S3)  echo "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=$ab" ;;
+    S3A) echo "RATE=300 TOTAL=20000 SEATS=10000 RETRIES=3 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
+    S3B) echo "RATE=3000 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
+    S4)  echo "START_RATE=50 FACTOR=1.5 STEPS=13 STEP_S=30" ;;
   esac
 }
-grace_of() { case "$(config_of "${1%-a*}")" in scaled) echo 2 ;; *) echo 20 ;; esac; }   # 배치 주기 × 2
 
-# ---- 수집 ----------------------------------------------------------------------------------------
+# ---- 수집 --------------------------------------------------------------------------------------------
 snapshot() {  # 인자: 출력폴더 라벨
   local dir="$1" label="$2"
   remote "date -Is; uptime; nproc; free -m; docker stats --no-stream --format '{{json .}}'" > "$dir/server-$label.txt" 2>&1
   { date -Is; uptime; nproc; free -m; } > "$dir/client-$label.txt" 2>&1
 }
-app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU 수 + 풀 크기
-  local dir="$1"
-  {
-    echo '{"configprops":'
-    curl -fsS "$BASE_URL/actuator/configprops" | jq -c '[.contexts[].beans[]
-        | select(.prefix | test("^(seat\\.hold|spring\\.datasource\\.hikari|server)$"))
-        | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]'
-    for m in system.cpu.count hikaricp.connections.max jvm.memory.max; do
-      echo ",\"$m\":$(curl -fsS "$BASE_URL/actuator/metrics/$m" | jq -c '[.measurements[].value]')"
-    done
-    echo ',"containers":'
-    remote "docker inspect seatlab-app-1 seatlab-db-1 --format '{{json .HostConfig}}'" \
-      | jq -sc 'map({NanoCpus, Memory})'
-    echo '}'
-  } > "$dir/app-config.json" 2>>"$dir/errors.log"
+app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU 수 + 풀 크기 + 컨테이너 제한
+  local dir="$1" props cpu pool mem containers
+  props=$(actuator configprops | jq -c '[.contexts[].beans[]
+      | select(.prefix | test("^(seat\\.hold|spring\\.datasource\\.hikari|server)$"))
+      | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]') || return 1
+  cpu=$(actuator metrics/system.cpu.count | jq -c '[.measurements[].value]') || return 1
+  pool=$(actuator metrics/hikaricp.connections.max | jq -c '[.measurements[].value]') || return 1
+  mem=$(actuator metrics/jvm.memory.max | jq -c '[.measurements[].value]') || return 1
+  containers=$(remote "docker inspect seatlab-app-1 seatlab-db-1 --format '{{json .HostConfig}}'" | jq -sc 'map({NanoCpus, Memory})') || return 1
+  jq -n --argjson p "$props" --argjson c "$cpu" --argjson h "$pool" --argjson m "$mem" --argjson k "$containers" \
+    '{configprops:$p, "system.cpu.count":$c, "hikaricp.connections.max":$h, "jvm.memory.max":$m, containers:$k}' > "$dir/app-config.json"
 }
 start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출력
   # 수집기의 stdout은 /dev/null — $(...)가 백그라운드 프로세스의 파이프를 기다리며 멈추지 않게
@@ -93,72 +103,102 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
       sleep 10
     done ) > /dev/null 2>&1 & echo $!
   ( while :; do
-      local p; p=$(pgrep -x k6 | head -1)
+      p=$(pgrep -x k6 | head -1)
       [[ -n "$p" ]] && echo "{\"t\":\"$(date -Is)\",\"k6_pcpu\":$(ps -o pcpu= -p "$p" | tr -d ' '),\"k6_rss_kb\":$(ps -o rss= -p "$p" | tr -d ' '),\"load\":\"$(cut -d' ' -f1-3 /proc/loadavg)\"}" >> "$dir/timeline-client.jsonl"
       sleep 5
     done ) > /dev/null 2>&1 & echo $!
-  if [[ "$cell" == S3* ]]; then   # S3만 DB 상태 시계열 — 만료 경합의 모양
-    ( while :; do
-        consistency | jq -c --arg t "$(date -Is)" '. + {t: $t}' >> "$dir/timeline-db.jsonl" 2>/dev/null
-        sleep 5
-      done ) > /dev/null 2>&1 & echo $!
-  fi
+  case "$cell" in
+    S3*)   # 좌석 상태 곡선 — 판정 쿼리 자체의 소요시간(poll_ms)도 남긴다 (측정 간섭 판단용)
+      ( while :; do
+          t0=$(date +%s%N); j=$(consistency); t1=$(date +%s%N)
+          [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
+          sleep 5
+        done ) > /dev/null 2>&1 & echo $! ;;
+    S4)    # 누적 홀드 수만 가볍게 (100만 석 전체 판정은 무거워 부하에 간섭한다)
+      ( while :; do
+          t0=$(date +%s%N); j=$(counts); t1=$(date +%s%N)
+          [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
+          sleep 10
+        done ) > /dev/null 2>&1 & echo $! ;;
+  esac
 }
 
-# ---- 회차 실행 -------------------------------------------------------------------------------------
+# ---- 회차 실행 ---------------------------------------------------------------------------------------
+UNHEALTHY_STREAK=0
+
 run_rep() {  # 인자: level cell rep
   local level="$1" cell="$2" rep="$3" base="${2%-a*}"
   local dir="$OUT_ROOT/L$level/$cell/rep$rep"
   mkdir -p "$dir"
   local started; started=$(date -Is)
+  local cfg_env; cfg_env="$(config_env "$(config_of "$base")") APP_CPUS=$level DB_CPUS=$level"
   log "L$level $cell rep$rep → $dir"
 
-  if ! wait_health 120 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
-    log "unhealthy before rep — restarting compose"
-    echo "$(date -Is) restart-before-rep" >> "$dir/recovery.log"
-    compose_up "$SHA" APP_CPUS="$level" DB_CPUS="$level" $(config_env "$(config_of "$base")") >> "$dir/recovery.log" 2>&1
-    if ! wait_health 180 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
-      finish_rep "$dir" "$level" "$cell" "$rep" "$started" "unhealthy" -1 ""; return 1
-    fi
+  # 회차마다 새 컨테이너 — JVM·커넥션 풀·DB 캐시 상태를 회차 사이에 넘기지 않는다
+  compose_down "$SHA" >> "$dir/compose.log" 2>&1
+  compose_up "$SHA" $cfg_env >> "$dir/compose.log" 2>&1
+  if ! wait_health 180 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
+    UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "unhealthy" -1 ""; return 1
   fi
-  k6 run --quiet "$ADR_DIR/scenarios/warmup.js" > "$dir/warmup.log" 2>&1
+  UNHEALTHY_STREAK=0
+  k6 run --quiet "$SCENARIOS/warmup.js" > "$dir/warmup.log" 2>&1
   local seed; seed=$(seed_of "$base")
   if ! reset_with_retry "$dir" $seed > "$dir/seed.json"; then
-    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "seed-failed" -1 ""; return 1
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "seed-failed" -1 ""; return 1
   fi
 
   snapshot "$dir" before
-  app_config "$dir"
+  app_config "$dir" 2>>"$dir/errors.log" || echo "app_config failed" >> "$dir/errors.log"
   local pids; pids=$(start_pollers "$dir" "$cell")
 
   local k6env; k6env=$(k6_env_of "$cell")
-  local outputs=()
-  case "$base" in
-    S1|S2) outputs=(--out "csv=$dir/k6-requests.csv.gz") ;;
-    *)     export K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=-1 K6_WEB_DASHBOARD_EXPORT="$dir/k6-dashboard.html" ;;
-  esac
-  env $k6env BASE_URL="$BASE_URL" OUT_DIR="$dir" \
-    k6 run --quiet "${outputs[@]}" "$ADR_DIR/scenarios/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
+  local dash=()
+  [[ "$base" != S1 && "$base" != S2 ]] && dash=(K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=-1 "K6_WEB_DASHBOARD_EXPORT=$dir/k6-dashboard.html")
+  local k6_started; k6_started=$(date -Is)
+  env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" \
+    k6 run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
   local k6_exit=$?
-  unset K6_WEB_DASHBOARD K6_WEB_DASHBOARD_PORT K6_WEB_DASHBOARD_EXPORT
+  local k6_ended; k6_ended=$(date -Is)
 
-  local grace; grace=$(grace_of "$cell")
-  [[ "$base" == S3* ]] && sleep $(( grace + 2 ))   # 마지막 만료분이 배치로 정리될 시간
+  # S3: 마지막 이탈 홀드가 만료되고 배치가 정리할 때까지 관측을 유지한 뒤 판정한다
+  local grace; grace=$(grace_of "$base")
+  [[ "$base" == S3* ]] && sleep $(( $(ttl_s_of "$base") + grace + 2 ))
   consistency "$grace" > "$dir/consistency.json" 2>>"$dir/errors.log"
   for p in $pids; do kill "$p" 2>/dev/null; done
   snapshot "$dir" after
 
-  # 3: 컨테이너 로그 보존 (이번 회차 구간만)
+  # 컨테이너 로그 보존 (이번 회차 구간만) · k6 경고 로그 압축
   remote "docker logs --since '$started' seatlab-app-1 2>&1" | gzip > "$dir/app.log.gz"
   remote "docker logs --since '$started' seatlab-db-1 2>&1" | gzip > "$dir/db.log.gz"
-  # 5: k6 경고 로그는 커서 압축 보존
   gzip -f "$dir/k6-stdout.log"
 
-  local status=ok
-  if (( k6_exit != 0 )) && ! [[ "$base" == S4 && $k6_exit -eq 99 ]]; then status="k6-exit-$k6_exit"; fi
-  [[ -s "$dir/consistency.json" ]] || status="consistency-missing"
-  [[ -s "$dir/k6-summary.json" ]] || status="summary-missing"
-  finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$status" "$k6_exit" "$k6env"
+  finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$k6_started|$k6_ended" "$(rep_status "$dir" "$base" "$k6_exit")" "$k6_exit" "$k6env"
+}
+
+# 회차 산출물 검증 — 사유를 누적한다 (하나라도 있으면 실패)
+rep_status() {  # 인자: 폴더 base k6_exit
+  local dir="$1" base="$2" k6_exit="$3" reasons=()
+  if (( k6_exit != 0 )); then
+    # S4의 99 = 한계 도달로 스스로 멈춤(정상). 단 성공한 단계가 하나도 없으면 측정 실패다
+    if [[ "$base" == S4 && "$k6_exit" -eq 99 ]]; then
+      python3 "$SUMMARIZE" --s4-check "$dir/k6-summary.json" || reasons+=("s4-no-successful-stage")
+    else
+      reasons+=("k6-exit-$k6_exit")
+    fi
+  fi
+  local f
+  for f in k6-summary.json consistency.json app-config.json seed.json; do
+    { [[ -s "$dir/$f" ]] && jq empty "$dir/$f" 2>/dev/null; } || reasons+=("invalid-$f")
+  done
+  for f in k6-requests.csv.gz app.log.gz db.log.gz server-before.txt server-after.txt timeline-server.jsonl; do
+    [[ -s "$dir/$f" ]] || reasons+=("missing-$f")
+  done
+  if [[ "$base" == S3* || "$base" == S4 ]]; then
+    [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
+    [[ -s "$dir/k6-dashboard.html" ]] || reasons+=("missing-k6-dashboard.html")
+  fi
+  if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
 }
 
 reset_with_retry() {  # 인자: 회차폴더 schedules seats — 과부하 직후 적체가 풀릴 때까지 재시도
@@ -172,32 +212,39 @@ reset_with_retry() {  # 인자: 회차폴더 schedules seats — 과부하 직�
   return 1
 }
 
-finish_rep() {  # 인자: 폴더 level cell rep started status k6_exit k6env — 성공·실패 모두 여기서 기록한다
-  local dir="$1" level="$2" cell="$3" rep="$4" started="$5" status="$6" k6_exit="$7" k6env="$8" base="${3%-a*}"
+finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" status k6_exit k6env — 성공·실패 모두 여기서 기록한다
+  local dir="$1" level="$2" cell="$3" rep="$4" started="$5" k6_window="$6" status="$7" k6_exit="$8" k6env="$9" base="${3%-a*}"
   echo "$status" > "$dir/status"
   jq -n --arg sha "$SHA" --arg level "$level" --arg cell "$cell" --arg rep "$rep" \
-        --arg started "$started" --arg ended "$(date -Is)" --arg k6env "$k6env" \
+        --arg started "$started" --arg ended "$(date -Is)" \
+        --arg k6_started "${k6_window%%|*}" --arg k6_ended "${k6_window##*|}" --arg k6env "$k6env" \
         --arg appenv "$(config_env "$(config_of "$base")") APP_CPUS=$level DB_CPUS=$level" \
+        --arg ttl "$(ttl_s_of "$base")" \
         --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$(k6 version | head -1)" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
+          k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6}' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
 }
 
-# ---- 매트릭스 --------------------------------------------------------------------------------------
-deploy_sha "$SHA"
+# ---- 매트릭스 ----------------------------------------------------------------------------------------
+# 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다
+jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
+  '{sha:$sha, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
+    cells:($cells|split(" ")|map(select(.!=""))), created:(now|todate)}' > "$OUT_ROOT/plan.json"
+
+deploy_sha "$SHA" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }
 log "matrix $MATRIX_ID: levels=[$LEVELS] reps=$REPS cells=[$CELLS]"
 for level in $LEVELS; do
-  current=""
   for cell in $(expand_cells); do
-    cfg=$(config_of "${cell%-a*}")
-    if [[ "$cfg" != "$current" ]]; then
-      compose_down "$SHA"
-      compose_up "$SHA" APP_CPUS="$level" DB_CPUS="$level" $(config_env "$cfg")
-      current="$cfg"
-    fi
-    for rep in $(seq 1 "$REPS"); do run_rep "$level" "$cell" "$rep"; done
+    for rep in $(seq 1 "$REPS"); do
+      run_rep "$level" "$cell" "$rep"
+      if (( UNHEALTHY_STREAK >= 3 )); then
+        echo "$(date -Is) ABORT unhealthy-3-in-a-row" >> "$MATRIX_LOG"; log "3 consecutive unhealthy — abort"
+        compose_down "$SHA"; exit 4
+      fi
+    done
   done
-  compose_down "$SHA"
 done
+compose_down "$SHA"
 log "matrix done: $OUT_ROOT"

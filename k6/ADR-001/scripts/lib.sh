@@ -12,7 +12,7 @@ REPO_ROOT="$(cd "$ADR_DIR/../.." && pwd)"
 
 log() { echo "[$(date '+%F %T')] $*" >&2; }
 
-remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 "$SERVER" "$@"; }
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$SERVER" "$@"; }
 
 # 측정 대상 = 로컬 커밋 하나. 그 트리를 그대로 서버에 푼다 (GitHub 경유 없음).
 deploy_sha() {
@@ -37,16 +37,25 @@ compose_down() {
 
 wait_health() {
   local deadline=$((SECONDS + ${1:-300}))
-  until curl -fsS "$BASE_URL/actuator/health" 2>/dev/null | grep -q '"UP"'; do
+  until curl -fsS --max-time 5 "$BASE_URL/actuator/health" 2>/dev/null | grep -q '"UP"'; do
     if (( SECONDS > deadline )); then log "health timeout"; return 1; fi
     sleep 2
   done
 }
 
+# 모든 HTTP 호출에 상한을 둔다 — 응답 없는 서버에 매달려 무인 실행이 기록 없이 멈추지 않게.
 reset_db() {  # 인자: schedules seatsPerSchedule
-  curl -fsS -X POST "$BASE_URL/internal/reset?schedules=$1&seatsPerSchedule=$2"
+  curl -fsS --max-time 120 -X POST "$BASE_URL/internal/reset?schedules=$1&seatsPerSchedule=$2"
 }
 
 consistency() {  # 인자: graceSeconds(선택)
-  curl -fsS "$BASE_URL/internal/consistency${1:+?graceSeconds=$1}"
+  curl -fsS --max-time 60 "$BASE_URL/internal/consistency${1:+?graceSeconds=$1}"
+}
+
+counts() {
+  curl -fsS --max-time 10 "$BASE_URL/internal/counts"
+}
+
+actuator() {  # 인자: 경로
+  curl -fsS --max-time 10 "$BASE_URL/actuator/$1"
 }

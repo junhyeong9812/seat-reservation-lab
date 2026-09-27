@@ -102,6 +102,15 @@ class LoadtestDataService(
         return linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
     }
 
+    /** 부하 중 가벼운 폴링용 — 홀드·확정 행 수만 센다 (S4 누적 홀드 수 기록). */
+    fun counts(): Map<String, Any?> = jdbcTemplate.queryForMap(
+        """
+        SELECT (SELECT count(*) FROM seat_hold) AS hold_rows,
+               (SELECT count(*) FROM reservation WHERE status = 'CONFIRMED') AS confirmed,
+               now() AS checked_at
+        """.trimIndent(),
+    )
+
     data class ResetResult(val schedules: Int, val seatsPerSchedule: Int, val seatsPerRow: Int)
 
     companion object {

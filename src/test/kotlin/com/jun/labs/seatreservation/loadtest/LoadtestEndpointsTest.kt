@@ -48,6 +48,19 @@ class LoadtestEndpointsTest : IntegrationTest() {
     }
 
     @Test
+    fun `counts는 홀드 행과 확정 예약 수를 센다`() {
+        liveHold(seatId = 1, userId = 1)
+        liveHold(seatId = 1, userId = 2)
+        confirmed(seatId = 2, userId = 3)
+
+        mockMvc.get("/internal/counts").andExpect {
+            status { isOk() }
+            jsonPath("$.hold_rows") { value(2) }
+            jsonPath("$.confirmed") { value(1) }
+        }
+    }
+
+    @Test
     fun `같은 좌석의 홀드 2개 → 중복 홀드`() {
         sql("UPDATE product_seat SET status = 'HELD' WHERE id = 1")
         liveHold(seatId = 1, userId = 1)

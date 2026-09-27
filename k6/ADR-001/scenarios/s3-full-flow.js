@@ -32,7 +32,11 @@ export const options = {
 
 const sessionConfirmed = new Counter('session_confirmed');
 const sessionAbandoned = new Counter('session_abandoned');
-const sessionGaveUp = new Counter('session_gave_up');
+const sessionGaveUp = new Counter('session_gave_up');     // 409만 받다가 재시도를 다 씀
+const sessionError = new Counter('session_error');       // 5xx·타임아웃 등으로 중단 (재시도하지 않는다)
+// 선점 성공마다 좌석과 서버가 준 만료 시각을 남긴다 — 요약기가 같은 좌석의 다음 성공을
+// "앞 홀드 만료 후 = 재선점" / "만료 전 = 중복 선점"으로 가른다 (CSV extra_tags: seat=..&exp=..)
+const holdOkSeat = new Counter('hold_ok_seat');
 
 function pickSeat() {
   const hot = Math.floor(SEATS * HOT_RATIO);
@@ -43,9 +47,15 @@ function pickSeat() {
 
 export default function () {
   const userId = 300000 + exec.scenario.iterationInTest;
+  const tried = new Set();
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
-    const res = hold(1, pickSeat(), userId);
-    if (res.status !== 201) continue;
+    let seat = pickSeat();
+    while (tried.has(seat)) seat = pickSeat();
+    tried.add(seat);
+    const res = hold(1, seat, userId);
+    if (res.status === 409) continue;                                    // 409만 다른 좌석으로 재시도
+    if (res.status !== 201) { sessionError.add(1); return; }
+    holdOkSeat.add(1, { seat: String(seat), exp: res.json('expiresAt') });
     if (Math.random() < ABANDON) { sessionAbandoned.add(1); return; }   // 결제 없이 떠남 → 만료 대상
     sleep(THINK_MIN + Math.random() * (THINK_MAX - THINK_MIN));
     const c = confirm(res.json('holdId'), userId, `pay-${userId}`);

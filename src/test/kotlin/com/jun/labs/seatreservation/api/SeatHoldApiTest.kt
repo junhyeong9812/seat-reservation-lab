@@ -53,6 +53,7 @@ class SeatHoldApiTest : IntegrationTest() {
     fun `loadtest 프로필이 없으면 내부 엔드포인트와 actuator가 없다`() {
         mockMvc.post("/internal/reset").andExpect { status { isNotFound() } }
         mockMvc.get("/internal/consistency").andExpect { status { isNotFound() } }
+        mockMvc.get("/internal/counts").andExpect { status { isNotFound() } }
         mockMvc.get("/actuator/health").andExpect { status { isNotFound() } }
     }
 
