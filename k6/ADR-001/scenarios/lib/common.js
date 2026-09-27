@@ -18,6 +18,7 @@ export const confirmDuration = new Trend('confirm_duration', true);
 
 const isError = (res) => res.status === 0 || res.status >= 500;
 
+// 주의: name 태그는 k6가 URL 열까지 덮어쓴다(시계열 수 억제). 요청 대상 좌석·사용자는 호출부가 tags로 따로 남긴다.
 export function hold(scheduleId, seatId, userId, tags = {}) {
   const res = http.post(`${BASE_URL}/api/schedules/${scheduleId}/seats/${seatId}/hold`, null, {
     headers: { 'X-User-Id': String(userId) },

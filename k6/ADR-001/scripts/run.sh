@@ -6,6 +6,17 @@
 # 결과: results/<matrix-id>/L<level>/<cell>/rep<k>/ 에 회차별 원시 결과 전부.
 # 계획(plan.json)을 먼저 남기고, 성공·실패 모든 회차를 MATRIX.log 한 줄 + 회차 폴더 status/meta로 기록한다 (무음 스킵 금지).
 set -uo pipefail
+
+# 스크립트 동결: bash는 실행 중에도 파일을 이어 읽는다 — 장시간 매트릭스 도중 작업트리를 고치면 실행이 깨진다(실측).
+# 시작하자마자 scripts/ 를 임시 위치로 복사해 그 사본으로 다시 실행한다.
+if [[ "${RUN_FROZEN:-0}" != 1 ]]; then
+  src="$(cd "$(dirname "$0")" && pwd)"
+  frozen="$(mktemp -d)"
+  cp -r "$src" "$frozen/scripts"
+  export RUN_FROZEN=1 FROZEN_DIR="$frozen" ADR_DIR="$(cd "$src/.." && pwd)"
+  export REPO_ROOT="$(cd "$ADR_DIR/../.." && pwd)"
+  exec bash "$frozen/scripts/run.sh" "$@"
+fi
 source "$(dirname "$0")/lib.sh"
 set +e   # 한 회차 실패가 매트릭스 전체를 멈추지 않게 — 실패는 status로 기록한다
 
@@ -22,17 +33,27 @@ while (( $# )); do
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
+# 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-001(results 제외)이 SHA와 다르면 거부한다
+if ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-001 ':(exclude)k6/ADR-001/results' \
+   || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-001 ':(exclude)k6/ADR-001/results')" ]]; then
+  echo "k6/ADR-001 differs from $SHA — commit first so the harness that runs is the one recorded" >&2; exit 2
+fi
 MATRIX_ID="${MATRIX_ID:-$(date +%Y%m%d-%H%M%S)-$SHA}"
 OUT_ROOT="$ADR_DIR/results/$MATRIX_ID"
 # 기존 결과를 덮어쓰지 않는다 — 근거 보존
 [[ -e "$OUT_ROOT" ]] && { echo "results/$MATRIX_ID already exists — refuse to overwrite" >&2; exit 2; }
 mkdir -p "$OUT_ROOT"
 MATRIX_LOG="$OUT_ROOT/MATRIX.log"
-SUMMARIZE="$ADR_DIR/scripts/summarize.py"
+SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
 
 # k6 시나리오도 측정 SHA에서 꺼낸다 — 작업트리가 바뀌어도 기록된 SHA로 재현된다
 K6_TREE="$(mktemp -d)"
-trap 'rm -rf "$K6_TREE"' EXIT
+# 정리는 이 실행이 만든 임시 경로만 — 동결 사본은 mktemp 경로일 때만 지운다 (작업트리 삭제 방지)
+cleanup() {
+  rm -rf "$K6_TREE"
+  [[ -n "${FROZEN_DIR:-}" && "$FROZEN_DIR" == "${TMPDIR:-/tmp}"/tmp.* && -d "$FROZEN_DIR/scripts" ]] && rm -rf "$FROZEN_DIR"
+}
+trap cleanup EXIT
 git -C "$REPO_ROOT" archive "$SHA" k6/ADR-001/scenarios | tar -x -C "$K6_TREE" \
   || { echo "cannot extract scenarios from $SHA" >&2; exit 2; }
 SCENARIOS="$K6_TREE/k6/ADR-001/scenarios"
@@ -164,7 +185,8 @@ run_rep() {  # 인자: level cell rep
   # S3: 마지막 이탈 홀드가 만료되고 배치가 정리할 때까지 관측을 유지한 뒤 판정한다
   local grace; grace=$(grace_of "$base")
   [[ "$base" == S3* ]] && sleep $(( $(ttl_s_of "$base") + grace + 2 ))
-  consistency "$grace" > "$dir/consistency.json" 2>>"$dir/errors.log"
+  # 최종 판정은 전체 행을 훑는다(S4는 100만 석) — 폴링보다 긴 상한
+  CONSISTENCY_TIMEOUT=600 consistency "$grace" > "$dir/consistency.json" 2>>"$dir/errors.log"
   for p in $pids; do kill "$p" 2>/dev/null; done
   snapshot "$dir" after
 

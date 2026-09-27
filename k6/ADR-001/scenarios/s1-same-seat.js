@@ -11,7 +11,7 @@ export const options = {
 };
 
 export default function () {
-  hold(1, SEAT_ID, 100000 + __VU);
+  hold(1, SEAT_ID, 100000 + __VU, { seat: String(SEAT_ID), user: String(100000 + __VU) });
 }
 
 export const handleSummary = writeSummary;

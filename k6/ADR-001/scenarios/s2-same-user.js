@@ -12,7 +12,8 @@ export const options = {
 
 export default function () {
   const userId = 200000 + Math.floor((__VU - 1) / PER_USER);
-  hold(1, __VU, userId);   // 좌석은 VU마다 다르다 — 좌석 경합이 아니라 사용자 매수 경합만 본다
+  // 좌석은 VU마다 다르다 — 좌석 경합이 아니라 사용자 매수 경합만 본다. 원시 CSV에 좌석·사용자를 남긴다
+  hold(1, __VU, userId, { seat: String(__VU), user: String(userId) });
 }
 
 export const handleSummary = writeSummary;

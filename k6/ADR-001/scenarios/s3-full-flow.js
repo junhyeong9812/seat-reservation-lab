@@ -52,7 +52,7 @@ export default function () {
     let seat = pickSeat();
     while (tried.has(seat)) seat = pickSeat();
     tried.add(seat);
-    const res = hold(1, seat, userId);
+    const res = hold(1, seat, userId, { seat: String(seat) });
     if (res.status === 409) continue;                                    // 409만 다른 좌석으로 재시도
     if (res.status !== 201) { sessionError.add(1); return; }
     holdOkSeat.add(1, { seat: String(seat), exp: res.json('expiresAt') });
