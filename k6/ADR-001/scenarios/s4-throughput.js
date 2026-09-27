@@ -17,7 +17,8 @@ const thresholds = {};
 for (let i = 0; i < STEPS; i++) {
   // 빈 임계값 = 단계별 서브메트릭을 요약에 포함시키기 위한 것 (판정용 아님)
   thresholds[`hold_duration{stage:${i}}`] = [];
-  thresholds[`hold_error{stage:${i}}`] = [];
+  // 한 단계의 에러율이 50%를 넘으면 한계를 지난 것 — 붕괴 뒤의 무의미한 부하를 멈춘다 (k6 종료코드 99)
+  thresholds[`hold_error{stage:${i}}`] = [{ threshold: 'rate<0.5', abortOnFail: true, delayAbortEval: '10s' }];
   thresholds[`hold_201{stage:${i}}`] = [];
 }
 

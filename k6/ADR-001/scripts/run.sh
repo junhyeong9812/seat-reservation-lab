@@ -113,11 +113,19 @@ run_rep() {  # 인자: level cell rep
   local started; started=$(date -Is)
   log "L$level $cell rep$rep → $dir"
 
-  wait_health 120 || { echo "health-failed" > "$dir/status"; return 1; }
-  reset_db 1 10000 > /dev/null && \
-    k6 run --quiet "$ADR_DIR/scenarios/warmup.js" > "$dir/warmup.log" 2>&1
+  if ! wait_health 120 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
+    log "unhealthy before rep — restarting compose"
+    echo "$(date -Is) restart-before-rep" >> "$dir/recovery.log"
+    compose_up "$SHA" APP_CPUS="$level" DB_CPUS="$level" $(config_env "$(config_of "$base")") >> "$dir/recovery.log" 2>&1
+    if ! wait_health 180 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
+      finish_rep "$dir" "$level" "$cell" "$rep" "$started" "unhealthy" -1 ""; return 1
+    fi
+  fi
+  k6 run --quiet "$ADR_DIR/scenarios/warmup.js" > "$dir/warmup.log" 2>&1
   local seed; seed=$(seed_of "$base")
-  reset_db $seed > "$dir/seed.json" || { echo "seed-failed" > "$dir/status"; return 1; }
+  if ! reset_with_retry "$dir" $seed > "$dir/seed.json"; then
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "seed-failed" -1 ""; return 1
+  fi
 
   snapshot "$dir" before
   app_config "$dir"
@@ -140,10 +148,32 @@ run_rep() {  # 인자: level cell rep
   for p in $pids; do kill "$p" 2>/dev/null; done
   snapshot "$dir" after
 
+  # 3: 컨테이너 로그 보존 (이번 회차 구간만)
+  remote "docker logs --since '$started' seatlab-app-1 2>&1" | gzip > "$dir/app.log.gz"
+  remote "docker logs --since '$started' seatlab-db-1 2>&1" | gzip > "$dir/db.log.gz"
+  # 5: k6 경고 로그는 커서 압축 보존
+  gzip -f "$dir/k6-stdout.log"
+
   local status=ok
-  (( k6_exit != 0 )) && status="k6-exit-$k6_exit"
-  [[ -s "$dir/consistency.json" ]] || status="${status/ok/}consistency-missing"
-  [[ -s "$dir/k6-summary.json" ]] || status="${status/ok/}summary-missing"
+  if (( k6_exit != 0 )) && ! [[ "$base" == S4 && $k6_exit -eq 99 ]]; then status="k6-exit-$k6_exit"; fi
+  [[ -s "$dir/consistency.json" ]] || status="consistency-missing"
+  [[ -s "$dir/k6-summary.json" ]] || status="summary-missing"
+  finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$status" "$k6_exit" "$k6env"
+}
+
+reset_with_retry() {  # 인자: 회차폴더 schedules seats — 과부하 직후 적체가 풀릴 때까지 재시도
+  local dir="$1"; shift
+  local i
+  for i in 1 2 3 4 5 6; do
+    if reset_db "$@"; then echo "$(date -Is) reset ok attempt=$i" >> "$dir/recovery.log"; return 0; fi
+    echo "$(date -Is) reset failed attempt=$i" >> "$dir/recovery.log"
+    sleep 10
+  done
+  return 1
+}
+
+finish_rep() {  # 인자: 폴더 level cell rep started status k6_exit k6env — 성공·실패 모두 여기서 기록한다
+  local dir="$1" level="$2" cell="$3" rep="$4" started="$5" status="$6" k6_exit="$7" k6env="$8" base="${3%-a*}"
   echo "$status" > "$dir/status"
   jq -n --arg sha "$SHA" --arg level "$level" --arg cell "$cell" --arg rep "$rep" \
         --arg started "$started" --arg ended "$(date -Is)" --arg k6env "$k6env" \
