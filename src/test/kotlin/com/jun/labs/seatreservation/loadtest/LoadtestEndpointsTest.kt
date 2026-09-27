@@ -57,6 +57,15 @@ class LoadtestEndpointsTest : IntegrationTest() {
             status { isOk() }
             jsonPath("$.hold_rows") { value(2) }
             jsonPath("$.confirmed") { value(1) }
+            jsonPath("$.available") { doesNotExist() }
+        }
+        sql("UPDATE product_seat SET status = 'HELD' WHERE id = 1")
+        sql("UPDATE product_seat SET status = 'RESERVED' WHERE id = 2")
+        mockMvc.get("/internal/counts?seatStatus=true").andExpect {
+            status { isOk() }
+            jsonPath("$.available") { value(98) }
+            jsonPath("$.held") { value(1) }
+            jsonPath("$.reserved") { value(1) }
         }
     }
 

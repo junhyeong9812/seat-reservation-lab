@@ -28,7 +28,8 @@ class LoadtestController(
     }
 
     @GetMapping("/counts")
-    fun counts(): Map<String, Any?> = loadtestDataService.counts()
+    fun counts(@RequestParam(defaultValue = "false") seatStatus: Boolean): Map<String, Any?> =
+        loadtestDataService.counts(seatStatus)
 
     @GetMapping("/consistency")
     fun consistency(@RequestParam graceSeconds: Long?): Map<String, Any?> =

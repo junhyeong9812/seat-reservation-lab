@@ -53,8 +53,8 @@ consistency() {  # 인자: graceSeconds(선택) · 환경 CONSISTENCY_TIMEOUT(�
   curl -fsS --max-time "${CONSISTENCY_TIMEOUT:-60}" "$BASE_URL/internal/consistency${1:+?graceSeconds=$1}"
 }
 
-counts() {
-  curl -fsS --max-time 10 "$BASE_URL/internal/counts"
+counts() {  # 인자: seatStatus(true|false, 선택)
+  curl -fsS --max-time 10 "$BASE_URL/internal/counts${1:+?seatStatus=$1}"
 }
 
 actuator() {  # 인자: 경로

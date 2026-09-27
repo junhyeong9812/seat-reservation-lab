@@ -102,14 +102,31 @@ class LoadtestDataService(
         return linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
     }
 
-    /** 부하 중 가벼운 폴링용 — 홀드·확정 행 수만 센다 (S4 누적 홀드 수 기록). */
-    fun counts(): Map<String, Any?> = jdbcTemplate.queryForMap(
-        """
-        SELECT (SELECT count(*) FROM seat_hold) AS hold_rows,
-               (SELECT count(*) FROM reservation WHERE status = 'CONFIRMED') AS confirmed,
-               now() AS checked_at
-        """.trimIndent(),
-    )
+    /**
+     * 부하 중 가벼운 폴링용 — 전체 판정(consistency)은 조인·반조인이 많아 부하 중 DB와 경합한다(실측: L1에서 58s).
+     * 홀드·확정 행 수만 세고, withSeatStatus면 좌석 상태별 개수(좌석 테이블 1회 스캔)를 더한다.
+     */
+    fun counts(withSeatStatus: Boolean): Map<String, Any?> {
+        val result = linkedMapOf<String, Any?>()
+        result += jdbcTemplate.queryForMap(
+            """
+            SELECT (SELECT count(*) FROM seat_hold) AS hold_rows,
+                   (SELECT count(*) FROM reservation WHERE status = 'CONFIRMED') AS confirmed,
+                   now() AS checked_at
+            """.trimIndent(),
+        )
+        if (withSeatStatus) {
+            result += jdbcTemplate.queryForMap(
+                """
+                SELECT count(*) FILTER (WHERE status = 'AVAILABLE') AS available,
+                       count(*) FILTER (WHERE status = 'HELD')      AS held,
+                       count(*) FILTER (WHERE status = 'RESERVED')  AS reserved
+                FROM product_seat
+                """.trimIndent(),
+            )
+        }
+        return result
+    }
 
     data class ResetResult(val schedules: Int, val seatsPerSchedule: Int, val seatsPerRow: Int)
 
