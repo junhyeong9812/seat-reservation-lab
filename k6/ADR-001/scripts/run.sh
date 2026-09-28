@@ -2,6 +2,7 @@
 # ADR-001 측정 실행기 (k6 PC에서 실행). 측정 대상 = 로컬 커밋 SHA 하나 — 서버의 앱과 k6 시나리오 모두 그 커밋에서 꺼낸다.
 #
 #   scripts/run.sh --sha <SHA> [--levels "1 2 4"] [--reps 5] [--cells "S1 S2 S4 S3A S3B S3"] [--id <matrix-id>]
+#   scripts/run.sh --sha <SHA> --id <matrix-id> --resume   # 중단된 매트릭스 이어서 (계획은 기존 plan.json)
 #
 # 결과: results/<matrix-id>/L<level>/<cell>/rep<k>/ 에 회차별 원시 결과 전부.
 # 계획(plan.json)을 먼저 남기고, 성공·실패 모든 회차를 MATRIX.log 한 줄 + 회차 폴더 status/meta로 기록한다 (무음 스킵 금지).
@@ -20,7 +21,7 @@ fi
 source "$(dirname "$0")/lib.sh"
 set +e   # 한 회차 실패가 매트릭스 전체를 멈추지 않게 — 실패는 status로 기록한다
 
-SHA="" LEVELS="1 2 4" REPS=5 CELLS="S1 S2 S4 S3A S3B S3" MATRIX_ID=""
+SHA="" LEVELS="1 2 4" REPS=5 CELLS="S1 S2 S4 S3A S3B S3" MATRIX_ID="" RESUME=0
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -28,6 +29,7 @@ while (( $# )); do
     --reps) REPS="$2"; shift 2 ;;
     --cells) CELLS="$2"; shift 2 ;;
     --id) MATRIX_ID="$2"; shift 2 ;;
+    --resume) RESUME=1; shift ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -40,10 +42,22 @@ if ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-001 ':(exclude)k6/ADR-001
 fi
 MATRIX_ID="${MATRIX_ID:-$(date +%Y%m%d-%H%M%S)-$SHA}"
 OUT_ROOT="$ADR_DIR/results/$MATRIX_ID"
-# 기존 결과를 덮어쓰지 않는다 — 근거 보존
-[[ -e "$OUT_ROOT" ]] && { echo "results/$MATRIX_ID already exists — refuse to overwrite" >&2; exit 2; }
-mkdir -p "$OUT_ROOT"
 MATRIX_LOG="$OUT_ROOT/MATRIX.log"
+if (( RESUME )); then
+  # 이어서 실행: 계획·셀·회차는 기존 plan.json 그대로. 측정 대상(앱·시나리오·compose)이 계획의 SHA와 같을 때만 허용한다
+  [[ -f "$OUT_ROOT/plan.json" ]] || { echo "resume: $OUT_ROOT/plan.json 없음" >&2; exit 2; }
+  PLAN_SHA="$(jq -r .sha "$OUT_ROOT/plan.json")"
+  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore k6/ADR-001/scenarios k6/ADR-001/compose.yml; then
+    echo "resume: 측정 대상이 계획($PLAN_SHA)과 다르다 — 이어서 잴 수 없음" >&2; exit 2
+  fi
+  LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"
+  RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
+  echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
+else
+  # 기존 결과를 덮어쓰지 않는다 — 근거 보존
+  [[ -e "$OUT_ROOT" ]] && { echo "results/$MATRIX_ID already exists — refuse to overwrite" >&2; exit 2; }
+  mkdir -p "$OUT_ROOT"
+fi
 SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
 
 # k6 시나리오도 측정 SHA에서 꺼낸다 — 작업트리가 바뀌어도 기록된 SHA로 재현된다
@@ -79,6 +93,7 @@ script_of() {
 }
 # S3 변형 × 이탈률은 셀 이름에 붙인다: S3-a0 / S3-a20 / S3-a50
 expand_cells() {
+  if [[ -n "${RESUME_CELLS:-}" ]]; then printf '%s\n' $RESUME_CELLS; return; fi
   for c in $CELLS; do
     case "$c" in S3|S3A|S3B) for a in 0 20 50; do echo "$c-a$a"; done ;; *) echo "$c" ;; esac
   done
@@ -253,8 +268,8 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 }
 
 # ---- 매트릭스 ----------------------------------------------------------------------------------------
-# 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다
-jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
+# 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다 (이어서 실행이면 기존 계획 유지)
+(( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   '{sha:$sha, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))), created:(now|todate)}' > "$OUT_ROOT/plan.json"
 
@@ -263,6 +278,14 @@ log "matrix $MATRIX_ID: levels=[$LEVELS] reps=$REPS cells=[$CELLS]"
 for level in $LEVELS; do
   for cell in $(expand_cells); do
     for rep in $(seq 1 "$REPS"); do
+      rdir="$OUT_ROOT/L$level/$cell/rep$rep"
+      if (( RESUME )); then
+        [[ -f "$rdir/status" ]] && continue                     # 끝난 회차(성공·실패 모두 기록됨)는 건너뛴다
+        if [[ -d "$rdir" ]]; then                                  # 끝나지 못한 회차는 근거로 옆에 보존하고 다시 잰다
+          mv "$rdir" "$rdir.incomplete-$(date +%Y%m%d%H%M%S)"
+          echo "$(date -Is) L$level $cell rep$rep incomplete-dir-preserved" >> "$MATRIX_LOG"
+        fi
+      fi
       run_rep "$level" "$cell" "$rep"
       FIRST_REP_DONE="${FIRST_REP_DONE:-}"
       if [[ -z "$FIRST_REP_DONE" ]] && (( UNHEALTHY_STREAK > 0 )); then   # 첫 회차부터 못 뜨면 빌드·배포 문제 — 즉시 중단

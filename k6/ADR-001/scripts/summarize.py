@@ -179,7 +179,7 @@ def s3_curve(rep_dir, meta, root, level, cell):
 def write_rows(path, rows):
     new = not path.exists()
     with path.open("a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()), lineterminator="\n")
         if new:
             w.writeheader()
         w.writerows(rows)
