@@ -124,7 +124,8 @@ seat-reservation-lab/
 - **push 없음** — 측정 중 GitHub 경유 금지. 하네스 코드는 로컬 커밋, **결과는 전 매트릭스 종료 후 한 번에 커밋**, push는 ADR-001 문서까지 끝난 최종본 1회만 사용자 확인
 - **회차마다** compose down → up (JVM·풀·DB 캐시를 회차 사이에 넘기지 않음 — 리뷰 R17), 볼륨 삭제는 seatlab 프로젝트 볼륨만. 서버의 `~/labs/seat-reservation-lab/` 외 경로는 쓰지 않는다
 - k6 시나리오도 측정 SHA에서 `git archive`로 꺼내 실행 (리뷰 감사 A1)
-- 장시간 매트릭스는 k6 PC의 백그라운드 프로세스 1개(`run-matrix.sh`)로 실행하고 진행 로그를 파일로 남긴다
+- 장시간 매트릭스는 k6 PC의 백그라운드 프로세스 1개(`scripts/run.sh` — 시작 시 스크립트 동결 사본으로 실행)로 돌리고 진행 로그를 파일로 남긴다
+- **중단 복구 (2026-09-28 추가)**: 19:36 k6 PC의 systemd-oomd가 claude-workbench 영역(측정 프로세스 포함)을 종료 → `run.sh --resume`(실행기만 변경, 측정 대상 = 앱·시나리오·compose가 계획 SHA 9ee71d5와 동일할 때만 허용 — 5b2b6ff에서 diff 0 확인)으로 이어서 측정. 미완 회차는 `rep<k>.killed-oomd`로 보존 후 재측정. 이어서 실행은 별도 systemd 사용자 유닛(`ManagedOOMPreference=avoid`)으로 세션과 격리
 
 ## 10. task 분해
 
