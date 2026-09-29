@@ -271,3 +271,65 @@
 - L4 S4의 한계·저부하 지연이 L2보다 나쁜 이유 (§4.3).
 - 풀 크기와 S1 중복 수의 비례 여부 (§4.1) — ADR-002 대조군에서 확인 가능.
 - 축소판 B가 용량이 충분한 조건에서 원본을 재현하는지 (§4.6).
+
+## 10. 사용한 파일 — 위치와 설명
+
+> 경로는 repo 루트 기준. `R` = `k6/ADR-001/results/20260928-full-9ee71d5`.
+
+### 10.1 하네스 (측정 도구)
+
+| 파일 | 설명 |
+|------|------|
+| `src/main/kotlin/com/jun/labs/seatreservation/loadtest/LoadtestDataService.kt` | 판정기 본체. `reset`(결정적 시드: 회차 k의 n번째 좌석 id = (k−1)×좌석수 + n, 한 줄 50석) · `consistency`(DB 행을 직접 세는 판정 SQL — `v_` 위반 항목) · `counts`(가벼운 집계) |
+| `src/main/kotlin/com/jun/labs/seatreservation/loadtest/LoadtestController.kt` | `POST /internal/reset` · `GET /internal/consistency` · `GET /internal/counts` — `@Profile("loadtest")`라 기본 실행에는 없음 |
+| `src/main/resources/application-loadtest.yml` | loadtest 프로필: actuator(health·configprops·metrics) 노출 |
+| `src/test/kotlin/com/jun/labs/seatreservation/loadtest/LoadtestEndpointsTest.kt` | 판정기 검증 — 위반 8종을 하나씩 만들고 결과 맵 전체 비교(거짓 양성 포함) |
+| `Dockerfile` · `.dockerignore` | 측정용 앱 이미지(컨테이너 안에서 Gradle 빌드 → JRE 실행) |
+| `k6/ADR-001/compose.yml` | 앱 + postgres:16. CPU·메모리 제한, TTL·배치 주기·풀 크기를 환경변수로 주입(`SPRING_APPLICATION_JSON`) |
+| `k6/ADR-001/scenarios/lib/common.js` | 선점·확정 호출과 응답 분류(409는 에러 아님, 5xx·타임아웃·연결 실패만 에러), 커스텀 지표, 요약 저장 |
+| `k6/ADR-001/scenarios/s1-same-seat.js` | S1 — 좌석 1개에 1,000 VU |
+| `k6/ADR-001/scenarios/s2-same-user.js` | S2 — 사용자 100명 × 서로 다른 좌석 10개 |
+| `k6/ADR-001/scenarios/s3-full-flow.js` | S3·S3A·S3B — 입장·핫스팟·409 재시도·대기·확정/이탈. 선점 성공마다 `hold_ok_seat`(좌석·만료 시각) 기록 |
+| `k6/ADR-001/scenarios/s4-throughput.js` | S4 — 도착률 계단, 단계별 서브메트릭, 단계 에러율 50% 초과 시 중단 |
+| `k6/ADR-001/scenarios/warmup.js` | 회차마다 측정 전 20초 예열 |
+| `k6/ADR-001/scripts/lib.sh` | 원격(SSH)·HTTP 공통 함수 — 배포(`git archive`), compose 기동/정리, 시드, 판정, DB 직접 폴링(`db_counts`). 모든 HTTP에 타임아웃 |
+| `k6/ADR-001/scripts/run.sh` | 매트릭스 실행기 — 계획(`plan.json`) 기록, 회차 실행·수집·검증, 스크립트 동결, SHA 일치 강제, `--resume` |
+| `k6/ADR-001/scripts/summarize.py` | 원시 결과 → `SUMMARY.md`·`summary.json`·`curves/`. 계획 기준 미측정 표시, 응답-DB 대조, 재선점/중복 선점 구분, S4 한계 규칙. `--s4-check` |
+| `k6/ADR-001/README.md` | 하네스 구성·시나리오·실행법·결과 파일 설명 |
+
+### 10.2 결과 (측정 산출물)
+
+| 파일 | 설명 | 이 문서에서 쓴 곳 |
+|------|------|------------------|
+| `R/plan.json` | 실행 전에 남긴 계획 — 측정 SHA, 단계 [1,2,4], 셀 12개, 회차 5 | 요약의 미측정 판정 기준 |
+| `R/MATRIX.log` | 전 회차 한 줄씩(시각·단계·셀·회차·상태) + `RESUME` 행 | §2 측정 시각, 180/180 ok |
+| `R/runner-1.log` · `R/runner-2-resume.log` | 실행기 출력(최초 실행 / 중단 후 이어서 실행) | §5 중단 경위 |
+| `R/SUMMARY.md` · `R/summary.json` | 전체 요약 표 / 회차별 산출 원본 — `summarize.py` 산출 | §3·§4 모든 표 |
+| `R/summary-L1/` | 1 CPU만의 중간 요약(측정 도중 커밋한 것) | — |
+| `R/curves/L<n>-<셀>-db.csv` | S3 DB 상태 곡선(시간 ÷ TTL, 확정·예약·홀드·잔여) | §4.5·§4.6 t50·t90 |
+| `R/curves/L<n>-<셀>-rehold.csv` | S3 재선점·중복 선점 누적 곡선 | §4.4 중복 선점, §4.5 재선점 |
+| `R/L<n>/<셀>/rep<k>/meta.json` | 측정 SHA, k6 시작·종료 시각, 앱·k6 환경, 종료코드, 상태 | 시간축 원점, 설정 확인 |
+| `…/status` | 회차 상태(`ok` 또는 누적 실패 사유) | 비정상 0 |
+| `…/k6-summary.json` | k6 요약 원본 — 지연 분위수, 카운터(201·409·확정·세션), S4 단계별 서브메트릭 | §4.1~4.4 응답 수·지연, §4.3 단계표 |
+| `…/k6-requests.csv.gz` | 요청 단위 원시 기록(응답 코드, S1·S2·S3는 좌석·사용자 태그) | §4.2 중복 요청 아님 확인, §4.4 확정 응답 코드 |
+| `…/consistency.json` | 측정 직후 DB 판정(`v_` 위반, 좌석 상태별 수, 홀드·확정 수) | §4.1·4.2·4.4·4.5 위반 수치 |
+| `…/timeline-db.jsonl` | 부하 중 DB 직접 폴링(S3 5초, S4 10초) + 폴링 소요 `poll_ms` | 곡선, 폴링 간섭 |
+| `…/timeline-server.jsonl` | 서버 전 컨테이너(운영 포함) CPU·메모리 + load, 10초 간격 | §4.3 DB CPU, §5 병목·간섭 |
+| `…/timeline-client.jsonl` | k6 PC의 k6 CPU·RSS·load, 5초 간격(짧은 S1·S2는 비어 있을 수 있음) | §5 k6 PC 편향 |
+| `…/app-config.json` | 실제 적용된 설정(TTL·배치 주기·풀·Tomcat), JVM이 본 CPU 수, 컨테이너 제한 | §2 측정 조건 |
+| `…/seed.json` · `warmup.log` · `recovery.log` · `compose.log` | 시드 결과 · 예열 · 초기화 재시도 · 기동 기록 | 회차 절차 확인 |
+| `…/app.log.gz` · `db.log.gz` | 그 회차 구간의 앱·DB 컨테이너 로그 | Hikari 대기 예외 0건 확인 |
+| `…/k6-dashboard.html` · `k6-stdout.log.gz` | k6 시계열 집계(S3·S4) · k6 경고 로그 | 보조 |
+| `…/server-before/after.txt` · `client-before/after.txt` | 측정 전후 서버·k6 PC 상태 | 보조 |
+| `R/L2/S3-a0/rep4.killed-oomd/` | 메모리 부족 강제 종료로 중단된 회차(미완성) — 재측정 전 보존 | §5 중단 경위 |
+
+### 10.3 문서
+
+| 파일 | 설명 |
+|------|------|
+| `docs/adr/ADR-000-baseline-domain.md` | 측정 대상(기준선)의 설계 |
+| `docs/plans/2026-09-28/adr-001-harness/requirement-spec.md` | 이 측정의 합의 명세(시나리오·매트릭스·금지영역·검증) |
+| `docs/plans/2026-09-28/adr-001-harness/log.md` | 작업 타임라인·리뷰 ledger(22건)·결정 경위 |
+
+- 로컬에만 있고 커밋하지 않은 것: `k6/ADR-001/results/smoke-*`(하네스 개발 중 스모크 결과).
+- 실행 계획(§4.3)은 로컬 임시 컨테이너에서 확인하고 삭제했다 — 재현하려면 V1 스키마에 홀드 20만 행을 넣고 `EXPLAIN ANALYZE`를 실행한다.
