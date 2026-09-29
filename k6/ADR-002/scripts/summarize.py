@@ -203,10 +203,11 @@ def rep_record(rep_dir, root, level, cell):
         "iterations": metric(summ, "iterations"), "dropped": metric(summ, "dropped_iterations"),
     }
     # k6 성공 응답 수 대비 DB 소유 수 (명세 §2 판정 항목) — 0이 아니면 응답과 DB 사실이 어긋난 것
+    bg = int(meta.get("bg") or 0)   # 배경 행(홀드 N·CONFIRMED N)은 측정과 무관 — 대조에서 뺀다
     if base in ("S1", "S2"):
-        rec["ownership_gap"] = rec["hold_201"] - cons["hold_rows"] if "hold_rows" in cons else None
+        rec["ownership_gap"] = rec["hold_201"] - (cons["hold_rows"] - bg) if "hold_rows" in cons else None
     elif base.startswith("S3"):
-        rec["ownership_gap"] = rec["confirm_200"] - cons["confirmed"] if "confirmed" in cons else None
+        rec["ownership_gap"] = rec["confirm_200"] - (cons["confirmed"] - bg) if "confirmed" in cons else None
     if base == "S2" and "max_per_user_limit" in cons:
         rec["s2_limit"] = int(env_value(meta, "USERS", 0)) * cons["max_per_user_limit"]
     if base == "S4" and summ:
@@ -264,10 +265,10 @@ def main(root):
             lambda ok: [g(ok, "hold_201"), g(ok, "hold_409"), g(ok, "hold_error_rate"), g(ok, "hold_p50"),
                         g(ok, "hold_p99"), v(ok, "v_excess_hold_rows"), g(ok, "ownership_gap")])
     section("S2 같은 사용자 동시 요청 (1인 2매) — 정합이면 201 ≤ 상한",
-            ["단계", "셀", "n", "201", "상한(사용자×2)", "매수 초과 사용자", "사용자당 최대", "p99 ms", "201 − 홀드 행", "비정상 회차"],
+            ["단계", "셀", "n", "201", "상한(사용자×2)", "매수 초과 사용자", "사용자당 최대", "에러율", "p99 ms", "201 − 홀드 행", "비정상 회차"],
             lambda x: x == "S2",
             lambda ok: [g(ok, "hold_201"), g(ok, "s2_limit"), v(ok, "v_over_limit_users"), v(ok, "max_per_user"),
-                        g(ok, "hold_p99"), g(ok, "ownership_gap")])
+                        g(ok, "hold_error_rate"), g(ok, "hold_p99"), g(ok, "ownership_gap")])
     section("S3 선점→확정 전체 흐름 (Q3·Q7) — 정합이면 위반 열 전부 0",
             ["단계", "셀", "n", "입장", "k6 미시작(dropped)", "확정", "이탈", "포기", "에러 중단", "선점 에러율", "확정 에러율",
              "RESERVED", "CONFIRMED", "확정200 − CONFIRMED", "중복 홀드 좌석", "중복 확정", "오래된 HELD", "매수 초과",

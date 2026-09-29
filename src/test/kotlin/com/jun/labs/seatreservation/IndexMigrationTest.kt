@@ -47,7 +47,7 @@ class IndexMigrationTest : IntegrationTest() {
     companion object {
         val EXPECTED = mapOf(
             "idx_seat_hold_seat_id" to false,
-            "idx_seat_hold_schedule_user" to false,
+            "idx_seat_hold_user_id" to false,
             "idx_seat_hold_expires_at" to false,
             "idx_reservation_schedule_user" to false,
             "idx_reservation_seat_id" to false,

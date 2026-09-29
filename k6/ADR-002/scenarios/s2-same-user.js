@@ -1,5 +1,5 @@
 // S2 (1인 2매): 사용자 USERS명이 각자 서로 다른 좌석 PER_USER개를 동시에 선점.
-// 기대(정합): 사용자당 201 최대 2건. 기준선은 COUNT 후 INSERT라 초과가 예상된다(ADR-003 가설).
+// 기대(정합): 사용자당 201 최대 2건. 기준선은 COUNT 후 INSERT라 초과가 예상된다(ADR-004 가설).
 import { hold, TREND_STATS, writeSummary } from './lib/common.js';
 
 const USERS = Number(__ENV.USERS || 100);

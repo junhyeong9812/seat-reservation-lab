@@ -28,8 +28,8 @@ S5LOG="$OUT/S5.log"
 # 선점 경로 쿼리 (도메인 코드가 JPA로 만드는 것과 같은 조건)
 #  Q1 1인 2매 확인 — 홀드 수:   ProductSeatRepository.countByScheduleIdAndHoldsUserId
 #  Q2 1인 2매 확인 — 확정 수:   ReservationRepository.countByScheduleIdAndUserIdAndStatus
-#  Q3 좌석의 홀드 목록 로드:     ProductSeat.holds (seat_id)
-#  Q4 만료 배치 조회:            ProductSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual
+#  Q3 좌석의 홀드 목록 로드:     ProductSeat.holds (seat_id) — 측정 좌석(1~10000)만 조회해 규모가 바뀌어도 같은 대상
+#  Q4 만료 배치 조회:            ProductSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual (DISTINCT 좌석 전 컬럼)
 write_queries() {  # 인자: 좌석 총수
   local seats="$1"
   remote "docker exec -i seatlab-db-1 sh -c 'mkdir -p /tmp/s5 && cat > /tmp/s5/q1.sql'" <<EOF
@@ -41,38 +41,55 @@ EOF
 SELECT count(*) FROM reservation WHERE schedule_id = 1 AND user_id = :u AND status = 'CONFIRMED';
 EOF
   remote "docker exec -i seatlab-db-1 sh -c 'cat > /tmp/s5/q3.sql'" <<EOF
-\set s random(1, $seats)
+\set s random(1, 10000)
 SELECT id, schedule_id, user_id, held_at, expires_at FROM seat_hold WHERE seat_id = :s;
 EOF
   remote "docker exec -i seatlab-db-1 sh -c 'cat > /tmp/s5/q4.sql'" <<EOF
-SELECT DISTINCT ps.id FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE h.expires_at <= now();
+SELECT DISTINCT ps.* FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE h.expires_at <= now();
 EOF
 }
 explain_sql() {  # 인자: q번호 좌석총수 — 파라미터를 대표값으로 채운 실행 계획
   case "$1" in
     1) echo "SELECT count(ps.id) FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE ps.schedule_id = 1 AND h.user_id = 424242;" ;;
     2) echo "SELECT count(*) FROM reservation WHERE schedule_id = 1 AND user_id = 424242 AND status = 'CONFIRMED';" ;;
-    3) echo "SELECT id, schedule_id, user_id, held_at, expires_at FROM seat_hold WHERE seat_id = $(( ($2 + 1) / 2 ));" ;;
-    4) echo "SELECT DISTINCT ps.id FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE h.expires_at <= now();" ;;
+    3) echo "SELECT id, schedule_id, user_id, held_at, expires_at FROM seat_hold WHERE seat_id = 5000;" ;;   # 측정 좌석(1~10000) — 규모와 무관하게 같은 대상
+    4) echo "SELECT DISTINCT ps.* FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE h.expires_at <= now();" ;;
   esac
 }
 psql_db() { remote "docker exec -i seatlab-db-1 psql -U seat -d seat -v ON_ERROR_STOP=1 $*"; }
 
+# 계획을 먼저 남긴다 — 조합마다 폴더와 status가 생기고, 끝난 조합(ok)은 다시 부를 때 건너뛴다
+if [[ ! -f "$OUT/plan.json" ]]; then
+  jq -n --arg sha "$SHA" --arg levels "$LEVELS" --arg scales "$SCALES" --argjson seconds "$SECONDS_PER" \
+    '{sha:$sha, levels:($levels|split(" ")|map(select(.!="")|tonumber)), index:["off","on"],
+      scales:($scales|split(" ")|map(select(.!="")|tonumber)), seconds_per_run:$seconds, created:(now|todate)}' > "$OUT/plan.json"
+fi
 deploy_sha "$SHA" || { echo "$(date -Is) ABORT deploy-failed" >> "$S5LOG"; exit 3; }
 echo "$(date -Is) S5 start sha=$SHA levels=[$LEVELS] scales=[$SCALES] seconds=$SECONDS_PER" >> "$S5LOG"
+FAILED=0
 for level in $LEVELS; do
   for index in off on; do
     target=$([[ "$index" == on ]] && echo latest || echo 1)
     combo="L$level-idx$index"
+    pending=0
+    for n in $SCALES; do [[ "$(cat "$OUT/$combo/N$n/status" 2>/dev/null)" == ok ]] || pending=1; done
+    (( pending )) || continue   # 이 조합의 규모가 전부 끝났으면 기동도 하지 않는다
     compose_down "$SHA" > /dev/null 2>&1
     # 만료 배치는 1시간 주기로 사실상 끈다 — 배치 쿼리가 측정 쿼리와 섞이지 않게
     compose_up "$SHA" APP_CPUS="$level" DB_CPUS="$level" FLYWAY_TARGET="$target" POOL_SIZE=10 HOLD_TTL=60m EXPIRY_INTERVAL=1h > /dev/null 2>&1
-    if ! wait_health 180; then echo "$(date -Is) $combo unhealthy" >> "$S5LOG"; continue; fi
+    if ! wait_health 180; then
+      echo "$(date -Is) $combo unhealthy" >> "$S5LOG"
+      for n in $SCALES; do mkdir -p "$OUT/$combo/N$n"; [[ "$(cat "$OUT/$combo/N$n/status" 2>/dev/null)" == ok ]] || echo unhealthy > "$OUT/$combo/N$n/status"; done
+      FAILED=1; continue
+    fi
     for n in $SCALES; do
-      dir="$OUT/$combo/N$n"; mkdir -p "$dir"
+      dir="$OUT/$combo/N$n"
+      [[ "$(cat "$dir/status" 2>/dev/null)" == ok ]] && continue          # 끝난 규모는 건너뛴다
+      [[ -d "$dir" ]] && mv "$dir" "$dir.incomplete-$(date +%Y%m%d%H%M%S)"   # 끝나지 못한 시도는 근거로 보존
+      mkdir -p "$dir"
       t0=$(date +%s)
       if ! RESET_TIMEOUT=2400 reset_db 1 10000 "$n" > "$dir/seed.json" 2> "$dir/errors.log"; then
-        echo "$(date -Is) $combo N$n seed-failed" >> "$S5LOG"; echo seed-failed > "$dir/status"; continue
+        echo "$(date -Is) $combo N$n seed-failed" >> "$S5LOG"; echo seed-failed > "$dir/status"; FAILED=1; continue
       fi
       seed_s=$(( $(date +%s) - t0 ))
       seats=$(( 10000 + 2 * n ))
@@ -90,13 +107,25 @@ for level in $LEVELS; do
       jq -n --arg sha "$SHA" --argjson level "$level" --arg index "$index" --argjson n "$n" --argjson seed_s "$seed_s" \
             --argjson seconds "$SECONDS_PER" --arg at "$(date -Is)" \
         '{sha:$sha, level:$level, index:$index, bg:$n, seed_seconds:$seed_s, seconds_per_run:$seconds, finished:$at}' > "$dir/meta.json"
-      status=ok
-      for q in 1 2 3 4; do grep -q "^tps = " "$dir/q$q-c1.txt" && grep -q "^tps = " "$dir/q$q-c10.txt" || status="pgbench-failed-q$q"; done
+      # 산출물 전부를 검증한다 — 실행 계획·행 수·인덱스 목록·지연 로그까지 (사유 누적)
+      reasons=()
+      expected=$([[ "$index" == on ]] && echo 5 || echo 0)
+      [[ "$(jq 'length' "$dir/indexes.json" 2>/dev/null)" == "$expected" ]] || reasons+=("index-mismatch")
+      jq empty "$dir/rows.json" 2>/dev/null && [[ -s "$dir/rows.json" ]] || reasons+=("rows-missing")
+      for q in 1 2 3 4; do
+        grep -q "Execution Time" "$dir/explain-q$q.txt" 2>/dev/null || reasons+=("explain-q$q")
+        grep -q "^tps = " "$dir/q$q-c1.txt" && grep -q "^tps = " "$dir/q$q-c10.txt" || reasons+=("pgbench-q$q")
+        [[ "$(zcat "$dir/q$q-c1-latency.log.gz" 2>/dev/null | head -c 1 | wc -c)" == 1 ]] || reasons+=("latency-log-q$q")
+      done
+      if (( ${#reasons[@]} )); then status=$(IFS=,; echo "${reasons[*]}"); FAILED=1; else status=ok; fi
       echo "$status" > "$dir/status"
       echo "$(date -Is) $combo N$n $status seed=${seed_s}s" >> "$S5LOG"
     done
   done
 done
 compose_down "$SHA" > /dev/null 2>&1
+if (( FAILED )); then
+  echo "$(date -Is) S5 finished with failures — DONE 미기록(다시 부르면 실패·누락 조합만 다시 잰다)" >> "$S5LOG"; exit 1
+fi
 echo "$(date -Is) S5 done" >> "$S5LOG"
 touch "$OUT/DONE"

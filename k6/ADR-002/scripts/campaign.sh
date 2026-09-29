@@ -36,7 +36,7 @@ ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
 
-# 조건 목록 — 순서: 환경 동일성 확인 → S5(DB 쿼리) → 핵심(인덱스·풀 10) → 규모 → 풀 20·40 → 인덱스 없음 풀 20·40
+# 조건 목록 — 순서: 환경 동일성 확인(c00 → 자동 판정, 벗어나면 중단) → S5(DB 쿼리) → 핵심(인덱스·풀 10) → 규모 → 풀 20·40 → 인덱스 없음 풀 20·40
 CONDITIONS=(
   "c00-envcheck-noidx-p10    --index off --pool 10 --bg 0       --cells S4             --reps 2"
   "c01-idx-p10               --index on  --pool 10 --bg 0       --cells 'S1 S2 S4 S3'  --reps 5"
@@ -51,20 +51,34 @@ CONDITIONS=(
 )
 printf '%s\n' "${CONDITIONS[@]}" > "$ROOT/conditions.txt"
 
-echo "$(date -Is) CAMPAIGN start sha=$SHA" >> "$LOG"
-if [[ ! -f "$ROOT/s5/DONE" ]]; then
-  echo "$(date -Is) s5 start" >> "$LOG"
-  bash "$DIR/s5-bench.sh" --sha "$SHA" --out "$ROOT/s5" >> "$ROOT/s5.runner.log" 2>&1
-  echo "$(date -Is) s5 exit=$?" >> "$LOG"
-fi
-for line in "${CONDITIONS[@]}"; do
-  name="${line%% *}"; args="${line#* }"
-  if [[ -f "$ROOT/$name/DONE" ]]; then continue; fi
-  resume=""; [[ -f "$ROOT/$name/plan.json" ]] && resume="--resume"
+run_condition() {  # 인자: 조건 한 줄. run.sh가 0이 아니면(인자·SHA·배포·연속 unhealthy) 캠페인을 멈춘다 — 조용히 넘어가지 않게
+  local line="$1" name="${1%% *}" args="${1#* }" resume="" rc
+  [[ -f "$ROOT/$name/DONE" ]] && return 0
+  [[ -f "$ROOT/$name/plan.json" ]] && resume="--resume"
   echo "$(date -Is) $name start $resume" >> "$LOG"
   eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/$name" --levels "'2 4'" $args $resume >> "$ROOT/$name.runner.log" 2>&1
   rc=$?
   echo "$(date -Is) $name exit=$rc" >> "$LOG"
-  (( rc == 0 )) && touch "$ROOT/$name/DONE"
-done
+  if (( rc != 0 )); then echo "$(date -Is) ABORT $name exit=$rc" >> "$LOG"; exit "$rc"; fi
+  touch "$ROOT/$name/DONE"
+}
+
+echo "$(date -Is) CAMPAIGN start sha=$SHA" >> "$LOG"
+# ① 환경 동일성 확인 — ADR-001 결과를 재사용해도 되는지 먼저 판정한다
+run_condition "${CONDITIONS[0]}"
+if [[ ! -f "$ROOT/c00-envcheck-noidx-p10/envcheck.json" ]] || ! jq -e .passed "$ROOT/c00-envcheck-noidx-p10/envcheck.json" > /dev/null; then
+  python3 "$DIR/envcheck.py" "$ROOT/c00-envcheck-noidx-p10" "$REPO_ROOT/k6/ADR-001/results/20260928-full-9ee71d5/summary.json" >> "$LOG" 2>&1
+  if (( $? != 0 )); then
+    echo "$(date -Is) ABORT envcheck — ADR-001 범위를 벗어남: 재사용 불가, 사용자 보고 필요" >> "$LOG"; exit 5
+  fi
+fi
+echo "$(date -Is) envcheck passed" >> "$LOG"
+# ② S5 — 실패·누락 조합이 있으면 기록만 하고 다음으로(부하 측정과 독립). 다시 부르면 그 조합만 다시 잰다
+if [[ ! -f "$ROOT/s5/DONE" ]]; then
+  echo "$(date -Is) s5 start" >> "$LOG"
+  bash "$DIR/s5-bench.sh" --sha "$SHA" --out "$ROOT/s5" >> "$ROOT/s5.runner.log" 2>&1
+  echo "$(date -Is) s5 exit=$?$([[ -f "$ROOT/s5/DONE" ]] || echo ' (실패·누락 있음 — S5.log 참고)')" >> "$LOG"
+fi
+# ③ 나머지 조건
+for line in "${CONDITIONS[@]:1}"; do run_condition "$line"; done
 echo "$(date -Is) CAMPAIGN done" >> "$LOG"

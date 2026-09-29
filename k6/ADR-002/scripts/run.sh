@@ -24,6 +24,7 @@ set +e   # 한 회차 실패가 매트릭스 전체를 멈추지 않게 — 실�
 
 SHA="" LEVELS="2 4" REPS=5 CELLS="S1 S2 S4 S3" MATRIX_ID="" RESUME=0
 INDEX=on POOL=10 BG=0   # ADR-002 조건 축
+COND_CLI=""             # 명령줄로 준 조건 — 이어서 실행 시 계획과 다르면 거부
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -32,18 +33,18 @@ while (( $# )); do
     --cells) CELLS="$2"; shift 2 ;;
     --id) MATRIX_ID="$2"; shift 2 ;;
     --resume) RESUME=1; shift ;;
-    --index) INDEX="$2"; shift 2 ;;
-    --pool) POOL="$2"; shift 2 ;;
-    --bg) BG="$2"; shift 2 ;;
+    --index) INDEX="$2"; COND_CLI+=" index"; shift 2 ;;
+    --pool) POOL="$2"; COND_CLI+=" pool"; shift 2 ;;
+    --bg) BG="$2"; COND_CLI+=" bg"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
 [[ "$INDEX" == on || "$INDEX" == off ]] || { echo "--index on|off" >&2; exit 2; }
-FLYWAY_TARGET=$([[ "$INDEX" == on ]] && echo latest || echo 1)   # off = V1까지만(ADR-001 기준선 스키마)
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
-# 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-002(results 제외)이 SHA와 다르면 거부한다
-if ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-002 ':(exclude)k6/ADR-002/results' \
+# 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-002(results 제외)이 SHA와 다르면 거부한다.
+# 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
+if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]] && ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-002 ':(exclude)k6/ADR-002/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-002 ':(exclude)k6/ADR-002/results')" ]]; then
   echo "k6/ADR-002 differs from $SHA — commit first so the harness that runs is the one recorded" >&2; exit 2
 fi
@@ -58,6 +59,16 @@ if (( RESUME )); then
     echo "resume: 측정 대상이 계획($PLAN_SHA)과 다르다 — 이어서 잴 수 없음" >&2; exit 2
   fi
   LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"
+  # 조건도 계획에서 복원한다 — 명령줄로 다른 값을 주면 거부(다른 조건이 한 결과로 섞이지 않게)
+  P_INDEX="$(jq -r .condition.index "$OUT_ROOT/plan.json")"; P_POOL="$(jq -r .condition.pool "$OUT_ROOT/plan.json")"; P_BG="$(jq -r .condition.bg "$OUT_ROOT/plan.json")"
+  for k in $COND_CLI; do
+    case "$k" in
+      index) [[ "$INDEX" == "$P_INDEX" ]] || { echo "resume: --index $INDEX ≠ 계획 $P_INDEX" >&2; exit 2; } ;;
+      pool)  [[ "$POOL" == "$P_POOL" ]] || { echo "resume: --pool $POOL ≠ 계획 $P_POOL" >&2; exit 2; } ;;
+      bg)    [[ "$BG" == "$P_BG" ]] || { echo "resume: --bg $BG ≠ 계획 $P_BG" >&2; exit 2; } ;;
+    esac
+  done
+  INDEX="$P_INDEX" POOL="$P_POOL" BG="$P_BG"
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
   echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
 else
@@ -68,6 +79,9 @@ fi
 SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
 
 # k6 시나리오도 측정 SHA에서 꺼낸다 — 작업트리가 바뀌어도 기록된 SHA로 재현된다
+FLYWAY_TARGET=$([[ "$INDEX" == on ]] && echo latest || echo 1)   # off = V1까지만(ADR-001 기준선 스키마)
+EXPECTED_INDEXES=$([[ "$INDEX" == on ]] && echo "idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id" || echo "")
+
 K6_TREE="$(mktemp -d)"
 # 정리는 이 실행이 만든 임시 경로만 — 동결 사본은 mktemp 경로일 때만 지운다 (작업트리 삭제 방지)
 cleanup() {
@@ -243,6 +257,11 @@ rep_status() {  # 인자: 폴더 base k6_exit
   for f in k6-requests.csv.gz app.log.gz db.log.gz k6-stdout.log.gz; do   # 압축 파일은 무결성까지
     { [[ -s "$dir/$f" ]] && gzip -t "$dir/$f" 2>/dev/null; } || reasons+=("corrupt-or-missing-$f")
   done
+  # 조건이 실제로 적용됐는지 — 풀 크기와 DB의 실제 인덱스 목록을 계획과 대조한다
+  if jq empty "$dir/app-config.json" 2>/dev/null; then
+    [[ "$(jq -r '."hikaricp.connections.max"[0] // empty | floor' "$dir/app-config.json")" == "$POOL" ]] || reasons+=("pool-mismatch")
+    [[ "$(jq -r '[.db_indexes[].name] | sort | join(",")' "$dir/app-config.json")" == "$EXPECTED_INDEXES" ]] || reasons+=("index-mismatch")
+  fi
   if [[ "$base" == S3* || "$base" == S4 ]]; then
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
     [[ -s "$dir/k6-dashboard.html" ]] || reasons+=("missing-k6-dashboard.html")

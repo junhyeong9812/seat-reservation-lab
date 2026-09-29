@@ -4,7 +4,9 @@
 -- 인덱스 없는 조건은 spring.flyway.target=1 로 이 파일을 적용하지 않고 만든다.
 
 CREATE INDEX idx_seat_hold_seat_id        ON seat_hold (seat_id);                -- 좌석의 홀드 목록 로드, FK
-CREATE INDEX idx_seat_hold_schedule_user  ON seat_hold (schedule_id, user_id);   -- 1인 2매 확인 (홀드 수)
+CREATE INDEX idx_seat_hold_user_id        ON seat_hold (user_id);                -- 1인 2매 확인 (홀드 수)
+-- 주의: 이 쿼리는 seat_hold.user_id와 product_seat.schedule_id로 거른다(회차는 좌석 쪽 컬럼).
+--       처음 설계한 seat_hold(schedule_id, user_id)는 앞 열이 조건에 없어 쓰이지 않았다(측정 전 실행 계획으로 확인, ADR-002 §8).
 CREATE INDEX idx_seat_hold_expires_at     ON seat_hold (expires_at);             -- 만료 배치 조회
 CREATE INDEX idx_reservation_schedule_user ON reservation (schedule_id, user_id); -- 1인 2매 확인 (확정 예약 수)
 CREATE INDEX idx_reservation_seat_id      ON reservation (seat_id);              -- FK
