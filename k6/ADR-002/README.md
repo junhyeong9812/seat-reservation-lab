@@ -17,7 +17,7 @@ ADR-001 하네스를 복사하고 **조건 축**(인덱스 유무 · 풀 크기 
 ## 실행
 
 ```bash
-k6/ADR-002/scripts/campaign.sh --sha <SHA> --id <campaign-id>     # 전체 (S5 → 조건 10개), 중단되면 같은 명령으로 이어서
+k6/ADR-002/scripts/campaign.sh --sha <SHA> --id <campaign-id>     # 전체 (기준선 → S5 → 조건 9개), 중단되면 같은 명령으로 이어서
 k6/ADR-002/scripts/run.sh --sha <SHA> --index on --pool 20 --bg 0 --cells 'S1 S4' --levels '2 4' --reps 5 --id <id>   # 조건 하나
 k6/ADR-002/scripts/s5-bench.sh --sha <SHA> --out <폴더>           # S5만
 k6/ADR-002/scripts/summarize.py k6/ADR-002/results/<campaign-id>/<조건>   # 조건별 표
