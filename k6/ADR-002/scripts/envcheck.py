@@ -3,7 +3,9 @@
 
     scripts/envcheck.py <c00 결과 폴더> <ADR-001 summary.json>   → exit 0 = 범위 안(ADR-001 재사용 가능), 1 = 벗어남
 
-판정 지표: 단계(L2·L4)마다 S4 엄격 한계와 포화점. c00 회차들의 중앙값이 ADR-001 5회의 [최소, 최대] 안에 있어야 한다.
+판정 지표: 단계(L2·L4)마다 S4 엄격 한계와 포화점.
+통과 조건: 계획한 회차가 모두 정상(ok)이고, 각 회차의 값이 모두 ADR-001 5회의 [최소, 최대] 안에 있어야 한다
+(중앙값 비교는 범위 밖 회차를 숨길 수 있어 쓰지 않는다).
 결과는 <c00>/envcheck.json 에 남긴다.
 """
 import json
@@ -26,16 +28,21 @@ def main(c00_dir, adr001_summary):
     verdict = {"passed": True, "levels": {}}
     for level in plan["levels"]:
         reps = [summarize.rep_record(d, c00, level, "S4") for d in sorted((c00 / f"L{level}" / "S4").glob("rep[0-9]*"))]
-        now = limits(reps)
+        ok_reps = [r for r in reps if r.get("status") == "ok"]
+        lv = {"planned_reps": plan["reps"], "ok_reps": len(ok_reps),
+              "not_ok": [f'{r["rep"]}:{r.get("status")}' for r in reps if r.get("status") != "ok"]}
+        complete = len(ok_reps) == plan["reps"]
+        lv["complete"] = complete
+        verdict["passed"] &= complete
+        now = limits(ok_reps)
         ref = limits(base.get(f"L{level}/S4", []))
-        lv = {}
         for k in ("strict", "saturation"):
             if not now[k] or not ref[k]:
                 lv[k] = {"passed": False, "reason": "값 없음", "now": now[k], "ref": ref[k]}
             else:
-                med = statistics.median(now[k])
-                ok = min(ref[k]) <= med <= max(ref[k])
-                lv[k] = {"passed": ok, "now_median": med, "now": now[k], "ref_min": min(ref[k]), "ref_max": max(ref[k])}
+                lo, hi = min(ref[k]), max(ref[k])
+                ok = all(lo <= x <= hi for x in now[k])
+                lv[k] = {"passed": ok, "now": now[k], "now_median": statistics.median(now[k]), "ref_min": lo, "ref_max": hi}
             verdict["passed"] &= lv[k]["passed"]
         verdict["levels"][f"L{level}"] = lv
     (c00 / "envcheck.json").write_text(json.dumps(verdict, ensure_ascii=False, indent=1))

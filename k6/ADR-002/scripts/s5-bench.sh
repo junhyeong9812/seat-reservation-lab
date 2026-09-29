@@ -59,7 +59,14 @@ explain_sql() {  # 인자: q번호 좌석총수 — 파라미터를 대표값으
 psql_db() { remote "docker exec -i seatlab-db-1 psql -U seat -d seat -v ON_ERROR_STOP=1 $*"; }
 
 # 계획을 먼저 남긴다 — 조합마다 폴더와 status가 생기고, 끝난 조합(ok)은 다시 부를 때 건너뛴다
-if [[ ! -f "$OUT/plan.json" ]]; then
+if [[ -f "$OUT/plan.json" ]]; then
+  # 이어서 실행: 계획(SHA·단계·규모·측정 시간)을 그대로 쓴다 — 명령줄 값이 다르면 결과가 섞이므로 거부
+  P_SHA="$(jq -r .sha "$OUT/plan.json")"
+  [[ "$P_SHA" == "$SHA" ]] || { echo "s5 resume: sha $SHA ≠ 계획 $P_SHA" >&2; exit 2; }
+  P_LEVELS="$(jq -r '.levels|join(" ")' "$OUT/plan.json")"; P_SCALES="$(jq -r '.scales|join(" ")' "$OUT/plan.json")"; P_SEC="$(jq -r .seconds_per_run "$OUT/plan.json")"
+  [[ "$LEVELS" == "$P_LEVELS" && "$SCALES" == "$P_SCALES" && "$SECONDS_PER" == "$P_SEC" ]] \
+    || { echo "s5 resume: 인자(levels=[$LEVELS] scales=[$SCALES] seconds=$SECONDS_PER) ≠ 계획(levels=[$P_LEVELS] scales=[$P_SCALES] seconds=$P_SEC)" >&2; exit 2; }
+else
   jq -n --arg sha "$SHA" --arg levels "$LEVELS" --arg scales "$SCALES" --argjson seconds "$SECONDS_PER" \
     '{sha:$sha, levels:($levels|split(" ")|map(select(.!="")|tonumber)), index:["off","on"],
       scales:($scales|split(" ")|map(select(.!="")|tonumber)), seconds_per_run:$seconds, created:(now|todate)}' > "$OUT/plan.json"
@@ -111,7 +118,8 @@ for level in $LEVELS; do
       reasons=()
       expected=$([[ "$index" == on ]] && echo 5 || echo 0)
       [[ "$(jq 'length' "$dir/indexes.json" 2>/dev/null)" == "$expected" ]] || reasons+=("index-mismatch")
-      jq empty "$dir/rows.json" 2>/dev/null && [[ -s "$dir/rows.json" ]] || reasons+=("rows-missing")
+      # 행 수: 필수 키가 있고 배경 규모와 맞는지 (홀드 = N, 예약 = N)
+      jq -e --argjson n "$n" '.seat_hold == $n and .reservation == $n and (.product_seat | type == "number")' "$dir/rows.json" > /dev/null 2>&1 || reasons+=("rows-mismatch")
       for q in 1 2 3 4; do
         grep -q "Execution Time" "$dir/explain-q$q.txt" 2>/dev/null || reasons+=("explain-q$q")
         grep -q "^tps = " "$dir/q$q-c1.txt" && grep -q "^tps = " "$dir/q$q-c10.txt" || reasons+=("pgbench-q$q")
