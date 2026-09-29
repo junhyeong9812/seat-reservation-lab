@@ -1,0 +1,48 @@
+# ADR-001 측정 환경: 앱 + PostgreSQL. 자원·설정은 전부 환경변수로 주입하고, 결과 폴더에 그 값을 함께 남긴다.
+# 실행: docker compose -p seatlab -f k6/ADR-001/compose.yml up -d --build  (repo 루트에서)
+name: seatlab
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: seat
+      POSTGRES_USER: seat
+      POSTGRES_PASSWORD: seat
+    ports:
+      - "15432:5432"
+    cpus: ${DB_CPUS:-2}
+    mem_limit: ${DB_MEM:-2g}
+    shm_size: 256m
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seat -d seat"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest
+      DB_URL: jdbc:postgresql://db:5432/seat
+      DB_USERNAME: seat
+      DB_PASSWORD: seat
+      # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}}}}
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    ports:
+      - "8101:8101"
+    cpus: ${APP_CPUS:-2}
+    mem_limit: ${APP_MEM:-1g}
+
+volumes:
+  pgdata:
