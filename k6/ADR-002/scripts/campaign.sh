@@ -36,9 +36,11 @@ ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
 
-# 조건 목록 — 순서: 환경 동일성 확인(c00 → 자동 판정, 벗어나면 중단) → S5(DB 쿼리) → 핵심(인덱스·풀 10) → 규모 → 풀 20·40 → 인덱스 없음 풀 20·40
+# 조건 목록 — 순서: 기준선(인덱스 없음·풀 10) → S5(DB 쿼리) → 핵심(인덱스·풀 10) → 규모 → 풀 20·40 → 인덱스 없음 풀 20·40
+# 2026-09-29: 첫 캠페인(20260929-adr002-7368551)의 환경 동일성 확인이 ADR-001 범위를 벗어나(4 CPU가 ADR-001보다 크게 좋음)
+#             ADR-001 재사용을 포기하고 기준선을 이 캠페인 안에서 전 시나리오로 다시 잰다(사용자 결정). 환경 판정 단계는 뺐다.
 CONDITIONS=(
-  "c00-envcheck-noidx-p10    --index off --pool 10 --bg 0       --cells S4             --reps 2"
+  "c00-noidx-p10             --index off --pool 10 --bg 0       --cells 'S1 S2 S4 S3'  --reps 5"
   "c01-idx-p10               --index on  --pool 10 --bg 0       --cells 'S1 S2 S4 S3'  --reps 5"
   "c02-noidx-p10-bg100k      --index off --pool 10 --bg 100000  --cells 'S1 S4'        --reps 5"
   "c03-idx-p10-bg100k        --index on  --pool 10 --bg 100000  --cells 'S1 S4'        --reps 5"
@@ -64,15 +66,8 @@ run_condition() {  # 인자: 조건 한 줄. run.sh가 0이 아니면(인자·SH
 }
 
 echo "$(date -Is) CAMPAIGN start sha=$SHA" >> "$LOG"
-# ① 환경 동일성 확인 — ADR-001 결과를 재사용해도 되는지 먼저 판정한다
+# ① 기준선(인덱스 없음·풀 10) — 모든 비교의 기준을 같은 시기·환경에서 잰다
 run_condition "${CONDITIONS[0]}"
-if [[ ! -f "$ROOT/c00-envcheck-noidx-p10/envcheck.json" ]] || ! jq -e .passed "$ROOT/c00-envcheck-noidx-p10/envcheck.json" > /dev/null; then
-  python3 "$DIR/envcheck.py" "$ROOT/c00-envcheck-noidx-p10" "$REPO_ROOT/k6/ADR-001/results/20260928-full-9ee71d5/summary.json" >> "$LOG" 2>&1
-  if (( $? != 0 )); then
-    echo "$(date -Is) ABORT envcheck — ADR-001 범위를 벗어남: 재사용 불가, 사용자 보고 필요" >> "$LOG"; exit 5
-  fi
-fi
-echo "$(date -Is) envcheck passed" >> "$LOG"
 # ② S5 — 실패·누락 조합이 있으면 기록만 하고 다음으로(부하 측정과 독립). 다시 부르면 그 조합만 다시 잰다
 if [[ ! -f "$ROOT/s5/DONE" ]]; then
   echo "$(date -Is) s5 start" >> "$LOG"
