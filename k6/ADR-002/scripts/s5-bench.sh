@@ -6,6 +6,12 @@
 # 조합: 단계(CPU) × 인덱스(off|on) × 배경 규모 N. 규모 N마다 시드(배경 N) → 실행 계획 → 1연결 지연 → 10연결 처리량.
 # 쿼리는 도메인 리포지토리가 부르는 것과 같은 모양이다(아래 Q1~Q4). 측정 사용자·좌석은 배경과 겹치지 않는다.
 set -uo pipefail
+# 스크립트 동결(캠페인 밖에서 직접 부를 때) — 실행 중 작업트리를 고치면 bash가 바뀐 파일을 이어 읽다 깨진다(실측)
+if [[ "${CAMPAIGN_FROZEN:-0}" != 1 && "${S5_FROZEN:-0}" != 1 ]]; then
+  src="$(cd "$(dirname "$0")" && pwd)"; frozen="$(mktemp -d)"; cp -r "$src" "$frozen/scripts"
+  export S5_FROZEN=1 ADR_DIR="$(cd "$src/.." && pwd)"; export REPO_ROOT="$(cd "$ADR_DIR/../.." && pwd)"
+  exec bash "$frozen/scripts/s5-bench.sh" "$@"
+fi
 source "$(dirname "$0")/lib.sh"
 set +e
 
@@ -119,7 +125,7 @@ for level in $LEVELS; do
       expected=$([[ "$index" == on ]] && echo 5 || echo 0)
       [[ "$(jq 'length' "$dir/indexes.json" 2>/dev/null)" == "$expected" ]] || reasons+=("index-mismatch")
       # 행 수: 필수 키가 있고 배경 규모와 맞는지 (홀드 = N, 예약 = N)
-      jq -e --argjson n "$n" '.seat_hold == $n and .reservation == $n and (.product_seat | type == "number")' "$dir/rows.json" > /dev/null 2>&1 || reasons+=("rows-mismatch")
+      jq -e --argjson n "$n" '.seat_hold == $n and .reservation == $n and .product_seat == 10000 + 2 * $n' "$dir/rows.json" > /dev/null 2>&1 || reasons+=("rows-mismatch")
       for q in 1 2 3 4; do
         grep -q "Execution Time" "$dir/explain-q$q.txt" 2>/dev/null || reasons+=("explain-q$q")
         grep -q "^tps = " "$dir/q$q-c1.txt" && grep -q "^tps = " "$dir/q$q-c10.txt" || reasons+=("pgbench-q$q")
