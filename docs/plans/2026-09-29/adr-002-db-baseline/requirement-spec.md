@@ -92,7 +92,7 @@
 | 인덱스 | 쓰는 곳 |
 |--------|--------|
 | `seat_hold(seat_id)` | 좌석의 홀드 목록 로드(애그리거트 컬렉션), FK |
-| `seat_hold(schedule_id, user_id)` | 1인 2매 확인 — 홀드 수 |
+| ~~`seat_hold(schedule_id, user_id)`~~ → `seat_hold(user_id)` | 1인 2매 확인 — 홀드 수 (2026-09-29 변경 합의: 쿼리 조건은 `seat_hold.user_id` + `product_seat.schedule_id` — 기존 인덱스는 앞 열이 조건에 없어 전체 스캔 그대로임을 스모크 실행 계획으로 확인, 사용자 "seat_hold(user_id)로 교체") |
 | `seat_hold(expires_at)` | 만료 배치 조회 |
 | `reservation(schedule_id, user_id)` | 1인 2매 확인 — 확정 예약 수 |
 | `reservation(seat_id)` | FK |
