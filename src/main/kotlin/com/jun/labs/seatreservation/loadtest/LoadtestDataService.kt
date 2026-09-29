@@ -22,8 +22,9 @@ class LoadtestDataService(
      * 좌석은 한 줄 50석으로 배치하고, id가 작을수록 앞자리다(핫스팟 = 앞 20%).
      */
     @Transactional
-    fun reset(schedules: Int, seatsPerSchedule: Int): ResetResult {
+    fun reset(schedules: Int, seatsPerSchedule: Int, backgroundRows: Int = 0): ResetResult {
         require(schedules in 1..1_000 && seatsPerSchedule in 1..100_000) { "시드 범위 초과" }
+        require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product RESTART IDENTITY",
         )
@@ -44,7 +45,50 @@ class LoadtestDataService(
             """.trimIndent(),
             schedules, seatsPerSchedule,
         )
-        return ResetResult(schedules = schedules, seatsPerSchedule = seatsPerSchedule, seatsPerRow = SEATS_PER_ROW)
+        if (backgroundRows > 0) seedBackground(schedules, seatsPerSchedule, backgroundRows)
+        return ResetResult(
+            schedules = schedules, seatsPerSchedule = seatsPerSchedule, seatsPerRow = SEATS_PER_ROW,
+            backgroundRows = backgroundRows,
+        )
+    }
+
+    /**
+     * ADR-002 규모 축: 측정 회차와 다른 배경 회차(id = schedules + 1)에 좌석 2N을 만든다 —
+     * 앞 N석은 HELD + 홀드 1개(먼 미래 만료), 뒤 N석은 RESERVED + CONFIRMED 1건. 사용자는 측정 사용자와 겹치지 않는 숫자 대역.
+     * 판정 위반 0으로 시작하고, 측정 회차의 동작은 그대로 둔 채 홀드·예약 테이블의 행 수만 늘린다.
+     */
+    private fun seedBackground(schedules: Int, seatsPerSchedule: Int, n: Int) {
+        val bgSchedule = schedules + 1
+        val firstSeatId = schedules.toLong() * seatsPerSchedule + 1   // RESTART IDENTITY + 정렬 삽입이라 id가 이어진다
+        jdbcTemplate.update(
+            "INSERT INTO product_schedule (product_id, starts_at) VALUES (1, TIMESTAMPTZ '2026-12-31 19:00:00+09')",
+        )
+        jdbcTemplate.update(
+            """
+            INSERT INTO product_seat (schedule_id, section, row_no, seat_no, status)
+            SELECT ?, 'BG', (i - 1) / $SEATS_PER_ROW + 1, (i - 1) % $SEATS_PER_ROW + 1,
+                   CASE WHEN i <= ? THEN 'HELD' ELSE 'RESERVED' END
+            FROM generate_series(1, ?) i
+            ORDER BY i
+            """.trimIndent(),
+            bgSchedule, n, 2 * n,
+        )
+        jdbcTemplate.update(
+            """
+            INSERT INTO seat_hold (seat_id, schedule_id, user_id, held_at, expires_at)
+            SELECT ? + i - 1, ?, $BG_HOLD_USER_BASE + i, now(), TIMESTAMPTZ '2099-01-01 00:00:00+00'
+            FROM generate_series(1, ?) i
+            """.trimIndent(),
+            firstSeatId, bgSchedule, n,
+        )
+        jdbcTemplate.update(
+            """
+            INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, created_at)
+            SELECT ?, ? + ? + i - 1, $BG_RESERVATION_USER_BASE + i, 'bg-' || i, 'CONFIRMED', now()
+            FROM generate_series(1, ?) i
+            """.trimIndent(),
+            bgSchedule, firstSeatId, n, n,
+        )
     }
 
     /** 통계를 갱신한다 — 시드 직후 실행 계획이 매 회 같도록. 트랜잭션 밖에서 호출한다. */
@@ -128,9 +172,11 @@ class LoadtestDataService(
         return result
     }
 
-    data class ResetResult(val schedules: Int, val seatsPerSchedule: Int, val seatsPerRow: Int)
+    data class ResetResult(val schedules: Int, val seatsPerSchedule: Int, val seatsPerRow: Int, val backgroundRows: Int)
 
     companion object {
         const val SEATS_PER_ROW = 50
+        const val BG_HOLD_USER_BASE = 9_000_000_000L
+        const val BG_RESERVATION_USER_BASE = 8_000_000_000L
     }
 }

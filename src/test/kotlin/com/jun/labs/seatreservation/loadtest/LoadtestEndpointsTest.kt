@@ -38,6 +38,22 @@ class LoadtestEndpointsTest : IntegrationTest() {
     }
 
     @Test
+    fun `배경 N은 배경 회차에 HELD N석·홀드 N + RESERVED N석·CONFIRMED N을 만들고 위반은 0이다`() {
+        mockMvc.post("/internal/reset?schedules=1&seatsPerSchedule=100&backgroundRows=50").andExpect {
+            status { isOk() }
+            jsonPath("$.backgroundRows") { value(50) }
+        }
+
+        assertEquals(200, count("SELECT count(*) FROM product_seat"))
+        assertEquals(100, count("SELECT count(*) FROM product_seat WHERE schedule_id = 1 AND status = 'AVAILABLE'"))
+        assertEquals(50, count("SELECT count(*) FROM product_seat WHERE schedule_id = 2 AND status = 'HELD'"))
+        assertEquals(50, count("SELECT count(*) FROM product_seat WHERE schedule_id = 2 AND status = 'RESERVED'"))
+        assertEquals(50, count("SELECT count(*) FROM seat_hold h JOIN product_seat s ON s.id = h.seat_id WHERE s.status = 'HELD'"))
+        assertEquals(50, count("SELECT count(*) FROM reservation r JOIN product_seat s ON s.id = r.seat_id WHERE s.status = 'RESERVED'"))
+        assertEquals(emptyMap(), violations())
+    }
+
+    @Test
     fun `시드 직후에는 위반이 하나도 없다`() {
         assertEquals(emptyMap(), violations())
         mockMvc.get("/internal/consistency").andExpect {
