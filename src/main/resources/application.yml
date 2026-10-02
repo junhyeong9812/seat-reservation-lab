@@ -16,6 +16,10 @@ server:
 
 # actuator는 loadtest 프로필에서만 연다 (application-loadtest.yml)
 management:
+  # Redis는 Redis 전략에서만 쓴다 — 다른 전략에서 health가 Redis 연결 실패로 DOWN이 되지 않게
+  health:
+    redis:
+      enabled: false
   endpoints:
     web:
       exposure:
@@ -26,3 +30,5 @@ seat:
     ttl: 5m
     max-per-user: 2
     expiry-interval: 10s
+    # 같은 좌석 경합 제어 방식(ADR-003). 기본 none = ADR-000 기준선 그대로
+    strategy: none

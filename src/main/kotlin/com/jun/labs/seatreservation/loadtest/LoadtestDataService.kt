@@ -1,7 +1,9 @@
 package com.jun.labs.seatreservation.loadtest
 
+import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import org.springframework.context.annotation.Profile
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional
 class LoadtestDataService(
     private val jdbcTemplate: JdbcTemplate,
     private val properties: SeatHoldProperties,
+    private val redis: StringRedisTemplate,
 ) {
 
     /**
@@ -28,6 +31,11 @@ class LoadtestDataService(
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product RESTART IDENTITY",
         )
+        // ADR-003 Redis 전략: 선점 관문 키·분산락이 이전 시드의 좌석 id로 남아 있으면 새 시드의 같은 id 좌석을 막는다.
+        // Redis는 이 실험 전용(compose 내부)이라 DB 전체를 비운다. Redis 전략이 아니면 Redis에 연결하지 않는다.
+        if (properties.strategy == HoldStrategyType.REDIS_NX || properties.strategy == HoldStrategyType.REDIS_LOCK) {
+            redis.connectionFactory!!.connection.use { it.serverCommands().flushDb() }
+        }
         jdbcTemplate.update("INSERT INTO product (name) VALUES ('loadtest')")
         jdbcTemplate.update(
             """

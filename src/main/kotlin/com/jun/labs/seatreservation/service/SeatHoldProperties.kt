@@ -8,4 +8,5 @@ data class SeatHoldProperties(
     val ttl: Duration,
     val maxPerUser: Int,
     val expiryInterval: Duration,
+    val strategy: HoldStrategyType = HoldStrategyType.NONE,
 )
