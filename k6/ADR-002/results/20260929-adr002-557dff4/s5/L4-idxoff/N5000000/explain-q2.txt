@@ -1,0 +1,18 @@
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=94276.97..94276.98 rows=1 width=8) (actual time=90.554..91.639 rows=1 loops=1)
+   Buffers: shared read=56819
+   ->  Gather  (cost=1000.00..94276.97 rows=1 width=0) (actual time=90.551..91.635 rows=0 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared read=56819
+         ->  Parallel Seq Scan on reservation  (cost=0.00..93276.87 rows=1 width=0) (actual time=89.219..89.220 rows=0 loops=3)
+               Filter: ((schedule_id = 1) AND (user_id = 424242) AND ((status)::text = 'CONFIRMED'::text))
+               Rows Removed by Filter: 1666667
+               Buffers: shared read=56819
+ Planning:
+   Buffers: shared hit=55 read=24 dirtied=3
+ Planning Time: 0.223 ms
+ Execution Time: 91.671 ms
+(14 rows)
+

@@ -1,0 +1,21 @@
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Unique  (cost=12.90..12.92 rows=1 width=33) (actual time=0.027..0.028 rows=0 loops=1)
+   Buffers: shared hit=9 read=3
+   ->  Sort  (cost=12.90..12.91 rows=1 width=33) (actual time=0.027..0.027 rows=0 loops=1)
+         Sort Key: ps.id, ps.schedule_id, ps.section, ps.row_no, ps.seat_no, ps.status
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=9 read=3
+         ->  Nested Loop  (cost=0.85..12.89 rows=1 width=33) (actual time=0.014..0.014 rows=0 loops=1)
+               Buffers: shared read=3
+               ->  Index Scan using idx_seat_hold_expires_at on seat_hold h  (cost=0.43..4.45 rows=1 width=8) (actual time=0.014..0.014 rows=0 loops=1)
+                     Index Cond: (expires_at <= now())
+                     Buffers: shared read=3
+               ->  Index Scan using product_seat_pkey on product_seat ps  (cost=0.43..8.45 rows=1 width=33) (never executed)
+                     Index Cond: (id = h.seat_id)
+ Planning:
+   Buffers: shared hit=229
+ Planning Time: 0.419 ms
+ Execution Time: 0.061 ms
+(17 rows)
+
