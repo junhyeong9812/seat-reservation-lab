@@ -1,0 +1,22 @@
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Unique  (cost=2443.45..2443.47 rows=1 width=33) (actual time=4.078..4.079 rows=0 loops=1)
+   Buffers: shared hit=944
+   ->  Sort  (cost=2443.45..2443.45 rows=1 width=33) (actual time=4.078..4.079 rows=0 loops=1)
+         Sort Key: ps.id, ps.schedule_id, ps.section, ps.row_no, ps.seat_no, ps.status
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=944
+         ->  Nested Loop  (cost=0.42..2443.44 rows=1 width=33) (actual time=4.064..4.064 rows=0 loops=1)
+               Buffers: shared hit=935
+               ->  Seq Scan on seat_hold h  (cost=0.00..2435.00 rows=1 width=8) (actual time=4.063..4.063 rows=0 loops=1)
+                     Filter: (expires_at <= now())
+                     Rows Removed by Filter: 100000
+                     Buffers: shared hit=935
+               ->  Index Scan using product_seat_pkey on product_seat ps  (cost=0.42..8.44 rows=1 width=33) (never executed)
+                     Index Cond: (id = h.seat_id)
+ Planning:
+   Buffers: shared hit=161 dirtied=1
+ Planning Time: 0.300 ms
+ Execution Time: 4.112 ms
+(18 rows)
+

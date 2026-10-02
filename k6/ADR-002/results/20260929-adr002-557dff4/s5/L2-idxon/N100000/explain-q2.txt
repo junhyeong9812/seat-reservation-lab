@@ -1,0 +1,14 @@
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=6.19..6.20 rows=1 width=8) (actual time=0.019..0.020 rows=1 loops=1)
+   Buffers: shared hit=6
+   ->  Index Scan using idx_reservation_schedule_user on reservation  (cost=0.42..6.19 rows=1 width=0) (actual time=0.017..0.018 rows=0 loops=1)
+         Index Cond: ((schedule_id = 1) AND (user_id = 424242))
+         Filter: ((status)::text = 'CONFIRMED'::text)
+         Buffers: shared hit=6
+ Planning:
+   Buffers: shared hit=108
+ Planning Time: 0.182 ms
+ Execution Time: 0.047 ms
+(10 rows)
+

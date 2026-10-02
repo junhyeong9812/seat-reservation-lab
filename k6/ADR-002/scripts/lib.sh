@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# ADR-002 원격 실행 공통 함수(ADR-001 복사 + 배경 시드·DB 인덱스 조회). k6 PC에서 source 해서 쓴다.
+set -euo pipefail
+
+SERVER="${SERVER:-jun@192.168.55.164}"
+SERVER_HOST="${SERVER#*@}"
+REMOTE_BASE="${REMOTE_BASE:-labs/seat-reservation-lab}"   # 서버 홈 기준 — 이 경로 밖은 쓰지 않는다
+BASE_URL="${BASE_URL:-http://${SERVER_HOST}:8101}"
+COMPOSE_FILE="k6/ADR-002/compose.yml"
+# run.sh가 동결 사본에서 실행될 때는 원래 위치를 환경변수로 넘겨받는다
+ADR_DIR="${ADR_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_ROOT="${REPO_ROOT:-$(cd "$ADR_DIR/../.." && pwd)}"
+
+log() { echo "[$(date '+%F %T')] $*" >&2; }
+
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$SERVER" "$@"; }
+
+# 측정 대상 = 로컬 커밋 하나. 그 트리를 그대로 서버에 푼다 (GitHub 경유 없음).
+deploy_sha() {
+  local sha="$1"
+  if remote "test -f $REMOTE_BASE/$sha/.deployed"; then return 0; fi
+  log "deploy $sha → $SERVER:$REMOTE_BASE/$sha"
+  git -C "$REPO_ROOT" archive --format=tar "$sha" | remote "mkdir -p $REMOTE_BASE/$sha && tar -x -C $REMOTE_BASE/$sha && touch $REMOTE_BASE/$sha/.deployed"
+}
+
+# 자원 단계·설정을 환경변수로 넘겨 기동. 인자: sha, 나머지는 KEY=VALUE
+compose_up() {
+  local sha="$1"; shift
+  log "compose up ($sha) $*"
+  remote "cd $REMOTE_BASE/$sha && env $* docker compose -p seatlab -f $COMPOSE_FILE up -d --build --force-recreate" >&2
+}
+
+compose_down() {
+  local sha="$1"
+  log "compose down ($sha)"
+  remote "cd $REMOTE_BASE/$sha && docker compose -p seatlab -f $COMPOSE_FILE down -v --remove-orphans" >&2 || true
+}
+
+wait_health() {
+  local deadline=$((SECONDS + ${1:-300}))
+  until curl -fsS --max-time 5 "$BASE_URL/actuator/health" 2>/dev/null | grep -q '"UP"'; do
+    if (( SECONDS > deadline )); then log "health timeout"; return 1; fi
+    sleep 2
+  done
+}
+
+# 모든 HTTP 호출에 상한을 둔다 — 응답 없는 서버에 매달려 무인 실행이 기록 없이 멈추지 않게.
+reset_db() {  # 인자: schedules seatsPerSchedule [backgroundRows] — 배경 100만이면 행 400만을 넣으므로 상한을 넉넉히
+  curl -fsS --max-time "${RESET_TIMEOUT:-900}" -X POST "$BASE_URL/internal/reset?schedules=$1&seatsPerSchedule=$2&backgroundRows=${3:-0}"
+}
+
+db_indexes() {  # 실제로 DB에 있는 사용자 인덱스(기본키 제외) — 인덱스 조건이 제대로 적용됐는지의 근거
+  timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" \
+    "docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT coalesce(json_agg(json_build_object('name', c.relname, 'unique', i.indisunique) ORDER BY c.relname), '[]') FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid WHERE t.relname IN ('seat_hold','reservation','product_seat') AND NOT i.indisprimary\""
+}
+
+consistency() {  # 인자: graceSeconds(선택) · 환경 CONSISTENCY_TIMEOUT(기본 60s — 부하 중 폴링용)
+  curl -fsS --max-time "${CONSISTENCY_TIMEOUT:-60}" "$BASE_URL/internal/consistency${1:+?graceSeconds=$1}"
+}
+
+counts() {  # 인자: seatStatus(true|false, 선택)
+  curl -fsS --max-time 10 "$BASE_URL/internal/counts${1:+?seatStatus=$1}"
+}
+
+# 부하 중 폴링은 앱을 거치지 않고 DB 컨테이너에 직접 묻는다 — 앱이 포화돼 요청이 적체돼도 곡선이 끊기지 않게(실측: L1 S3A에서 앱 경유 폴링 대부분 유실)
+db_counts() {  # 인자: seatStatus(true|false)
+  local seat_sql=""
+  [[ "${1:-false}" == true ]] && seat_sql=", (SELECT count(*) FILTER (WHERE status='AVAILABLE') FROM product_seat) AS available, (SELECT count(*) FILTER (WHERE status='HELD') FROM product_seat) AS held, (SELECT count(*) FILTER (WHERE status='RESERVED') FROM product_seat) AS reserved"
+  timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" \
+    "docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(t) FROM (SELECT (SELECT count(*) FROM seat_hold) AS hold_rows, (SELECT count(*) FROM reservation WHERE status='CONFIRMED') AS confirmed, now() AS checked_at $seat_sql) t\""
+}
+
+actuator() {  # 인자: 경로
+  curl -fsS --max-time 10 "$BASE_URL/actuator/$1"
+}

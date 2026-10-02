@@ -21,8 +21,9 @@ class LoadtestController(
     fun reset(
         @RequestParam(defaultValue = "1") schedules: Int,
         @RequestParam(defaultValue = "10000") seatsPerSchedule: Int,
+        @RequestParam(defaultValue = "0") backgroundRows: Int,
     ): LoadtestDataService.ResetResult {
-        val result = loadtestDataService.reset(schedules, seatsPerSchedule)
+        val result = loadtestDataService.reset(schedules, seatsPerSchedule, backgroundRows)
         loadtestDataService.analyze()
         return result
     }

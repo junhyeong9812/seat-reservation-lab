@@ -1,0 +1,14 @@
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=289.00..289.01 rows=1 width=8) (actual time=0.423..0.424 rows=1 loops=1)
+   Buffers: shared hit=114
+   ->  Seq Scan on reservation  (cost=0.00..289.00 rows=1 width=0) (actual time=0.421..0.422 rows=0 loops=1)
+         Filter: ((schedule_id = 1) AND (user_id = 424242) AND ((status)::text = 'CONFIRMED'::text))
+         Rows Removed by Filter: 10000
+         Buffers: shared hit=114
+ Planning:
+   Buffers: shared hit=74
+ Planning Time: 0.137 ms
+ Execution Time: 0.453 ms
+(10 rows)
+

@@ -1,0 +1,16 @@
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..15554.43 rows=1 width=40) (actual time=14.372..15.692 rows=0 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared hit=4666 read=4680
+   ->  Parallel Seq Scan on seat_hold  (cost=0.00..14554.33 rows=1 width=40) (actual time=13.141..13.141 rows=0 loops=3)
+         Filter: (seat_id = 5000)
+         Rows Removed by Filter: 333333
+         Buffers: shared hit=4666 read=4680
+ Planning:
+   Buffers: shared hit=72
+ Planning Time: 0.153 ms
+ Execution Time: 15.722 ms
+(12 rows)
+

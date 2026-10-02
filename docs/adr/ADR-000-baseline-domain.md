@@ -1,5 +1,7 @@
 # ADR-000: 좌석 예약 도메인과 순수 구현 (baseline)
 
+> 번호 변경(2026-09-29): 구 ADR-002~009 → ADR-003~010. 새 ADR-002 = DB 기준선 보정(인덱스·커넥션 풀). 이 문서의 번호 참조는 새 번호로 갱신했다.
+
 - 상태: 채택 (Accepted)
 - 날짜: 2026-09-27
 - 성격: **기준선**. 동시성 제어 없이 "기능이 되는" 가장 평범한 구현을 만든다. 이후 ADR-001~은 이 기준선에서 문제를 관측하고 하나씩 해결한다.
@@ -43,7 +45,7 @@ seat_hold (홀드)         reservation (예약)
 | 상품 vs 회차 | 판매 단위는 **회차의 좌석**이다 | 같은 A-12도 회차가 다르면 다른 재고 |
 | 물리 좌석 | 공연장 배치도를 분리하지 않고 구역·열·번호를 `product_seat`에 둔다 | 랩 범위에서 공연장 재사용 불필요 |
 | 홀드 vs 예약 분리 | 홀드는 TTL이 있는 일시 점유, 예약은 결제로 확정된 사실 | 수명이 다르다. 합치면 Q6(결제 성공 + 선점 만료)을 표현할 수 없다 |
-| 좌석 상태 | 좌석에 `AVAILABLE` / `HELD` / `RESERVED`를 **저장**한다 | 가장 직관적인 모델. 만료 후 `HELD` 잔존 문제는 ADR-004에서 관측 |
+| 좌석 상태 | 좌석에 `AVAILABLE` / `HELD` / `RESERVED`를 **저장**한다 | 가장 직관적인 모델. 만료 후 `HELD` 잔존 문제는 ADR-005에서 관측 |
 | 홀드 상태 | 상태 컬럼 없음. 확정·만료되면 **행을 삭제**한다 | 살아 있는 홀드만 행으로 존재 |
 | 예약 상태 | `CONFIRMED` / `CANCELED` | 예약 1행 = 좌석 1석. 결제 uid를 가진다 |
 
@@ -82,9 +84,9 @@ seat_hold (홀드)         reservation (예약)
 | 규칙 | 걸친 애그리거트 | 기준선 처리 | 감수한 것 |
 |------|---------------|------------|----------|
 | 확정 = 좌석 `RESERVED` + 예약 생성 | Seat, Reservation | **같은 트랜잭션**에서 둘 다 바꾼다 — "트랜잭션 하나에 애그리거트 하나" 원칙의 **의도된 예외** | Q7 불변식(`RESERVED` 수 = `CONFIRMED` 수)이 원자성을 요구하므로 최종 일관성(도메인 이벤트)보다 우선했다. 대가: 두 애그리거트의 락이 한 트랜잭션에 묶인다 |
-| 1인 최대 2매 | 여러 Seat + Reservation | 도메인 서비스 `HoldLimitPolicy`가 조회해 판정 | 어느 애그리거트도 보호하지 않으므로 동시 요청에 무방비 → ADR-003 |
+| 1인 최대 2매 | 여러 Seat + Reservation | 도메인 서비스 `HoldLimitPolicy`가 조회해 판정 | 어느 애그리거트도 보호하지 않으므로 동시 요청에 무방비 → ADR-004 |
 
-- 애그리거트가 규칙을 가져도 **동시성 문제는 남는다**: `seat.hold()`의 상태 검사는 트랜잭션이 읽어 온 스냅샷 위에서 일어난다. 두 트랜잭션이 각자 `AVAILABLE`을 읽으면 둘 다 통과한다. 애그리거트는 "무엇이 일관돼야 하는가"를 정하고, "동시에 어떻게 지키는가"는 ADR-002 이후가 정한다.
+- 애그리거트가 규칙을 가져도 **동시성 문제는 남는다**: `seat.hold()`의 상태 검사는 트랜잭션이 읽어 온 스냅샷 위에서 일어난다. 두 트랜잭션이 각자 `AVAILABLE`을 읽으면 둘 다 통과한다. 애그리거트는 "무엇이 일관돼야 하는가"를 정하고, "동시에 어떻게 지키는가"는 ADR-003 이후가 정한다.
 
 ## 3. 상태 전이
 
@@ -104,7 +106,7 @@ seat_hold (홀드)         reservation (예약)
 | 만료 | `@Scheduled` 배치 | 만료 홀드를 가진 좌석 로드 → 각 `seat.expireHold(now)` (만료된 홀드만 제거 + `AVAILABLE`) |
 
 - 상태 검사와 전이는 **애그리거트 메서드 안**에 있다. 서비스(UseCase)는 로드 → 메서드 호출 → 저장 순서만 조율한다. 상태는 외부에서 직접 바꿀 수 없다.
-- 그래도 확인은 **읽어 온 스냅샷 위에서의 비교**다(check-then-act). 확인과 저장 사이에 다른 요청이 끼어들 수 있다 — 기준선은 이를 막지 않는다(ADR-002·003·005에서 관측).
+- 그래도 확인은 **읽어 온 스냅샷 위에서의 비교**다(check-then-act). 확인과 저장 사이에 다른 요청이 끼어들 수 있다 — 기준선은 이를 막지 않는다(ADR-003·004·006에서 관측).
 - 만료 판정: `expiresAt <= now` 이면 만료. 시각은 애플리케이션 `Clock`에서 얻는다(테스트에서 고정 가능).
 
 ## 4. 규칙
@@ -114,7 +116,7 @@ seat_hold (홀드)         reservation (예약)
 | 홀드 TTL | 5분 (README Load Profile 원본) | `seat.hold.ttl` |
 | 1인 최대 매수 | (사용자, 회차)당 2매 = 홀드 + 확정 예약 | `seat.hold.max-per-user` |
 | 만료 배치 주기 | 기본 10초 | `seat.hold.expiry-interval` |
-| 1회 선점 매수 | 1석 (연석은 ADR-007) | — |
+| 1회 선점 매수 | 1석 (연석은 ADR-008) | — |
 
 ## 5. DB 스키마 (Flyway `V1__init.sql`)
 
@@ -192,11 +194,11 @@ com.jun.labs.seatreservation
 | 약점 | 가설 ADR |
 |------|---------|
 | 판정 기준 없이는 "해결됐다"를 말할 수 없다 | [ADR-001](ADR-001-consistency-oracle.md) 정합성 판정·관측 하네스 (Q7) |
-| 같은 좌석 동시 선점 시 check-then-act | [ADR-002](ADR-002-same-seat-contention.md) (Q1) |
-| 같은 사용자 동시 요청 시 매수 COUNT 경합 | [ADR-003](ADR-003-per-user-limit.md) |
-| 저장된 `HELD`와 배치 만료의 지연 | [ADR-004](ADR-004-hold-expiry.md) (Q3) |
-| 확정 시 2중 확인과 전환 사이 경합 | [ADR-005](ADR-005-confirm-atomicity.md) (Q6) |
-| 결제는 성공했는데 확정 실패 | [ADR-006](ADR-006-confirm-failure-compensation.md) (Q6) |
-| 연석 부분 선점 | [ADR-007](ADR-007-adjacent-seats.md) (Q2) |
-| 좌석맵 조회와 실제 상태 불일치 | [ADR-008](ADR-008-seat-map-query.md) (Q5) |
-| 오픈 정각 트래픽 폭주 | [ADR-009](ADR-009-open-spike.md) (Q4) |
+| 같은 좌석 동시 선점 시 check-then-act | [ADR-003](ADR-003-same-seat-contention.md) (Q1) |
+| 같은 사용자 동시 요청 시 매수 COUNT 경합 | [ADR-004](ADR-004-per-user-limit.md) |
+| 저장된 `HELD`와 배치 만료의 지연 | [ADR-005](ADR-005-hold-expiry.md) (Q3) |
+| 확정 시 2중 확인과 전환 사이 경합 | [ADR-006](ADR-006-confirm-atomicity.md) (Q6) |
+| 결제는 성공했는데 확정 실패 | [ADR-007](ADR-007-confirm-failure-compensation.md) (Q6) |
+| 연석 부분 선점 | [ADR-008](ADR-008-adjacent-seats.md) (Q2) |
+| 좌석맵 조회와 실제 상태 불일치 | [ADR-009](ADR-009-seat-map-query.md) (Q5) |
+| 오픈 정각 트래픽 폭주 | [ADR-010](ADR-010-open-spike.md) (Q4) |
