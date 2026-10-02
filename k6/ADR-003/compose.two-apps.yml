@@ -5,7 +5,8 @@ services:
     ports: !reset []
 
   app2:
-    extends:
+    extends:              # 파일을 명시해야 한다 — 없으면 이 오버레이 안의 app(포트만 있음)을 찾아 '이미지·빌드 없음'으로 실패(스모크 실측)
+      file: compose.yml
       service: app
     ports: !reset []
 

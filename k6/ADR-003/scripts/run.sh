@@ -214,7 +214,11 @@ run_rep() {  # 인자: level cell rep
 
   # 회차마다 새 컨테이너 — JVM·커넥션 풀·DB 캐시 상태를 회차 사이에 넘기지 않는다
   compose_down "$SHA" >> "$dir/compose.log" 2>&1
-  compose_up "$SHA" $cfg_env >> "$dir/compose.log" 2>&1
+  # 기동 실패를 넘기면 이전 회차의 컨테이너가 남아 health가 UP이 되고 다른 조건의 앱을 재게 된다(스모크 실측) — 실패로 끊는다
+  if ! compose_up "$SHA" $cfg_env >> "$dir/compose.log" 2>&1; then
+    UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "compose-up-failed" -1 ""; return 1
+  fi
   if ! wait_health 180 || ! reset_with_retry "$dir" 1 10000 > /dev/null; then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "unhealthy" -1 ""; return 1
@@ -277,7 +281,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   for f in k6-summary.json consistency.json app-config.json seed.json; do
     { [[ -s "$dir/$f" ]] && jq empty "$dir/$f" 2>/dev/null; } || reasons+=("invalid-$f")
   done
-  for f in server-before.txt server-after.txt client-before.txt client-after.txt timeline-server.jsonl; do
+  # 수집기는 오류를 버리고 돈다 — 파일이 비면 조용히 실패한 것이므로 회차 실패로 드러낸다(락 표본 SQL 오류가 빈 파일만 남긴 스모크 실측)
+  for f in server-before.txt server-after.txt client-before.txt client-after.txt timeline-server.jsonl timeline-locks.jsonl timeline-hikari.jsonl; do
     [[ -s "$dir/$f" ]] || reasons+=("missing-$f")
   done
   for f in k6-requests.csv.gz app.log.gz db.log.gz k6-stdout.log.gz; do   # 압축 파일은 무결성까지

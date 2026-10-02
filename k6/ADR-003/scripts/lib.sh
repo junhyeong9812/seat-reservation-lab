@@ -88,7 +88,8 @@ actuator() {  # 인자: 경로
 }
 
 # 락 대기 표본(ADR-003 ④): 서버에서 0.5초마다 DB의 락 대기·활성 세션을 묻고 한 줄씩 흘려보낸다 — SSH 연결 하나로(표본마다 SSH를 열면 S1 몇 초 사이에 표본이 안 나온다).
+# (하위 쿼리 별칭을 열 이름 t와 다르게 — 같으면 row_to_json(t)이 열을 가리켜 매번 오류였다, 스모크 실측)
 # 출력: {"t":…, "lock_waiting":락 미획득 수, "lock_wait_sessions":wait_event_type=Lock 세션, "active":활성 세션, "advisory_held":잡힌 advisory 수}
 lock_sampler() {
-  remote "while :; do docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(t) FROM (SELECT clock_timestamp() AS t, (SELECT count(*) FROM pg_locks WHERE NOT granted) AS lock_waiting, (SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock') AS lock_wait_sessions, (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = 'seat') AS active, (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted) AS advisory_held) t\" 2>/dev/null; sleep 0.5; done"
+  remote "while :; do docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(s) FROM (SELECT clock_timestamp() AS t, (SELECT count(*) FROM pg_locks WHERE NOT granted) AS lock_waiting, (SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock') AS lock_wait_sessions, (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = 'seat') AS active, (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted) AS advisory_held) s\" 2>/dev/null; sleep 0.5; done"
 }
