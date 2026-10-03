@@ -280,11 +280,13 @@ def rep_record(rep_dir, root, level, cell):
     # 부하 직후 누적 지표(run.sh after_k6) — 앱 2대면 앱별 값을 합산(타임아웃·요청)·최대(획득 대기)
     after = load(rep_dir / "after-k6.json") or {}
     apps = after.get("apps") or []
-    acq = [a.get("acquire") or {} for a in apps]
-    rec["acquire_max_ms"] = max((x.get("MAX", 0) * 1000 for x in acq), default=None) if acq else None   # Micrometer timer 단위 = 초
-    rec["acquire_mean_ms"] = (sum(x.get("TOTAL_TIME", 0) for x in acq) / sum(x.get("COUNT", 0) for x in acq) * 1000
-                              if acq and sum(x.get("COUNT", 0) for x in acq) else None)
-    rec["pool_timeouts"] = sum(a.get("timeouts") or 0 for a in apps) if apps else None
+    # 앱 하나라도 조회에 실패했으면(None) 그 지표는 '미측정' — 0으로 채우지 않는다(재점검 지적)
+    acq = [a.get("acquire") for a in apps]
+    complete = bool(apps) and all(x is not None for x in acq)
+    rec["acquire_max_ms"] = max(x["MAX"] * 1000 for x in acq) if complete else None   # Micrometer timer 단위 = 초
+    count = sum(x["COUNT"] for x in acq) if complete else 0
+    rec["acquire_mean_ms"] = sum(x["TOTAL_TIME"] for x in acq) / count * 1000 if complete and count else None
+    rec["pool_timeouts"] = sum(a["timeouts"] for a in apps) if apps and all(a.get("timeouts") is not None for a in apps) else None
     rec["hold_requests_per_app"] = [a.get("hold_requests") for a in apps]
     rec["deadlocks"] = after.get("deadlocks_delta")
     rec["redis_used_mb"] = (after.get("redis") or {}).get("used_memory") and after["redis"]["used_memory"] / 1e6

@@ -59,8 +59,9 @@ def main(root):
     root = Path(root)
     # 조건 폴더 = plan.json이 있는 하위 폴더(이름 규칙에 기대지 않는다 — ADR-002의 c* 글롭이 ADR-003 이름을 놓친 리뷰 지적)
     conds = [d for d in root.iterdir() if (d / "plan.json").exists()]
-    files = sorted(p for d in conds for p in d.glob("L*/*/rep*/k6-requests.csv.gz") if ".incomplete" not in str(p))
-    files += sorted(p for d in conds for p in d.glob("L*/*/rep*.incomplete*/k6-requests.csv.gz"))
+    # 정규 회차(rep숫자)를 집계하고, 보존된 회차(.incomplete·.retry-·.path-gap-)도 sha256 목록과 분류에 남긴다(키가 폴더 이름이라 정규 회차와 섞이지 않는다)
+    files = sorted(p for d in conds for p in d.glob("L*/*/rep*/k6-requests.csv.gz") if p.parent.name[3:].isdigit())
+    files += sorted(p for d in conds for p in d.glob("L*/*/rep*/k6-requests.csv.gz") if not p.parent.name[3:].isdigit())
     out, shas = {}, []
     with ProcessPoolExecutor(max_workers=8) as ex:
         for path, digest, counts in ex.map(one, files):

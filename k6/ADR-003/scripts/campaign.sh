@@ -52,13 +52,15 @@ INFRA_STREAK=0
 run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니면(인자·SHA·배포) 캠페인을 멈춘다 — 조용히 넘어가지 않게
   local line="$1" rep="$2" name="${1%% *}" args="${1#* }" resume="" rc
   [[ -f "$ROOT/$name/plan.json" ]] && resume="--resume"
+  local mark; mark="$(mktemp)"   # 이 호출이 쓴 status만 세려고(재측정 전의 옛 실패를 연속 실패로 세지 않게)
   echo "$(date -Is) $name rep$rep start $resume" >> "$LOG"
   eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/$name" --reps "$REPS" --only-rep "$rep" $args $resume >> "$ROOT/$name.runner.log" 2>&1
   rc=$?
   echo "$(date -Is) $name rep$rep exit=$rc" >> "$LOG"
   if (( rc != 0 )); then echo "$(date -Is) ABORT $name rep$rep exit=$rc" >> "$LOG"; exit "$rc"; fi
   # 기동 계열 실패(앱이 안 뜸)가 호출 5번 연속이면 빌드·서버 문제 — 멈춘다. 한두 번은 끝의 재측정이 맡는다
-  if grep -qsE '^(unhealthy|compose-up-failed|seed-failed)$' "$ROOT/$name"/L*/*/rep"$rep"/status; then
+  local fresh; fresh=$(find "$ROOT/$name" -path "*/rep$rep/status" -newer "$mark" 2>/dev/null); rm -f "$mark"
+  if [[ -n "$fresh" ]] && grep -qsE '^(unhealthy|compose-up-failed|seed-failed)$' $fresh; then
     INFRA_STREAK=$((INFRA_STREAK + 1))
     (( INFRA_STREAK >= 5 )) && { echo "$(date -Is) ABORT infra-failure-5-in-a-row" >> "$LOG"; exit 4; }
   else

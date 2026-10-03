@@ -87,7 +87,8 @@ class HoldStrategyTest : IntegrationTest() {
         var maxWins = 0
         for (round in 1..5) {
             val seat = createSeat(round)
-            val outcomes = race(strategy(type), schedule.id!!, seat.id!!)
+            // 라운드마다 사용자 대역을 바꾼다 — 같은 사용자가 여러 라운드에서 이기면 1인 2매 제한(HOLD_LIMIT_EXCEEDED)에 걸린다
+            val outcomes = race(strategy(type), schedule.id!!, seat.id!!, userIdBase = 1_000L * round)
 
             assertTrue(outcomes.all { it == "ok" || it == ErrorCode.SEAT_NOT_AVAILABLE.name }, "$type: $outcomes")
             val wins = outcomes.count { it == "ok" }

@@ -236,6 +236,8 @@ run_rep() {  # 인자: level cell rep
   # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적)
   local w; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && break; sleep 0.5; done
   local deadlocks0; deadlocks0=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'" 2>/dev/null)
+  # 누적 지표의 부하 직전 값 — 예열(선점 약 2,000건)이 섞이지 않게 차분으로 본다(재점검 지적)
+  app_counters "$dir/before-k6.json" 2>>"$dir/errors.log"
 
   local k6env; k6env=$(k6_env_of "$cell")
   local dash=()
@@ -269,20 +271,40 @@ run_rep() {  # 인자: level cell rep
 # 부하 직후 누적 지표(ADR-003 ④⑤⑦) — 0.5~1초 표본이 놓치는 짧은 버스트를 누적값으로 본다. 앱 2대면 앱마다(lb 안에서 직접).
 #   acquire: Hikari 커넥션 획득 대기 timer(COUNT·TOTAL_TIME 누적 / MAX는 최근 약 2분 창) · timeouts: 획득 타임아웃 수
 #   hold_requests: 그 앱이 처리한 선점 요청 수(앱 2대에서 두 앱 모두 받았는지) · deadlocks_delta: 부하 중 DB 데드락 수
-after_k6() {  # 인자: 폴더 부하 전 deadlocks
-  local dir="$1" d0="$2" arr="[]" a apps="app"
+# 앱별 누적 카운터 한 벌을 파일로 — 부하 직전·직후에 한 번씩. 과부하 직후 앱이 적체를 푸는 중이면 응답이 늦어 실패할 수 있어 조회마다 재시도한다.
+actuator_retry() {  # 인자: 앱 경로 — 성공한 JSON 또는 빈 출력
+  local i out
+  for i in 1 2 3 4 5 6; do
+    out=$(app_actuator "$1" "$2" 2>/dev/null) && [[ -n "$out" ]] && { echo "$out"; return 0; }
+    sleep 10
+  done
+  return 1
+}
+app_counters() {  # 인자: 출력 파일
+  local out="$1" arr="[]" a apps="app"
   (( APPS == 2 )) && apps="app app2"
   for a in $apps; do
     local st pool acq tmo req
-    st=$(app_actuator "$a" configprops | jq -c '[.contexts[].beans[] | select(.prefix=="seat.hold") | .properties.strategy][0]')
-    pool=$(app_actuator "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
-    acq=$(app_actuator "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
-    tmo=$(app_actuator "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
-    req=$(app_actuator "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" \
+    st=$(actuator_retry "$a" configprops | jq -c '[.contexts[].beans[] | select(.prefix=="seat.hold") | .properties.strategy][0]')
+    pool=$(actuator_retry "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
+    acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
+    tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
+    # 선점 요청 수: 그 URI로 요청이 한 번도 없으면 actuator가 404 — 0으로 둔다(조회 자체의 실패는 위 항목들이 드러낸다)
+    req=$(app_actuator "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" 2>/dev/null \
           | jq -c '[.measurements[] | select(.statistic=="COUNT") | .value][0]')
-    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" \
+    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-0}" \
           '. + [{app:$a, strategy:$st, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r}]' <<< "$arr")
   done
+  echo "$arr" > "$out"
+}
+
+after_k6() {  # 인자: 폴더 부하 전 deadlocks — 부하 중 증가분(직후 − 직전)을 남긴다. MAX는 누적이 아니라 최근 약 2분 창 그대로
+  local dir="$1" d0="$2" arr
+  app_counters "$dir/after-k6.raw.json"
+  arr=$(jq -c --slurpfile b "$dir/before-k6.json" '[.[] as $x | ($b[0] // [] | map(select(.app == $x.app))[0]) as $y |
+          $x + {acquire: (if $x.acquire and $y.acquire then {COUNT: ($x.acquire.COUNT - $y.acquire.COUNT), TOTAL_TIME: ($x.acquire.TOTAL_TIME - $y.acquire.TOTAL_TIME), MAX: $x.acquire.MAX} else null end),
+                timeouts: (if $x.timeouts != null and $y.timeouts != null then $x.timeouts - $y.timeouts else null end),
+                hold_requests: (if $y then $x.hold_requests - $y.hold_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
   local d1 redis
   d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
   redis=$(remote "docker exec seatlab-redis-1 sh -c 'redis-cli info memory | grep ^used_memory: | cut -d: -f2; redis-cli dbsize'" | tr -d '\r' | tr '\n' ' ')
@@ -324,8 +346,11 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     # 적용된 경합 제어 전략 — 설정 바인딩 결과(enum 이름)를 계획과 대조
     [[ "$(jq -r '.configprops[] | select(.prefix=="seat.hold") | .properties.strategy' "$dir/app-config.json")" == "$(echo "$STRATEGY" | tr 'a-z-' 'A-Z_')" ]] || reasons+=("strategy-mismatch")
   fi
-  # 앱마다 계획한 전략·풀로 떠서 선점 요청을 실제로 받았는가 — 앱 2대에서 한 대만 살아도 nginx가 다른 쪽으로 몰아 '1대 측정'이 되는 것을 잡는다
+  # 앱마다 계획한 전략·풀로 떠서 부하 중 선점 요청을 실제로 받았는가(예열 제외 증가분) — 앱 2대에서 한 대만 살아도 nginx가 다른 쪽으로 몰아
+  # '1대 측정'이 되는 것을 잡는다. 지표 조회 자체가 실패한 것(null)은 불일치와 따로 표시한다
   if jq empty "$dir/after-k6.json" 2>/dev/null; then
+    [[ "$(jq '[.apps[] | select(.strategy == null or .acquire == null or .timeouts == null)] | length' "$dir/after-k6.json")" == 0 ]] \
+      || reasons+=("after-k6-fetch-failed")
     local want; want="$(echo "$STRATEGY" | tr 'a-z-' 'A-Z_')"
     [[ "$(jq --arg s "$want" --argjson p "$POOL" '[.apps[] | select(.strategy==$s and (.pool|floor)==$p and (.hold_requests // 0) > 0)] | length' "$dir/after-k6.json")" == "$APPS" ]] \
       || reasons+=("apps-mismatch")

@@ -84,7 +84,9 @@ def one(rep):
 def main(root):
     root = Path(root)
     conds = [d for d in root.iterdir() if (d / "plan.json").exists()]   # 조건 폴더 = plan.json 있는 곳(이름 규칙 무관)
-    reps = sorted(p for d in conds for p in d.glob("L*/S4/rep*") if (p / "k6-requests.csv.gz").exists())
+    # 정규 회차만(rep숫자) + 중단 회차(.incomplete) — 재측정으로 옆에 보존한 옛 회차(.retry-·.path-gap-)는 집계에 넣지 않는다
+    reps = sorted(p for d in conds for p in d.glob("L*/S4/rep*") if (p / "k6-requests.csv.gz").exists()
+                  and (p.name[3:].isdigit() or ".incomplete" in p.name))
     out, incomplete = {}, []
     with ProcessPoolExecutor(max_workers=8) as ex:
         for rep, res in ex.map(one, reps):
