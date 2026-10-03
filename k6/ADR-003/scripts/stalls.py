@@ -83,7 +83,8 @@ def one(rep):
 
 def main(root):
     root = Path(root)
-    reps = sorted(p for p in root.glob("c*/L*/S4/rep*") if (p / "k6-requests.csv.gz").exists())
+    conds = [d for d in root.iterdir() if (d / "plan.json").exists()]   # 조건 폴더 = plan.json 있는 곳(이름 규칙 무관)
+    reps = sorted(p for d in conds for p in d.glob("L*/S4/rep*") if (p / "k6-requests.csv.gz").exists())
     out, incomplete = {}, []
     with ProcessPoolExecutor(max_workers=8) as ex:
         for rep, res in ex.map(one, reps):

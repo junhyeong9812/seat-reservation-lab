@@ -28,7 +28,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     cpus: ${REDIS_CPUS:-1}
-    mem_limit: ${REDIS_MEM:-512m}
+    mem_limit: ${REDIS_MEM:-1g}   # redis-nx S4는 TTL 60m 키가 최대 약 197만 개(키당 수백 B) — 512m는 빠듯하다(리뷰 지적)
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

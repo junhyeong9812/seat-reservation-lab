@@ -233,6 +233,9 @@ run_rep() {  # 인자: level cell rep
   snapshot "$dir" before
   app_config "$dir" 2>>"$dir/errors.log" || echo "app_config failed" >> "$dir/errors.log"
   local pids; pids=$(start_pollers "$dir" "$cell")
+  # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적)
+  local w; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && break; sleep 0.5; done
+  local deadlocks0; deadlocks0=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'" 2>/dev/null)
 
   local k6env; k6env=$(k6_env_of "$cell")
   local dash=()
@@ -242,6 +245,7 @@ run_rep() {  # 인자: level cell rep
     k6 run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
   local k6_exit=$?
   local k6_ended; k6_ended=$(date -Is)
+  after_k6 "$dir" "$deadlocks0" 2>>"$dir/errors.log" || echo "after_k6 failed" >> "$dir/errors.log"
 
   # S3: 마지막 이탈 홀드가 만료되고 배치가 정리할 때까지 관측을 유지한 뒤 판정한다
   local grace; grace=$(grace_of "$base")
@@ -262,6 +266,31 @@ run_rep() {  # 인자: level cell rep
   finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$k6_started|$k6_ended" "$(rep_status "$dir" "$base" "$k6_exit" "$k6_started" "$k6_ended")" "$k6_exit" "$k6env"
 }
 
+# 부하 직후 누적 지표(ADR-003 ④⑤⑦) — 0.5~1초 표본이 놓치는 짧은 버스트를 누적값으로 본다. 앱 2대면 앱마다(lb 안에서 직접).
+#   acquire: Hikari 커넥션 획득 대기 timer(COUNT·TOTAL_TIME 누적 / MAX는 최근 약 2분 창) · timeouts: 획득 타임아웃 수
+#   hold_requests: 그 앱이 처리한 선점 요청 수(앱 2대에서 두 앱 모두 받았는지) · deadlocks_delta: 부하 중 DB 데드락 수
+after_k6() {  # 인자: 폴더 부하 전 deadlocks
+  local dir="$1" d0="$2" arr="[]" a apps="app"
+  (( APPS == 2 )) && apps="app app2"
+  for a in $apps; do
+    local st pool acq tmo req
+    st=$(app_actuator "$a" configprops | jq -c '[.contexts[].beans[] | select(.prefix=="seat.hold") | .properties.strategy][0]')
+    pool=$(app_actuator "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
+    acq=$(app_actuator "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
+    tmo=$(app_actuator "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
+    req=$(app_actuator "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" \
+          | jq -c '[.measurements[] | select(.statistic=="COUNT") | .value][0]')
+    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" \
+          '. + [{app:$a, strategy:$st, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r}]' <<< "$arr")
+  done
+  local d1 redis
+  d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
+  redis=$(remote "docker exec seatlab-redis-1 sh -c 'redis-cli info memory | grep ^used_memory: | cut -d: -f2; redis-cli dbsize'" | tr -d '\r' | tr '\n' ' ')
+  jq -n --argjson apps "$arr" --arg d0 "$d0" --arg d1 "$d1" --arg redis "$redis" \
+    '{apps:$apps, deadlocks_delta:(if ($d0|test("^[0-9]+$")) and ($d1|test("^[0-9]+$")) then ($d1|tonumber)-($d0|tonumber) else null end),
+      redis:{used_memory:($redis|split(" ")[0]|tonumber? // null), keys:($redis|split(" ")[1]|tonumber? // null)}}' > "$dir/after-k6.json"
+}
+
 app_cpus() {  # 앱 1대 = 단계 CPU 전부, 앱 2대 = 절반씩(L4 → 2 + 2)
   if (( APPS == 2 )); then echo $(( $1 / 2 )); else echo "$1"; fi
 }
@@ -278,7 +307,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     fi
   fi
   local f
-  for f in k6-summary.json consistency.json app-config.json seed.json; do
+  for f in k6-summary.json consistency.json app-config.json seed.json after-k6.json; do
     { [[ -s "$dir/$f" ]] && jq empty "$dir/$f" 2>/dev/null; } || reasons+=("invalid-$f")
   done
   # 수집기는 오류를 버리고 돈다 — 파일이 비면 조용히 실패한 것이므로 회차 실패로 드러낸다(락 표본 SQL 오류가 빈 파일만 남긴 스모크 실측)
@@ -294,6 +323,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     [[ "$(jq -r '[.db_indexes[].name] | sort | join(",")' "$dir/app-config.json")" == "$EXPECTED_INDEXES" ]] || reasons+=("index-mismatch")
     # 적용된 경합 제어 전략 — 설정 바인딩 결과(enum 이름)를 계획과 대조
     [[ "$(jq -r '.configprops[] | select(.prefix=="seat.hold") | .properties.strategy' "$dir/app-config.json")" == "$(echo "$STRATEGY" | tr 'a-z-' 'A-Z_')" ]] || reasons+=("strategy-mismatch")
+  fi
+  # 앱마다 계획한 전략·풀로 떠서 선점 요청을 실제로 받았는가 — 앱 2대에서 한 대만 살아도 nginx가 다른 쪽으로 몰아 '1대 측정'이 되는 것을 잡는다
+  if jq empty "$dir/after-k6.json" 2>/dev/null; then
+    local want; want="$(echo "$STRATEGY" | tr 'a-z-' 'A-Z_')"
+    [[ "$(jq --arg s "$want" --argjson p "$POOL" '[.apps[] | select(.strategy==$s and (.pool|floor)==$p and (.hold_requests // 0) > 0)] | length' "$dir/after-k6.json")" == "$APPS" ]] \
+      || reasons+=("apps-mismatch")
   fi
   # 측정 중 k6 PC~서버 경로 단절(ADR-002 A2): 서버 지표 수집 공백이 30초를 넘으면 그 회차는 재측정 대상
   python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("path-gap")
@@ -354,7 +389,9 @@ for level in $LEVELS; do
       fi
       run_rep "$level" "$cell" "$rep"
       FIRST_REP_DONE="${FIRST_REP_DONE:-}"
-      if [[ -z "$FIRST_REP_DONE" ]] && (( UNHEALTHY_STREAK > 0 )); then   # 첫 회차부터 못 뜨면 빌드·배포 문제 — 즉시 중단
+      # 첫 회차부터 못 뜨면 빌드·배포 문제 — 즉시 중단. 캠페인에서는 매 호출이 회차 하나라 '첫 회차'가 매번이다 —
+      # 일시 실패 한 번에 캠페인 전체가 멈추지 않게 캠페인이 연속 실패를 따로 센다(campaign.sh)
+      if [[ -z "$FIRST_REP_DONE" && "${CAMPAIGN_FROZEN:-0}" != 1 ]] && (( UNHEALTHY_STREAK > 0 )); then
         echo "$(date -Is) ABORT first-rep-unhealthy" >> "$MATRIX_LOG"; log "first rep unhealthy — abort"
         compose_down "$SHA"; exit 4
       fi

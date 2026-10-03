@@ -68,17 +68,34 @@ class HoldStrategyTest : IntegrationTest() {
         assertEquals(SeatStatus.HELD, seatStatus(seat))
     }
 
-    @ParameterizedTest
-    @EnumSource(names = ["NONE", "JVM_LOCK_IN_TX"])
-    fun `막지 않는 전략(대조군·함정) — 중복이 나도 응답과 DB는 일치한다`(type: HoldStrategyType) {
-        val seat = createSeat(1)
+    @Test
+    fun `양성 대조 — 락 없음(none)에서 이 경합 장치는 중복을 실제로 만든다`() {
+        assertTrue(maxWinsOver5Rounds(NONE) > 1, "NONE: 5라운드 동안 중복이 한 번도 안 났다 — 경합 장치가 경합을 만들지 못한다")
+    }
 
-        val outcomes = race(strategy(type), schedule.id!!, seat.id!!)
+    /**
+     * 1b(트랜잭션 안 JVM 락)는 '락 해제 ~ 커밋' 틈에서만 깨진다. 로컬 테스트 DB는 커밋이 빨라 그 틈이 거의 없다 —
+     * 실측(2026-10-03): 50명 × 5라운드에서 중복 0. 그래서 여기서는 중복을 요구하지 않고 응답-DB 일치만 본다(H2는 본측정이 판정).
+     */
+    @Test
+    fun `함정(1b) — 중복 여부와 무관하게 응답과 DB는 일치한다`() {
+        maxWinsOver5Rounds(HoldStrategyType.JVM_LOCK_IN_TX)
+    }
 
-        assertTrue(outcomes.all { it == "ok" || it == ErrorCode.SEAT_NOT_AVAILABLE.name }, "$type: $outcomes")
-        val wins = outcomes.count { it == "ok" }
-        assertTrue(wins >= 1)
-        assertEquals(wins, holdRowsOf(seat.id!!), "$type: 성공 응답 수 = 홀드 행 수")
+    /** 새 좌석으로 최대 5라운드 경합 — 라운드마다 성공 응답 수 = 홀드 행 수를 단언하고, 중복이 나면 멈춘다. */
+    private fun maxWinsOver5Rounds(type: HoldStrategyType): Int {
+        var maxWins = 0
+        for (round in 1..5) {
+            val seat = createSeat(round)
+            val outcomes = race(strategy(type), schedule.id!!, seat.id!!)
+
+            assertTrue(outcomes.all { it == "ok" || it == ErrorCode.SEAT_NOT_AVAILABLE.name }, "$type: $outcomes")
+            val wins = outcomes.count { it == "ok" }
+            assertEquals(wins, holdRowsOf(seat.id!!), "$type: 성공 응답 수 = 홀드 행 수")
+            maxWins = maxOf(maxWins, wins)
+            if (maxWins > 1) break
+        }
+        return maxWins
     }
 
     @Test

@@ -46,6 +46,18 @@ class RedisHoldStrategyTest : IntegrationTest() {
 
         assertEquals(mapOf("ok" to 1, ErrorCode.SEAT_NOT_AVAILABLE.name to 49), outcomes.groupingBy { it }.eachCount(), "$type: $outcomes")
         assertEquals(SeatStatus.HELD, seatStatus(seat))
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM seat_hold WHERE seat_id = ?", Int::class.java, seat.id))
+    }
+
+    @ParameterizedTest
+    @EnumSource(names = ["REDIS_NX", "REDIS_LOCK"])
+    fun `응답 계약 — 없는 좌석은 404, 관문 키를 남기지 않는다`(type: HoldStrategyType) {
+        val missing = 999_999L
+
+        val e = assertThrows<SeatReservationException> { strategy(type).hold(HoldSeatCommand(schedule.id!!, missing, userId = 1)) }
+
+        assertEquals(ErrorCode.SEAT_NOT_FOUND, e.errorCode)
+        assertNull(redis.opsForValue().get("${RedisNxHoldStrategy.KEY_PREFIX}$missing"))
     }
 
     @Test

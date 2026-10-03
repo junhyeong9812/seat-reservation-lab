@@ -107,7 +107,7 @@ def load_conditions(root):
     conds, missing = {}, []
     listed = [line.split()[0] for line in (root / "conditions.txt").read_text().splitlines() if line.strip()] \
         if (root / "conditions.txt").exists() else []
-    for name in listed or sorted(p.parent.name for p in root.glob("c*/summary.json")):
+    for name in listed or sorted(p.parent.name for p in root.glob("*/summary.json")):
         f = root / name / "summary.json"
         if not f.exists():
             missing.append(name)

@@ -7,6 +7,7 @@ import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.impl.HoldSeatProcess
 import jakarta.annotation.PreDestroy
 import org.redisson.Redisson
+import org.slf4j.LoggerFactory
 import org.redisson.api.RedissonClient
 import org.redisson.config.Config
 import org.springframework.boot.autoconfigure.data.redis.RedisConnectionDetails
@@ -37,12 +38,19 @@ class RedisNxHoldStrategy(
         try {
             return tx.execute { process.hold(command) }!!
         } catch (e: Throwable) {
-            redis.execute(RELEASE_IF_OWNER, listOf(key), token)
+            // 해제 실패가 원래 결과(409·500)를 덮지 않게 — 원 예외를 그대로 던지고 해제 실패는 붙여서·로그로 남긴다(부분 실패 관측)
+            try {
+                redis.execute(RELEASE_IF_OWNER, listOf(key), token)
+            } catch (releaseFailure: Exception) {
+                e.addSuppressed(releaseFailure)
+                log.warn("redis-nx 키 해제 실패 — 키가 TTL 동안 남아 좌석 {}을 막는다: {}", command.seatId, releaseFailure.toString())
+            }
             throw e
         }
     }
 
     companion object {
+        private val log = LoggerFactory.getLogger(RedisNxHoldStrategy::class.java)
         const val KEY_PREFIX = "hold:seat:"
         private val RELEASE_IF_OWNER = DefaultRedisScript(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",

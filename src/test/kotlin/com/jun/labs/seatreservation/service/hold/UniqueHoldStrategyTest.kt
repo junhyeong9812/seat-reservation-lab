@@ -1,6 +1,8 @@
 package com.jun.labs.seatreservation.service.hold
 
 import com.jun.labs.seatreservation.domain.ErrorCode
+import com.jun.labs.seatreservation.domain.SeatReservationException
+import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
@@ -38,6 +40,16 @@ class UniqueHoldStrategyTest : IntegrationTest() {
 
         assertEquals(mapOf("ok" to 1, ErrorCode.SEAT_NOT_AVAILABLE.name to 49), outcomes.groupingBy { it }.eachCount(), "$outcomes")
         assertEquals(SeatStatus.HELD, seatStatus(seat))
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM seat_hold WHERE seat_id = ?", Int::class.java, seat.id))
+    }
+
+    @Test
+    fun `응답 계약 — 선점된 좌석 409, 없는 좌석 404`() {
+        val seat = createSeat(1)
+        unique.hold(HoldSeatCommand(schedule.id!!, seat.id!!, userId = 1))
+
+        assertEquals(ErrorCode.SEAT_NOT_AVAILABLE, assertThrows<SeatReservationException> { unique.hold(HoldSeatCommand(schedule.id!!, seat.id!!, userId = 2)) }.errorCode)
+        assertEquals(ErrorCode.SEAT_NOT_FOUND, assertThrows<SeatReservationException> { unique.hold(HoldSeatCommand(schedule.id!!, seat.id!! + 999, userId = 3)) }.errorCode)
     }
 
     @Test

@@ -36,10 +36,15 @@ deploy_sha() {
 }
 
 # 자원 단계·설정을 환경변수로 넘겨 기동. 인자: sha, 나머지는 KEY=VALUE
-compose_up() {
+compose_up() {   # SSH 순간 단절에 회차가 통째로 실패하지 않게 3번까지(--force-recreate라 다시 해도 같은 결과)
   local sha="$1"; shift
-  log "compose up ($sha) $*"
-  remote "cd $REMOTE_BASE/$sha && env $* docker compose -p seatlab -f $COMPOSE_FILE $COMPOSE_EXTRA up -d --build --force-recreate" >&2
+  local i
+  for i in 1 2 3; do
+    log "compose up ($sha) $* (attempt $i)"
+    remote "cd $REMOTE_BASE/$sha && env $* docker compose -p seatlab -f $COMPOSE_FILE $COMPOSE_EXTRA up -d --build --force-recreate" >&2 && return 0
+    sleep 20
+  done
+  return 1
 }
 
 compose_down() {
@@ -92,4 +97,18 @@ actuator() {  # 인자: 경로
 # 출력: {"t":…, "lock_waiting":락 미획득 수, "lock_wait_sessions":wait_event_type=Lock 세션, "active":활성 세션, "advisory_held":잡힌 advisory 수}
 lock_sampler() {
   remote "while :; do docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(s) FROM (SELECT clock_timestamp() AS t, (SELECT count(*) FROM pg_locks WHERE NOT granted) AS lock_waiting, (SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock') AS lock_wait_sessions, (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = 'seat') AS active, (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted) AS advisory_held) s\" 2>/dev/null; sleep 0.5; done"
+}
+
+# 앱별 actuator 조회(ADR-003 앱 2대): nginx를 거치면 두 앱 중 하나만 읽힌다 — lb 컨테이너 안에서 앱 이름으로 직접 묻는다.
+# 인자: 앱 서비스 이름(app|app2) 경로. 앱 1대 조건이면 BASE_URL로.
+app_actuator() {
+  if [[ "${COMPOSE_EXTRA:-}" == *two-apps* ]]; then
+    remote "docker exec seatlab-lb-1 wget -qO- -T 10 http://$1:8101/actuator/$2"
+  else
+    actuator "$2"
+  fi
+}
+
+db_scalar() {  # 인자: SQL — DB 컨테이너에서 한 값
+  timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" "docker exec seatlab-db-1 psql -U seat -d seat -tAc \"$1\""
 }

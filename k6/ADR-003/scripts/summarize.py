@@ -212,6 +212,9 @@ def s1_fairness(csv_gz):
     return {"winner_ranks": sorted(rank[t] for t, st in reqs if st == "201"), "n": len(reqs)}
 
 
+MIN_SAMPLES = 3
+
+
 def timeline_max(path, key, window=None):
     """jsonl 타임라인의 [key] 최대값과 표본 수. window=(시작, 끝) epoch면 그 구간만."""
     vals = []
@@ -270,6 +273,22 @@ def rep_record(rep_dir, root, level, cell):
     for key in ("lock_waiting", "lock_wait_sessions", "advisory_held"):
         rec[f"{key}_max"], rec[f"{key}_samples"] = timeline_max(rep_dir / "timeline-locks.jsonl", key, window)
     rec["hikari_pending_max"], rec["hikari_samples"] = timeline_max(rep_dir / "timeline-hikari.jsonl", "pending", window)
+    # 순간 표본이 k6 구간 안에 MIN_SAMPLES개 미만이면 그 최대값은 '미측정' — 0으로 읽히지 않게(S1 버스트는 2초 안팎, 리뷰 지적)
+    for key, n in (("lock_waiting_max", "lock_waiting_samples"), ("hikari_pending_max", "hikari_samples")):
+        if rec[n] < MIN_SAMPLES:
+            rec[key] = None
+    # 부하 직후 누적 지표(run.sh after_k6) — 앱 2대면 앱별 값을 합산(타임아웃·요청)·최대(획득 대기)
+    after = load(rep_dir / "after-k6.json") or {}
+    apps = after.get("apps") or []
+    acq = [a.get("acquire") or {} for a in apps]
+    rec["acquire_max_ms"] = max((x.get("MAX", 0) * 1000 for x in acq), default=None) if acq else None   # Micrometer timer 단위 = 초
+    rec["acquire_mean_ms"] = (sum(x.get("TOTAL_TIME", 0) for x in acq) / sum(x.get("COUNT", 0) for x in acq) * 1000
+                              if acq and sum(x.get("COUNT", 0) for x in acq) else None)
+    rec["pool_timeouts"] = sum(a.get("timeouts") or 0 for a in apps) if apps else None
+    rec["hold_requests_per_app"] = [a.get("hold_requests") for a in apps]
+    rec["deadlocks"] = after.get("deadlocks_delta")
+    rec["redis_used_mb"] = (after.get("redis") or {}).get("used_memory") and after["redis"]["used_memory"] / 1e6
+    rec["redis_keys"] = (after.get("redis") or {}).get("keys")
     return rec
 
 
@@ -316,11 +335,14 @@ def main(root):
     c = lambda recs, key: spread([(r.get("curve") or {}).get(key) for r in recs])
     section("S1 같은 좌석 1,000명 (Q1) — 정합이면 201 = 1",
             ["단계", "셀", "n", "201", "409", "에러율", "p50 ms", "p99 ms", "좌석당 초과 홀드 행", "201 − 홀드 행",
-             "첫 승자 도착 순위(1,000 중)", "락 대기 최대", "풀 대기 최대", "비정상 회차"],
+             "첫 승자 도착 순위(1,000 중)", "락 대기 최대(표본)", "풀 대기 최대(표본)", "커넥션 획득 대기 최대 ms", "획득 대기 평균 ms",
+             "풀 타임아웃", "데드락", "앱별 선점 요청", "비정상 회차"],
             lambda x: x == "S1",
             lambda ok: [g(ok, "hold_201"), g(ok, "hold_409"), g(ok, "hold_error_rate"), g(ok, "hold_p50"),
                         g(ok, "hold_p99"), v(ok, "v_excess_hold_rows"), g(ok, "ownership_gap"),
-                        g(ok, "first_winner_rank"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max")])
+                        g(ok, "first_winner_rank"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max"),
+                        g(ok, "acquire_max_ms"), g(ok, "acquire_mean_ms"), g(ok, "pool_timeouts"), g(ok, "deadlocks"),
+                        "; ".join(str(r.get("hold_requests_per_app")) for r in ok) or "-"])
     section("S2 같은 사용자 동시 요청 (1인 2매) — 정합이면 201 ≤ 상한",
             ["단계", "셀", "n", "201", "상한(사용자×2)", "매수 초과 사용자", "사용자당 최대", "에러율", "p99 ms", "201 − 홀드 행", "비정상 회차"],
             lambda x: x == "S2",
@@ -338,10 +360,11 @@ def main(root):
                         c(ok, "rehold"), c(ok, "duplicate"), c(ok, "t50"), c(ok, "t90"), g(ok, "hold_p99"), c(ok, "poll_ms_max")])
     section("S4 처리량 한계 — 성공 RPS (기준을 처음 넘은 단계의 직전 단계)",
             ["단계", "셀", "n", "엄격 p99<500ms·에러<1%", "완화 p99<1s·에러<5%", "포화점", "목표 미달 단계 수", "k6 미시작(dropped)",
-             "락 대기 최대", "풀 대기 최대", "비정상 회차"],
+             "락 대기 최대(표본)", "풀 대기 최대(표본)", "획득 대기 평균 ms", "풀 타임아웃", "데드락", "Redis MB·키", "비정상 회차"],
             lambda x: x == "S4",
             lambda ok: [spread([r["limits"][k] for r in ok if "limits" in r]) for k in ("strict", "loose", "saturation", "under_delivered_stages")]
-                       + [g(ok, "dropped"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max")])
+                       + [g(ok, "dropped"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max"), g(ok, "acquire_mean_ms"),
+                          g(ok, "pool_timeouts"), g(ok, "deadlocks"), f'{g(ok, "redis_used_mb")}·{g(ok, "redis_keys")}'])
 
     (root / "SUMMARY.md").write_text("\n".join(lines))
     (root / "summary.json").write_text(json.dumps({f"{k[0]}/{k[1]}": v for k, v in cells.items()},

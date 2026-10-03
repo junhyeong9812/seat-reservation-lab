@@ -53,9 +53,19 @@ class PessimisticNoWaitHoldStrategy(
     override fun hold(command: HoldSeatCommand): HoldSeatResult = try {
         tx.execute { process.hold(command, loadSeat = seats::findForUpdateNoWait) }!!
     } catch (e: PessimisticLockingFailureException) {
-        seatTaken()
+        // NOWAIT의 '진 것'은 55P03(lock_not_available)뿐 — 데드락(40P01) 등 다른 락 실패는 409로 바꾸지 않고 올린다(무음 변환 금지)
+        if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) seatTaken()
+        throw e
+    }
+
+    companion object {
+        const val LOCK_NOT_AVAILABLE = "55P03"
     }
 }
+
+/** 예외 원인 사슬에서 첫 SQLState. */
+internal fun sqlStateOf(e: Throwable): String? =
+    generateSequence(e) { it.cause }.filterIsInstance<SQLException>().firstNotNullOfOrNull { it.sqlState }
 
 /**
  * 4 — 낙관락(버전 열): 읽은 버전이 그대로일 때만 올리고, 아니면 진다(재시도 없음 — 좌석은 한 명만 가지면 된다).

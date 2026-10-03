@@ -57,8 +57,10 @@ def one(path):
 
 def main(root):
     root = Path(root)
-    files = sorted(p for p in root.glob("c*/L*/*/rep*/k6-requests.csv.gz") if ".incomplete" not in str(p))
-    files += sorted(root.glob("c*/L*/*/rep*.incomplete*/k6-requests.csv.gz"))
+    # 조건 폴더 = plan.json이 있는 하위 폴더(이름 규칙에 기대지 않는다 — ADR-002의 c* 글롭이 ADR-003 이름을 놓친 리뷰 지적)
+    conds = [d for d in root.iterdir() if (d / "plan.json").exists()]
+    files = sorted(p for d in conds for p in d.glob("L*/*/rep*/k6-requests.csv.gz") if ".incomplete" not in str(p))
+    files += sorted(p for d in conds for p in d.glob("L*/*/rep*.incomplete*/k6-requests.csv.gz"))
     out, shas = {}, []
     with ProcessPoolExecutor(max_workers=8) as ex:
         for path, digest, counts in ex.map(one, files):
