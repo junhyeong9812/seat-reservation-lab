@@ -25,7 +25,7 @@ source "$(dirname "$0")/lib.sh"
 set +e   # 한 회차 실패가 매트릭스 전체를 멈추지 않게 — 실패는 status로 기록한다
 
 SHA="" LEVELS="2 4" REPS=5 CELLS="S1 S4 S3" MATRIX_ID="" RESUME=0 ONLY_REP=""
-STRATEGY=none POOL=10 APPS=1   # ADR-003 조건 축
+STRATEGY=none POOL=10 APPS=1 DELAY_MS=0   # ADR-003 조건 축 (+ ADR-004 임계 구역 지연)
 COND_CLI=""             # 명령줄로 준 조건 — 이어서 실행 시 계획과 다르면 거부
 while (( $# )); do
   case "$1" in
@@ -38,6 +38,7 @@ while (( $# )); do
     --strategy) STRATEGY="$2"; COND_CLI+=" strategy"; shift 2 ;;
     --pool) POOL="$2"; COND_CLI+=" pool"; shift 2 ;;
     --apps) APPS="$2"; COND_CLI+=" apps"; shift 2 ;;
+    --delay-ms) DELAY_MS="$2"; COND_CLI+=" delay"; shift 2 ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
@@ -46,6 +47,7 @@ done
 STRATEGIES="none jvm-lock jvm-lock-in-tx conditional-update pessimistic pessimistic-nowait optimistic unique advisory redis-nx redis-lock"
 [[ " $STRATEGIES " == *" $STRATEGY "* ]] || { echo "--strategy one of: $STRATEGIES" >&2; exit 2; }
 [[ "$APPS" == 1 || "$APPS" == 2 ]] || { echo "--apps 1|2" >&2; exit 2; }
+[[ "$DELAY_MS" =~ ^[0-9]+$ ]] || { echo "--delay-ms <정수 ms>" >&2; exit 2; }
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-003(results 제외)이 SHA와 다르면 거부한다.
 # 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
@@ -66,14 +68,16 @@ if (( RESUME )); then
   LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"
   # 조건도 계획에서 복원한다 — 명령줄로 다른 값을 주면 거부(다른 조건이 한 결과로 섞이지 않게)
   P_STRATEGY="$(jq -r .condition.strategy "$OUT_ROOT/plan.json")"; P_POOL="$(jq -r .condition.pool "$OUT_ROOT/plan.json")"; P_APPS="$(jq -r .condition.apps "$OUT_ROOT/plan.json")"
+  P_DELAY="$(jq -r '.condition.delay_ms // 0' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
       pool)     [[ "$POOL" == "$P_POOL" ]] || { echo "resume: --pool $POOL ≠ 계획 $P_POOL" >&2; exit 2; } ;;
       apps)     [[ "$APPS" == "$P_APPS" ]] || { echo "resume: --apps $APPS ≠ 계획 $P_APPS" >&2; exit 2; } ;;
+      delay)    [[ "$DELAY_MS" == "$P_DELAY" ]] || { echo "resume: --delay-ms $DELAY_MS ≠ 계획 $P_DELAY" >&2; exit 2; } ;;
     esac
   done
-  STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS"
+  STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY"
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
   echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
 else
@@ -104,9 +108,9 @@ SCENARIOS="$K6_TREE/k6/ADR-003/scenarios"
 
 # ---- 셀 정의 ----------------------------------------------------------------------------------------
 # 앱 설정 그룹. S4는 측정 시간(약 7분)보다 긴 TTL로 만료 배치를 배제한다 — 배치가 처리량 측정에 끼어들지 않게.
-config_of() { case "$1" in S3A|S3B) echo scaled ;; S4) echo s4 ;; *) echo base ;; esac; }
+config_of() { case "$1" in S3A|S3B) echo scaled ;; S4|S6*) echo s4 ;; *) echo base ;; esac; }   # S6도 측정 중 만료 배치를 배제(TTL 60m)
 config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으로 붙는다
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL"
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms"
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;
@@ -115,18 +119,19 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
 }
 ttl_s_of()   { case "$(config_of "$1")" in scaled) echo 30 ;; s4) echo 3600 ;; *) echo 300 ;; esac; }
 grace_of()   { case "$(config_of "$1")" in scaled) echo 2 ;; *) echo 20 ;; esac; }   # 배치 주기 × 2
-seed_of()    { case "$1" in S4) echo "200 10000 0" ;; *) echo "1 10000 0" ;; esac; }   # 배경 0. S4는 200만 석 — 16단계 누적 요청(약 197만)이 시드를 넘으면 없는 좌석(404)이 성공률을 깎는다
+seed_of()    { case "$1" in S4) echo "200 10000 0" ;; S6*) echo "20 10000 0" ;; *) echo "1 10000 0" ;; esac; }   # S6: 핫 1~100,000 + 이웃 100,001~ (7.5만)   # 배경 0. S4는 200만 석 — 16단계 누적 요청(약 197만)이 시드를 넘으면 없는 좌석(404)이 성공률을 깎는다
 script_of() {
   case "$1" in
     S1) echo s1-same-seat.js ;; S2) echo s2-same-user.js ;; S4) echo s4-throughput.js ;;
     S3|S3A|S3B) echo s3-full-flow.js ;;
+    S6*) echo s6-contention.js ;;
   esac
 }
 # S3 변형 × 이탈률은 셀 이름에 붙인다: S3-a0 / S3-a20 / S3-a50
 expand_cells() {
   if [[ -n "${RESUME_CELLS:-}" ]]; then printf '%s\n' $RESUME_CELLS; return; fi
   for c in $CELLS; do
-    case "$c" in S3|S3A|S3B) for a in 0 20 50; do echo "$c-a$a"; done ;; *) echo "$c" ;; esac
+    case "$c" in S3|S3A|S3B) for a in 0 20 50; do echo "$c-a$a"; done ;; S6) for k in 1 10 100; do echo "S6-k$k"; done ;; *) echo "$c" ;; esac
   done
 }
 k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전부 명시한다 (meta.json에 그대로 남는다)
@@ -140,6 +145,7 @@ k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전�
     S3A) echo "RATE=300 TOTAL=20000 SEATS=10000 RETRIES=3 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
     S3B) echo "RATE=3000 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
     S4)  echo "START_RATE=50 FACTOR=1.5 STEPS=16 STEP_S=30" ;;   # ADR-002 13단계(6,487)에서 한계 미관측 → 16단계(약 2.2만/s)
+    S6-k*) echo "K=${base#S6-k} M=20 START_RATE=200 FACTOR=2 STEPS=5 STEP_S=30 NEIGHBOR_RATE=500" ;;   # 핫 200→3,200/s + 이웃 500/s
   esac
 }
 
@@ -192,7 +198,7 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
           [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
           sleep 5
         done ) > /dev/null 2>&1 & echo $! ;;
-    S4)    # 누적 홀드 수만 — DB 직접 (100만 석 전체 판정은 무거워 부하에 간섭한다)
+    S4|S6*)    # 누적 홀드 수만 — DB 직접 (전체 판정은 무거워 부하에 간섭한다)
       ( while :; do
           t0=$(date +%s%N); j=$(db_counts false); t1=$(date +%s%N)
           [[ -n "$j" ]] && echo "$j" | jq -c --arg t "$(date -Is)" --argjson ms $(( (t1 - t0) / 1000000 )) '. + {t: $t, poll_ms: $ms}' >> "$dir/timeline-db.jsonl"
@@ -345,6 +351,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     [[ "$(jq -r '[.db_indexes[].name] | sort | join(",")' "$dir/app-config.json")" == "$EXPECTED_INDEXES" ]] || reasons+=("index-mismatch")
     # 적용된 경합 제어 전략 — 설정 바인딩 결과(enum 이름)를 계획과 대조
     [[ "$(jq -r '.configprops[] | select(.prefix=="seat.hold") | .properties.strategy' "$dir/app-config.json")" == "$(echo "$STRATEGY" | tr 'a-z-' 'A-Z_')" ]] || reasons+=("strategy-mismatch")
+    # 임계 구역 지연(ADR-004) — Duration 바인딩 결과(ISO-8601, 예: PT0.02S / PT0S)와 대조
+    [[ "$(jq -r '.configprops[] | select(.prefix=="seat.hold") | .properties.criticalSectionDelay' "$dir/app-config.json")" == "$(python3 -c "print('PT%gS' % ($DELAY_MS/1000))")" ]] || reasons+=("delay-mismatch")
   fi
   # 앱마다 계획한 전략·풀로 떠서 부하 중 선점 요청을 실제로 받았는가(예열 제외 증가분) — 앱 2대에서 한 대만 살아도 nginx가 다른 쪽으로 몰아
   # '1대 측정'이 되는 것을 잡는다. 지표 조회 자체가 실패한 것(null)은 불일치와 따로 표시한다
@@ -357,7 +365,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   fi
   # 측정 중 k6 PC~서버 경로 단절(ADR-002 A2): 서버 지표 수집 공백이 30초를 넘으면 그 회차는 재측정 대상
   python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("path-gap")
-  if [[ "$base" == S3* || "$base" == S4 ]]; then
+  if [[ "$base" == S3* || "$base" == S4 || "$base" == S6* ]]; then
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
     [[ -s "$dir/k6-dashboard.html" ]] || reasons+=("missing-k6-dashboard.html")
   fi
@@ -382,11 +390,11 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg started "$started" --arg ended "$(date -Is)" \
         --arg k6_started "${k6_window%%|*}" --arg k6_ended "${k6_window##*|}" --arg k6env "$k6env" \
         --arg appenv "$(config_env "$(config_of "$base")") APP_CPUS=$(app_cpus "$level") DB_CPUS=$level" \
-        --arg ttl "$(ttl_s_of "$base")" --arg strategy "$STRATEGY" --arg pool "$POOL" --arg apps "$APPS" \
+        --arg ttl "$(ttl_s_of "$base")" --arg strategy "$STRATEGY" --arg pool "$POOL" --arg apps "$APPS" --arg delay "$DELAY_MS" \
         --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$(k6 version | head -1)" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
           k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
-          strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), bg:0,
+          strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), delay_ms:($delay|tonumber), bg:0,
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6}' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
 }
@@ -394,9 +402,9 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 # ---- 매트릭스 ----------------------------------------------------------------------------------------
 # 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다 (이어서 실행이면 기존 계획 유지)
 (( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
-  --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" \
+  --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" \
   '{sha:$sha, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
-    cells:($cells|split(" ")|map(select(.!=""))), condition:{strategy:$strategy, pool:$pool, apps:$apps}, created:(now|todate)}' > "$OUT_ROOT/plan.json"
+    cells:($cells|split(" ")|map(select(.!=""))), condition:{strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay}, created:(now|todate)}' > "$OUT_ROOT/plan.json"
 
 deploy_sha "$SHA" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }
 log "matrix $MATRIX_ID: levels=[$LEVELS] reps=$REPS cells=[$CELLS]"

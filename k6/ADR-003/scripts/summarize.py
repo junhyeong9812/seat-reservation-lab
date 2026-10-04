@@ -186,6 +186,22 @@ def write_rows(path, rows):
 
 
 # ---- ADR-003 추가 지표 -----------------------------------------------------------------------------
+def s6_stage_table(summ):
+    """S6 단계·스트림별 서브메트릭(시나리오가 stage·stream 태그로 남김) → 단계마다 핫·이웃 성공/s·409/s·에러율·p99."""
+    step = summ.get("step_seconds", 30)
+    m = summ.get("metrics", {})
+    val = lambda name, stat, default=0: m.get(name, {}).get("values", {}).get(stat, default)
+    rows = []
+    for i, target in enumerate(summ.get("stage_rates", [])):
+        t = lambda stream: f"{{stage:{i},stream:{stream}}}"
+        rows.append({"stage": i, "target": target,
+                     "hot_ok": val("hold_201" + t("hot"), "count") / step, "hot_409": val("hold_409" + t("hot"), "count") / step,
+                     "hot_err": val("hold_error" + t("hot"), "rate", None), "hot_p99": val("hold_duration" + t("hot"), "p(99)", None),
+                     "nb_ok": val("hold_201" + t("neighbor"), "count") / step, "nb_err": val("hold_error" + t("neighbor"), "rate", None),
+                     "nb_p99": val("hold_duration" + t("neighbor"), "p(99)", None)})
+    return rows
+
+
 def s1_fairness(csv_gz):
     """S1 이긴 요청(201)의 도착 순위 — 요청을 보낸 시각 t0(ms, 시나리오 태그) 오름차순으로 몇 번째였나.
     반환: {"winner_ranks": [...], "n": 전체 요청 수}. 같은 ms는 동순위(최소 순위). t0 태그가 없으면 None."""
@@ -263,6 +279,10 @@ def rep_record(rep_dir, root, level, cell):
         rec["limits"] = s4_limits(rec["stages"])
     if base.startswith("S3"):
         rec["curve"] = s3_curve(rep_dir, meta, root, level, cell) or {}
+    if base.startswith("S6") and summ:
+        rec["s6_stages"] = s6_stage_table(summ)
+        events = hold_events(rep_dir / "k6-requests.csv.gz", meta.get("ttl_s") or 3600) or []
+        rec["duplicate"] = sum(1 for _, kind in events if kind == "duplicate")
     if base == "S1":
         fair = s1_fairness(rep_dir / "k6-requests.csv.gz")
         if fair:
@@ -367,6 +387,25 @@ def main(root):
             lambda ok: [spread([r["limits"][k] for r in ok if "limits" in r]) for k in ("strict", "loose", "saturation", "under_delivered_stages")]
                        + [g(ok, "dropped"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max"), g(ok, "acquire_mean_ms"),
                           g(ok, "pool_timeouts"), g(ok, "deadlocks"), f'{g(ok, "redis_used_mb")}·{g(ok, "redis_keys")}'])
+
+    # ---- S6 경합 강도 스윕(ADR-003·004): 단계별 핫·이웃 스트림 ----
+    s6 = [(k, v) for k, v in cells.items() if k[1].startswith("S6")]
+    if s6:
+        lines.extend(["## S6 경합 강도 스윕 — 단계별 핫(같은 좌석 K개 × 경쟁자 M) · 이웃(경합 없는 좌석)", "",
+                      "> 값 = 정상 회차의 중앙값. 성공·409는 초당, p99는 ms. 이웃 에러율이 핫 경합의 '번짐'이다.", "",
+                      "| 단계 | 셀 | n | 핫 목표/s | 핫 성공/s | 핫 409/s | 핫 에러율 | 핫 p99 | 이웃 성공/s | 이웃 에러율 | 이웃 p99 | 중복 홀드(판정기) | 일시 중복(요청 기록) | 비정상 회차 |",
+                      "|" + "---|" * 14])
+        for (level, cell), reps in s6:
+            ok = [r for r in reps if r["status"] == "ok"]
+            bad = ", ".join(f'{r["rep"]}:{r["status"]}' for r in reps if r["status"] != "ok") or "-"
+            nstage = max((len(r.get("s6_stages") or []) for r in ok), default=0)
+            for i in range(nstage):
+                st = [r["s6_stages"][i] for r in ok if len(r.get("s6_stages") or []) > i]
+                q = lambda key: spread([x[key] for x in st])
+                lines.append("| " + " | ".join([level, cell if i == 0 else "", str(len(ok)) if i == 0 else "",
+                    q("target"), q("hot_ok"), q("hot_409"), q("hot_err"), q("hot_p99"), q("nb_ok"), q("nb_err"), q("nb_p99"),
+                    v(ok, "v_duplicate_hold_seats") if i == 0 else "", g(ok, "duplicate") if i == 0 else "", bad if i == 0 else ""]) + " |")
+        lines.append("")
 
     (root / "SUMMARY.md").write_text("\n".join(lines))
     (root / "summary.json").write_text(json.dumps({f"{k[0]}/{k[1]}": v for k, v in cells.items()},

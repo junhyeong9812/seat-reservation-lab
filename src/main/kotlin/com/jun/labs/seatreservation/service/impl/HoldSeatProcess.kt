@@ -45,6 +45,8 @@ class HoldSeatProcess(
             ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
         seat.assertHoldable() // 에러 우선순위: 선점 불가가 매수 초과보다 먼저
         holdLimitPolicy.check(command.scheduleId, command.userId, properties.maxPerUser)
+        // ADR-004 실험 장치 — 트랜잭션·커넥션을 쥔 채 느린 작업(결제 사전 확인 등)을 흉내 낸다. 기본 0이면 아무것도 하지 않는다
+        if (!properties.criticalSectionDelay.isZero) Thread.sleep(properties.criticalSectionDelay)
 
         beforeMutation(seat)
         val hold = seat.hold(command.userId, clock.instant(), properties.ttl)

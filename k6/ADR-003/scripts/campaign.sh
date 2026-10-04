@@ -18,7 +18,7 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
   exec bash "$frozen/scripts/campaign.sh" "$@"
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
-SHA="" CAMPAIGN="" REPS=5 S3_REPS=""
+SHA="" CAMPAIGN="" REPS=5 S3_REPS="" SUITE=main
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -26,6 +26,8 @@ while (( $# )); do
     --reps) REPS="$2"; shift 2 ;;   # 스모크용 — 본측정은 5
     # S3 조건은 N회차까지만(2026-10-03 사용자 결정 — S3 1회차에서 L4 성능 지표가 전략 간 같아 5 → 3). 계획(plan.json)은 5 그대로라 빠진 회차는 요약에 '미측정'으로 드러난다
     --s3-reps) S3_REPS="$2"; shift 2 ;;
+    # S6 경합 강도 스윕(ADR-003·004 — 2026-10-04 재합의): 전략 11 × 임계 구역 지연 0/20ms × K(1·10·100), L4. 본측정과 따로 돌린다
+    --suite) SUITE="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -44,10 +46,14 @@ LOG="$ROOT/CAMPAIGN.log"
 # 조건 목록(명세 §9.2) — 이름  run.sh 인자
 STRATEGIES="none jvm-lock jvm-lock-in-tx conditional-update pessimistic pessimistic-nowait optimistic unique advisory redis-nx redis-lock"
 CONDITIONS=()
+if [[ "$SUITE" == s6 ]]; then
+  for d in 0 20; do for s in $STRATEGIES; do CONDITIONS+=("$s-s6-d$d --strategy $s --pool 10 --apps 1 --delay-ms $d --levels '4' --cells 'S6'"); done; done
+else
 for s in $STRATEGIES; do CONDITIONS+=("$s-p10       --strategy $s --pool 10 --apps 1 --levels '2 4' --cells 'S1 S4'"); done
 for s in $STRATEGIES; do CONDITIONS+=("$s-p10-s3    --strategy $s --pool 10 --apps 1 --levels '4'   --cells 'S3'"); done
 for s in pessimistic advisory redis-lock; do CONDITIONS+=("$s-p20  --strategy $s --pool 20 --apps 1 --levels '2 4' --cells 'S1 S4'"); done
 for s in $STRATEGIES; do CONDITIONS+=("$s-p10-2apps --strategy $s --pool 10 --apps 2 --levels '4'   --cells 'S1'"); done
+fi
 printf '%s\n' "${CONDITIONS[@]}" > "$ROOT/conditions.txt"
 
 INFRA_STREAK=0
@@ -74,7 +80,7 @@ non_ok_reps() {  # 정상 아닌 회차의 status 경로 — 보존된 옛 회�
   grep -LxsE 'ok|s4-no-successful-stage' "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true
 }
 
-echo "$(date -Is) CAMPAIGN start sha=$SHA reps=$REPS conditions=${#CONDITIONS[@]}" >> "$LOG"
+echo "$(date -Is) CAMPAIGN start sha=$SHA suite=$SUITE reps=$REPS conditions=${#CONDITIONS[@]}" >> "$LOG"
 for rep in $(seq 1 "$REPS"); do
   for line in "${CONDITIONS[@]}"; do
     if [[ -n "$S3_REPS" && "${line%% *}" == *-s3 ]] && (( rep > S3_REPS )); then continue; fi
