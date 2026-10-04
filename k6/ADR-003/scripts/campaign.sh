@@ -18,12 +18,14 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
   exec bash "$frozen/scripts/campaign.sh" "$@"
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
-SHA="" CAMPAIGN="" REPS=5
+SHA="" CAMPAIGN="" REPS=5 S3_REPS=""
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
     --id) CAMPAIGN="$2"; shift 2 ;;
     --reps) REPS="$2"; shift 2 ;;   # 스모크용 — 본측정은 5
+    # S3 조건은 N회차까지만(2026-10-03 사용자 결정 — S3 1회차에서 L4 성능 지표가 전략 간 같아 5 → 3). 계획(plan.json)은 5 그대로라 빠진 회차는 요약에 '미측정'으로 드러난다
+    --s3-reps) S3_REPS="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -74,7 +76,10 @@ non_ok_reps() {  # 정상 아닌 회차의 status 경로 — 보존된 옛 회�
 
 echo "$(date -Is) CAMPAIGN start sha=$SHA reps=$REPS conditions=${#CONDITIONS[@]}" >> "$LOG"
 for rep in $(seq 1 "$REPS"); do
-  for line in "${CONDITIONS[@]}"; do run_condition_rep "$line" "$rep"; done
+  for line in "${CONDITIONS[@]}"; do
+    if [[ -n "$S3_REPS" && "${line%% *}" == *-s3 ]] && (( rep > S3_REPS )); then continue; fi
+    run_condition_rep "$line" "$rep"
+  done
 done
 
 # 비정상 회차 재측정: 그 회차 폴더를 옆으로 보존하고(path-gap이면 .path-gap-<시각>, 그 밖은 .retry-<시각>) 같은 회차를 다시 잰다 — 최대 2바퀴
