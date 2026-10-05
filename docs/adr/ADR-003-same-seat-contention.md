@@ -37,7 +37,7 @@ ADR-002가 관측한 before(인덱스 있음·풀 10):
 - 진 쪽 응답은 모든 방식에서 기준선과 같은 **409 `SEAT_NOT_AVAILABLE`** — 응답 계약 불변.
 - 확정·만료 경로와 1인 2매(`HoldLimitPolicy`)는 바꾸지 않는다.
 
-> **SQL 표기에 대해**: 아래 SQL은 코드(Spring Data 메서드·`@Query`·네이티브 쿼리)와 ADR-002 S5에서 실측한 쿼리 모양(Q1~Q4)으로 적었다. Hibernate가 실제로 보내는 문장(별칭·열 순서, 비관락의 `FOR UPDATE` 형태)은 측정 중에는 k6 PC에서 테스트를 돌릴 수 없어(측정 오염) **캠페인 후 SQL 로그로 대조**한다 — 대조 전까지 `(확인 전)` 표시가 붙은 줄은 형태가 다를 수 있다. 네이티브 쿼리(조건부 UPDATE·버전·advisory)는 코드의 문자열 그대로다.
+> **SQL 표기에 대해**: 아래 SQL은 **Hibernate가 실제로 보낸 문장**이다 — 본측정 캠페인이 끝난 뒤(2026-10-05) 전략 테스트를 `spring.jpa.show-sql=true`로 돌려 받은 로그에서 옮겼다(별칭 `ps1_0` 등은 Hibernate가 붙인 그대로). 네이티브 쿼리(조건부 UPDATE·버전)는 코드 문자열 그대로, advisory는 JdbcTemplate이라 Hibernate 로그 밖이다.
 
 ### 2.1 공통 선점 흐름 — 모든 방식이 공유하는 규칙과 쿼리
 
@@ -71,12 +71,12 @@ fun hold(
 | 단계 | 하는 일 | 쿼리 |
 |------|--------|------|
 | ① 트랜잭션 시작 | 커넥션 풀(Hikari)에서 커넥션 획득, `BEGIN` | — |
-| ② 좌석 읽기 | 좌석 애그리거트 로드 | `SELECT id, schedule_id, section, row_no, seat_no, status FROM product_seat WHERE id = ? AND schedule_id = ?` |
+| ② 좌석 읽기 | 좌석 애그리거트 로드 | `select ps1_0.id,ps1_0.row_no,ps1_0.schedule_id,ps1_0.seat_no,ps1_0.section,ps1_0.status from product_seat ps1_0 where ps1_0.id=? and ps1_0.schedule_id=?` |
 | ③ 선점 가능 확인 | `status == AVAILABLE`인지 **앱 메모리에서** 비교 (아니면 409) | — |
-| ④ 1인 2매 확인 | 홀드 수 + 확정 예약 수 < 2 (아니면 409 `HOLD_LIMIT_EXCEEDED`) | `SELECT count(ps.id) FROM product_seat ps JOIN seat_hold h ON ps.id = h.seat_id WHERE ps.schedule_id = ? AND h.user_id = ?` · `SELECT count(r.id) FROM reservation r WHERE r.schedule_id = ? AND r.user_id = ? AND r.status = 'CONFIRMED'` |
+| ④ 1인 2매 확인 | 홀드 수 + 확정 예약 수 < 2 (아니면 409 `HOLD_LIMIT_EXCEEDED`) | `select count(ps1_0.id) from product_seat ps1_0 left join seat_hold h1_0 on ps1_0.id=h1_0.seat_id where ps1_0.schedule_id=? and h1_0.user_id=?` (메서드 이름 경로라 Hibernate가 `left join`을 만든다 — WHERE의 `h1_0.user_id` 조건 때문에 결과는 내부 조인과 같다) · `select count(r1_0.id) from reservation r1_0 where r1_0.schedule_id=? and r1_0.user_id=? and r1_0.status=?` |
 | ⑤ 전이 전 확장점 | 방식별(조건부 UPDATE 자리) | — |
-| ⑥ 상태 전이 | `seat.hold()` — 상태를 HELD로, 홀드 컬렉션에 추가(컬렉션을 처음 건드리므로 로드됨) | `SELECT … FROM seat_hold WHERE seat_id = ?` (확인 전) |
-| ⑦ flush | 홀드 INSERT, 좌석 UPDATE | `INSERT INTO seat_hold (seat_id, schedule_id, user_id, held_at, expires_at) VALUES (…) RETURNING id` · `UPDATE product_seat SET schedule_id=?, section=?, row_no=?, seat_no=?, status='HELD' WHERE id = ?` (확인 전 — 변경 감지가 전체 열을 쓴다) |
+| ⑥ 상태 전이 | `seat.hold()` — 상태를 HELD로, 홀드 컬렉션에 추가(소유 쪽 단방향 컬렉션이라 추가하려면 먼저 로드된다) | `select h1_0.seat_id,h1_0.id,h1_0.expires_at,h1_0.held_at,h1_0.schedule_id,h1_0.user_id from seat_hold h1_0 where h1_0.seat_id=?` |
+| ⑦ flush | 홀드 INSERT, 좌석 UPDATE, **홀드 외래키 UPDATE** | `insert into seat_hold (seat_id,expires_at,held_at,schedule_id,user_id) values (?,?,?,?,?)` · `update product_seat set row_no=?,schedule_id=?,seat_no=?,section=?,status=? where id=?`(변경 감지가 전체 열을 쓴다) · `update seat_hold set seat_id=? where id=?` — 단방향 `@OneToMany @JoinColumn`은 자식 INSERT 뒤 외래키를 한 번 더 UPDATE한다(INSERT에 이미 seat_id가 있어도). **선점 한 번에 쓰기 3문장** |
 | ⑧ flush 후 확장점 | 방식별(낙관락 버전 검사 자리) | — |
 | ⑨ 커밋 | `COMMIT` → 커넥션 반납 | — |
 
@@ -283,7 +283,7 @@ override fun hold(command: HoldSeatCommand): HoldSeatResult =
 fun findForUpdate(id: Long, scheduleId: Long): ProductSeat?
 ```
 
-- **바뀐 쿼리(②)**: `SELECT … FROM product_seat WHERE id = ? AND schedule_id = ? FOR NO KEY UPDATE` (확인 전 — Hibernate 6 PostgreSQL 방언의 PESSIMISTIC_WRITE 형태. `FOR UPDATE`일 수도 있다)
+- **바뀐 쿼리(②)**: `select ps1_0.id,… from product_seat ps1_0 where ps1_0.id=? and ps1_0.schedule_id=? for no key update` — Hibernate 6 PostgreSQL 방언의 PESSIMISTIC_WRITE는 `FOR UPDATE`보다 약한 `FOR NO KEY UPDATE`다(키가 아닌 열만 바꿀 때의 배타 락 — 다른 테이블의 외래키 참조(`FOR KEY SHARE`)와 충돌하지 않는다). 같은 좌석의 두 `FOR NO KEY UPDATE`끼리는 충돌하므로 직렬화는 그대로다.
 - **락**: 좌석 행 배타 락을 **읽을 때** 잡는다.
 - **락 구간**: ② 읽기 시점에 획득 → ⑨ 커밋 때 해제. 뒤에 온 요청은 ②에서 기다렸다가 앞 요청 커밋 뒤의 최신 행(HELD)을 읽고 ③에서 진다.
 
@@ -312,7 +312,7 @@ override fun hold(command: HoldSeatCommand): HoldSeatResult = try {
 fun findForUpdateNoWait(id: Long, scheduleId: Long): ProductSeat?
 ```
 
-- **바뀐 쿼리(②)**: `… FOR NO KEY UPDATE NOWAIT` (확인 전 — 락 타임아웃 0이 NOWAIT로 바뀐다. 테스트로 '기다리지 않음'은 확인했다)
+- **바뀐 쿼리(②)**: `… for no key update nowait` — 락 타임아웃 힌트 0이 NOWAIT로 바뀐다(실측 SQL·'기다리지 않음' 테스트 모두 확인).
 - **락**: 3a와 같은 행 락. 이미 잠겨 있으면 **기다리지 않고** PostgreSQL이 `55P03 lock_not_available` 오류를 낸다 → 409.
 - **락 구간**: 3a와 같다(② ~ ⑨). 진 쪽은 ②에서 즉시 실패하고 롤백한다.
 - **주의**: 이긴 쪽이 커밋한 **뒤**에 도착한 요청은 락이 없으니 ②를 통과해 HELD를 읽고 ③에서 진다 — 진 쪽의 실패 코드가 두 갈래(55P03 / 상태 검사)지만 응답은 같은 409.

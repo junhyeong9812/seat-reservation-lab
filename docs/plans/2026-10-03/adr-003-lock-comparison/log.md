@@ -34,6 +34,11 @@
 | 10-04 12:04 | 1회차 16.0h 분해: S3 11.0h(69%)·S1S4 3.8h·풀20 1.0h·2앱 0.2h. S3 1회차 분석(11전략×3이탈): 확정·409 재시도·포기·에러·지연·커넥션 대기 모두 전략 간 같음(L4 S3 부하가 처리 능력보다 한참 아래), 차이는 none(2/1/1)·1b(0/1/2)의 **일시 중복 홀드** — 끝 상태 판정기(v_duplicate_hold_seats)는 0으로 놓침(한 쪽 확정 후 다른 홀드는 판정 전 만료) | 사용자 선택 A: S3 3회 → campaign.sh --s3-reps 커밋 b574543(측정 대상 diff 0), 조건 경계 전환 감시 유닛 seatlab-adr003-switch |
 | 10-04 12:14 | 캠페인 전환 완료: 조건 경계(optimistic-p10-s3 rep2 exit) → seatlab-adr003 정지 → seatlab-adr003b(sha b574543, --s3-reps 3) 같은 id 재개 | 끊긴 회차 없음 |
 | 10-04 18:21 | 사용자: 지연 변형은 새 ADR로(A) → 작업 트리 feat/adr-003-s6(/home/jun/project/lab/backend-labs-commerce/seat-lab-s6 — 본 캠페인 자동 재개의 하네스 SHA 검사를 깨지 않게)에서: ADR-004~010 → 005~011(축약 표기 2곳 수동 정정), 새 ADR-004(임계 구역 길이·락 보유 시간) cad082e · S6 구현(지연 설정·s6-contention.js·--delay-ms·--suite s6·S6 요약·지연 테스트) 147051f — 컴파일·k6 inspect만(테스트·스모크는 캠페인 종료 후: k6 PC·서버 공유) | 본 캠페인 종료 후 병합 → 테스트 → 스모크 → S6 캠페인 |
+| 10-05 19:32 | **본측정 캠페인 종료** — 434/434(S3 4·5회차는 계획대로 생략), 비정상 회차 0, 재측정 0, 경로 내내 유선 | — |
+| 10-05 21:36 | feat/adr-003-s6 병합(853ef7a) → 테스트 68/68 green(지연 테스트 2 포함) → S6 스모크(pessimistic·지연 20ms·K 1/10/100·L4) 시작 | — |
+| 10-05 21:49 | S6 스모크(pessimistic·지연 20ms·K 1/10/100) 3셀 ok — **이웃 스트림 번짐 확인**: K=1 이웃 p99 2.5s→6.5s, 이웃 처리 464→322/s(목표 500), 커넥션 획득 대기 평균 190ms·최대 841ms, 중복 0 | S6 하네스 동작 확인 |
+| 10-05 21:52 | Hibernate 실제 SQL 대조(측정 없는 틈에): 로그 레벨 환경변수(LOGGING_LEVEL_ORG_HIBERNATE_SQL)는 Spring이 로거 이름을 소문자로 바꿔 org.hibernate.SQL에 안 먹음 → spring.jpa.show-sql로. 결과: 비관락 `for no key update`(nowait 포함) 확인 · 1인 2매 홀드 수는 `left join` · **flush에 `update seat_hold set seat_id=?`가 하나 더**(단방향 @OneToMany @JoinColumn — 선점 1회 쓰기 3문장) | ADR-003 §2 SQL을 실측으로 교체, '확인 전' 0. CS 이슈 후보: 단방향 OneToMany의 추가 FK UPDATE · 환경변수 로그 레벨 대소문자 |
+| 10-05 21:53 | **S6 캠페인 시작**: campaign.sh --sha 853ef7a --suite s6 --reps 3 --id 20261005-adr003-s6-853ef7a — 유닛 seatlab-adr003-s6(Restart=on-failure), 조건 22 × K 3 × 3회 = 198회 | 약 12~13h, 10-06 오전 종료 예상 |
 
 ## 리뷰 ledger (中↑)
 
