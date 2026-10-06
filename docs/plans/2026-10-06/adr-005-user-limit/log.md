@@ -12,11 +12,30 @@
 | 10-06 (워커 회수) | 하네스 회수 — k6/ADR-005(복사 + --limit-strategy·S7·S2 사용자별·타이머 차분·limit-bench·mismatch), .gitignore 1행. 스모크(앱 83fb4719, worktree 배포, 워커 기록 17:58~18:13): S2 none 매수 초과 15(**가정 1 실증**) · S2 counter 0·불일치 0 · S7 none 억울한 좌석 0(U 락 21/100) · S7 counter 0(U 100/100 좌석 락 전 거절) · mismatch 주입 → limit-strategy-mismatch · bench 배경 0 ok. 메인 교차 확인: 5개 status·consistency.json 수치 일치. 서버 폴더 83fb4719-wt-* 4개 생성(컨테이너 없음) | S7 설계는 사용자 결정 |
 | 10-06 18:18 | 사용자: S7 'M=20 유지 + M=1 변형 추가'(재합의 — spec §0·§9.2) → 하네스에 셀 S7-m1(cell_base로 S7 계열, k6 M=1) · campaign S7 조건에 S7-m1 · 요약기 두 표. 스모크 S7-m1 none 1회 시작 | 결과 대기 |
 | 10-06 18:21 | 스모크 S7-m1 none(앱 899b317f, worktree, 18:20 종료): status ok · **억울한 좌석 77/100**(U 좌석 락 후 롤백 79 · 일반 201 23 · 빈 좌석 77) · 201 − 홀드 행 0 · 일반−U 보낸 시각 −1~2ms. M=20의 0과 대비 — 경쟁자가 적으면 3b 롤백 피해가 직접 드러난다 | 하네스 커밋 → 리뷰 |
+| 10-06 18:22 | task 05 中 듀얼 1패스(코드+하네스) 시작 — packet: git diff 4674c3c6..HEAD(로그·NEXT·measurement·ADR-005 results 제외) + spec + related-raw, 미러 = src·docs/adr·k6/ADR-003 스크립트·k6/ADR-005(+스모크 요약 파일), `$OUT=scratchpad/rv5`. 보안 스캔 0건 | codex(medium) ∥ Opus |
+| 10-06 (리뷰 회수) | codex 4건 · Opus 11건 + OQ 3 회수. 메인 재현: 즉시 실패형의 좌석 전 거절(코드 :67·:118) · 타이머가 좌석 구간 누락(HoldSeatProcess) · S7 억울한 409가 SNA만(summarize :276) · S3 plan reps 5(campaign :62) · ensureQuotaRow가 매 요청(around 매번) — 확인. ON CONFLICT 대기는 특성 테스트로 확인(아래) | 사용자 결정 1건(에러 순서) |
+| 10-06 (사용자) | 에러 순서: 처음 '즉시 실패형도 예외 허용' 선택 → 곧바로 "명세를 보존하고 위 내용은 추가로 확인하는게 맞지 않나?" → 해석 확인 질문 → **"명세 순서로 고치고, 먼저 거절하는 변형을 추가 측정"**(재합의: 방식 10개, quota-nowait 계열 SKIP LOCKED) | spec §0·§1·§2·§9 갱신 |
+| 10-06 18:48 | 수정(앱): prepare 단계 분리(타이머 prepare) · ensureQuotaRow 'SELECT 먼저' · span 타이머 · acquire→Boolean/check(entered) — L2·L4 명세 순서, -early 2개, L4 계열 SKIP LOCKED · 기동 검사(매수 방식 ≠ none이면 좌석 3b만) · counter + 배경 행 거부. 테스트: 40001 결정적(L6 거절 1·L7 재시도 성공) · 진입 쥔 동안 다른 사용자 통과/같은 사용자 대기·거절·경합 중 에러 순서 · ON CONFLICT 대기 특성 → **151/151 green**(중간 실패: 격리 수준 테스트가 prepare 미호출 3건 — 테스트 수정). 수정(하네스): 방식 10개 · S3 plan reps 3 · S7 억울한 409 코드 무관 + 코드별 · S7 setup 409 HLE 순차 재시도 5 · 타이머 4종 차분, MAX 교차표 제외 · 캠페인 끝 limit-bench, 없으면 '미측정'+problem. 문서: ADR-005 §2·§3·§5·§6.1·6.1.1, README | 다음: 재스모크 → codex post-fix 재점검 |
 
 ## 리뷰 ledger (中↑)
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
+| C1 | 1 | codex·opus | UserLimitStrategies.kt L2·L4 acquire | 채택 — 즉시 실패형이 좌석 확인 전 거절(명세 §2 위반) | fixed(재합의: 명세 순서 + -early 변형) | 1 |
+| C2 | 1 | codex·opus(OQ2) | HoldSeatProcess.kt 타이머 | 채택 — 좌석 구간이 어느 타이머에도 없음 | fixed(span·prepare) | 1 |
+| C3 | 1 | codex·opus | summarize.py S7 wronged_409 | 채택 — SNA만 셈(L6·L7 과소) | fixed(코드 무관 + 코드별) | 1 |
+| C4 | 1 | codex | campaign.sh S3 reps | 채택 — plan 5 vs 실행 3 | fixed | 1 |
+| O1 | 1 | opus | ensureQuotaRow ON CONFLICT | 채택 — UPDATE 중인 행을 기다림(특성 테스트로 확인) | fixed(SELECT 먼저 + 특성 테스트) | 1 |
+| O2 | 1 | opus | s7 setup 병렬 + serializable | 채택 — 40001로 setup throw 반복 가능 | fixed(HLE 순차 재시도 5) — 재스모크 대상 | 1 |
+| O5 | 1 | opus | 테스트 — L7 재시도·L6 40001 경로 | 채택 | fixed(결정적 충돌 테스트) | 1 |
+| O6 | 1 | opus | 테스트 — 다른 사용자 비차단 | 채택 — 전역 직렬화여도 통과(그린 위장) | fixed(락 쥔 채 확인) | 1 |
+| O7 | 1 | opus | run.sh MAX 창 | 채택 — 예열 혼입 | fixed(교차표 제외·README) | 1 |
+| O8 | 1 | opus | ADR §2.5 '첫 요청' | 채택 — 매 요청 | fixed | 1 |
+| O9 | 1 | opus | compare.py limit-bench | 채택 — 캠페인에 없고 무음 생략 | fixed(캠페인 끝 실행 + 미측정·problem) | 1 |
+| O10 | 1 | opus | LoadtestDataService 배경 × counter | 채택 — 거짓 위반 잠복 | fixed(거부) | 1 |
+| O11 | 1 | opus | V4/V5 번호 | 기록만 — 측정 영향 없음(회차마다 DB 삭제) | user-deferred 아님·ADR 기록 | — |
+| OQ1 | 1 | opus | HoldStrategyStartupCheck | 채택 — 3b 외 조합 차단 | fixed | 1 |
+| OQ3 | 1 | opus | 앱 2대 만료 교착 | 범위 밖(앱 1대) — ADR 기록 | — | — |
 
 ## 생략한 검증
 
