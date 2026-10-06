@@ -155,8 +155,16 @@ def main(root):
     def s1(name, lv, reps, used):
         v201 = [r["hold_201"] for r in used]
         p99 = [r["hold_p99"] for r in used]
-        return {"cells": [spread(v201), reps_list(v201), spread(p99)], "json": {"hold_201": v201, "hold_p99": p99}}
-    section("S1 같은 좌석 1,000명 — 201 수(정합이면 1)", "S1", ["201", "회차별 201", "p99 ms"], s1)
+        p50 = [r["hold_p50"] for r in used]
+        rank = [r.get("first_winner_rank") for r in used]
+        lockm = [r.get("lock_waiting_max") for r in used]
+        acqm = [r.get("acquire_mean_ms") for r in used]
+        acqx = [r.get("acquire_max_ms") for r in used]
+        return {"cells": [spread(v201), reps_list(v201), spread(p50), spread(p99), spread(rank), reps_list(rank), spread(lockm), spread(acqm, 1), spread(acqx)],
+                "json": {"hold_201": v201, "hold_p50": p50, "hold_p99": p99, "first_winner_rank": rank, "lock_waiting_max": lockm,
+                         "acquire_mean_ms": acqm, "acquire_max_ms": acqx}}
+    section("S1 같은 좌석 1,000명 — 201 수(정합이면 1) · 지연 · 공정성(첫 승자 도착 순위, 1,000 중) · 락·커넥션 대기", "S1",
+            ["201", "회차별 201", "p50 ms", "p99 ms", "첫 승자 순위", "회차별 순위", "DB 락 대기 최대", "커넥션 획득 대기 평균 ms", "획득 대기 최대 ms"], s1)
 
     def s2(name, lv, reps, used):
         v201 = [r["hold_201"] for r in used]
@@ -166,6 +174,7 @@ def main(root):
     section("S2 같은 사용자 동시 요청 — 201(상한 200)·매수 초과 사용자", "S2", ["201", "매수 초과 사용자", "p99 ms"], s2)
 
     def s4(name, lv, reps, used):
+        acqm4 = [r.get("acquire_mean_ms") for r in used]
         strict = [r["limits"]["strict"] for r in used]
         sat = [r["limits"]["saturation"] for r in used]
         cens = [censored(r) for r in used]
@@ -178,11 +187,11 @@ def main(root):
         result_fail = [f"{r['rep']}:{r['status']}(결과 포함)" for r in used if r["status"] != "ok"]
         lim = spread_censored(strict, cens)
         per_rep = ", ".join(("≥" if c else "") + f"{v:,.0f}" for v, c in zip(strict, cens))
-        return {"cells": [lim, per_rep, spread(sat), spread(app), spread(db), ", ".join(gaps) or "-", ", ".join(excluded + result_fail) or "-"],
-                "json": {"strict": strict, "censored": cens, "saturation": sat, "app_cpu_max": app, "db_cpu_max": db,
+        return {"cells": [lim, per_rep, spread(sat), spread(app), spread(db), spread(acqm4, 2), ", ".join(gaps) or "-", ", ".join(excluded + result_fail) or "-"],
+                "json": {"strict": strict, "censored": cens, "saturation": sat, "app_cpu_max": app, "db_cpu_max": db, "acquire_mean_ms": acqm4,
                          "collection_gaps": gaps, "excluded": excluded, "result_fail": result_fail}}
     section("S4 처리량 한계 — 엄격(p99<500ms·에러<1%) 직전 단계 성공 RPS(≥ = 계단 끝까지 통과 — 계단 상한) · 포화점 · 부하 구간 전체 CPU% 최대",
-            "S4", ["엄격 한계", "회차별 엄격 한계", "포화점", "앱 CPU% 최대(구간 전체)", "DB CPU% 최대(구간 전체)", f"서버 지표 수집 공백 >{GAP_S}s", "비정상 회차"], s4)
+            "S4", ["엄격 한계", "회차별 엄격 한계", "포화점", "앱 CPU% 최대(구간 전체)", "DB CPU% 최대(구간 전체)", "커넥션 획득 대기 평균 ms", f"서버 지표 수집 공백 >{GAP_S}s", "비정상 회차"], s4)
 
     for cell in ("S3-a0", "S3-a20", "S3-a50"):
         def s3(name, lv, reps, used):
@@ -194,6 +203,56 @@ def main(root):
                     "json": {"confirm_error_rate": ce, "hold_error_rate": he, "confirmed": conf, "ownership_gap": gap}}
         section(f"S3 원본 {cell} — 확정 에러율·유령 확정(확정200 − CONFIRMED)", cell,
                 ["확정 에러율", "회차별 확정 에러율", "선점 에러율", "CONFIRMED", "확정200 − CONFIRMED"], s3)
+
+    # ---- S6 경합 강도 스윕(ADR-003·004): 조건(전략×지연) × K × 단계 — 회차 중앙값 ----------------------
+    s6 = [(n, c) for n, c in conds.items() if any(k.split("/")[1].startswith("S6") for k in c["data"])]
+    if s6:
+        out.append("\n## S6 경합 강도 스윕 — 전략 × 임계 구역 지연 × 핫 좌석 K × 핫 도착률 단계 (회차 중앙값)\n")
+        out.append("> 핫 201/s = 핫 스트림 201 응답 수 ÷ 단계 시간 — 중복 승리도 센다(정합 방식에서만 '좌석이 넘어간 속도'). 이웃 = 경합 없는 좌석 500건/s. "
+                   "이웃 처리/s·p99·에러율이 핫 경합의 '번짐'. 중복 = 판정기 중복 좌석 수(v_duplicate_hold_seats) / 판정기 초과 홀드 수(v_excess_hold_rows) / "
+                   "요청 기록 일시 중복 홀드 수(duplicate — 초과 홀드와 같은 단위). 커넥션 획득 평균은 획득 1회당(분모가 방식마다 다르다). "
+                   "Hikari 대기 최대·dropped(k6가 시작 못 한 반복)·락 대기는 회차 전체.\n")
+        out.append("| 조건 | K | n | 단계 목표/s | 핫 201/s | 핫 p99 ms | 핫 에러율 | 이웃 처리/s | 이웃 p99 ms | 이웃 에러율 | 중복 좌석·초과 홀드·일시 | 커넥션 획득 평균 ms | Hikari 대기 최대 | dropped | 락 대기 최대 |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        for name, c in s6:
+            for key, reps in c["data"].items():
+                lv, cell = key.split("/")
+                if not cell.startswith("S6"):
+                    continue
+                used = [r for r in reps if r["status"] == "ok"]
+                if not used:  # 무음 누락 금지 — 쓸 회차가 없으면 미측정 행
+                    out.append(f"| {name} | {cell[4:]} | 0/{len(reps)} | 미측정 | | | | | | | | | | | |")
+                    js.setdefault("s6", {})[f"{name}/{key}"] = {"stages": [], "n": 0, "n_total": len(reps)}
+                    continue
+                nst = max((len(r.get("s6_stages") or []) for r in used), default=0)
+                rows6 = []
+                for i in range(nst):
+                    st = [r["s6_stages"][i] for r in used if len(r.get("s6_stages") or []) > i]
+                    q = lambda k, d=0: spread([x[k] for x in st], d)
+                    first = i == 0
+                    out.append(f"| {name if first else ''} | {cell[4:] if first else ''} | {f'{len(used)}/{len(reps)}' if first else ''} | {st[0]['target']:,} | {q('hot_ok', 1)} | {q('hot_p99')} | "
+                               f"{q('hot_err', 3)} | {q('nb_ok', 1)} | {q('nb_p99')} | {q('nb_err', 3)} | "
+                               + (f"{spread([r['consistency'].get('v_duplicate_hold_seats') for r in used])}·{spread([r['consistency'].get('v_excess_hold_rows') for r in used])}·"
+                                  f"{spread([r.get('duplicate') for r in used])} | {spread([r.get('acquire_mean_ms') for r in used], 1)} | "
+                                  f"{spread([r.get('hikari_pending_max') for r in used])} | {spread([r.get('dropped') for r in used])} | {spread([r.get('lock_waiting_max') for r in used])} |"
+                                  if first else "| | | | |"))
+                    rows6.append({k: [x[k] for x in st] for k in st[0]})
+                js.setdefault("s6", {})[f"{name}/{key}"] = {"stages": rows6, "n": len(used), "n_total": len(reps),
+                    "dup_seats": [r["consistency"].get("v_duplicate_hold_seats") for r in used],
+                    "dup_excess_rows": [r["consistency"].get("v_excess_hold_rows") for r in used], "dup_transient": [r.get("duplicate") for r in used],
+                    "hikari_pending_max": [r.get("hikari_pending_max") for r in used], "dropped": [r.get("dropped") for r in used],
+                    "acquire_mean_ms": [r.get("acquire_mean_ms") for r in used], "lock_waiting_max": [r.get("lock_waiting_max") for r in used]}
+
+    # ---- 판정기 전수: 셀마다 위반(v_* 합 > 0) 회차 수 — 정합성 '전 회차' 주장의 산출 근거 ----------------
+    out.append("\n## 판정기 전수 — 셀별 위반 회차(v_* 합 > 0) / 정상 회차\n")
+    out.append("| 조건 | 셀 | 위반 회차 | 정상 회차 | v_* 합 최대 |")
+    out.append("|---|---|---|---|---|")
+    for name, c in conds.items():
+        for key, reps in c["data"].items():
+            ok = [r for r in reps if r["status"] == "ok"]
+            sums = [sum(v for k, v in (r.get("consistency") or {}).items() if k.startswith("v_") and isinstance(v, (int, float))) for r in ok]
+            out.append(f"| {name} | {key} | {sum(1 for x in sums if x)} | {len(ok)} | {max(sums, default=0):,} |")
+            js.setdefault("oracle_sweep", {})[f"{name}/{key}"] = {"violating": sum(1 for x in sums if x), "ok": len(ok), "max": max(sums, default=0)}
 
     # ---- 응답 코드 분류 (errsplit.py 산출 — 있으면) ----------------------------------------------------
     es = root / "errsplit.json"
