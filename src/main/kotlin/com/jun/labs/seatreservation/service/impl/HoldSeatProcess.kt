@@ -44,16 +44,21 @@ class HoldSeatProcess(
     ): HoldSeatResult {
         val limit = userLimit.strategy
         // 락 순서: 사용자 → 좌석(ADR-005). 사용자 락·카운터는 좌석을 읽기 전에, 매수 판정은 좌석 확인 뒤에(에러 우선순위 보존 — counter만 예외)
-        // 타이머: acquire(사용자 단위 진입) · check(매수 판정 호출) · span(acquire 시작 ~ 매수 판정 끝 — 그 사이 좌석 읽기·확인 포함, 명세 §9.1 '실 락 획득부터 판정까지')
-        val spanStart = System.nanoTime()
+        // 타이머: acquire(사용자 단위 진입 — 락 대기 포함) · check(매수 판정 호출) · span(진입 직후 ~ 매수 판정 끝 — 그 사이 좌석 읽기·확인 포함,
+        // 명세 §9.1 '실 락 획득부터 판정까지'). span은 거절(409)로 끝나도 기록한다
         var entered = true
         meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })
-        val load = loadSeat ?: productSeatRepository::findByIdAndScheduleId
-        val seat = load(command.seatId, command.scheduleId)
-            ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
-        seat.assertHoldable() // 에러 우선순위: 선점 불가가 매수 초과보다 먼저
-        meters.timer("seat.hold.limit.check").record(Runnable { limit.check(command, entered) })
-        meters.timer("seat.hold.limit.span").record(System.nanoTime() - spanStart, java.util.concurrent.TimeUnit.NANOSECONDS)
+        val spanStart = System.nanoTime()
+        val seat = try {
+            val load = loadSeat ?: productSeatRepository::findByIdAndScheduleId
+            val loaded = load(command.seatId, command.scheduleId)
+                ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+            loaded.assertHoldable() // 에러 우선순위: 선점 불가가 매수 초과보다 먼저
+            meters.timer("seat.hold.limit.check").record(Runnable { limit.check(command, entered) })
+            loaded
+        } finally {
+            meters.timer("seat.hold.limit.span").record(System.nanoTime() - spanStart, java.util.concurrent.TimeUnit.NANOSECONDS)
+        }
         // ADR-004 실험 장치 — 트랜잭션·커넥션을 쥔 채 느린 작업(결제 사전 확인 등)을 흉내 낸다. 기본 0이면 아무것도 하지 않는다
         if (!properties.criticalSectionDelay.isZero) Thread.sleep(properties.criticalSectionDelay)
 

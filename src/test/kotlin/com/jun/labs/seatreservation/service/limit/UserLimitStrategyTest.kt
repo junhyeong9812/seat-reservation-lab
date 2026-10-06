@@ -278,7 +278,8 @@ class SerializableUserLimitTest : UserLimitStrategyTest(SERIALIZABLE)
 class SerializableRetryUserLimitTest : UserLimitStrategyTest(SERIALIZABLE_RETRY)
 
 /**
- * SERIALIZABLE 충돌(40001) 경로를 결정적으로 만든다 — 임계 구역 지연(ADR-004 장치)으로 같은 사용자의 두 트랜잭션이 서로의 홀드를 못 본 채
+ * SERIALIZABLE 충돌(40001) 경로를 만든다 — 임계 구역 지연(ADR-004 장치, 매수 판정 뒤 1초)으로 같은 사용자의 두 트랜잭션이 서로의 홀드를 못 본 채
+ * (두 요청의 시작 차이가 1초보다 작으면 둘 다 판정을 마친 뒤 쓴다 — 동기화 hook이 없어 시간 여유로 보장. 실패해도 '40001 0회' 단언이 드러낸다)
  * 매수를 세고 쓰게 한다. L6은 하나가 거절되고, L7은 다시 해서 둘 다 성공한다(두 번째 시도는 첫 홀드를 보고 센다).
  */
 abstract class SerializableConflictTest(private val retry: Boolean) : IntegrationTest() {
@@ -318,8 +319,8 @@ abstract class SerializableConflictTest(private val retry: Boolean) : Integratio
     }
 }
 
-@Props(properties = ["seat.hold.limit-strategy=serializable", "seat.hold.critical-section-delay=300ms"])
+@Props(properties = ["seat.hold.limit-strategy=serializable", "seat.hold.critical-section-delay=1s"])
 class SerializableNoRetryConflictTest : SerializableConflictTest(retry = false)
 
-@Props(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.hold.critical-section-delay=300ms"])
+@Props(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.hold.critical-section-delay=1s"])
 class SerializableRetryConflictTest : SerializableConflictTest(retry = true)
