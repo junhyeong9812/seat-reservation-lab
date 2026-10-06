@@ -25,7 +25,8 @@ deploy_sha() {
   for i in 1 2 3 4 5 6; do
     if remote "test -f $REMOTE_BASE/$sha/.deployed" 2>/dev/null; then return 0; fi
     log "deploy $sha → $SERVER:$REMOTE_BASE/$sha (attempt $i)"
-    if git -C "$REPO_ROOT" archive --format=tar "$sha" \
+    # 측정 결과(k6/*/results — 커밋된 원시 결과가 GB 단위)는 서버에 필요 없다. 넣으면 배포마다 3GB+가 쌓여 서버 디스크를 채운다(실측 2026-10-06: 100% → 배포 실패)
+    if git -C "$REPO_ROOT" archive --format=tar "$sha" -- . ":(exclude,glob)k6/*/results/**" \
        | remote "rm -rf $REMOTE_BASE/.tmp-$sha && mkdir -p $REMOTE_BASE/.tmp-$sha && tar -x -C $REMOTE_BASE/.tmp-$sha && touch $REMOTE_BASE/.tmp-$sha/.deployed && rm -rf $REMOTE_BASE/$sha && mv $REMOTE_BASE/.tmp-$sha $REMOTE_BASE/$sha"; then
       return 0
     fi
@@ -46,7 +47,7 @@ deploy_worktree() {  # 인자: sha 배포폴더이름
   for i in 1 2 3; do
     if remote "test -f $REMOTE_BASE/$id/.deployed" 2>/dev/null; then return 0; fi
     log "deploy $sha + worktree k6/ADR-005 → $SERVER:$REMOTE_BASE/$id (attempt $i)"
-    if { git -C "$REPO_ROOT" archive --format=tar "$sha" | remote "rm -rf $REMOTE_BASE/.tmp-$id && mkdir -p $REMOTE_BASE/.tmp-$id && tar -x -C $REMOTE_BASE/.tmp-$id"; } \
+    if { git -C "$REPO_ROOT" archive --format=tar "$sha" -- . ":(exclude,glob)k6/*/results/**" | remote "rm -rf $REMOTE_BASE/.tmp-$id && mkdir -p $REMOTE_BASE/.tmp-$id && tar -x -C $REMOTE_BASE/.tmp-$id"; } \
        && tar -C "$REPO_ROOT" --exclude=k6/ADR-005/results --exclude=__pycache__ -cf - k6/ADR-005 \
           | remote "rm -rf $REMOTE_BASE/.tmp-$id/k6/ADR-005 && tar -x -C $REMOTE_BASE/.tmp-$id && touch $REMOTE_BASE/.tmp-$id/.deployed && rm -rf $REMOTE_BASE/$id && mv $REMOTE_BASE/.tmp-$id $REMOTE_BASE/$id"; then
       return 0

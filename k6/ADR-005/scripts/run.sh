@@ -55,7 +55,7 @@ STRATEGIES="none jvm-lock jvm-lock-in-tx conditional-update pessimistic pessimis
 [[ " $STRATEGIES " == *" $STRATEGY "* ]] || { echo "--strategy one of: $STRATEGIES" >&2; exit 2; }
 [[ "$APPS" == 1 || "$APPS" == 2 ]] || { echo "--apps 1|2" >&2; exit 2; }
 [[ "$DELAY_MS" =~ ^[0-9]+$ ]] || { echo "--delay-ms <정수 ms>" >&2; exit 2; }
-LIMIT_STRATEGIES="none advisory advisory-try quota-lock quota-nowait counter serializable serializable-retry"
+LIMIT_STRATEGIES="none advisory advisory-try advisory-try-early quota-lock quota-nowait quota-nowait-early counter serializable serializable-retry"
 [[ " $LIMIT_STRATEGIES " == *" $LIMIT_STRATEGY "* ]] || { echo "--limit-strategy one of: $LIMIT_STRATEGIES" >&2; exit 2; }
 if (( WORKTREE )); then
   [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]] || { echo "--worktree는 스모크 전용 — 캠페인에서는 커밋된 하네스만" >&2; exit 2; }
