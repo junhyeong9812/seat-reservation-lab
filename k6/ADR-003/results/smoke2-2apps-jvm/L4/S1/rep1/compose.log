@@ -1,0 +1,172 @@
+[2026-10-03 01:25:38] compose down (ee2843f)
+[2026-10-03 01:25:38] compose up (ee2843f) HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=jvm-lock FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 APP_CPUS=2 DB_CPUS=4
+ Image nginx:1.27-alpine Pulling 
+ 39c2ddfd6010 Pulling fs layer 0B
+ 61ca4f733c80 Pulling fs layer 0B
+ 197eb75867ef Pulling fs layer 0B
+ d7e507024086 Pulling fs layer 0B
+ b464cfdf2a63 Pulling fs layer 0B
+ 81bd8ed7ec67 Pulling fs layer 0B
+ 34a64644b756 Pulling fs layer 0B
+ 39c2ddfd6010 Downloading 2.097MB
+ 39c2ddfd6010 Downloading 2.097MB
+ d7e507024086 Download complete 0B
+ 81bd8ed7ec67 Download complete 0B
+ 197eb75867ef Download complete 0B
+ 39c2ddfd6010 Downloading 3.146MB
+ 39c2ddfd6010 Downloading 4.194MB
+ 61ca4f733c80 Downloading 1.049MB
+ b464cfdf2a63 Download complete 0B
+ 39c2ddfd6010 Downloading 4.194MB
+ 61ca4f733c80 Downloading 1.049MB
+ 61ca4f733c80 Download complete 0B
+ 39c2ddfd6010 Downloading 5.243MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 7.34MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 8.389MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 9.437MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 10.49MB
+ 34a64644b756 Download complete 0B
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 11.53MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 12.58MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 13.63MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Downloading 15.52MB
+ 61ca4f733c80 Extracting 1B
+ 39c2ddfd6010 Download complete 0B
+ 61ca4f733c80 Extracting 1B
+ 61ca4f733c80 Extracting 2B
+ d7e507024086 Pull complete 0B
+ 81bd8ed7ec67 Pull complete 0B
+ 197eb75867ef Pull complete 0B
+ b464cfdf2a63 Pull complete 0B
+ 61ca4f733c80 Pull complete 0B
+ 34a64644b756 Pull complete 0B
+ 39c2ddfd6010 Extracting 1B
+ 39c2ddfd6010 Extracting 1B
+ 2a84448aca9c Download complete 0B
+ 39c2ddfd6010 Pull complete 0B
+ 9261b9aff737 Download complete 0B
+ Image nginx:1.27-alpine Pulled 
+ Image seatlab-app2 Building 
+ Image seatlab-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 969B done
+#1 DONE 0.0s
+
+#2 [app internal] load build definition from Dockerfile
+#2 transferring dockerfile: 558B done
+#2 DONE 0.0s
+
+#3 [app internal] load metadata for docker.io/library/eclipse-temurin:21-jdk
+#3 DONE 0.6s
+
+#4 [app2 internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#4 DONE 0.6s
+
+#5 [app2 internal] load .dockerignore
+#5 transferring context: 76B done
+#5 DONE 0.0s
+
+#6 [app2 build 1/7] FROM docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b
+#6 resolve docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b 0.0s done
+#6 DONE 0.0s
+
+#7 [app stage-1 1/3] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#7 resolve docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5 0.0s done
+#7 DONE 0.0s
+
+#8 [app internal] load build context
+#8 transferring context: 7.44kB done
+#8 DONE 0.0s
+
+#9 [app2 build 3/7] COPY gradlew settings.gradle.kts build.gradle.kts ./
+#9 CACHED
+
+#10 [app2 stage-1 2/3] WORKDIR /app
+#10 CACHED
+
+#11 [app2 build 4/7] COPY gradle gradle
+#11 CACHED
+
+#12 [app2 build 6/7] COPY src src
+#12 CACHED
+
+#13 [app2 build 2/7] WORKDIR /src
+#13 CACHED
+
+#14 [app2 build 7/7] RUN ./gradlew --no-daemon -q bootJar
+#14 CACHED
+
+#15 [app2 build 5/7] RUN ./gradlew --no-daemon -q dependencies > /dev/null
+#15 CACHED
+
+#16 [app2 stage-1 3/3] COPY --from=build /src/build/libs/seat-reservation-lab-0.0.1-SNAPSHOT.jar app.jar
+#16 CACHED
+
+#17 [app] exporting to image
+#17 exporting layers done
+#17 exporting manifest sha256:4684bfd958375aa33a1b551dfe8197672d466aa41bdbcd68453a284823e9c925 done
+#17 exporting config sha256:a7faf0c2f4bbd79e1d7c7eb718d7d9febe0731fb4bc898a98d56bf3091952bad done
+#17 exporting attestation manifest sha256:95c03047ec80c7570e16fdd9456280a411867b06a92314408b820360131b9d86 0.0s done
+#17 exporting manifest list sha256:fd47b06605ddb24cab79ae986af9faff621aa3882e3411fe02d0597d4f39a2ee 0.0s done
+#17 naming to docker.io/library/seatlab-app:latest done
+#17 unpacking to docker.io/library/seatlab-app:latest
+#17 unpacking to docker.io/library/seatlab-app:latest done
+#17 DONE 0.1s
+
+#18 [app2] exporting to image
+#18 exporting layers done
+#18 exporting manifest sha256:00a6e6c61c4161023b8a2e779b829d96b44322f3d4d946f1d3e5618890303547 0.0s done
+#18 exporting config sha256:31f5a9709a85b40d6d2bf3c5111980c1d0d17a8840dcc8edbdf4af1646dc01a1 0.0s done
+#18 exporting attestation manifest sha256:13e4521f9c51aca6badc992f74e3d10ec871d7d296865971b35c77ed29ddb4eb 0.0s done
+#18 exporting manifest list sha256:e5c0610da17b633b1495e3234c13c0b2ccffa3f2d67a5a9960606c43610db1d9 done
+#18 naming to docker.io/library/seatlab-app2:latest done
+#18 unpacking to docker.io/library/seatlab-app2:latest done
+#18 DONE 0.1s
+
+#19 [app] resolving provenance for metadata file
+#19 DONE 0.0s
+
+#20 [app2] resolving provenance for metadata file
+#20 DONE 0.0s
+ Image seatlab-app Built 
+ Image seatlab-app2 Built 
+ Network seatlab_default Creating 
+ Network seatlab_default Created 
+ Volume seatlab_pgdata Creating 
+ Volume seatlab_pgdata Created 
+ Container seatlab-db-1 Creating 
+ Container seatlab-redis-1 Creating 
+ Container seatlab-redis-1 Created 
+ Container seatlab-db-1 Created 
+ Container seatlab-app-1 Creating 
+ Container seatlab-app2-1 Creating 
+ Container seatlab-app-1 Created 
+ Container seatlab-app2-1 Created 
+ Container seatlab-lb-1 Creating 
+ Container seatlab-lb-1 Created 
+ Container seatlab-redis-1 Starting 
+ Container seatlab-db-1 Starting 
+ Container seatlab-redis-1 Started 
+ Container seatlab-db-1 Started 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-app2-1 Starting 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-app-1 Starting 
+ Container seatlab-app-1 Started 
+ Container seatlab-app2-1 Started 
+ Container seatlab-lb-1 Starting 
+ Container seatlab-lb-1 Started 

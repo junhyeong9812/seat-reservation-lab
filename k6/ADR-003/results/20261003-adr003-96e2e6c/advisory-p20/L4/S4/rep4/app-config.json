@@ -1,0 +1,272 @@
+{
+  "configprops": [
+    {
+      "prefix": "seat.hold",
+      "properties": {
+        "expiryInterval": "PT10S",
+        "strategy": "ADVISORY",
+        "ttl": "PT1H",
+        "maxPerUser": 2
+      }
+    },
+    {
+      "prefix": "spring.flyway",
+      "properties": {
+        "cleanOnValidationError": false,
+        "placeholderSuffix": "}",
+        "loggers": [
+          "slf4j"
+        ],
+        "repeatableSqlMigrationPrefix": "R",
+        "placeholders": {},
+        "validateMigrationNaming": false,
+        "validateOnMigrate": true,
+        "mixed": false,
+        "sqlMigrationSuffixes": [
+          ".sql"
+        ],
+        "executeInTransaction": true,
+        "enabled": true,
+        "baselineDescription": "<< Flyway Baseline >>",
+        "baselineVersion": "1",
+        "skipDefaultResolvers": false,
+        "postgresql": {},
+        "sqlserver": {},
+        "sqlMigrationSeparator": "__",
+        "outOfOrder": false,
+        "jdbcProperties": {},
+        "table": "flyway_schema_history",
+        "scriptPlaceholderSuffix": "__",
+        "group": false,
+        "connectRetriesInterval": "PT2M",
+        "oracle": {},
+        "connectRetries": 0,
+        "placeholderSeparator": ":",
+        "scriptPlaceholderPrefix": "FP__",
+        "initSqls": [],
+        "baselineOnMigrate": false,
+        "encoding": "UTF-8",
+        "target": "latest",
+        "placeholderPrefix": "${",
+        "sqlMigrationPrefix": "V",
+        "cleanDisabled": true,
+        "failOnMissingLocations": false,
+        "schemas": [],
+        "placeholderReplacement": true,
+        "locations": [
+          "classpath:db/migration"
+        ],
+        "createSchemas": true,
+        "skipDefaultCallbacks": false
+      }
+    },
+    {
+      "prefix": "server",
+      "properties": {
+        "maxHttpRequestHeaderSize": "8192B",
+        "reactive": {
+          "session": {
+            "timeout": "PT30M",
+            "maxSessions": 10000
+          }
+        },
+        "undertow": {
+          "maxHttpPostSize": "-1B",
+          "eagerFilterInit": true,
+          "maxHeaders": 200,
+          "maxCookies": 200,
+          "allowEncodedSlash": false,
+          "decodeUrl": true,
+          "urlCharset": "UTF-8",
+          "alwaysSetKeepAlive": true,
+          "preservePathOnForward": false,
+          "accesslog": {
+            "enabled": false,
+            "pattern": "common",
+            "prefix": "access_log.",
+            "suffix": "log",
+            "dir": "/app/logs",
+            "rotate": true
+          },
+          "threads": {},
+          "options": {
+            "socket": {},
+            "server": {}
+          }
+        },
+        "port": 8101,
+        "tomcat": {
+          "accesslog": {
+            "enabled": false,
+            "pattern": "common",
+            "directory": "logs",
+            "prefix": "access_log",
+            "suffix": ".log",
+            "checkExists": false,
+            "rotate": true,
+            "renameOnRotate": false,
+            "maxDays": -1,
+            "fileDateFormat": ".yyyy-MM-dd",
+            "ipv6Canonical": false,
+            "requestAttributesEnabled": false,
+            "buffered": true
+          },
+          "threads": {
+            "max": 200,
+            "minSpare": 10,
+            "maxQueueCapacity": 2147483647
+          },
+          "backgroundProcessorDelay": "PT10S",
+          "maxHttpFormPostSize": "2097152B",
+          "maxPartHeaderSize": "512B",
+          "maxPartCount": 50,
+          "maxSwallowSize": "2097152B",
+          "redirectContextRoot": true,
+          "useRelativeRedirects": false,
+          "uriEncoding": "UTF-8",
+          "maxConnections": 8192,
+          "acceptCount": 100,
+          "processorCache": 200,
+          "maxKeepAliveRequests": 100,
+          "additionalTldSkipPatterns": [],
+          "relaxedPathChars": [],
+          "relaxedQueryChars": [],
+          "resource": {
+            "allowCaching": true
+          },
+          "mbeanregistry": {
+            "enabled": false
+          },
+          "remoteip": {
+            "internalProxies": "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]{1}\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]{1}\\d{1}\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]{1}\\d{1}\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]{1}\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]{1}\\.\\d{1,3}\\.\\d{1,3}|172\\.2[0-9]{1}\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]{1}\\.\\d{1,3}\\.\\d{1,3}|0:0:0:0:0:0:0:1|::1|fe[89ab]\\p{XDigit}:.*|f[cd]\\p{XDigit}{2}+:.*",
+            "protocolHeaderHttpsValue": "https",
+            "hostHeader": "X-Forwarded-Host",
+            "portHeader": "X-Forwarded-Port"
+          },
+          "maxHttpResponseHeaderSize": "8192B",
+          "maxParameterCount": 10000,
+          "useApr": "NEVER"
+        },
+        "servlet": {
+          "contextParameters": {},
+          "applicationDisplayName": "application",
+          "registerDefaultServlet": false
+        },
+        "jetty": {
+          "accesslog": {
+            "enabled": false,
+            "format": "NCSA",
+            "retentionPeriod": 31,
+            "append": false
+          },
+          "threads": {
+            "acceptors": -1,
+            "selectors": -1,
+            "max": 200,
+            "min": 8,
+            "idleTimeout": "PT1M"
+          },
+          "maxHttpFormPostSize": "200000B",
+          "maxFormKeys": 1000,
+          "maxHttpResponseHeaderSize": "8192B",
+          "maxConnections": -1
+        },
+        "error": {
+          "path": "/error",
+          "includeException": false,
+          "includeStacktrace": "NEVER",
+          "includeMessage": "NEVER",
+          "includeBindingErrors": "NEVER",
+          "includePath": "ALWAYS",
+          "whitelabel": {
+            "enabled": true
+          }
+        },
+        "shutdown": "GRACEFUL",
+        "netty": {
+          "h2cMaxContentLength": "0B",
+          "initialBufferSize": "128B",
+          "maxInitialLineLength": "4096B",
+          "validateHeaders": true
+        }
+      }
+    },
+    {
+      "prefix": "spring.datasource.hikari",
+      "properties": {
+        "validationTimeout": 5000,
+        "credentials": {},
+        "hikariPoolMXBean": {},
+        "minimumIdle": 20,
+        "metricsTrackerFactory": {},
+        "dataSourceProperties": {},
+        "loginTimeout": 30,
+        "autoCommit": true,
+        "connectionTimeout": 30000,
+        "poolName": "HikariPool-1",
+        "initializationFailTimeout": 1,
+        "readOnly": false,
+        "registerMbeans": false,
+        "healthCheckProperties": {},
+        "isolateInternalQueries": false,
+        "leakDetectionThreshold": 0,
+        "maxLifetime": 1800000,
+        "keepaliveTime": 120000,
+        "allowPoolSuspension": false,
+        "idleTimeout": 600000,
+        "driverClassName": "org.postgresql.Driver",
+        "jdbcUrl": "jdbc:postgresql://db:5432/seat",
+        "maximumPoolSize": 20,
+        "username": "seat"
+      }
+    }
+  ],
+  "system.cpu.count": [
+    4.0
+  ],
+  "hikaricp.connections.max": [
+    20.0
+  ],
+  "jvm.memory.max": [
+    2103902207
+  ],
+  "containers": [
+    {
+      "name": "/seatlab-app-1",
+      "cpu": 4000000000,
+      "mem": 1073741824
+    },
+    {
+      "name": "/seatlab-db-1",
+      "cpu": 4000000000,
+      "mem": 2147483648
+    },
+    {
+      "name": "/seatlab-redis-1",
+      "cpu": 1000000000,
+      "mem": 1073741824
+    }
+  ],
+  "db_indexes": [
+    {
+      "name": "idx_reservation_schedule_user",
+      "unique": false
+    },
+    {
+      "name": "idx_reservation_seat_id",
+      "unique": false
+    },
+    {
+      "name": "idx_seat_hold_expires_at",
+      "unique": false
+    },
+    {
+      "name": "idx_seat_hold_seat_id",
+      "unique": false
+    },
+    {
+      "name": "idx_seat_hold_user_id",
+      "unique": false
+    }
+  ]
+}
