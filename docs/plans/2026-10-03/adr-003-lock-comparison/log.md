@@ -46,6 +46,7 @@
 | 10-06 10:41 | 수정(같은 구간): compare.py(S6 열 '핫 201/s'·중복 좌석/초과 홀드/일시 3단위·Hikari 대기·dropped·n=사용/전체·빈 셀 미측정 행, S4 json acquire, 판정기 전수 절 신설) → errsplit 뒤 두 캠페인 COMPARISON 재생성(응답 분류 절 포함). ADR-003 §7.2·§7.3①②③④·§7.5·§8·§9·§10, ADR-004 §5.1~§5.5·§6·§7 정정 | 다음: post-fix 타깃 재점검(codex) |
 | 10-06 10:45 | post-fix 재점검(codex, 미러 rv.8l3L/mirror2 — 수정 전·후 diff + 재생성 결과): D1~D9·D11~D14 해소, D10 미해소(redis-nx '세 조건 모두' 과장), 신규 N1(에러 상한 아래가 redis-nx뿐 — 틀림, nowait·jvm·redis-lock도 아래)·N2(획득 대기 다른 방식 범위에 jvm·redis-lock K=1·10 29~45 누락) → 수정. 신규 결함 2건은 수정 경로에서 나온 것(D3 표현) — 中 규정상 재점검 반복 없음, 메인이 데이터로 재확인(에러 합 방식별 최소~최대) | 리뷰 종료 |
 | 10-06 11:32 | 사용자 피드백 반영: 용어 정의(ADR-004 §5.0 — 핫·무경합 요청·스트림·번짐·무경합 처리·20ms 지연·최저점·교락, '스레드가 아님') · '이웃' → '무경합 요청'(문서·compare.py 표 머리, 코드·k6 태그 neighbor는 유지) · '바닥/K=100 기준선' → '최저점' · ADR-003 §2.13에 단계 ⓪~⑨.4 정의(⑨를 9.1 1b 해제/9.2 COMMIT/9.3 커넥션 반납/9.4 트랜잭션 밖 해제로) · 3b가 L2 p50에서 3a보다 느린 이유(추정) §8. **사용자 결정**: ADR-003 기본 = 3b nowait(대기로 다른 좌석을 놓치는 클라이언트가 없어야 한다 — 즉시 실패형 우선, Redis는 운영·부분 실패·키 TTL 때문에 아직 안 씀), ADR-004 = 느린 작업은 판정 뒤로 → ADR 상태 Accepted, **repo README 맨 위에 결정 기록**(사용자 지정 — 상위 README의 'repo README는 원본 그대로' 규칙의 예외) | 다음: 커밋·push 확인 |
+| 10-06 11:39 | 사용자: try-advisory는 후순위(ADR-003 §9·NEXT N3), push 승인, README에 'ADR-005 진행 중' 추가 후 ADR-005 착수. 사이클 마감: NEXT.md 갱신 · measurement-log 1행 · 아카이브 보류(범위 미확인) | push → ADR-005 새 작업 폴더 |
 
 ## 리뷰 ledger (中↑)
 
@@ -84,3 +85,17 @@
 
 ## 완료 요약
 
+
+- **결과**: ADR-003 결정 = 3b `pessimistic-nowait` 기본(즉시 실패형 우선, Redis 미도입), ADR-004 결정 = 느린 작업은 좌석 판정 뒤로 — 둘 다 사용자 확정 2026-10-06, repo README 맨 위 기록.
+- **측정**: 본측정 434회(36조건) + S6 198회(22조건 × K 3), 비정상 0. 대조군 뺀 523회 판정기 위반 0, 5xx·데드락·풀 타임아웃 0.
+- **구현 diff 핵심**(실파일 `HoldSeatProcess.kt` — before: 기준선의 `HoldSeatService` 안 단일 흐름, after: 전략이 트랜잭션·락을 소유하고 규칙은 MANDATORY 전파로 공유):
+```kotlin
+@Transactional(propagation = Propagation.MANDATORY)
+fun hold(command: HoldSeatCommand, loadSeat: ((seatId: Long, scheduleId: Long) -> ProductSeat?)? = null, …): HoldSeatResult {
+    val load = loadSeat ?: productSeatRepository::findByIdAndScheduleId
+    …
+    if (!properties.criticalSectionDelay.isZero) Thread.sleep(properties.criticalSectionDelay)
+```
+- **리뷰**: 측정 전 R1~R9·N1~N5, 결과 문서 듀얼 1패스 D1~D14 + post-fix N1·N2 — 전부 fixed.
+- **아카이브 보류**(범위 미확인 — 명세 ①에 study-note 아카이브 없음): 후보 7건은 NEXT.md 보류·이월에 재개 조건과 함께 등재 — 사용자 보고.
+- 커밋: 67bf919 · bfd18d1 · 6815c38 · 7a52c18c · d07ef510 · (이 마감 커밋)
