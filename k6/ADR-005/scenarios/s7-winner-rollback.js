@@ -41,7 +41,12 @@ export function setup() {
     }
     for (let k = 0; k < reqs.length; k += 50) {
       http.batch(reqs.slice(k, k + 50)).forEach((r, n) => {
-        if (r.status !== 201) throw new Error(`setup hold nth=${nth} #${k + n} → ${r.status} ${r.body}`);
+        // setup은 측정 대상이 아니다 — SERIALIZABLE은 다른 사용자끼리도 충돌(40001 → 409 HOLD_LIMIT_EXCEEDED)할 수 있어 그 409만 순차로 다시 보낸다(최대 5번)
+        let res = r;
+        for (let t = 0; res.status === 409 && res.body && res.body.includes('HOLD_LIMIT_EXCEEDED') && t < 5; t++) {
+          res = http.request(...reqs[k + n]);
+        }
+        if (res.status !== 201) throw new Error(`setup hold nth=${nth} #${k + n} → ${res.status} ${res.body}`);
         setupHold201.add(1);
       });
     }

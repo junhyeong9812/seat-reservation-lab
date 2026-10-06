@@ -9,7 +9,6 @@ import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
-import org.springframework.dao.DataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 
@@ -17,14 +16,19 @@ import org.springframework.stereotype.Component
  * 1인 최대 매수 제어 방식(ADR-005). 좌석 경합 방식(ADR-003 전략)이 연 트랜잭션 안에서 두 자리에 끼어든다:
  * - [acquire] — 트랜잭션 시작 직후·좌석 읽기 전(락 순서: 사용자 → 좌석)
  * - [check] — 지금의 매수 판정 자리(좌석 선점 가능 확인 뒤 — 에러 우선순위 보존)
- * [around]는 트랜잭션 **밖**에서 좌석 전략 호출 전체를 감싼다(쿼터 행 준비, SERIALIZABLE 충돌 변환·재시도).
+ * [prepare]는 트랜잭션 **밖**에서 먼저 한 번(쿼터 행 준비), [around]는 트랜잭션 밖에서 좌석 전략 호출 전체를 감싼다(SERIALIZABLE 충돌 변환·재시도).
  * 진 쪽은 모두 기존 계약의 `HOLD_LIMIT_EXCEEDED`(409)다 — 매수가 남았는데 거절된 경우도 같은 코드(사용자 결정, 측정에서 끝 상태 매수로 구분).
+ * 에러 우선순위: 좌석 불가 → 매수 초과(명세 §2 — 즉시 실패형도 거절을 좌석 확인 뒤로 미룬다). 예외: counter(갱신이 곧 판정)와
+ * `-early` 변형(advisory-try-early·quota-nowait-early — 좌석 확인 전에 거절, 거절될 요청이 좌석 락을 잡지 않는다; 사용자 2026-10-06 '추가로 확인').
+ * SERIALIZABLE의 40001은 어느 문장에서든(커밋 포함) 나므로 순서와 무관하다.
  */
 interface UserLimitStrategy {
     val type: UserLimitStrategyType
+    fun prepare(command: HoldSeatCommand) {}
     fun <T> around(command: HoldSeatCommand, block: () -> T): T = block()
-    fun acquire(command: HoldSeatCommand) {}
-    fun check(command: HoldSeatCommand)
+    /** 사용자 단위 진입. false = 같은 사용자의 다른 요청이 진행 중(즉시 실패형) — 거절은 [check]에서 한다(좌석 확인 뒤, 에러 우선순위 보존). */
+    fun acquire(command: HoldSeatCommand): Boolean = true
+    fun check(command: HoldSeatCommand, entered: Boolean)
 
     /** 만료 배치가 실제로 지운 홀드 — 카운터 방식만 쓴다(같은 트랜잭션). */
     fun onHoldsExpired(expired: List<SeatHold>) {}
@@ -39,7 +43,10 @@ private fun advisoryKey(command: HoldSeatCommand) = arrayOf(Math.toIntExact(comm
 @Component
 class NoUserLimit(private val policy: HoldLimitPolicy, private val properties: SeatHoldProperties) : UserLimitStrategy {
     override val type = UserLimitStrategyType.NONE
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    }
 }
 
 /** L1 — `pg_advisory_xact_lock(회차, 사용자)`: 같은 사용자의 다음 요청은 앞 트랜잭션이 끝날 때까지 기다린 뒤 센다. */
@@ -50,32 +57,61 @@ class AdvisoryUserLimit(
     private val jdbc: JdbcTemplate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.ADVISORY
-    override fun acquire(command: HoldSeatCommand) {
+    override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.queryForList("SELECT pg_advisory_xact_lock(?, ?)", *advisoryKey(command))
+        return true
     }
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    }
 }
 
-/** L2 — `pg_try_advisory_xact_lock(회차, 사용자)`: 같은 사용자의 요청이 진행 중이면 기다리지 않고 거절. */
-@Component
-class AdvisoryTryUserLimit(
+/**
+ * L2 — `pg_try_advisory_xact_lock(회차, 사용자)`: 같은 사용자의 요청이 진행 중이면 기다리지 않고 거절.
+ * [early] = false(명세 순서): 못 잡아도 좌석은 확인한 뒤 [check]에서 거절 — 팔린 좌석이면 `SEAT_NOT_AVAILABLE`. 대가: 거절될 요청도 좌석 락(NOWAIT)을 잠깐 잡는다.
+ * [early] = true: 좌석 확인 전에 바로 거절 — 좌석 락을 잡지 않는다(에러 순서가 바뀐다).
+ */
+abstract class AdvisoryTryUserLimitBase(
     private val policy: HoldLimitPolicy,
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val early: Boolean,
 ) : UserLimitStrategy {
-    override val type = UserLimitStrategyType.ADVISORY_TRY
-    override fun acquire(command: HoldSeatCommand) {
-        val got = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(?, ?)", Boolean::class.java, *advisoryKey(command))
-        if (got != true) limitExceeded()
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        val got = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(?, ?)", Boolean::class.java, *advisoryKey(command)) == true
+        if (!got && early) limitExceeded()
+        return got
     }
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    }
+}
+
+@Component
+class AdvisoryTryUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
+    AdvisoryTryUserLimitBase(policy, properties, jdbc, early = false) {
+    override val type = UserLimitStrategyType.ADVISORY_TRY
+}
+
+@Component
+class AdvisoryTryEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
+    AdvisoryTryUserLimitBase(policy, properties, jdbc, early = true) {
+    override val type = UserLimitStrategyType.ADVISORY_TRY_EARLY
 }
 
 /**
  * 쿼터 행 준비 — 트랜잭션 밖(자동 커밋)에서 미리 만든다. 트랜잭션 안의 `INSERT … ON CONFLICT`는 아직 커밋 안 된
  * 같은 키 행을 만나면 그 트랜잭션이 끝날 때까지 기다려 NOWAIT의 의미를 깬다(사용자 첫 요청들).
+ * 먼저 일반 SELECT로 있는지 본다 — `INSERT … ON CONFLICT DO NOTHING`은 이미 있는 행이라도 그 행을 **UPDATE 중인** 트랜잭션(counter의 cnt + 1)이
+ * 끝날 때까지 기다린다(테스트로 확인). 그러면 같은 사용자의 대기가 트랜잭션 밖·타이머 밖으로 새어 나간다. 일반 SELECT는 기다리지 않는다.
  */
 private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand) {
+    val exists = jdbc.queryForList(
+        "SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", command.scheduleId, command.userId,
+    ).isNotEmpty()
+    if (exists) return
     jdbc.update(
         "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
         command.scheduleId, command.userId,
@@ -90,49 +126,57 @@ class QuotaLockUserLimit(
     private val jdbc: JdbcTemplate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.QUOTA_LOCK
-    override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
-        ensureQuotaRow(jdbc, command)
-        return block()
-    }
-    override fun acquire(command: HoldSeatCommand) {
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.queryForList(
             "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE",
             command.scheduleId, command.userId,
-        ).ifEmpty { error("쿼터 행 없음 — around에서 만들어야 한다") }
+        ).ifEmpty { error("쿼터 행 없음 — prepare에서 만들어야 한다") }
+        return true
     }
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    }
 }
 
-/** L4 — 같은 쿼터 행 `FOR UPDATE NOWAIT`: 잠겨 있으면 기다리지 않고 거절(55P03만 — 다른 락 실패는 그대로 올린다). */
-@Component
-class QuotaNoWaitUserLimit(
+/**
+ * L4 — 같은 쿼터 행을 기다리지 않고 잠근다: 잠겨 있으면 거절. **`FOR UPDATE SKIP LOCKED`** 를 쓴다 — 합의 때의 `NOWAIT`는 잠겨 있으면
+ * 오류(55P03)를 내고 PostgreSQL은 오류가 난 트랜잭션을 더 쓸 수 없게 만든다(aborted). 명세 순서(거절을 좌석 확인 뒤로)를 지키려면 트랜잭션이 살아 있어야 해서
+ * 오류 없이 '0행'을 돌려주는 SKIP LOCKED로 바꿨다(기다리지 않는다는 의미는 같다). 행은 [prepare]가 커밋해 두므로 0행 = 다른 트랜잭션이 잠금.
+ * [early] 의미는 L2와 같다. 두 변형 모두 SKIP LOCKED라 메커니즘 차이 없이 '거절 시점'만 다르다.
+ */
+abstract class QuotaNoWaitUserLimitBase(
     private val policy: HoldLimitPolicy,
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val early: Boolean,
 ) : UserLimitStrategy {
-    override val type = UserLimitStrategyType.QUOTA_NOWAIT
-    override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
-        ensureQuotaRow(jdbc, command)
-        return block()
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        val got = jdbc.queryForList(
+            "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE SKIP LOCKED",
+            command.scheduleId, command.userId,
+        ).isNotEmpty()
+        if (!got && early) limitExceeded()
+        return got
     }
-    override fun acquire(command: HoldSeatCommand) {
-        try {
-            jdbc.queryForList(
-                "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE NOWAIT",
-                command.scheduleId, command.userId,
-            ).ifEmpty { error("쿼터 행 없음 — around에서 만들어야 한다") }
-        } catch (e: DataAccessException) {
-            // JdbcTemplate은 55P03을 PessimisticLockingFailureException이 아니라 UncategorizedSQLException으로 번역한다(JPA 경로와 다름 — 테스트로 확인).
-            // 그래서 예외 타입이 아니라 SQLState로 가른다
-            if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) limitExceeded()
-            throw e
-        }
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
     }
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+}
 
-    companion object {
-        const val LOCK_NOT_AVAILABLE = "55P03"
-    }
+@Component
+class QuotaNoWaitUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
+    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = false) {
+    override val type = UserLimitStrategyType.QUOTA_NOWAIT
+}
+
+@Component
+class QuotaNoWaitEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
+    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = true) {
+    override val type = UserLimitStrategyType.QUOTA_NOWAIT_EARLY
 }
 
 /**
@@ -146,18 +190,16 @@ class CounterUserLimit(
     private val jdbc: JdbcTemplate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
-    override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
-        ensureQuotaRow(jdbc, command)
-        return block()
-    }
-    override fun acquire(command: HoldSeatCommand) {
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun acquire(command: HoldSeatCommand): Boolean {
         val updated = jdbc.update(
             "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?",
             command.scheduleId, command.userId, properties.maxPerUser,
         )
         if (updated == 0) limitExceeded()
+        return true
     }
-    override fun check(command: HoldSeatCommand) {} // acquire에서 판정 끝
+    override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
 
     override fun onHoldsExpired(expired: List<SeatHold>) {
         // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
@@ -198,10 +240,14 @@ abstract class SerializableUserLimit(
             }
         }
     }
-    override fun acquire(command: HoldSeatCommand) {
+    override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        return true
     }
-    override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    override fun check(command: HoldSeatCommand, entered: Boolean) {
+        if (!entered) limitExceeded()
+        policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+    }
 
     companion object {
         const val SERIALIZATION_FAILURE = "40001"

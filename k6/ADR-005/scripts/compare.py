@@ -210,7 +210,7 @@ def main(root):
         return {"cells": [spread(ws), reps_list(ws), spread(w409), spread(empty), spread(r201), spread(multi), spread(u201), spread(u_hle), spread(u_sna), spread(gap), spread(p99)],
                 "json": {"wronged_seats": ws, "wronged_409": w409, "empty_seats": empty, "r_201": r201, "multi_201_seats": multi, "u_201": u201,
                          "u_hold_limit_exceeded": u_hle, "u_seat_not_available": u_sna, "ownership_gap": gap, "hold_p99": p99}}
-    s7_cols = ["억울한 좌석 수", "회차별 억울한 좌석", "억울한 409 수", "빈 좌석 수", "일반 201 수", "201 2건+ 좌석 수", "U 201 수(위반)", "U HOLD_LIMIT_EXCEEDED 수", "U SEAT_NOT_AVAILABLE 수", "201 − 홀드 행", "p99 ms"]
+    s7_cols = ["억울한 좌석 수", "회차별 억울한 좌석", "억울한 409 수(코드 무관)", "빈 좌석 수", "일반 201 수", "201 2건+ 좌석 수", "U 201 수(위반)", "U HOLD_LIMIT_EXCEEDED 수", "U SEAT_NOT_AVAILABLE 수", "201 − 홀드 행", "p99 ms"]
     for cell, m in (("S7", 20), ("S7-m1", 1)):
         section(f"S7 이긴 쪽 롤백(④) `{cell}` — 좌석마다 2매 보유자 U 1명 + 일반 {m}명. 억울한 좌석 = 끝 상태 AVAILABLE인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석(대상 100석 중)",
                 cell, s7_cols, s7)
@@ -253,17 +253,17 @@ def main(root):
     out.append("\n## 매수 제어 구간 타이머·40001·재시도 — 셀별 (앱 Micrometer, k6 전후 차분 · S7은 setup의 U 사전 선점 200건 포함)\n")
     out.append("> acquire = 트랜잭션 시작 직후 사용자 단위 진입(락·카운터·격리 수준 설정), check = 좌석 확인 뒤 매수 판정(COUNT 2개). 평균 = 증가분 TOTAL_TIME ÷ COUNT. "
                "최대 = Micrometer MAX(누적이 아니라 최근 약 2분 창). 40001 = 직렬화 충돌 수(재시도 포함), 재시도 = L7이 트랜잭션을 다시 한 수.\n")
-    out.append("| 조건 | 셀 | n | acquire 건수 | acquire 평균 ms | acquire 최대 ms | check 건수 | check 평균 ms | check 최대 ms | 40001 수 | 회차별 40001 | 재시도 수 |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    out.append("| 조건 | 셀 | n | prepare 평균 ms(트랜잭션 밖 쿼터 행 준비) | acquire 건수 | acquire 평균 ms | check 평균 ms | span 평균 ms(acquire 시작~check 끝) | 40001 수 | 회차별 40001 | 재시도 수 |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
     for name, c in conds.items():
         for key, reps in c["data"].items():
             used = used_reps(key.split("/")[1], reps)
             col = lambda k: [r.get(k) for r in used]
-            js.setdefault("limit_meters", {})[f"{name}/{key}"] = {k: col(k) for k in (
-                "limit_acquire_n", "limit_acquire_mean_ms", "limit_acquire_max_ms", "limit_check_n", "limit_check_mean_ms", "limit_check_max_ms",
-                "serialization_failures", "limit_retries")}
-            out.append(f"| {name} | {key} | {len(used)}/{len(reps)} | {spread(col('limit_acquire_n'))} | {spread(col('limit_acquire_mean_ms'), 4)} | {spread(col('limit_acquire_max_ms'), 1)} | "
-                       f"{spread(col('limit_check_n'))} | {spread(col('limit_check_mean_ms'), 4)} | {spread(col('limit_check_max_ms'), 1)} | "
+            # MAX(최근 약 2분 창)는 짧은 셀에서 직전 예열이 섞여 방식 비교에 쓰지 않는다 — json에만 남긴다
+            js.setdefault("limit_meters", {})[f"{name}/{key}"] = {f"limit_{m}_{f}": col(f"limit_{m}_{f}") for m in ("prepare", "acquire", "check", "span") for f in ("n", "mean_ms", "max_ms")} | {
+                "serialization_failures": col("serialization_failures"), "limit_retries": col("limit_retries")}
+            out.append(f"| {name} | {key} | {len(used)}/{len(reps)} | {spread(col('limit_prepare_mean_ms'), 4)} | {spread(col('limit_acquire_n'))} | {spread(col('limit_acquire_mean_ms'), 4)} | "
+                       f"{spread(col('limit_check_mean_ms'), 4)} | {spread(col('limit_span_mean_ms'), 4)} | "
                        f"{spread(col('serialization_failures'))} | {reps_list(col('serialization_failures'))} | {spread(col('limit_retries'))} |")
 
     # ---- S6 경합 강도 스윕(ADR-003·004): 조건(전략×지연) × K × 단계 — 회차 중앙값 ----------------------
@@ -373,6 +373,9 @@ def main(root):
 
     # ---- ADR-005 limit-bench: 매수 확인 쿼리 2개 × 배경 규모 × 측정 사용자(보유/미보유) — 1연결 지연·실행 계획 ----------
     lb = root / "limit-bench"
+    if not lb.exists() and any(n.endswith("-s24") for n in conds):   # 본측정 캠페인인데 벤치가 없으면 무음 생략하지 않는다
+        out.append("\n## 매수 확인 쿼리 DB 벤치(limit-bench)\n\n**미측정** — `<캠페인>/limit-bench/` 없음\n")
+        problems.append("limit-bench 미측정")
     if lb.exists():
         lbplan = json.loads((lb / "plan.json").read_text()) if (lb / "plan.json").exists() else {}
         sizes = lbplan.get("scales", [0, 100000, 1000000])

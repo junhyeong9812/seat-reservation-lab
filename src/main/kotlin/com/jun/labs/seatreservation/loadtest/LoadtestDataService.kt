@@ -29,6 +29,8 @@ class LoadtestDataService(
     fun reset(schedules: Int, seatsPerSchedule: Int, backgroundRows: Int = 0): ResetResult {
         require(schedules in 1..1_000 && seatsPerSchedule in 1..100_000) { "시드 범위 초과" }
         require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
+        // 배경 홀드·예약은 쿼터 행 없이 넣으므로 counter에서는 v_counter_mismatch가 거짓 위반을 낸다 — 섞지 않는다(ADR-005)
+        require(backgroundRows == 0 || properties.limitStrategy != UserLimitStrategyType.COUNTER) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
         )

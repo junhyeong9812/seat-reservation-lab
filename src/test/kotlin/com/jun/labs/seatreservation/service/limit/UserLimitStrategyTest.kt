@@ -23,6 +23,9 @@ import org.springframework.test.context.TestPropertySource
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.test.context.TestPropertySource as Props
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -98,11 +101,12 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
 
     @Test
     fun `acquire 뒤 트랜잭션 격리 수준 — SERIALIZABLE 방식만 serializable, 나머지는 read committed`() {
-        val level = tx.execute {
-            activeLimit.strategy.around(HoldSeatCommand(schedule.id!!, 1, userId = 3L)) {
-                activeLimit.strategy.acquire(HoldSeatCommand(schedule.id!!, 1, userId = 3L))
-                jdbcTemplate.queryForObject("SHOW transaction_isolation", String::class.java)
-            }
+        val cmd = HoldSeatCommand(schedule.id!!, 1, userId = 3L)
+        activeLimit.strategy.prepare(cmd)
+        val level = tx.execute { status ->
+            activeLimit.strategy.acquire(cmd)
+            status.setRollbackOnly()
+            jdbcTemplate.queryForObject("SHOW transaction_isolation", String::class.java)
         }
         assertEquals(if (serializable) "serializable" else "read committed", level, "$type")
     }
@@ -131,6 +135,47 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     }
 
     @Test
+    fun `사용자 A가 사용자 단위 진입을 쥔 동안 — 다른 사용자 B는 바로 끝나고, 같은 사용자는 대기형이면 기다리고 즉시 실패형이면 바로 거절`() {
+        val a = HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId = 21L)
+        val b = HoldSeatCommand(schedule.id!!, createSeat(2).id!!, userId = 22L)
+        val a2 = HoldSeatCommand(schedule.id!!, createSeat(3).id!!, userId = 21L)
+        val takenSeat = createSeat(4).also { holdSeat.hold(HoldSeatCommand(schedule.id!!, it.id!!, userId = 23L)) }
+        val a3 = HoldSeatCommand(schedule.id!!, takenSeat.id!!, userId = 21L) // 같은 사용자 + 이미 팔린 좌석
+        val limit = activeLimit.strategy
+        limit.prepare(a)
+        val pool = Executors.newFixedThreadPool(2)
+        fun submit(c: HoldSeatCommand) = pool.submit<String> {
+            try { holdSeat.hold(c); "ok" } catch (e: SeatReservationException) { e.errorCode.name }
+        }
+        try {
+            tx.execute { status ->
+                limit.acquire(a)
+                assertEquals("ok", submit(b).get(5, TimeUnit.SECONDS), "$type: 다른 사용자가 막혔다")
+                val same = submit(a2)
+                when (type) {
+                    UserLimitStrategyType.ADVISORY, UserLimitStrategyType.QUOTA_LOCK, COUNTER ->
+                        assertThrows<TimeoutException>("$type: 같은 사용자가 기다리지 않았다") { same.get(1, TimeUnit.SECONDS) }
+                    UserLimitStrategyType.ADVISORY_TRY, UserLimitStrategyType.QUOTA_NOWAIT -> {
+                        assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, same.get(5, TimeUnit.SECONDS), "$type")
+                        // 경합 중 에러 우선순위(명세 §2): 진입 못 해도 좌석을 먼저 확인 — 팔린 좌석이면 좌석 불가
+                        assertEquals(ErrorCode.SEAT_NOT_AVAILABLE.name, submit(a3).get(5, TimeUnit.SECONDS), "$type")
+                    }
+                    UserLimitStrategyType.ADVISORY_TRY_EARLY, UserLimitStrategyType.QUOTA_NOWAIT_EARLY -> {
+                        assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, same.get(5, TimeUnit.SECONDS), "$type")
+                        // -early: 좌석 확인 전에 거절 — 팔린 좌석이어도 매수 초과
+                        assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, submit(a3).get(5, TimeUnit.SECONDS), "$type")
+                    }
+                    else -> {} // none·SERIALIZABLE은 같은 사용자를 이 자리에서 막지 않는다(판정은 매수 COUNT·커밋 시 충돌)
+                }
+                status.setRollbackOnly()
+            }
+        } finally {
+            pool.shutdown()
+            pool.awaitTermination(10, TimeUnit.SECONDS)
+        }
+    }
+
+    @Test
     fun `같은 좌석 50명 — 좌석 3b가 그대로 1명만 이기게 한다(매수 방식을 끼워도)`() {
         val seat = createSeat(1)
         val outcomes = concurrently((0 until 50).map { HoldSeatCommand(schedule.id!!, seat.id!!, userId = 1_000L + it) })
@@ -143,13 +188,14 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     }
 
     @Test
-    fun `에러 우선순위 — 매수가 찬 사용자가 이미 선점된 좌석을 누르면 좌석 불가, counter만 매수 초과`() {
+    fun `에러 우선순위(순차) — 매수가 찬 사용자가 이미 선점된 좌석을 누르면 좌석 불가, counter만 매수 초과`() {
         val userId = 7L
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId))
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(2).id!!, userId))
         val taken = createSeat(3).also { holdSeat.hold(HoldSeatCommand(schedule.id!!, it.id!!, userId = 8L)) }
 
         val e = assertThrows<SeatReservationException> { holdSeat.hold(HoldSeatCommand(schedule.id!!, taken.id!!, userId)) }
+        // counter는 갱신이 곧 판정이라 좌석보다 먼저 판정된다(사용자 허용). 순차 호출이라 -early 변형도 진입은 성공 → 좌석 불가
         val expected = if (type == COUNTER) ErrorCode.HOLD_LIMIT_EXCEEDED else ErrorCode.SEAT_NOT_AVAILABLE
         assertEquals(expected, e.errorCode, "$type")
 
@@ -187,6 +233,12 @@ class AdvisoryUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISO
 @TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try"])
 class AdvisoryTryUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISORY_TRY)
 
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try-early"])
+class AdvisoryTryEarlyUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISORY_TRY_EARLY)
+
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait-early"])
+class QuotaNoWaitEarlyUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_NOWAIT_EARLY)
+
 @TestPropertySource(properties = ["seat.hold.limit-strategy=quota-lock"])
 class QuotaLockUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_LOCK)
 
@@ -194,10 +246,80 @@ class QuotaLockUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA
 class QuotaNoWaitUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_NOWAIT)
 
 @TestPropertySource(properties = ["seat.hold.limit-strategy=counter"])
-class CounterUserLimitTest : UserLimitStrategyTest(COUNTER)
+class CounterUserLimitTest : UserLimitStrategyTest(COUNTER) {
+    /** 특성 테스트(PostgreSQL 동작): 이 동작 때문에 쿼터 행 준비를 'SELECT 먼저'로 했다(UserLimitStrategies.ensureQuotaRow). */
+    @Test
+    fun `INSERT … ON CONFLICT DO NOTHING은 UPDATE 중인 행을 기다리고, prepare(SELECT 먼저)는 기다리지 않는다`() {
+        val cmd = HoldSeatCommand(schedule.id!!, 1, userId = 31L)
+        activeLimit.strategy.prepare(cmd)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val raw = tx.execute { status ->
+                activeLimit.strategy.acquire(cmd) // cnt + 1 — 커밋 전
+                val raw = pool.submit<Int> {
+                    jdbcTemplate.update("INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING", cmd.scheduleId, cmd.userId)
+                }
+                assertThrows<TimeoutException>("ON CONFLICT가 기다리지 않았다 — 특성이 바뀌었으면 ensureQuotaRow 근거를 다시 보라") { raw.get(1, TimeUnit.SECONDS) }
+                pool.submit { activeLimit.strategy.prepare(cmd) }.get(1, TimeUnit.SECONDS) // 기다리지 않아야 한다
+                status.setRollbackOnly()
+                raw
+            }!!
+            assertEquals(0, raw.get(5, TimeUnit.SECONDS)) // 롤백 뒤 풀려나 '이미 있음'으로 끝난다
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+}
 
 @TestPropertySource(properties = ["seat.hold.limit-strategy=serializable"])
 class SerializableUserLimitTest : UserLimitStrategyTest(SERIALIZABLE)
 
 @TestPropertySource(properties = ["seat.hold.limit-strategy=serializable-retry"])
 class SerializableRetryUserLimitTest : UserLimitStrategyTest(SERIALIZABLE_RETRY)
+
+/**
+ * SERIALIZABLE 충돌(40001) 경로를 결정적으로 만든다 — 임계 구역 지연(ADR-004 장치)으로 같은 사용자의 두 트랜잭션이 서로의 홀드를 못 본 채
+ * 매수를 세고 쓰게 한다. L6은 하나가 거절되고, L7은 다시 해서 둘 다 성공한다(두 번째 시도는 첫 홀드를 보고 센다).
+ */
+abstract class SerializableConflictTest(private val retry: Boolean) : IntegrationTest() {
+    @Autowired lateinit var holdSeat: HoldSeatUseCase
+    @Autowired lateinit var meters: MeterRegistry
+
+    private fun count(name: String) = meters.find(name).counter()?.count() ?: 0.0
+
+    @Test
+    fun `같은 사용자 두 요청이 겹치면 40001 — L6은 하나 거절, L7은 재시도로 둘 다 성공`() {
+        val failures0 = count("seat.hold.limit.serialization_failure")
+        val retries0 = count("seat.hold.limit.retry")
+        val seats = listOf(createSeat(1), createSeat(2))
+        val pool = Executors.newFixedThreadPool(2)
+        val start = CountDownLatch(1)
+        val outcomes = try {
+            seats.map { seat ->
+                pool.submit<String> {
+                    start.await()
+                    try { holdSeat.hold(HoldSeatCommand(schedule.id!!, seat.id!!, userId = 41L)); "ok" }
+                    catch (e: SeatReservationException) { e.errorCode.name }
+                    catch (e: Throwable) { "ERR:${e::class.simpleName}:${e.message?.take(160)}" }
+                }
+            }.also { start.countDown() }.map { it.get(30, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+        assertTrue(count("seat.hold.limit.serialization_failure") - failures0 >= 1, "40001이 한 번도 안 났다 — 이 테스트가 경로를 실행하지 못했다: $outcomes")
+        if (retry) {
+            assertEquals(listOf("ok", "ok"), outcomes, "L7")
+            assertTrue(count("seat.hold.limit.retry") - retries0 >= 1, "L7: 재시도 카운터")
+        } else {
+            assertEquals(listOf(ErrorCode.HOLD_LIMIT_EXCEEDED.name, "ok"), outcomes.sorted(), "L6")
+            assertEquals(0.0, count("seat.hold.limit.retry") - retries0, "L6은 재시도하지 않는다")
+        }
+        assertEquals(outcomes.count { it == "ok" }, holdCount(), "응답 성공 수 = 홀드 행")
+    }
+}
+
+@Props(properties = ["seat.hold.limit-strategy=serializable", "seat.hold.critical-section-delay=300ms"])
+class SerializableNoRetryConflictTest : SerializableConflictTest(retry = false)
+
+@Props(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.hold.critical-section-delay=300ms"])
+class SerializableRetryConflictTest : SerializableConflictTest(retry = true)

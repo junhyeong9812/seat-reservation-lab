@@ -45,7 +45,7 @@ mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
 
 # 조건 목록(명세 §9.2 매트릭스) — 이름  run.sh 인자. 매수 방식 8개 × {S2·S4 L2·L4, S3 L4(이탈 0/20/50), S7·S7-m1 L4}
-LIMITS="none advisory advisory-try quota-lock quota-nowait counter serializable serializable-retry"
+LIMITS="none advisory advisory-try advisory-try-early quota-lock quota-nowait quota-nowait-early counter serializable serializable-retry"   # -early: 사용자 재합의 2026-10-06(명세 순서 + 먼저 거절 변형 추가 측정)
 SEAT="--strategy pessimistic-nowait --pool 10 --apps 1"
 CONDITIONS=()
 for l in $LIMITS; do CONDITIONS+=("$l-s24 --limit-strategy $l $SEAT --levels '2 4' --cells 'S2 S4'"); done
@@ -59,7 +59,8 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
   [[ -f "$ROOT/$name/plan.json" ]] && resume="--resume"
   local mark; mark="$(mktemp)"   # 이 호출이 쓴 status만 세려고(재측정 전의 옛 실패를 연속 실패로 세지 않게)
   echo "$(date -Is) $name rep$rep start $resume" >> "$LOG"
-  eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/$name" --reps "$REPS" --only-rep "$rep" $args $resume >> "$ROOT/$name.runner.log" 2>&1
+  local reps="$REPS"; [[ -n "$S3_REPS" && "$name" == *-s3 ]] && reps="$S3_REPS"   # 계획(plan.json) 자체를 실제 회차로 — 4·5회차가 미측정으로 남지 않게
+  eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/$name" --reps "$reps" --only-rep "$rep" $args $resume >> "$ROOT/$name.runner.log" 2>&1
   rc=$?
   echo "$(date -Is) $name rep$rep exit=$rc" >> "$LOG"
   if (( rc != 0 )); then echo "$(date -Is) ABORT $name rep$rep exit=$rc" >> "$LOG"; exit "$rc"; fi
@@ -99,6 +100,13 @@ for round in 1 2; do
     run_condition_rep "$line" "$rep"
   done
 done
+# 매수 확인 쿼리 DB 벤치(명세 §9.2) — 회차 측정이 끝난 뒤 한 번. 이미 끝났으면(재개) 건너뛴다. 실패는 캠페인 실패로
+if [[ ! -f "$ROOT/limit-bench/DONE" ]]; then
+  echo "$(date -Is) limit-bench start" >> "$LOG"
+  bash "$DIR/limit-bench.sh" --sha "$SHA" --out "$ROOT/limit-bench" >> "$ROOT/limit-bench.runner.log" 2>&1 \
+    || { echo "$(date -Is) ABORT limit-bench exit=$?" >> "$LOG"; exit 5; }
+  echo "$(date -Is) limit-bench done" >> "$LOG"
+fi
 left=$(non_ok_reps)
 if [[ -n "$left" ]]; then
   echo "$(date -Is) CAMPAIGN done — 비정상 회차 $(echo "$left" | wc -l)개 남음:" >> "$LOG"

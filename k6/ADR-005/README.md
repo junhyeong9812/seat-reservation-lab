@@ -24,7 +24,7 @@ ADR-003 하네스(`k6/ADR-003/`)를 복사하고 **조건 축 `--limit-strategy`
 | S7 | 이긴 쪽 롤백(아래) | L4 | 5 |
 | S7-m1 | 이긴 쪽 롤백, 일반 사용자 1명(M=1 — 사용자 재합의 2026-10-06) | L4 | 5 |
 
-`campaign.sh`의 조건 = 매수 방식 8개 × {`<방식>-s24`(S2·S4 L2·L4), `<방식>-s3`(S3 L4), `<방식>-s7`(S7·S7-m1 L4)} = 24조건. 회차 우선 순서·비정상 회차 재측정(최대 2바퀴)·연속 기동 실패 중단은 ADR-003 그대로. S3는 `--s3-reps 3`이 기본.
+`campaign.sh`의 조건 = 매수 방식 10개(`advisory-try-early`·`quota-nowait-early` — 거절을 좌석 확인 전에 하는 비교용 변형, 사용자 재합의 2026-10-06) × {`<방식>-s24`(S2·S4 L2·L4), `<방식>-s3`(S3 L4), `<방식>-s7`(S7·S7-m1 L4)} = 30조건. S3 조건은 계획 자체를 3회로 기록한다(`--s3-reps`). 회차 측정이 끝나면 DB 벤치(`limit-bench.sh`)를 한 번 돌린다(이미 `DONE`이면 건너뜀). 회차 우선 순서·비정상 회차 재측정(최대 2바퀴)·연속 기동 실패 중단은 ADR-003 그대로. S3는 `--s3-reps 3`이 기본.
 S1·S6 시나리오 파일은 ADR-003에서 복사만 했고 캠페인 조건에는 없다.
 
 ## S7 이긴 쪽 롤백 (`scenarios/s7-winner-rollback.js`)
@@ -53,7 +53,7 @@ S1·S6 시나리오 파일은 ADR-003에서 복사만 했고 캠페인 조건에
 | 억울한 좌석 수 / 억울한 409 수 | S7에서 **끝 상태가 AVAILABLE(아무도 못 가짐)인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석 수 / 그 좌석들에서의 그런 409 수**(명세 §9.3 ④) | `end-state.json`(좌석별 상태·보유자) × `hold_code` |
 | U 코드 분포 | S7 U의 응답: HOLD_LIMIT_EXCEEDED(매수 판정까지 감) · SEAT_NOT_AVAILABLE(좌석 락에서 짐) · OK(매수 위반) | `hold_code` |
 | 201 − 홀드 행 | S2: 201 수 − 홀드 행. S7: 측정 201 + setup 201(`setup_hold_201`) − 홀드 행. 0이 아니면 응답과 DB가 어긋남 | k6 요약 × 판정기 |
-| 매수 acquire / check | 앱 Micrometer 타이머 `seat.hold.limit.acquire`(트랜잭션 시작 직후 사용자 단위 진입 — 락·카운터·격리 수준 설정) · `seat.hold.limit.check`(좌석 확인 뒤 매수 판정). k6 직전·직후 `metrics` 엔드포인트 값의 차분 — 건수(COUNT), 평균 ms(ΔTOTAL_TIME ÷ ΔCOUNT), 최대 ms(MAX = 누적이 아니라 최근 약 2분 창). S7은 setup 선점 200건 포함 | `before-k6.json`·`after-k6.json` |
+| 매수 prepare / acquire / check / span | 앱 Micrometer 타이머 `seat.hold.limit.prepare`(트랜잭션 밖 쿼터 행 준비 — L3·L4·L5) · `acquire`(트랜잭션 시작 직후 사용자 단위 진입) · `check`(좌석 확인 뒤 매수 판정 호출) · `span`(acquire 시작 ~ check 끝 — 그 사이 좌석 읽기 포함, 명세 §9.1). k6 직전·직후 `metrics` 차분 — 건수(COUNT), 평균 ms(ΔTOTAL_TIME ÷ ΔCOUNT). MAX는 최근 약 2분 창이라 **짧은 셀(S2·S7)에서는 k6 직전 예열이 섞인다** — 교차표에서 빼고 json에만 둔다. S7은 setup 선점 200건 포함 | `before-k6.json`·`after-k6.json` |
 | 40001 수 / 재시도 수 | 카운터 `seat.hold.limit.serialization_failure`(직렬화 충돌, 재시도 중 난 것 포함) · `seat.hold.limit.retry`(L7이 다시 한 수). 아직 기록 없는 지표(지표 목록에 이름 없음)는 0, 목록 조회 실패는 미측정 | 같음 |
 | 카운터 불일치 사용자 | 판정기 `v_counter_mismatch` — counter 방식에서만 판정기가 낸다(쿼터 행 cnt ≠ 홀드 + 확정). 다른 방식은 '해당 없음' | `consistency.json` |
 

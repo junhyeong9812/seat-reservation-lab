@@ -261,6 +261,7 @@ def s7_seats(rows, end_state, limit):
            "u_codes": {}, "r_codes": code_counts([r for r in rows if r.get("role") == "R"]), "r_201": 0, "u_201": 0}
     lead = []
     wronged_seats = wronged_409 = empty = multi = 0
+    wronged_by_code = {}
     for seat, reqs in by.items():
         u = [r for r in reqs if r["role"] == "U"]
         rs = [r for r in reqs if r["role"] == "R"]
@@ -276,13 +277,16 @@ def s7_seats(rows, end_state, limit):
             st = (seats.get(seat) or {}).get("status")
             if st == "AVAILABLE":
                 empty += 1
-                nsna = sum(1 for x in rs if x.get("code") == "SEAT_NOT_AVAILABLE")
-                if nsna:
+                # 명세 §9.3 ④: 빈 좌석에서 409를 받은 일반 사용자 — 코드 무관(SERIALIZABLE의 좌석 충돌 40001은 HOLD_LIMIT_EXCEEDED로 온다). 코드별 분해는 따로
+                n409 = [x.get("code") for x in rs if x.get("code") not in ("OK",) and not str(x.get("code", "")).startswith("HTTP")]
+                if n409:
                     wronged_seats += 1
-                    wronged_409 += nsna
+                    wronged_409 += len(n409)
+                    for c in n409:
+                        wronged_by_code[c] = wronged_by_code.get(c, 0) + 1
     out["multi_201_seats"] = multi
     if seats is not None:
-        out.update(empty_seats=empty, wronged_seats=wronged_seats, wronged_409=wronged_409)
+        out.update(empty_seats=empty, wronged_seats=wronged_seats, wronged_409=wronged_409, wronged_409_by_code=wronged_by_code)
         db_users = end_state.get("per_user") or {}
         out["u_over_limit_db"] = sum(1 for k, v in db_users.items() if 700000 < int(k) < 710000 and int(v) > limit)
     if lead:
@@ -442,8 +446,8 @@ def rep_record(rep_dir, root, level, cell):
     # ADR-005 매수 제어 구간 타이머·SERIALIZABLE 카운터(앱 1대 — 앱 2대면 첫 앱만이 아니라 미측정으로 둔다)
     lim = [a.get("limit") for a in apps]
     if len(lim) == 1 and lim[0]:
-        rec["limit_acquire_n"], rec["limit_acquire_mean_ms"], rec["limit_acquire_max_ms"] = timer(lim[0].get("acquire"))
-        rec["limit_check_n"], rec["limit_check_mean_ms"], rec["limit_check_max_ms"] = timer(lim[0].get("check"))
+        for m in ("prepare", "acquire", "check", "span"):   # MAX는 최근 약 2분 창 — 짧은 셀은 직전 예열이 섞일 수 있어 비교에 쓰지 않는다
+            rec[f"limit_{m}_n"], rec[f"limit_{m}_mean_ms"], rec[f"limit_{m}_max_ms"] = timer(lim[0].get(m))
         rec["serialization_failures"] = lim[0].get("serialization_failure")
         rec["limit_retries"] = lim[0].get("retry")
     rec["redis_used_mb"] = (after.get("redis") or {}).get("used_memory") and after["redis"]["used_memory"] / 1e6
@@ -507,10 +511,10 @@ def main(root):
     s2 = lambda recs, key: spread([(r.get("s2") or {}).get(key) for r in recs])
     s2c = lambda recs, key: spread([((r.get("s2") or {}).get("codes") or {}).get(key) for r in recs])
     s7 = lambda recs, key: spread([(r.get("s7") or {}).get(key) for r in recs])
-    lim_cols = ["매수 acquire 건수", "acquire 평균 ms", "acquire 최대 ms(최근 창)", "매수 check 건수", "check 평균 ms", "check 최대 ms(최근 창)", "40001 수", "재시도 수"]
+    lim_cols = ["prepare 평균 ms", "매수 acquire 건수", "acquire 평균 ms", "check 평균 ms", "span 평균 ms(acquire~check)", "span 최대 ms(최근 2분 창·예열 섞임 가능)", "40001 수", "재시도 수"]
     gd = lambda recs, key, d: spread([r.get(key) for r in recs], d)
-    lim_vals = lambda ok: [g(ok, "limit_acquire_n"), gd(ok, "limit_acquire_mean_ms", 4), gd(ok, "limit_acquire_max_ms", 3),
-                           g(ok, "limit_check_n"), gd(ok, "limit_check_mean_ms", 4), gd(ok, "limit_check_max_ms", 3),
+    lim_vals = lambda ok: [gd(ok, "limit_prepare_mean_ms", 4), g(ok, "limit_acquire_n"), gd(ok, "limit_acquire_mean_ms", 4),
+                           gd(ok, "limit_check_mean_ms", 4), gd(ok, "limit_span_mean_ms", 4), gd(ok, "limit_span_max_ms", 3),
                            g(ok, "serialization_failures"), g(ok, "limit_retries")]
     section("S2 같은 사용자 동시 요청 (1인 2매) — 정합이면 매수 초과 사용자 0 · 가짜 거절은 즉시 실패형의 대가",
             ["단계", "셀", "n", "201 수", "상한(사용자×2)", "매수 초과 사용자(판정기)", "매수 초과 사용자(응답 201>2)", "가짜 거절 사용자(끝 상태<2 & HLE)",

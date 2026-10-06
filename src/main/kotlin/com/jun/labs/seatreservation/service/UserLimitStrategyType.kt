@@ -8,8 +8,11 @@ enum class UserLimitStrategyType {
     NONE,
     ADVISORY,
     ADVISORY_TRY,
+    /** 같고, 거절을 좌석 확인 전에(에러 순서 변경 — 거절될 요청이 좌석 락을 잡지 않는다) */
+    ADVISORY_TRY_EARLY,
     QUOTA_LOCK,
     QUOTA_NOWAIT,
+    QUOTA_NOWAIT_EARLY,
     COUNTER,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,

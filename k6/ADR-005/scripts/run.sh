@@ -318,13 +318,13 @@ actuator_retry() {  # 인자: 앱 경로 — 성공한 JSON 또는 빈 출력
   done
   return 1
 }
-# ADR-005 앱 지표: 매수 제어 구간 타이머(acquire·check — COUNT·TOTAL_TIME 누적 초, MAX 최근 창)와 SERIALIZABLE 카운터.
+# ADR-005 앱 지표: 매수 제어 구간 타이머(prepare 트랜잭션 밖 쿼터 행 준비 · acquire · check · span = acquire 시작 ~ check 끝 — COUNT·TOTAL_TIME 누적 초, MAX 최근 창)와 SERIALIZABLE 카운터.
 # Micrometer는 처음 기록될 때 지표를 만든다 — 지표 목록에 이름이 없으면 '아직 0'(카운터 0 · 타이머 0건). 목록 조회 자체가 실패하면 null(미측정).
-limit_metrics() {  # 인자: 앱 → {"acquire":{COUNT,TOTAL_TIME,MAX},"check":{…},"serialization_failure":n,"retry":n} 또는 null
+limit_metrics() {  # 인자: 앱 → {"prepare"|"acquire"|"check"|"span":{COUNT,TOTAL_TIME,MAX},"serialization_failure":n,"retry":n} 또는 null
   local a="$1" names out='{}' m key v
   names=$(actuator_retry "$a" metrics | jq -c '.names') || { echo null; return; }
   [[ -n "$names" && "$names" != null ]] || { echo null; return; }
-  for m in acquire check; do
+  for m in prepare acquire check span; do
     if jq -e --arg n "seat.hold.limit.$m" 'index($n) != null' <<< "$names" > /dev/null; then
       v=$(actuator_retry "$a" "metrics/seat.hold.limit.$m" | jq -c '[.measurements[] | {(.statistic): .value}] | add') || v=null
     else
@@ -370,13 +370,14 @@ after_k6() {  # 인자: 폴더 부하 전 deadlocks — 부하 중 증가분(직
   arr=$(jq -c --slurpfile b "$dir/before-k6.json" '[.[] as $x | ($b[0] // [] | map(select(.app == $x.app))[0]) as $y |
           $x + {acquire: (if $x.acquire and $y.acquire then {COUNT: ($x.acquire.COUNT - $y.acquire.COUNT), TOTAL_TIME: ($x.acquire.TOTAL_TIME - $y.acquire.TOTAL_TIME), MAX: $x.acquire.MAX} else null end),
                 timeouts: (if $x.timeouts != null and $y.timeouts != null then $x.timeouts - $y.timeouts else null end),
-                limit: (if $x.limit and $y.limit and $x.limit.acquire and $y.limit.acquire and $x.limit.check and $y.limit.check
+                limit: (if $x.limit and $y.limit
+                           and ([("prepare","acquire","check","span")] | all(. as $m | $x.limit[$m] and $y.limit[$m]))
                            and $x.limit.serialization_failure != null and $y.limit.serialization_failure != null
                            and $x.limit.retry != null and $y.limit.retry != null then
-                          {acquire: {COUNT: ($x.limit.acquire.COUNT - $y.limit.acquire.COUNT), TOTAL_TIME: ($x.limit.acquire.TOTAL_TIME - $y.limit.acquire.TOTAL_TIME), MAX: $x.limit.acquire.MAX},
-                           check: {COUNT: ($x.limit.check.COUNT - $y.limit.check.COUNT), TOTAL_TIME: ($x.limit.check.TOTAL_TIME - $y.limit.check.TOTAL_TIME), MAX: $x.limit.check.MAX},
-                           serialization_failure: ($x.limit.serialization_failure - $y.limit.serialization_failure),
-                           retry: ($x.limit.retry - $y.limit.retry)} else null end),
+                          (reduce ("prepare","acquire","check","span") as $m ({};
+                              . + {($m): {COUNT: ($x.limit[$m].COUNT - $y.limit[$m].COUNT), TOTAL_TIME: ($x.limit[$m].TOTAL_TIME - $y.limit[$m].TOTAL_TIME), MAX: $x.limit[$m].MAX}})
+                           + {serialization_failure: ($x.limit.serialization_failure - $y.limit.serialization_failure),
+                              retry: ($x.limit.retry - $y.limit.retry)}) else null end),
                 hold_requests: (if $y then $x.hold_requests - $y.hold_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
   local d1 redis
   d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
