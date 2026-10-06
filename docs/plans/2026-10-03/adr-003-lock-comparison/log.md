@@ -39,11 +39,34 @@
 | 10-05 21:49 | S6 스모크(pessimistic·지연 20ms·K 1/10/100) 3셀 ok — **이웃 스트림 번짐 확인**: K=1 이웃 p99 2.5s→6.5s, 이웃 처리 464→322/s(목표 500), 커넥션 획득 대기 평균 190ms·최대 841ms, 중복 0 | S6 하네스 동작 확인 |
 | 10-05 21:52 | Hibernate 실제 SQL 대조(측정 없는 틈에): 로그 레벨 환경변수(LOGGING_LEVEL_ORG_HIBERNATE_SQL)는 Spring이 로거 이름을 소문자로 바꿔 org.hibernate.SQL에 안 먹음 → spring.jpa.show-sql로. 결과: 비관락 `for no key update`(nowait 포함) 확인 · 1인 2매 홀드 수는 `left join` · **flush에 `update seat_hold set seat_id=?`가 하나 더**(단방향 @OneToMany @JoinColumn — 선점 1회 쓰기 3문장) | ADR-003 §2 SQL을 실측으로 교체, '확인 전' 0. CS 이슈 후보: 단방향 OneToMany의 추가 FK UPDATE · 환경변수 로그 레벨 대소문자 |
 | 10-05 21:53 | **S6 캠페인 시작**: campaign.sh --sha 853ef7a --suite s6 --reps 3 --id 20261005-adr003-s6-853ef7a — 유닛 seatlab-adr003-s6(Restart=on-failure), 조건 22 × K 3 × 3회 = 198회 | 약 12~13h, 10-06 오전 종료 예상 |
+| 10-06 09:42 | **S6 캠페인 종료**(CAMPAIGN.log 기준) — 198/198, 비정상 0, 유선 | 요약·교차표·errsplit·stalls 산출(compare.py에 S6 단계표 추가 — 미커밋) |
+| 10-06 10:20 | ADR-003 §7(결과)·§8(결정 제안 — 3b nowait 기본, 2 차선, 사용자 확인 대기)·§9·§10, ADR-004 §5~§8 작성. 기록 전 전수 확인: 대조군 뺀 577회 판정기 위반 0 · S6 일시 중복 9방식 전부 0 · 대조군 양성(경합 셀). **발견: 지연 20ms는 첫 단계부터 포화** — 이웃 500/s×20ms = 풀 10, Hikari 대기 최대 189~190, k6 dropped 7.8만~13.3만(VU 상한) → 방식 차이는 K=1 − K=100(바닥)으로만 판정. 이전에 구두로 제안한 '2 conditional 기본'을 ADR-004 결과(묶음 C — 진 쪽도 지연을 씀)로 **3b로 바꿔 제안** | 다음: 中 듀얼 1패스 리뷰(문서) |
+| 10-06 10:2x | 中 듀얼 1패스(결과 문서) 시작(시각은 10:20 기록 직후 — 분 단위 미기록) — packet: git diff HEAD(ADR-003·004·compare.py) + spec, 미러 = tracked + 두 캠페인 요약 파일(원시 csv·gz 제외), `$OUT=scratchpad/rv.8l3L`. 보안 스캔: compose 테스트 DB 비밀번호 `seat`·`${DB_PASSWORD}`·UUID 토큰 변수 — 공개 repo 기존 내용, 오탐 판정 | codex(medium) ∥ Opus 워커 |
+| 10-06 10:41 | 회수(10:20~10:41 사이, 개별 시각 미기록 — 10:41 일괄 기록): codex 6건 · Opus 12건 + OQ 4. 메인 재현: 577→523(미측정 66회 포함 오류) · 7,289는 좌석 수/16,421은 초과 홀드 수(S6 TTL 60분 — 만료 없음) · S6 에러 합 3,616 = 2×(10,000−8,192) 33회 · 첫 승자 순위 ≥10 27%·≥20 15% · L2 S4 에러 11단계 시작 = redis-lock p10·p20, pessimistic p20, advisory p20 · 0-1220 69/140회 최대 255 — 전부 확인 | 중복 병합 후 채택 14 · 기각 0 (D1~D14) |
+| 10-06 10:41 | 수정(같은 구간): compare.py(S6 열 '핫 201/s'·중복 좌석/초과 홀드/일시 3단위·Hikari 대기·dropped·n=사용/전체·빈 셀 미측정 행, S4 json acquire, 판정기 전수 절 신설) → errsplit 뒤 두 캠페인 COMPARISON 재생성(응답 분류 절 포함). ADR-003 §7.2·§7.3①②③④·§7.5·§8·§9·§10, ADR-004 §5.1~§5.5·§6·§7 정정 | 다음: post-fix 타깃 재점검(codex) |
+| 10-06 10:45 | post-fix 재점검(codex, 미러 rv.8l3L/mirror2 — 수정 전·후 diff + 재생성 결과): D1~D9·D11~D14 해소, D10 미해소(redis-nx '세 조건 모두' 과장), 신규 N1(에러 상한 아래가 redis-nx뿐 — 틀림, nowait·jvm·redis-lock도 아래)·N2(획득 대기 다른 방식 범위에 jvm·redis-lock K=1·10 29~45 누락) → 수정. 신규 결함 2건은 수정 경로에서 나온 것(D3 표현) — 中 규정상 재점검 반복 없음, 메인이 데이터로 재확인(에러 합 방식별 최소~최대) | 리뷰 종료 |
 
 ## 리뷰 ledger (中↑)
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
+| D1 | 1 | codex·opus | ADR-003 §7.3① 편향·§9 ADR-006·판정기 행 | 채택 — S6 판정기 '일시 중복 놓침'은 단위 혼합(좌석 vs 초과 홀드). S3만 근거로 남김 | fixed | 1 |
+| D2 | 1 | codex·opus | ADR-003 §7.3① 전수 확인 | 채택 — 577→523, d20 K=100 대조군 위반 누락 | fixed | 1 |
+| D3 | 1 | opus | ADR-004 §5.1·§5.2·H2, ADR-003 §7.5 | 채택 — S6 에러 수가 VU−max-connections 상한(3,616)에 걸림 | fixed(편향 명시·비교 근거 제외) | 1 |
+| D4 | 1 | codex·opus | ADR-003 §7.3④·§8 표 | 채택 — 획득 대기 평균 분모 편향·nowait를 'DB 앞 거름'으로 오분류 | fixed | 1 |
+| D5 | 1 | opus | ADR-003 §8 | 채택 — '3a 다음으로 빠름'(L2 p50 한정)·'지연 0에서 2=3b'(S6 한정) | fixed | 1 |
+| D6 | 1 | opus | ADR-003 §8 대가 | 채택 — NOWAIT가 만료 배치·확정의 행 락에도 즉시 409 | fixed(대가 ③ + ADR-006 인계) | 1 |
+| D7 | 1 | opus | ADR-003 §7.3④·§7.5 | 채택 — 풀 20 S4 한계 '같다' 오류·'redis-lock만' 범위 | fixed | 1 |
+| D8 | 1 | codex·opus | ADR-004 §5.1·H4 | 채택 — K=10도 예외, H4 '방향 반대'→'효과 없음', 기제 K 의존 | fixed | 1 |
+| D9 | 1 | opus | ADR-004 H3 | 채택 — 대기형 묶음 정의 충돌(1b)·'M배' 용량상 불가 | fixed | 1 |
+| D10 | 1 | opus | ADR-003 H7·② | 채택 — 공정성 수치 오류, redis-nx 늦은 순위 반복 | fixed(post-fix에서 redis-nx 과장 재수정) | 1·post-fix |
+| D11 | 1 | opus | 명세 '표는 스크립트 산출' | 채택 — COMPARISON이 errsplit보다 먼저 생성·전수 집계 수작업 | fixed(재생성·판정기 전수 절) | 1 |
+| D12 | 1 | opus | compare.py S6 절 | 채택 — acqm4 json 누락·n 형식·빈 셀 무음 누락 | fixed | 1 |
+| D13 | 1 | codex | compare.py·ADR S6 '핫 성공/s' | 채택 — 201 수라 중복 포함 | fixed(열 이름 '핫 201/s') | 1 |
+| D14 | 1 | codex | ADR-004 §5.1·§5.5 | 채택 — 측정 순서 고정 편향·K=100은 무경합 대조군 아님 | fixed(K=100 기준선(분산 경합)·편향·후속) | 1 |
+| N1 | post-fix | codex | ADR-004 §5.1·§5.2·H2, ADR-003 §7.5 | 채택 — 상한 아래 방식이 redis-nx뿐이라는 단정 오류 | fixed | post-fix |
+| N2 | post-fix | codex | ADR-004 §5.5 | 채택 — 획득 대기 범위에 jvm·redis-lock K=1·10 누락 | fixed | post-fix |
+| OQ | 1 | opus | — | OQ1 Tomcat max-connections 8,192(Spring Boot 기본·재정의 없음 — 문서 '추정') · OQ2 원시 CSV 근거는 이전 산출 · OQ3 SHA 전환 diff 0은 log 10-04 12:04 · OQ4 redis-lock d0 K10·100 이웃 p99 → §7.3③ 반영 | — | — |
 | R1 | 1 | sonnet | errsplit.py·stalls.py·compare.py `c*` 글롭 — ADR-003 조건 이름 대부분 누락 | 채택 | fixed | 1 |
 | R2 | 1 | opus·sonnet | 앱 2대: app2 생존·전략·풀·요청 처리 미검증(nginx 한쪽 몰림 시 1대 측정이 ok) | 채택 | fixed | 1 |
 | R3 | 1 | opus·sonnet | S1 버스트를 순간 표본이 놓치고 0으로 요약 · Hikari 표본 0 쪽 편향 | 채택 | fixed(표본 대기·누적 지표·미측정 표기·편향 기록) | 1 |
