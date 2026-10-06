@@ -19,6 +19,8 @@
 | 10-06 (재스모크) | 재스모크 루프(a89741e9) 시작 → advisory-try exit 3: **서버 디스크 100%**(98G, 여유 0) — 배포가 git archive 전체(커밋된 k6/*/results, 회당 약 3~3.5G)를 SHA 폴더마다 복사해 ~/labs/seat-reservation-lab이 53G. advisory-try-early exit 2(run.sh 허용 목록 누락 — codex 재점검 F1과 같은 원인) → 루프 중단(TaskStop) | 다른 서비스 영향 가능 — 사용자 확인 |
 | 10-06 (재점검) | codex post-fix 재점검: C3·C4·O1·O2·O6·O7·O9·O10·OQ1 해소 · **C1 미해소(F1 run.sh 허용 목록에 -early 없음)** · **C2 미해소(F2 span이 409에서 기록 안 됨·락 대기 포함)** · O5 부분(F3 300ms 지연 의존) → 앱: span을 진입 직후 시작 + finally 기록, 40001 테스트 지연 1s — 151/151(4e506390) | 하네스 F1은 루프 종료 뒤 수정 |
 | 10-06 18:58 | 사용자 승인 "23개 전부 삭제" → 삭제 직전 재확인(경로 /home/jun/labs/seat-reservation-lab, 목록: SHA 24개 + 실패 배포 .tmp 1개 — 승인 때 23개라 말한 것과 개수 차이 고지) → 삭제 → **디스크 44%(여유 53G)**. 재발 방지: lib.sh 두 배포 함수에서 `:(exclude,glob)k6/*/results/**` — 배포 크기 3.5GB → 1.3MB. run.sh 허용 목록에 -early 2개 | 재스모크 다시 |
+| 10-06 (재스모크 2) | 4d02bdfa(앱 = 4e506390 + 하네스 수정), worktree: S2 L4 advisory-try·advisory-try-early·quota-nowait·quota-nowait-early 4개 ok — 매수 초과 0 · 201 − 홀드 0 · HLE 800 · 가짜 거절 0 · span 평균 1.6~3.1ms · **quota 계열 prepare 평균 약 60ms**(트랜잭션 밖 커넥션 1회 더 — S2 버스트에서 풀 대기로 보임) / S7 L4 serializable ok — setup 재시도로 완료, 40001 169, 억울한 좌석 1(409 20). 서버 디스크 44%, 배포 폴더 1.8M | 본측정 준비 완료 |
+| 10-06 19:06 | **본측정 시작**: campaign.sh --sha 7acad14b --id 20261006-adr005-7acad14b — 유닛 seatlab-adr005(ManagedOOMPreference=avoid, Restart=on-failure 180s·6h 5회), 30조건(방식 10 × s24·s3·s7), 회차 우선, 끝에 limit-bench | 약 50~55h 추정 · 사용자 linger 꺼짐(로그아웃 시 정지 위험 — ADR-002 이후 그대로) |
 
 ## 리뷰 ledger (中↑)
 
