@@ -16,6 +16,9 @@
 | 10-06 (리뷰 회수) | codex 4건 · Opus 11건 + OQ 3 회수. 메인 재현: 즉시 실패형의 좌석 전 거절(코드 :67·:118) · 타이머가 좌석 구간 누락(HoldSeatProcess) · S7 억울한 409가 SNA만(summarize :276) · S3 plan reps 5(campaign :62) · ensureQuotaRow가 매 요청(around 매번) — 확인. ON CONFLICT 대기는 특성 테스트로 확인(아래) | 사용자 결정 1건(에러 순서) |
 | 10-06 (사용자) | 에러 순서: 처음 '즉시 실패형도 예외 허용' 선택 → 곧바로 "명세를 보존하고 위 내용은 추가로 확인하는게 맞지 않나?" → 해석 확인 질문 → **"명세 순서로 고치고, 먼저 거절하는 변형을 추가 측정"**(재합의: 방식 10개, quota-nowait 계열 SKIP LOCKED) | spec §0·§1·§2·§9 갱신 |
 | 10-06 18:48 | 수정(앱): prepare 단계 분리(타이머 prepare) · ensureQuotaRow 'SELECT 먼저' · span 타이머 · acquire→Boolean/check(entered) — L2·L4 명세 순서, -early 2개, L4 계열 SKIP LOCKED · 기동 검사(매수 방식 ≠ none이면 좌석 3b만) · counter + 배경 행 거부. 테스트: 40001 결정적(L6 거절 1·L7 재시도 성공) · 진입 쥔 동안 다른 사용자 통과/같은 사용자 대기·거절·경합 중 에러 순서 · ON CONFLICT 대기 특성 → **151/151 green**(중간 실패: 격리 수준 테스트가 prepare 미호출 3건 — 테스트 수정). 수정(하네스): 방식 10개 · S3 plan reps 3 · S7 억울한 409 코드 무관 + 코드별 · S7 setup 409 HLE 순차 재시도 5 · 타이머 4종 차분, MAX 교차표 제외 · 캠페인 끝 limit-bench, 없으면 '미측정'+problem. 문서: ADR-005 §2·§3·§5·§6.1·6.1.1, README | 다음: 재스모크 → codex post-fix 재점검 |
+| 10-06 (재스모크) | 재스모크 루프(a89741e9) 시작 → advisory-try exit 3: **서버 디스크 100%**(98G, 여유 0) — 배포가 git archive 전체(커밋된 k6/*/results, 회당 약 3~3.5G)를 SHA 폴더마다 복사해 ~/labs/seat-reservation-lab이 53G. advisory-try-early exit 2(run.sh 허용 목록 누락 — codex 재점검 F1과 같은 원인) → 루프 중단(TaskStop) | 다른 서비스 영향 가능 — 사용자 확인 |
+| 10-06 (재점검) | codex post-fix 재점검: C3·C4·O1·O2·O6·O7·O9·O10·OQ1 해소 · **C1 미해소(F1 run.sh 허용 목록에 -early 없음)** · **C2 미해소(F2 span이 409에서 기록 안 됨·락 대기 포함)** · O5 부분(F3 300ms 지연 의존) → 앱: span을 진입 직후 시작 + finally 기록, 40001 테스트 지연 1s — 151/151(4e506390) | 하네스 F1은 루프 종료 뒤 수정 |
+| 10-06 18:58 | 사용자 승인 "23개 전부 삭제" → 삭제 직전 재확인(경로 /home/jun/labs/seat-reservation-lab, 목록: SHA 24개 + 실패 배포 .tmp 1개 — 승인 때 23개라 말한 것과 개수 차이 고지) → 삭제 → **디스크 44%(여유 53G)**. 재발 방지: lib.sh 두 배포 함수에서 `:(exclude,glob)k6/*/results/**` — 배포 크기 3.5GB → 1.3MB. run.sh 허용 목록에 -early 2개 | 재스모크 다시 |
 
 ## 리뷰 ledger (中↑)
 
