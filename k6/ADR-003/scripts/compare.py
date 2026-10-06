@@ -208,11 +208,11 @@ def main(root):
     s6 = [(n, c) for n, c in conds.items() if any(k.split("/")[1].startswith("S6") for k in c["data"])]
     if s6:
         out.append("\n## S6 경합 강도 스윕 — 전략 × 임계 구역 지연 × 핫 좌석 K × 핫 도착률 단계 (회차 중앙값)\n")
-        out.append("> 핫 201/s = 핫 스트림 201 응답 수 ÷ 단계 시간 — 중복 승리도 센다(정합 방식에서만 '좌석이 넘어간 속도'). 이웃 = 경합 없는 좌석 500건/s. "
-                   "이웃 처리/s·p99·에러율이 핫 경합의 '번짐'. 중복 = 판정기 중복 좌석 수(v_duplicate_hold_seats) / 판정기 초과 홀드 수(v_excess_hold_rows) / "
+        out.append("> 핫 201/s = 핫 스트림 201 응답 수 ÷ 단계 시간 — 중복 승리도 센다(정합 방식에서만 '좌석이 넘어간 속도'). 무경합 = 경합 없는 다른 좌석 요청 500건/s(코드·k6 태그 이름은 neighbor). "
+                   "무경합 처리/s·p99·에러율이 핫 경합의 '번짐'. 중복 = 판정기 중복 좌석 수(v_duplicate_hold_seats) / 판정기 초과 홀드 수(v_excess_hold_rows) / "
                    "요청 기록 일시 중복 홀드 수(duplicate — 초과 홀드와 같은 단위). 커넥션 획득 평균은 획득 1회당(분모가 방식마다 다르다). "
                    "Hikari 대기 최대·dropped(k6가 시작 못 한 반복)·락 대기는 회차 전체.\n")
-        out.append("| 조건 | K | n | 단계 목표/s | 핫 201/s | 핫 p99 ms | 핫 에러율 | 이웃 처리/s | 이웃 p99 ms | 이웃 에러율 | 중복 좌석·초과 홀드·일시 | 커넥션 획득 평균 ms | Hikari 대기 최대 | dropped | 락 대기 최대 |")
+        out.append("| 조건 | K | n | 단계 목표/s | 핫 201/s | 핫 p99 ms | 핫 에러율 | 무경합 처리/s | 무경합 p99 ms | 무경합 에러율 | 중복 좌석·초과 홀드·일시 | 커넥션 획득 평균 ms | Hikari 대기 최대 | dropped | 락 대기 최대 |")
         out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for name, c in s6:
             for key, reps in c["data"].items():
