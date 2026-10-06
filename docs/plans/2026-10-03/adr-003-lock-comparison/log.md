@@ -47,6 +47,8 @@
 | 10-06 10:45 | post-fix 재점검(codex, 미러 rv.8l3L/mirror2 — 수정 전·후 diff + 재생성 결과): D1~D9·D11~D14 해소, D10 미해소(redis-nx '세 조건 모두' 과장), 신규 N1(에러 상한 아래가 redis-nx뿐 — 틀림, nowait·jvm·redis-lock도 아래)·N2(획득 대기 다른 방식 범위에 jvm·redis-lock K=1·10 29~45 누락) → 수정. 신규 결함 2건은 수정 경로에서 나온 것(D3 표현) — 中 규정상 재점검 반복 없음, 메인이 데이터로 재확인(에러 합 방식별 최소~최대) | 리뷰 종료 |
 | 10-06 11:32 | 사용자 피드백 반영: 용어 정의(ADR-004 §5.0 — 핫·무경합 요청·스트림·번짐·무경합 처리·20ms 지연·최저점·교락, '스레드가 아님') · '이웃' → '무경합 요청'(문서·compare.py 표 머리, 코드·k6 태그 neighbor는 유지) · '바닥/K=100 기준선' → '최저점' · ADR-003 §2.13에 단계 ⓪~⑨.4 정의(⑨를 9.1 1b 해제/9.2 COMMIT/9.3 커넥션 반납/9.4 트랜잭션 밖 해제로) · 3b가 L2 p50에서 3a보다 느린 이유(추정) §8. **사용자 결정**: ADR-003 기본 = 3b nowait(대기로 다른 좌석을 놓치는 클라이언트가 없어야 한다 — 즉시 실패형 우선, Redis는 운영·부분 실패·키 TTL 때문에 아직 안 씀), ADR-004 = 느린 작업은 판정 뒤로 → ADR 상태 Accepted, **repo README 맨 위에 결정 기록**(사용자 지정 — 상위 README의 'repo README는 원본 그대로' 규칙의 예외) | 다음: 커밋·push 확인 |
 | 10-06 11:39 | 사용자: try-advisory는 후순위(ADR-003 §9·NEXT N3), push 승인, README에 'ADR-005 진행 중' 추가 후 ADR-005 착수. 사이클 마감: NEXT.md 갱신 · measurement-log 1행 · 아카이브 보류(범위 미확인) | push → ADR-005 새 작업 폴더 |
+| 10-06 11:40 | push 완료(46d19731..e8422cf1, feat/adr-003-lock-comparison) · 사용자: study-note 이슈 아카이브 진행(범위 = NEXT 보류 7건) → 보류 해소, Opus 워커 위임(worktree study-note-wt-archive-1006, 브랜치 archive/2026-10-06, push·병합 금지) | 회수 대기 · 병행: ADR-005 인터뷰 준비(L0) |
+| 10-06 12:03 | 아카이브 회수·교차 확인(브랜치 커밋 6 · main..HEAD 추가 행 노출 스캔 0 · 커밋 메시지 attribution 0 · 원 checkout status 0): 아카이브: issue/kotlin/spring/default-argument-evaluated-on-proxy ⓐ 60e809cd · cross-cutting/reliability/silent-failure-vs-artifact ⓒ acee663f(기동 실패 넘김) · 같은 카드 ⓑ 무변경(무음 수집기 — 변형 A·B와 같은 방안) · java/spring/framework-default-contracts ⓒ e370bdc9 · cross-cutting/data/key-normalization-consistency ⓒ 2ca52e6a · cross-cutting/reliability/edge-detection-on-raw-signals ⓒ 10e46907 · cross-cutting/data/aggregation-semantics ⓒ 1bf8a642. 노출 스캔 파일 전문 3건(루트 README 기존 포트폴리오 표의 /home 경로 — 이번 추가 아님) 오탐 판정. 원 식별자: seat-reservation-lab·seatreservation·seatlab·junhyeong·HoldSeatProcess·ProductSeat·SeatHold·HoldStrategy·LoadtestDataService·192.168.x | study-note push(ff main) 사용자 확인 대기 · NEXT 보류 해소 |
 
 ## 리뷰 ledger (中↑)
 
@@ -97,5 +99,5 @@ fun hold(command: HoldSeatCommand, loadSeat: ((seatId: Long, scheduleId: Long) -
     if (!properties.criticalSectionDelay.isZero) Thread.sleep(properties.criticalSectionDelay)
 ```
 - **리뷰**: 측정 전 R1~R9·N1~N5, 결과 문서 듀얼 1패스 D1~D14 + post-fix N1·N2 — 전부 fixed.
-- **아카이브 보류**(범위 미확인 — 명세 ①에 study-note 아카이브 없음): 후보 7건은 NEXT.md 보류·이월에 재개 조건과 함께 등재 — 사용자 보고.
+- **아카이브**: 사용자 범위 확인 후 7건 처리(신규 1 · 방안 비교 5 · 무변경 1) — study-note archive/2026-10-06, push 대기.
 - 커밋: 67bf919 · bfd18d1 · 6815c38 · 7a52c18c · d07ef510 · (이 마감 커밋)
