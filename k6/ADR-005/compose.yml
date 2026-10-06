@@ -1,0 +1,66 @@
+# ADR-005 측정 환경(ADR-003 compose 복사 + 매수 제어 방식 축): 앱 + PostgreSQL + Redis. 자원·설정은 전부 환경변수로 주입하고, 결과 폴더에 그 값을 함께 남긴다.
+# 실행: docker compose -p seatlab -f k6/ADR-005/compose.yml up -d --build  (repo 루트에서)
+# 좌석 전략 기본 = pessimistic-nowait(ADR-003 결정 3b, 앱 기본값과 같다) · 매수 방식 SEAT_HOLD_LIMIT_STRATEGY(기본 none)
+# 앱 2대 오버레이(compose.two-apps.yml)는 ADR-003에서 복사만 했다 — ADR-005 캠페인은 앱 1대만 잰다.
+name: seatlab
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: seat
+      POSTGRES_USER: seat
+      POSTGRES_PASSWORD: seat
+    ports:
+      - "15432:5432"
+    cpus: ${DB_CPUS:-2}
+    mem_limit: ${DB_MEM:-2g}
+    shm_size: 256m
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seat -d seat"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Redis는 전략과 무관하게 항상 띄운다 — 전략마다 서버 위 컨테이너 구성이 같도록. 호스트 포트 없음(compose 내부망만).
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    cpus: ${REDIS_CPUS:-1}
+    mem_limit: ${REDIS_MEM:-1g}   # redis-nx S4는 TTL 60m 키가 최대 약 197만 개(키당 수백 B) — 512m는 빠듯하다(리뷰 지적)
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest
+      DB_URL: jdbc:postgresql://db:5432/seat
+      DB_USERNAME: seat
+      DB_PASSWORD: seat
+      # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","limit-strategy":"${SEAT_HOLD_LIMIT_STRATEGY:-none}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
+                   "data":{"redis":{"host":"redis","port":6379}}}}
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    ports:
+      - "8101:8101"
+    cpus: ${APP_CPUS:-2}
+    mem_limit: ${APP_MEM:-1g}
+
+volumes:
+  pgdata:

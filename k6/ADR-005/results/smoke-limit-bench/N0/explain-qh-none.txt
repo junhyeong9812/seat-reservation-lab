@@ -1,0 +1,19 @@
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=9.32..9.33 rows=1 width=8) (actual time=0.008..0.008 rows=1 loops=1)
+   Buffers: shared hit=1
+   ->  Nested Loop  (cost=0.29..9.32 rows=1 width=8) (actual time=0.006..0.007 rows=0 loops=1)
+         Buffers: shared hit=1
+         ->  Seq Scan on seat_hold h1_0  (cost=0.00..1.01 rows=1 width=8) (actual time=0.006..0.006 rows=0 loops=1)
+               Filter: (user_id = 200002)
+               Rows Removed by Filter: 1
+               Buffers: shared hit=1
+         ->  Index Scan using product_seat_pkey on product_seat ps1_0  (cost=0.29..8.30 rows=1 width=8) (never executed)
+               Index Cond: (id = h1_0.seat_id)
+               Filter: (schedule_id = 1)
+ Planning:
+   Buffers: shared hit=247
+ Planning Time: 0.369 ms
+ Execution Time: 0.041 ms
+(15 rows)
+
