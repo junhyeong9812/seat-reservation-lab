@@ -9,6 +9,7 @@ import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.HoldStrategyType.NONE
 import com.jun.labs.seatreservation.service.HoldStrategyType.PESSIMISTIC
 import com.jun.labs.seatreservation.service.HoldStrategyType.PESSIMISTIC_NOWAIT
+import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategy
 import com.jun.labs.seatreservation.support.IntegrationTest
 import org.junit.jupiter.api.Test
@@ -134,7 +135,8 @@ class HoldStrategyTest : IntegrationTest() {
     }
 
     @Test
-    fun `선택된 활성 전략은 설정 기본값 none`() {
-        assertEquals(NONE, properties.strategy)
+    fun `설정 기본값은 좌석 3b nowait(ADR-003 결정) · 매수 none`() {
+        assertEquals(PESSIMISTIC_NOWAIT, properties.strategy)
+        assertEquals(UserLimitStrategyType.NONE, properties.limitStrategy)
     }
 }

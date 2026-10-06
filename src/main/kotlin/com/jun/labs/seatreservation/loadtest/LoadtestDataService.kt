@@ -2,6 +2,7 @@ package com.jun.labs.seatreservation.loadtest
 
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import org.springframework.context.annotation.Profile
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
@@ -29,7 +30,7 @@ class LoadtestDataService(
         require(schedules in 1..1_000 && seatsPerSchedule in 1..100_000) { "시드 범위 초과" }
         require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
         jdbcTemplate.execute(
-            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product RESTART IDENTITY",
+            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
         )
         // ADR-003 Redis 전략: 선점 관문 키·분산락이 이전 시드의 좌석 id로 남아 있으면 새 시드의 같은 id 좌석을 막는다.
         // Redis는 이 실험 전용(compose 내부)이라 DB 전체를 비운다. Redis 전략이 아니면 Redis에 연결하지 않는다.
@@ -151,7 +152,24 @@ class LoadtestDataService(
             """.trimIndent(),
             graceSeconds.toDouble(), limit,
         )
-        return linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
+        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
+        // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
+        if (properties.limitStrategy != UserLimitStrategyType.COUNTER) return base
+        val counterMismatch = jdbcTemplate.queryForObject(
+            """
+            WITH actual AS (
+                SELECT schedule_id, user_id, sum(n) AS total FROM (
+                    SELECT schedule_id, user_id, count(*) AS n FROM seat_hold GROUP BY 1, 2
+                    UNION ALL
+                    SELECT schedule_id, user_id, count(*) FROM reservation WHERE status = 'CONFIRMED' GROUP BY 1, 2
+                ) u GROUP BY 1, 2
+            )
+            SELECT count(*) FROM user_hold_quota q FULL JOIN actual a USING (schedule_id, user_id)
+            WHERE coalesce(q.cnt, 0) <> coalesce(a.total, 0)
+            """.trimIndent(),
+            Long::class.java,
+        )
+        return base + ("v_counter_mismatch" to counterMismatch)
     }
 
     /**

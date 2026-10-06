@@ -72,16 +72,16 @@ class ProductSeat(
         holds.remove(hold)
     }
 
-    /** 만료된 홀드만 제거하고, 좌석이 HELD면 AVAILABLE로 되돌린다. 제거한 홀드 수를 돌려준다. */
-    fun expireHolds(now: Instant): Int {
+    /** 만료된 홀드만 제거하고, 좌석이 HELD면 AVAILABLE로 되돌린다. 제거한 홀드를 돌려준다(매수 카운터가 사용자별로 내린다 — ADR-005). */
+    fun expireHolds(now: Instant): List<SeatHold> {
         val expired = holds.filter { it.isExpired(now) }
         if (expired.isEmpty()) {
-            return 0
+            return expired
         }
         holds.removeAll(expired)
         if (status == SeatStatus.HELD) {
             status = SeatStatus.AVAILABLE
         }
-        return expired.size
+        return expired
     }
 }
