@@ -21,6 +21,7 @@
 | 10-06 18:58 | 사용자 승인 "23개 전부 삭제" → 삭제 직전 재확인(경로 /home/jun/labs/seat-reservation-lab, 목록: SHA 24개 + 실패 배포 .tmp 1개 — 승인 때 23개라 말한 것과 개수 차이 고지) → 삭제 → **디스크 44%(여유 53G)**. 재발 방지: lib.sh 두 배포 함수에서 `:(exclude,glob)k6/*/results/**` — 배포 크기 3.5GB → 1.3MB. run.sh 허용 목록에 -early 2개 | 재스모크 다시 |
 | 10-06 (재스모크 2) | 4d02bdfa(앱 = 4e506390 + 하네스 수정), worktree: S2 L4 advisory-try·advisory-try-early·quota-nowait·quota-nowait-early 4개 ok — 매수 초과 0 · 201 − 홀드 0 · HLE 800 · 가짜 거절 0 · span 평균 1.6~3.1ms · **quota 계열 prepare 평균 약 60ms**(트랜잭션 밖 커넥션 1회 더 — S2 버스트에서 풀 대기로 보임) / S7 L4 serializable ok — setup 재시도로 완료, 40001 169, 억울한 좌석 1(409 20). 서버 디스크 44%, 배포 폴더 1.8M | 본측정 준비 완료 |
 | 10-06 19:06 | **본측정 시작**: campaign.sh --sha 7acad14b --id 20261006-adr005-7acad14b — 유닛 seatlab-adr005(ManagedOOMPreference=avoid, Restart=on-failure 180s·6h 5회), 30조건(방식 10 × s24·s3·s7), 회차 우선, 끝에 limit-bench | 약 50~55h 추정 · 사용자 linger 꺼짐(로그아웃 시 정지 위험 — ADR-002 이후 그대로) |
+| 10-07 18:2x | 진행 확인(1회차 30/30, 2회차 15/30, ok 146 · path-gap 1 — counter-s3 S3-a20 rep1, 끝에 재측정). 1회차 serializable S4 40001: L2 179,053 · L4 625,787(retry: 242,634 · 1,235,828) — S4는 같은 사용자 경합이 없어 전부 다른 사용자 충돌. 사용자 제기 '다른 사용자끼리 충돌인지 1명 사용자 충돌인지 중요' → ADR-005 §4에 ⑥′ 추가(측정 무변경 — 캠페인 진행 중) | 건별 분리는 후속 측정 후보 |
 
 ## 리뷰 ledger (中↑)
 
