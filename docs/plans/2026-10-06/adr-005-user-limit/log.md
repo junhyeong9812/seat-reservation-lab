@@ -26,6 +26,8 @@
 | 10-08 21:38 | **본측정 종료**(CAMPAIGN.log): 비정상 회차 0 · ok 390(계획 = s24 200 + s3 90 + s7 100) · path-gap 4개(모두 S3 — counter-s3 a20 r1 · quota-nowait-early-s3 a0 r2 · serializable-retry-s3 a0 r2 · serializable-s3 a20 r2)는 재측정 1바퀴(20:15~21:33)에서 ok, 원 회차는 .path-gap-* 보존 · limit-bench 21:33~21:38 DONE | 분석 시작 |
 | 10-08 22:31 | 사용자: README ADR 요약에 측정별 기간(a~b)·걸린 시간 → '측정 기간' 표(ADR-001~005, CAMPAIGN.log 첫·끝 행 · ADR-001은 meta.json) | 요약·errsplit·compare 실행 중 |
 | 10-08 22:49 | 요약·errsplit·compare 완료(조건 30) → ADR-005 §7~§10 작성. 핵심: 매수 정합 9방식 0(전수 351회) · 가짜 거절 serializable 69/100명 · S4 쿼터 계열 1,911(prepare 약 70ms — 트랜잭션 밖 커넥션 1회 더), serializable L4 708 · S7-m1 counter만 0석(나머지 63~81) · 벤치 0.03ms(배경 무관) · v_counter_mismatch 0 · 5xx 0. **결정 제안: counter 기본(쿼터 행 사전 생성으로 회귀 제거 재측정 후 확정), 차선 advisory-try** | 다음: 결과 문서 中 듀얼 1패스 |
+| 10-08 (문서 리뷰) | 결과 문서 中 듀얼 1패스(미러 scratchpad/rv5d): codex 4건 · Opus 13건. 메인 재현: serializable L4 엄격 한계 708 = 목표 미달 다음 단계 집음(포화점 1,994) · 쿼터 계열 S4 회차별 갈림(quota-lock·nowait r1·r2 2,866 → r3~5 1,911, counter 10-07 11시~) · 요청당 커넥션 빌림 quota-lock·counter 3.00 vs none·try·serializable 1.00(after-k6 Hikari COUNT ÷ 선점 요청) · 데드락·풀 타임아웃 390회 전부 0 — 확인 | **결정 제안 변경**: counter 기본 → **advisory-try 기본, counter 조건부(트랜잭션 안 upsert로 재측정)** |
+| 10-08 23:07 | ADR-005 §7.2~§9 재작성(L2/L4 분리 회귀, 회차 갈림, 3회 빌림, 획득 대기 열, H4 부분 기각, 40001 출처 추정 한정, S2 민감도, 실패 분류·데드락 0, S7-m1 설계 한정, 3b 대가 범위) | 다음: post-fix 재점검 |
 
 ## 리뷰 ledger (中↑)
 
@@ -46,6 +48,19 @@
 | O11 | 1 | opus | V4/V5 번호 | 기록만 — 측정 영향 없음(회차마다 DB 삭제) | user-deferred 아님·ADR 기록 | — |
 | OQ1 | 1 | opus | HoldStrategyStartupCheck | 채택 — 3b 외 조합 차단 | fixed | 1 |
 | OQ3 | 1 | opus | 앱 2대 만료 교착 | 범위 밖(앱 1대) — ADR 기록 | — | — |
+| DR1 | 1 | codex·opus | ADR §7.3③·§8 L4 회귀 | 채택 — L4는 −56%(두 칸), counter L2 2,838 | fixed | 1 |
+| DR2 | 1 | codex·opus | ADR §8·§9 '행 미리 만들면 해결' | 채택 — 요청별 SELECT 남음, S4 3회 빌림 | fixed(트랜잭션 안 upsert 후속) | 1 |
+| DR3 | 1 | codex·opus | ADR §7.3② 40001 출처 | 채택 — S2로 판정 불가 | fixed(추정 한정) | 1 |
+| DR4 | 1 | codex·opus | ADR §7.3⑥ 응답 합계·실패 분류 | 채택 — 정상 390회 범위 명시, S2·S3 기타 오류 | fixed | 1 |
+| DR5 | 1 | opus | serializable L4 708 | 채택 — 지표 산출 산물(포화점 1,994) | fixed + 하네스 후속 | 1 |
+| DR6 | 1 | opus | spec ③ 커넥션 획득 대기 열 누락 | 채택 | fixed | 1 |
+| DR7 | 1 | opus | H4 사후 지표 교체 | 채택 | fixed(부분 기각) | 1 |
+| DR8 | 1 | opus | 쿼터 계열 회차별 갈림·회차 수 | 채택 | fixed(회차별 표 + 순서 섞은 재측정 후속) | 1 |
+| DR9 | 1 | opus | §8 제외 사유·counter 우위 근거 편향 | 채택 | fixed(advisory-try 기본, counter 조건부) | 1 |
+| DR10 | 1 | opus | §8 S2 민감도 한정 | 채택 | fixed | 1 |
+| DR11 | 1 | opus | 데드락 미보고 | 채택 — 390회 0 확인 | fixed | 1 |
+| DR12 | 1 | opus | S2 prepare 혼입 | 채택 | fixed(편향) | 1 |
+| DR13 | 1 | opus | 작은 부정확 3 | 채택 | fixed | 1 |
 
 ## 생략한 검증
 
