@@ -25,6 +25,7 @@
 | 10-07 (사용자 질문) | '셀렉트가 아닌 업데이트 쿼리 과정의 충돌?' → 40001은 ① 읽기-쓰기 의존(SSI — 매수 SELECT × 홀드 INSERT) ② 쓰기-쓰기(같은 좌석 행) 두 원인. S4는 ①로 추정(측정에 원인 기록 없음) → 후속: 메시지별 집계를 ADR-005 §4 ⑥′에 추가 | 측정 무변경 |
 | 10-08 21:38 | **본측정 종료**(CAMPAIGN.log): 비정상 회차 0 · ok 390(계획 = s24 200 + s3 90 + s7 100) · path-gap 4개(모두 S3 — counter-s3 a20 r1 · quota-nowait-early-s3 a0 r2 · serializable-retry-s3 a0 r2 · serializable-s3 a20 r2)는 재측정 1바퀴(20:15~21:33)에서 ok, 원 회차는 .path-gap-* 보존 · limit-bench 21:33~21:38 DONE | 분석 시작 |
 | 10-08 22:31 | 사용자: README ADR 요약에 측정별 기간(a~b)·걸린 시간 → '측정 기간' 표(ADR-001~005, CAMPAIGN.log 첫·끝 행 · ADR-001은 meta.json) | 요약·errsplit·compare 실행 중 |
+| 10-08 22:49 | 요약·errsplit·compare 완료(조건 30) → ADR-005 §7~§10 작성. 핵심: 매수 정합 9방식 0(전수 351회) · 가짜 거절 serializable 69/100명 · S4 쿼터 계열 1,911(prepare 약 70ms — 트랜잭션 밖 커넥션 1회 더), serializable L4 708 · S7-m1 counter만 0석(나머지 63~81) · 벤치 0.03ms(배경 무관) · v_counter_mismatch 0 · 5xx 0. **결정 제안: counter 기본(쿼터 행 사전 생성으로 회귀 제거 재측정 후 확정), 차선 advisory-try** | 다음: 결과 문서 中 듀얼 1패스 |
 
 ## 리뷰 ledger (中↑)
 
