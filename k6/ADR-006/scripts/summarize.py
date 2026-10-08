@@ -8,7 +8,9 @@
 행은 plan.json(실행 전에 남긴 계획) 기준 — 실행되지 않은 셀·회차는 '미측정/누락'으로 드러난다.
 
 S4 한계 규칙 (ADR-006 명세 §9.3 — ADR-005 §7.3 ③ 'SERIALIZABLE L4 엄격 한계 708'의 원인을 고친 것)
-  단계 = k6 계단의 한 칸(30초). '완전한 단계' = k6가 30초를 다 채운 단계(에러율 50% 초과로 k6가 멈춘 마지막 단계(partial)는 뺀다 — ADR-005와 같다).
+  단계 = k6 계단의 한 칸(30초). 계획 단계(stage_rates) 전부를 본다 — 요청 0인 단계도 행이 있다(ADR-005는 건너뛰었다).
+  '완전한 단계' = k6가 30초를 다 채운 단계. 에러율 50% 초과로 k6가 멈추면(exit 99) 요청이 있었던 마지막 단계는 부분 단계(partial),
+  그 뒤 단계는 미실행(not_run) — 둘 다 뺀다(partial은 ADR-005와 같다). 중단이 아닌데 요청 0인 단계 = 도착 0 = 목표 미달(사유 no-arrivals+under-delivered).
   단계별: 실제 도착 RPS = 그 단계 hold 요청 수 ÷ 30 · 성공 RPS = 201 수 ÷ 30 · p99 · 에러율.
   목표 미달(under-delivered) = 실제 도착 RPS < 0.9 × 목표 RPS — k6가 목표 도착률을 내지 못했다(VU가 응답을 기다리느라 모자람 = 포화).
   기준 B = 엄격(p99 < 500ms · 에러율 < 1%) · 완화(p99 < 1s · 에러율 < 5%).
@@ -74,25 +76,31 @@ def ts(s):
 
 # ---- S4 --------------------------------------------------------------------------------------------
 def stage_table(summ, aborted):
-    """단계별 지표. 중단(abort)으로 끝난 마지막 단계는 30초를 다 채우지 못했으므로 partial로 표시하고 한계 산출에서 뺀다."""
+    """단계별 지표 — 계획 단계(stage_rates) 전부를 행으로 낸다(요청 0인 단계도 — 도착 0 = 목표 미달로 판정에 들어간다).
+    중단(abort, k6 exit 99)이면: 요청이 있었던 마지막 단계는 30초를 다 채우지 못했으므로 partial, 그 뒤 단계는 k6가 시작하지 않았으므로
+    not_run으로 표시하고 둘 다 한계 산출에서 뺀다. 중단이 아니면 요청 0인 단계도 완전한 단계다(30초 동안 도착이 하나도 없었다)."""
     rows = []
     step = summ.get("step_seconds", 30)
     for i, target in enumerate(summ.get("stage_rates", [])):
         m = summ["metrics"]
         dur = m.get(f"hold_duration{{stage:{i}}}", {}).get("values", {})
         n = dur.get("count", 0)
-        if not n:
-            continue
         rows.append({
-            "stage": i, "target_rps": target, "achieved_rps": n / step,
+            "stage": i, "target_rps": target, "requests": n, "achieved_rps": n / step,
             "ok_rps": m.get(f"hold_201{{stage:{i}}}", {}).get("values", {}).get("count", 0) / step,
-            "p99_ms": dur.get("p(99)"), "error_rate": m.get(f"hold_error{{stage:{i}}}", {}).get("values", {}).get("rate", 0),
-            "partial": False,
+            "p99_ms": dur.get("p(99)") if n else None,
+            "error_rate": m.get(f"hold_error{{stage:{i}}}", {}).get("values", {}).get("rate", 0) if n else None,
+            "partial": False, "not_run": False,
         })
-    if aborted and rows:
-        rows[-1]["partial"] = True
+    if aborted:
+        last = max((r["stage"] for r in rows if r["requests"]), default=None)
+        for r in rows:
+            if last is None or r["stage"] > last:
+                r["not_run"] = True
+            elif r["stage"] == last:
+                r["partial"] = True
     for r in rows:
-        r["under_delivered"] = r["achieved_rps"] < 0.9 * r["target_rps"]   # k6가 목표 도착률을 못 채움
+        r["under_delivered"] = r["achieved_rps"] < 0.9 * r["target_rps"]   # k6가 목표 도착률을 못 채움(도착 0 포함)
     return rows
 
 
@@ -102,15 +110,17 @@ LOOSE = (1000, 0.05)
 
 def s4_limits(stages):
     """S4 한계 — 규칙은 머리말 'S4 한계 규칙'. 반환: strict·loose(새 규칙) + *_stop(멈춘 단계·사유) + saturation·saturation_stage + *_legacy(ADR-005 규칙)."""
-    complete = [s for s in stages if not s["partial"]]
+    complete = [s for s in stages if not s["partial"] and not s.get("not_run")]
 
     def violations(s, p99_ms, err, under):
+        if not s.get("requests", 1):   # 도착 0(요청 0인 완전한 단계) = 목표 미달 — p99·에러율은 정의되지 않는다
+            return ["no-arrivals", "under-delivered"]
         out = []
         if s["p99_ms"] is None:
             out.append("no-p99")
         elif s["p99_ms"] >= p99_ms:
             out.append("p99")
-        if s["error_rate"] >= err:
+        if s["error_rate"] is not None and s["error_rate"] >= err:
             out.append("error")
         if under and s["under_delivered"]:
             out.append("under-delivered")
@@ -119,6 +129,8 @@ def s4_limits(stages):
     def limit(p99_ms, err, under=True):
         last = 0
         for s in complete:
+            if not under and not s.get("requests", 1):
+                continue   # ADR-005 규칙(legacy)은 요청 0인 단계를 건너뛰었다 — 기록값 대조가 그대로 성립하게 같은 동작
             v = violations(s, p99_ms, err, under)
             if v:
                 return last, {"stage": s["stage"], "target_rps": s["target_rps"], "reasons": v}
@@ -140,7 +152,7 @@ def s4_check(summary_path):
     summ = load(summary_path)
     if not summ:
         return 1
-    return 0 if any(s["error_rate"] < 0.5 for s in stage_table(summ, aborted=False)) else 1
+    return 0 if any(s["requests"] and s["error_rate"] < 0.5 for s in stage_table(summ, aborted=False)) else 1
 
 
 # ---- S3 --------------------------------------------------------------------------------------------
@@ -555,7 +567,9 @@ def rep_record(rep_dir, root, level, cell):
     rec["acquire_mean_ms"] = sum(x["TOTAL_TIME"] for x in acq) / count * 1000 if complete and count else None
     rec["pool_timeouts"] = sum(a["timeouts"] for a in apps) if apps and all(a.get("timeouts") is not None for a in apps) else None
     rec["hold_requests_per_app"] = [a.get("hold_requests") for a in apps]
-    # ADR-006 요청당 커넥션 빌림(명세 §9.4 ③) = Hikari 획득 COUNT 증가분 ÷ 선점 요청 증가분 — 앱 하나라도 조회 실패면 미측정
+    # ADR-006 요청당 커넥션 빌림(명세 §9.4 ③) = Hikari 획득 COUNT 증가분 ÷ 선점 요청 증가분 — 앱 하나라도 조회 실패면 미측정.
+    # hold_requests는 run.sh hold_requests가 낸다: 지표 목록에서 '기록 없음'이 확인될 때만 0, 그 밖의 조회 실패는 null → 증가분 null → 여기서 None
+    # (ADR-006 초판은 실패를 0으로 채워 직전 값이 0이 되면 분모가 누적값이 되어 빌림이 조용히 낮게 나왔다). 범위 검사는 run.sh rep_status(invalid-borrow-ratio)
     holds = [a.get("hold_requests") for a in apps]
     rec["borrow_per_hold"] = count / sum(holds) if complete and holds and all(h is not None for h in holds) and sum(holds) else None
     rec["io"] = io_delta(rep_dir, sum(holds) if holds and all(h is not None for h in holds) else None)
@@ -676,15 +690,24 @@ def main(root):
         (lambda st: "-" if not st else f'{st["stage"]}({st["target_rps"]:,}/s):{"+".join(st["reasons"])}')((r.get("limits") or {}).get(key)) for r in recs) or "-"
     sat_stage = lambda recs: "; ".join(
         (lambda st: "-" if not st else f'{st["stage"]}({st["target_rps"]:,}/s→성공 {st["ok_rps"]:,.0f})')((r.get("limits") or {}).get("saturation_stage")) for r in recs) or "-"
+    # 부분 단계(중단된 마지막 단계)·미실행 단계(중단 뒤) — 회차별 '부분 p/미실행 a–b', 없으면 '-'
+    def cut(recs):
+        def one(r):
+            st = r.get("stages") or []
+            part = [s["stage"] for s in st if s["partial"]]
+            nr = [s["stage"] for s in st if s.get("not_run")]
+            txt = ([f"부분 {part[0]}"] if part else []) + ([f"미실행 {nr[0]}–{nr[-1]}" if len(nr) > 1 else f"미실행 {nr[0]}"] if nr else [])
+            return " · ".join(txt) or "-"
+        return "; ".join(one(r) for r in recs) or "-"
     section("S4 처리량 한계 — 성공 RPS (새 규칙: 기준 위반 또는 목표 미달이 처음 나온 단계의 직전 단계 — 머리말)",
             ["단계", "셀", "n", "엄격 p99<500ms·에러<1%", "엄격 멈춘 단계(회차별)", "완화 p99<1s·에러<5%", "엄격(ADR-005 규칙)", "포화점(최대 성공 RPS)",
-             "포화 단계(첫 목표 미달, 회차별)", "목표 미달 단계 수", "k6 미시작(dropped)",
+             "포화 단계(첫 목표 미달, 회차별)", "목표 미달 단계 수", "부분·미실행 단계(회차별 — 한계 산출에서 뺌)", "k6 미시작(dropped)",
              "락 대기 최대(표본)", "풀 대기 최대(표본)", "커넥션 획득 대기 평균 ms", "풀 타임아웃", "데드락", "Redis MB·키", *lim_cols, "비정상 회차"],
             lambda x: x == "S4",
             lambda ok: [spread([r["limits"]["strict"] for r in ok if "limits" in r]), stop(ok, "strict_stop"),
                         spread([r["limits"]["loose"] for r in ok if "limits" in r]), spread([r["limits"]["strict_legacy"] for r in ok if "limits" in r]),
                         spread([r["limits"]["saturation"] for r in ok if "limits" in r]), sat_stage(ok),
-                        spread([r["limits"]["under_delivered_stages"] for r in ok if "limits" in r])]
+                        spread([r["limits"]["under_delivered_stages"] for r in ok if "limits" in r]), cut(ok)]
                        + [g(ok, "dropped"), g(ok, "lock_waiting_max"), g(ok, "hikari_pending_max"), g(ok, "acquire_mean_ms"),
                           g(ok, "pool_timeouts"), g(ok, "deadlocks"), f'{g(ok, "redis_used_mb")}·{g(ok, "redis_keys")}', *lim_vals(ok)])
 

@@ -352,6 +352,24 @@ limit_metrics() {  # 인자: 앱 → {"prepare"|"acquire"|"check"|"span":{COUNT,
   echo "$out"
 }
 
+# 선점 요청 수(요청당 커넥션 빌림의 분모 — 명세 §9.4 ③). 인자: 앱 → 숫자 또는 null.
+#   0은 '아직 기록 없음'이 지표 목록에서 확인될 때만: http.server.requests가 목록에 없거나, 있는데 uri 태그 값에 선점 URI가 없을 때
+#   (그 URI로 요청이 한 번도 없으면 태그 조회가 404). 그 밖의 실패(목록·태그 조회 실패, 값 아님)는 null — 0으로 채우면 직전 값이 0이 되어
+#   차분이 누적값이 되고 빌림이 조용히 낮게 나온다(ADR-006 리뷰 지적). 조회마다 actuator_retry(과부하 직후 늦은 응답).
+HOLD_URI='/api/schedules/{scheduleId}/seats/{seatId}/hold'
+hold_requests() {
+  local a="$1" names base v
+  names=$(actuator_retry "$a" metrics | jq -c '.names') || { echo null; return; }
+  jq -e 'type == "array"' <<< "$names" > /dev/null 2>&1 || { echo null; return; }
+  jq -e 'index("http.server.requests") != null' <<< "$names" > /dev/null || { echo 0; return; }
+  base=$(actuator_retry "$a" metrics/http.server.requests) || { echo null; return; }
+  jq -e '.availableTags | type == "array"' <<< "$base" > /dev/null 2>&1 || { echo null; return; }
+  jq -e --arg u "$HOLD_URI" '[.availableTags[] | select(.tag == "uri") | .values[]] | index($u) != null' <<< "$base" > /dev/null || { echo 0; return; }
+  v=$(actuator_retry "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" \
+        | jq -c '[.measurements[] | select(.statistic=="COUNT") | .value][0]') || { echo null; return; }
+  jq -e 'type == "number"' <<< "$v" > /dev/null 2>&1 && echo "$v" || echo null
+}
+
 app_counters() {  # 인자: 출력 파일
   local out="$1" arr="[]" a apps="app"
   (( APPS == 2 )) && apps="app app2"
@@ -364,10 +382,8 @@ app_counters() {  # 인자: 출력 파일
     pool=$(actuator_retry "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
     acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
     tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
-    # 선점 요청 수: 그 URI로 요청이 한 번도 없으면 actuator가 404 — 0으로 둔다(조회 자체의 실패는 위 항목들이 드러낸다)
-    req=$(app_actuator "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" 2>/dev/null \
-          | jq -c '[.measurements[] | select(.statistic=="COUNT") | .value][0]')
-    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-0}" --argjson l "${lim:-null}" \
+    req=$(hold_requests "$a")   # 숫자 · 0(기록 없음 확인) · null(조회 실패) — 위 함수
+    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" --argjson l "${lim:-null}" \
           '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, limit:$l}]' <<< "$arr")
   done
   echo "$arr" > "$out"
@@ -387,7 +403,7 @@ after_k6() {  # 인자: 폴더 부하 전 deadlocks — 부하 중 증가분(직
                               . + {($m): {COUNT: ($x.limit[$m].COUNT - $y.limit[$m].COUNT), TOTAL_TIME: ($x.limit[$m].TOTAL_TIME - $y.limit[$m].TOTAL_TIME), MAX: $x.limit[$m].MAX}})
                            + {serialization_failure: ($x.limit.serialization_failure - $y.limit.serialization_failure),
                               retry: ($x.limit.retry - $y.limit.retry)}) else null end),
-                hold_requests: (if $y then $x.hold_requests - $y.hold_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
+                hold_requests: (if $y and $x.hold_requests != null and $y.hold_requests != null then $x.hold_requests - $y.hold_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
   local d1 redis
   d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
   redis=$(remote "docker exec seatlab-redis-1 sh -c 'redis-cli info memory | grep ^used_memory: | cut -d: -f2; redis-cli dbsize'" | tr -d '\r' | tr '\n' ' ')
@@ -467,6 +483,17 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     local want_l; want_l="$(echo "$LIMIT_STRATEGY" | tr 'a-z-' 'A-Z_')"
     [[ "$(jq --arg s "$want" --arg l "$want_l" --argjson p "$POOL" '[.apps[] | select(.strategy==$s and .limit_strategy==$l and (.pool|floor)==$p and (.hold_requests // 0) > 0)] | length' "$dir/after-k6.json")" == "$APPS" ]] \
       || reasons+=("apps-mismatch")
+    # ADR-006 요청당 커넥션 빌림(명세 §9.4 ③): 분모(선점 요청 수)가 직전·직후 모두 실제로 읽혔나 — null(조회 실패)이면 빌림을 낼 수 없다
+    local hf
+    for hf in before-k6.json after-k6.raw.json; do
+      jq -e --argjson n "$APPS" 'length == $n and all(.[]; .hold_requests | type == "number")' "$dir/$hf" > /dev/null 2>&1 || reasons+=("hold-requests-missing-$hf")
+    done
+    # 빌림 = Σ획득 증가분 ÷ Σ선점 증가분이 0.9 ~ 4 밖이면 지표가 어긋난 것(분모가 누적값·다른 URI 등). ADR-005 실측: 1방식 1.00~1.02,
+    # 다중 커넥션 방식(counter·quota-*) 2.1~3.0, serializable-retry 최대 2.72 — 상한 4는 그 위 여유. 계산 불가(획득 null·선점 0)는 위 사유들이 드러낸다
+    jq -e '[.apps[].acquire.COUNT] as $a | [.apps[].hold_requests] as $h
+           | if ($a | all(type == "number")) and ($h | all(type == "number")) and ($h | add) > 0
+             then (($a | add) / ($h | add)) as $r | ($r < 0.9 or $r > 4) else false end' "$dir/after-k6.json" > /dev/null 2>&1 \
+      && reasons+=("invalid-borrow-ratio")
   fi
   # 측정 중 k6 PC~서버 경로 단절(ADR-002 A2): 서버 지표 수집 공백이 30초를 넘으면 그 회차는 재측정 대상
   python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("path-gap")

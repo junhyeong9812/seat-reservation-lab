@@ -8,11 +8,13 @@
 
 회차 포함 규칙 (n = 계산에 쓴 회차/전체 회차):
 - S1·S2·S3·S7: status `ok`만.
-- S4: `ok` + status에 `s4-no-successful-stage`가 있는 회차(첫 단계부터 한계를 넘은 것 = 실측 결과 '한계 < 첫 단계').
-  그 밖의 비정상(`invalid-*`만 — 연결 불가 등 하네스·경로 실패)은 제외하고 비정상 열에 사유를 적는다.
+- S4: status가 정확히 `ok` 또는 단독 `s4-no-successful-stage`인 회차(첫 단계부터 한계를 넘은 것 = 실측 결과 '한계 < 첫 단계').
+  복합 실패(예: `s4-no-successful-stage,invalid-io-after.json`)와 그 밖의 비정상(하네스·경로 실패)은 제외하고 비정상 열에 사유를 적는다
+  (campaign.sh non_ok_reps의 정확 일치 `ok|s4-no-successful-stage`와 같은 기준).
 - S4 한계 = summarize.py 머리말의 새 규칙(목표 미달 단계에서도 멈춘다). 계단 끝까지 한 번도 멈추지 않았으면(멈춘 단계 없음 · k6 정상 종료) 진짜 한계가 아니라 계단 상한이다 → 값 앞에 `≥`.
 - 요청당 커넥션 빌림·서버 I/O(WAL fsync·디스크 대기)는 summarize.py가 회차마다 낸 값(정의는 그 머리말·io_delta).
-- 회차별 실행 시각·순서(명세 §9.4 ⑥ 시간 효과): order.txt(campaign.sh — 회차 안 순번·캠페인 전체 순번)와 meta.json k6_started.
+- 회차별 실행 시각·순서(명세 §9.4 ⑥ 시간 효과): order.txt(campaign.sh — 계획 순번)와 meta.json k6_started, 그리고 CAMPAIGN.log start 행에서 낸
+  실제 호출 순번(그 회차를 실제로 잰 run.sh 호출이 캠페인에서 몇 번째 호출이었나). 형제 폴더(`rep<k>.retry-*`·`.path-gap-*`)가 있으면 재측정 회차다.
 - CPU = k6 실행 구간 **전체**(과부하 단계·중단 후 꼬리 포함)의 docker stats 최대값. 구간 안 표본 사이 공백이 30초를 넘으면
   '수집 공백'으로 표시한다(서버 지표 수집 = k6 PC에서 SSH — 공백은 경로 단절의 신호).
 """
@@ -80,9 +82,9 @@ def cpu_max(rep_dir, meta):
 
 def censored(rec):
     """모든 계획 단계가 끝까지 돌았고 새 규칙의 엄격 한계가 한 번도 멈추지 않았나(기준 위반·목표 미달 없음) — 그렇다면 한계는 계단 상한(진짜 한계 미관측).
-    '끝까지 돌았다' = k6 정상 종료(exit 0 — 단계 에러율 중단은 99). 요청 0인 단계는 stage_table이 건너뛰므로 단계 수로는 판정하지 않는다."""
+    '끝까지 돌았다' = k6 정상 종료(exit 0 — 단계 에러율 중단은 99) · 부분·미실행 단계 없음. 요청 0인 단계는 stage_table이 목표 미달로 넣어 strict_stop이 생긴다."""
     stages = rec.get("stages") or []
-    if not stages or rec.get("meta", {}).get("k6_exit") != 0 or any(s["partial"] for s in stages):
+    if not stages or rec.get("meta", {}).get("k6_exit") != 0 or any(s["partial"] or s.get("not_run") for s in stages):
         return False
     return (rec.get("limits") or {}).get("strict_stop", "missing") is None
 
@@ -101,7 +103,7 @@ def spread_censored(values, cens):
 
 def used_reps(cell, reps):
     if cell == "S4":
-        return [r for r in reps if r["status"] == "ok" or RESULT_FAIL in r["status"]]
+        return [r for r in reps if r["status"] in ("ok", RESULT_FAIL)]   # 정확 일치 — 복합 실패는 제외(머리말)
     return [r for r in reps if r["status"] == "ok"]
 
 
@@ -299,11 +301,38 @@ def main(root):
             if line.strip() and not line.startswith("#"):
                 r_, pos, seqno, n_ = line.split()
                 order[(n_, f"rep{r_}")] = (int(pos), int(seqno))
+    # 실제 호출 순번: CAMPAIGN.log의 '<시각> <조건> rep<k> start' 행 = run.sh 호출 하나(회차 우선 본 순서 + 끝의 재측정 + 이어서 실행의 재호출).
+    # 회차 폴더의 실제 호출 = 같은 조건·회차의 start 행 중 meta.json started(run.sh가 그 회차를 시작한 시각) 이전의 마지막 행 — 이어서 실행이
+    # 끝난 회차를 건너뛰며 남긴 start 행이 섞여도 그 회차를 실제로 잰 호출을 고른다. 순번 = 그 행이 몇 번째 start 행인가(1부터).
+    starts = []
+    if (root / "CAMPAIGN.log").exists():
+        for line in (root / "CAMPAIGN.log").read_text().splitlines():
+            m = re.match(r"^(\S+) (\S+) rep(\d+) start\b", line)
+            if m:
+                try:
+                    starts.append((ts(m.group(1)), m.group(2), f"rep{m.group(3)}"))
+                except ValueError:
+                    continue
+
+    def actual_seq(name, rep, meta):
+        if not starts or not meta.get("started"):
+            return None
+        t = ts(meta["started"])
+        cand = [i for i, (st, n_, r_) in enumerate(starts, 1) if n_ == name and r_ == rep and st <= t]
+        return cand[-1] if cand else None
+
+    def remeasured(name, key, rep):   # 보존된 옛 회차 폴더(campaign.sh 재측정: .retry-·.path-gap-) 수
+        lv, cell = key.split("/")
+        d = root / name / lv / cell
+        return sorted(p.name[len(rep) + 1:].rsplit("-", 1)[0] for p in d.glob(f"{rep}.*-*") if p.name[len(rep) + 1:].startswith(("retry-", "path-gap-")))
+
     out.append("\n## 회차별 실행 시각·순서 — 시간 효과(⑥)\n")
-    out.append("> 순번 = order.txt(campaign.sh 순서 섞기) 회차 안 순번 / 캠페인 전체 순번 — 재측정 회차는 끝에 다시 잰 것이라 순번이 계획과 다르다(시각을 본다). "
+    out.append("> 계획 순번 = order.txt(campaign.sh 균형 순환) 회차 안 순번 / 캠페인 전체 순번. 실제 호출 순번 = CAMPAIGN.log start 행 기준으로 그 회차를 실제로 잰 "
+               "run.sh 호출이 캠페인에서 몇 번째였나(재측정·이어서 실행 포함 — 시간 효과는 이 열과 k6 시작 시각을 본다). "
+               "재측정 = 같은 회차의 옛 폴더(`rep<k>.retry-*`·`.path-gap-*`)가 있어 끝에 다시 잰 회차 — 계획 순번이 실제 위치가 아니다. "
                "핵심 값 = S4 새 엄격 한계(≥ 계단 상한)·포화점 / S2 p99 ms / S7-m1 억울한 좌석 / S3 확정 에러율. 상태가 ok가 아닌 회차도 적는다.\n")
-    out.append("| 조건 | 셀 | 회차 | status | k6 시작 | 회차 안 순번 | 전체 순번 | 핵심 값 | 요청당 빌림 | WAL fsync 평균 ms | 디스크 쓰기 대기 ms | 디스크 flush 평균 ms | 체크포인트 수 |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    out.append("| 조건 | 셀 | 회차 | status | 재측정 | k6 시작 | 계획 회차 안 순번 | 계획 전체 순번 | 실제 호출 순번 | 핵심 값 | 요청당 빌림 | WAL fsync 평균 ms | 디스크 쓰기 대기 ms | 디스크 flush 평균 ms | 체크포인트 수 |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     f3 = lambda x, d=3: "-" if x is None else f"{x:,.{d}f}"
     for name, c in conds.items():
         for key, reps in c["data"].items():
@@ -311,6 +340,9 @@ def main(root):
             for r in reps:
                 meta = r.get("meta") or {}
                 pos, seqno = order.get((name, r["rep"]), ("-", "-"))
+                aseq = actual_seq(name, r["rep"], meta)
+                prev = remeasured(name, key, r["rep"])
+                rem = f"재측정({', '.join(prev)})" if prev else "-"
                 if cell == "S4" and r.get("limits"):
                     core = f'{"≥" if censored(r) else ""}{r["limits"]["strict"]:,.0f} · 포화 {r["limits"]["saturation"]:,.0f}'
                 elif cell == "S2":
@@ -322,10 +354,10 @@ def main(root):
                 else:
                     core = "-"
                 js.setdefault("timeline", []).append({"cond": name, "key": key, "rep": r["rep"], "status": r["status"], "k6_started": meta.get("k6_started"),
-                                                      "pos": pos, "seq": seqno, "core": core, "borrow_per_hold": r.get("borrow_per_hold"),
+                                                      "pos": pos, "seq": seqno, "actual_seq": aseq, "remeasured": prev, "core": core, "borrow_per_hold": r.get("borrow_per_hold"),
                                                       "wal_sync_avg_ms": r.get("io_wal_sync_avg_ms"), "disk_write_wait_ms": r.get("io_disk_write_wait_ms"),
                                                       "disk_flush_avg_ms": r.get("io_disk_flush_avg_ms"), "checkpoints": r.get("io_checkpoints")})
-                out.append(f"| {name} | {key} | {r['rep']} | {r['status']} | {meta.get('k6_started') or '-'} | {pos} | {seqno} | {core} | {f3(r.get('borrow_per_hold'))} | "
+                out.append(f"| {name} | {key} | {r['rep']} | {r['status']} | {rem} | {meta.get('k6_started') or '-'} | {pos} | {seqno} | {aseq or '-'} | {core} | {f3(r.get('borrow_per_hold'))} | "
                            f"{f3(r.get('io_wal_sync_avg_ms'))} | {f3(r.get('io_disk_write_wait_ms'))} | {f3(r.get('io_disk_flush_avg_ms'))} | "
                            f"{'-' if r.get('io_checkpoints') is None else r.get('io_checkpoints')} |")
 

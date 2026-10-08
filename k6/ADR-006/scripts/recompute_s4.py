@@ -3,12 +3,12 @@
 
     scripts/recompute_s4.py <ADR-005 캠페인 폴더> <출력 폴더>     → <출력>/S4-RECOMPUTED.md · s4-recomputed.json
 
-회차 포함 규칙 = compare.py S4와 같다: status `ok` + `s4-no-successful-stage`가 든 회차(그 밖 비정상은 '제외'로 표시).
+회차 포함 규칙 = compare.py S4와 같다: status가 정확히 `ok` 또는 단독 `s4-no-successful-stage`인 회차(복합 실패·그 밖 비정상은 '제외'로 표시).
 회차마다 원시 k6-summary.json·meta.json에서 단계 표(summarize.stage_table)를 다시 만들고
   - 새 엄격 한계(strict)·멈춘 단계와 사유 · 포화점(최대 성공 RPS)·포화 단계(첫 목표 미달)
   - 옛 엄격 한계 = ADR-005 규칙(strict_legacy)을 다시 계산한 값, 그리고 ADR-005 summary.json에 기록된 값
 를 나란히 적는다. 둘(옛 규칙 재계산 vs 기록값)이 다르면 재계산 경로가 원본과 어긋난 것 — 표에 '기록과 불일치'로 드러내고 exit 1.
-계단 상한(≥) 표시는 compare.py censored와 같은 뜻: k6 정상 종료(exit 0)·partial 없음·새 규칙에서 멈춘 단계 없음.
+계단 상한(≥) 표시는 compare.py censored와 같은 뜻: k6 정상 종료(exit 0)·부분·미실행 단계 없음·새 규칙에서 멈춘 단계 없음.
 """
 import json
 import statistics
@@ -47,7 +47,7 @@ def main(src, out):
                 summ = load(rd / "k6-summary.json")
                 row = {"cond": cond.name, "limit_strategy": plan["condition"].get("limit_strategy"), "level": f"L{lv}", "rep": f"rep{k}",
                        "status": status, "k6_started": meta.get("k6_started")}
-                used = status == "ok" or RESULT_FAIL in status
+                used = status in ("ok", RESULT_FAIL)   # 정확 일치 — 복합 실패는 제외
                 if not used or not summ:
                     row["excluded"] = True
                     rows.append(row)
@@ -55,7 +55,7 @@ def main(src, out):
                 stages = stage_table(summ, aborted=meta.get("k6_exit") == 99)
                 lim = s4_limits(stages)
                 old_rec = ((rec_by_rep.get(f"rep{k}") or {}).get("limits") or {}).get("strict")
-                censored = meta.get("k6_exit") == 0 and not any(s["partial"] for s in stages) and lim["strict_stop"] is None
+                censored = meta.get("k6_exit") == 0 and not any(s["partial"] or s["not_run"] for s in stages) and lim["strict_stop"] is None
                 row.update(new_strict=lim["strict"], strict_stop=lim["strict_stop"], old_strict=lim["strict_legacy"], old_recorded=old_rec,
                            new_loose=lim["loose"], old_loose=lim["loose_legacy"], saturation=lim["saturation"],
                            saturation_stage=lim["saturation_stage"], censored=censored, changed=lim["strict"] != lim["strict_legacy"])

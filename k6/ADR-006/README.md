@@ -9,10 +9,10 @@ ADR-005 하네스(`k6/ADR-005/`)를 복사하고 **매수 방식 `counter-upsert
 |------|------|
 | `compose.yml` | ADR-005 compose 복사 + DB `command`로 `track_io_timing=on`·`track_wal_io_timing=on`(아래 '타이밍 설정') |
 | `scripts/run.sh` | 조건 하나(매수 방식 × 단계 × 셀 × 회차) 실행기. ADR-005 + `counter-upsert` 허용 + 회차마다 `io-before.json`·`io-after.json` |
-| `scripts/campaign.sh` | 본측정 캠페인 — 9조건, 회차 우선 + **회차마다 조건 순서 섞기**(`order.txt`), `--dry-run` |
+| `scripts/campaign.sh` | 본측정 캠페인 — 9조건, 회차 우선 + **회차마다 조건 순서 균형 순환**(`order.txt` — 행 수·조건 집합 검증), `--dry-run` |
 | `scripts/lib.sh` | 원격 함수(배포·기동·조회) + `io_snapshot`(서버 I/O 스냅숏) |
-| `scripts/summarize.py` | 조건별 요약(SUMMARY.md·summary.json) — **S4 새 한계 규칙** · 요청당 커넥션 빌림 · I/O 차분 |
-| `scripts/compare.py` | 캠페인 교차표(COMPARISON.md) — ADR-005 표 + 빌림·I/O 표 + 회차별 실행 시각·순서 표 |
+| `scripts/summarize.py` | 조건별 요약(SUMMARY.md·summary.json) — **S4 새 한계 규칙**(요청 0인 단계 포함 · 부분·미실행 단계 표시) · 요청당 커넥션 빌림 · I/O 차분 |
+| `scripts/compare.py` | 캠페인 교차표(COMPARISON.md) — ADR-005 표 + 빌림·I/O 표 + 회차별 실행 시각·순서 표(계획 순번 + 실제 호출 순번 · 재측정 표시) |
 | `scripts/recompute_s4.py` | ADR-005 캠페인의 S4를 새 규칙으로 다시 계산(원본은 읽기만) → `results/adr005-recomputed-s4/` |
 | `scripts/errsplit.py`·`gapcheck.py`·`stalls.py` | ADR-005 그대로(응답 코드 분류·경로 단절 판정·S4 멈춤 구간) |
 | `scenarios/` | ADR-005 그대로 |
@@ -38,21 +38,48 @@ ADR-005의 끝 단계 DB 벤치(`limit-bench.sh`)는 ADR-006 매트릭스에 없
 
 정의는 `scripts/summarize.py` 머리말 'S4 한계 규칙'이 정본이다. 요약:
 
+- 계획 단계(`stage_rates`) 전부를 행으로 낸다 — **요청 0인 단계도 넣는다**(ADR-005는 건너뛰어, 도착이 0인 단계가 새 규칙에 걸리지 않았다). 중단(k6 exit 99)이 아닌데 요청 0이면 도착 0 = 목표 미달(사유 `no-arrivals+under-delivered`)로 멈춘다. 중단이면 요청이 있었던 마지막 단계 = **부분 단계**(partial), 그 뒤 = **미실행 단계**(not_run) — 둘 다 한계 산출에서 빼고 SUMMARY.md S4 표 '부분·미실행 단계' 열에 회차별로 적는다. 옛 규칙 값(`strict_legacy`)은 ADR-005처럼 요청 0인 단계를 건너뛴다(기록값 대조가 그대로 성립하게).
 - 완전한 단계(30초를 다 채운 단계)를 계단 순서로 보며 **처음으로 ① p99 없음 ② p99 ≥ 기준 ③ 에러율 ≥ 기준 ④ 목표 미달(실제 도착 RPS < 0.9 × 목표)** 중 하나에 걸린 단계에서 멈추고, 그 직전 단계의 성공 RPS를 한계로 낸다. ④가 새 조건이다 — ADR-005는 ①~③만 봐서, 포화(목표 미달) 단계 뒤에 부하가 줄어 기준을 다시 만족한 단계가 '통과'로 집혔다.
 - 멈춘 단계와 사유(`strict_stop` — 예: `12(6,487/s):under-delivered`)를 함께 남긴다. 한 번도 멈추지 않으면 계단 상한(compare.py `≥`).
 - **포화점** = 완전한 단계 중 최대 성공 RPS(ADR-005와 같은 정의) · **포화 단계** = 처음으로 목표 미달인 단계(목표·실제 도착·성공 RPS). 새 규칙의 엄격 한계 ≤ 포화점은 항상 성립한다.
 - 옛 규칙 값(`strict_legacy`)도 함께 남겨 두 규칙이 갈리는 회차를 드러낸다.
 
-**ADR-005 재계산**(`results/adr005-recomputed-s4/S4-RECOMPUTED.md`, `scripts/recompute_s4.py`): 옛 규칙 재계산값이 ADR-005 summary.json 기록값과 전 회차 같다(대조 불일치 0 — 재계산 경로 검증). 새 규칙에서 값이 바뀐 것은 **serializable L4 4회차뿐**이다 — 옛 673·806·708·662 → 새 1,994·1,972·1,981·1,982(멈춘 단계 = 12번(6,487/s) 목표 미달, 그 단계 성공 약 660~810건/s). 5회차(2,021)와 나머지 9개 방식·L2는 첫 목표 미달 단계가 p99·에러 위반 단계와 같거나 뒤라 값이 같다.
+**S4 회차 포함 규칙**(compare.py·recompute_s4.py): status가 정확히 `ok` 또는 단독 `s4-no-successful-stage`인 회차만 — `s4-no-successful-stage,invalid-io-after.json` 같은 복합 실패는 제외(campaign.sh 재측정 판정 `ok|s4-no-successful-stage` 정확 일치와 같은 기준).
+
+**ADR-005 재계산**(`results/adr005-recomputed-s4/S4-RECOMPUTED.md`, `scripts/recompute_s4.py` — 포함 규칙·요청 0 단계 수정 뒤 다시 만들었고 출력이 바이트 단위로 같다: ADR-005 S4 100회차가 전부 `ok`이고 요청 0인 완전한 단계·미실행 단계가 없다): 옛 규칙 재계산값이 ADR-005 summary.json 기록값과 전 회차 같다(대조 불일치 0 — 재계산 경로 검증). 새 규칙에서 값이 바뀐 것은 **serializable L4 4회차뿐**이다 — 옛 673·806·708·662 → 새 1,994·1,972·1,981·1,982(멈춘 단계 = 12번(6,487/s) 목표 미달, 그 단계 성공 약 660~810건/s). 5회차(2,021)와 나머지 9개 방식·L2는 첫 목표 미달 단계가 p99·에러 위반 단계와 같거나 뒤라 값이 같다.
 관찰(원시 단계 표): serializable L4에서 4,325/s 단계(11번)는 실제 도착 약 4,300/s로 목표를 냈고 성공은 약 1,994/s(나머지는 409)다 — 목표 미달은 그다음 6,487/s 단계부터다.
 
-## 개선 2 — 조건 순서 섞기 (`campaign.sh`)
+## 개선 2 — 조건 순서 균형 순환 (`campaign.sh`)
 
-- 회차 우선은 그대로(1회차 전 조건 → 2회차 → …). 회차 k 안의 조건 순서 = 조건 이름을 `sha256("<시드>:rep<k>:<조건>")` 오름차순으로 정렬한 순열(시드 `--order-seed`, 기본 `adr006`).
-  - 해시 정렬을 고른 이유: 파이썬 `random`의 상태·버전에 기대지 않고, 같은 시드·조건 목록이면 언제 다시 계산해도 같은 순서가 나온다 → `--resume`(같은 `--id`)에서 그대로 재현된다.
-- 시작할 때 순서를 계산해 `order.txt`(`회차 회차안순번 전체순번 조건`)에 쓰고, 이미 있으면 다시 계산한 순서와 같은지 대조해 다르면(조건 목록·시드·회차 수 변경) 멈춘다. `conditions.txt`도 같은 방식으로 대조한다. 실행은 `order.txt`를 정본으로 읽는다.
-- `CAMPAIGN.log`에 회차마다 `ORDER rep<k>: …` 행. 끝의 비정상 회차 재측정은 순서 밖이다(`re-measure` 행 — 시각으로 본다).
-- `--dry-run`: `conditions.txt`·`order.txt`·`CAMPAIGN.log`(DRY-RUN·ORDER 행)만 쓰고 끝(측정·배포 없음, 작업트리 하네스 검사 생략). 실증: `results/smoke-order-dryrun/`.
+- 회차 우선은 그대로(1회차 전 조건 → 2회차 → …). 회차 k 안의 순서 = **묶음 순서**(`s24`·`s7m1`·`s3a20` — 그 회차에 도는 것만)를 (k−1)만큼 왼쪽으로 회전하고, **각 묶음 안 방식 순서**(`none`·`advisory-try`·`counter-upsert`)를 (k−1)만큼 회전한다. 같은 묶음의 세 방식은 붙어서 돈다.
+- **왜 해시 정렬 대신 순환인가**(명세 §9.3 '고정 시드로 섞기'를 '회차 번호 기반 결정적 균형 순환'으로 구현): 명세 §9.4 ⑥은 시간 효과(캠페인 안 시각·회차 안 위치)와 방식 효과를 갈라 보려는 것이다. 처음 구현(sha256(시드:회차:조건) 정렬)은 섞이기는 했지만 균형이 보장되지 않았다 — 실제 순서에서 가장 무거운 s24 묶음의 첫 자리가 5회 중 advisory-try 3회 · counter-upsert 2회 · none 0회였다(`results/smoke-order-dryrun/order.txt`). 무작위 순서는 회차가 5번뿐이라 이런 치우침이 흔하다. 순환은 묶음 안 각 자리(1·2·3번째)를 세 방식이 돌아가며 맡게 정해 두므로 치우침이 구조적으로 최소(5회 ÷ 3방식 → 자리마다 2·2·1회)다. 난수·해시가 없어 회차 번호만으로 정해지고 언제 다시 계산해도 같다(`--resume` 재현성 유지).
+- 남는 한계: 5회 ÷ 3방식이라 s24·s7m1에서 첫 자리는 none·advisory-try 2회, counter-upsert 1회다(묶음 안 평균 자리 none 2.0 · advisory-try 1.8 · counter-upsert 2.2). 직전 조건(이월 효과)은 회차 안에서 순환이 같은 방향이라 '바로 앞 방식'이 방식마다 고정된다(none 앞은 counter-upsert 또는 묶음 경계) — 이월 효과까지 균형하려면 3방식 6순열(Williams 설계)이 필요해 5회로는 안 된다. 판정은 이 표와 compare.py 시간 효과 표를 함께 본다.
+- 계산은 python3 한 번, 검증은 그와 독립인 bash·awk: 회차마다 조건 집합이 계획(`conditions.txt` — S3_REPS 이하 회차 9행 · 그 밖 6행, 기본 39행)과 같고 회차 안 순번 1..n · 전체 순번 1..N인지 본다. python3 종료 코드가 0이 아니거나 하나라도 어긋나면 order.txt를 쓰지 않고 exit 2(처음 구현은 python3가 실패해도 헤더만 남은 order.txt로 0조건을 돌리고 '비정상 회차 0'으로 성공 종료할 수 있었다).
+- `order.txt`(`회차 회차안순번 전체순번 조건`)가 이미 있으면 다시 계산한 순서와 대조해 다르면(조건 목록·회차 수·순서 규칙 변경) 멈춘다. `conditions.txt`도 같은 방식으로 대조한다. 실행은 `order.txt`를 정본으로 읽는다. `--order-seed`는 없앴다(시드가 없다).
+- `CAMPAIGN.log`에 회차마다 `ORDER rep<k>: …` 행. 끝의 비정상 회차 재측정은 순서 밖이다(`re-measure` 행 — compare.py가 실제 호출 순번·재측정 표시로 드러낸다).
+
+기본 캠페인(`--reps 5 --s3-reps 3`)의 순서 — 칸 = 회차 안 순번 / 캠페인 전체 순번(`results/smoke-order-rotation-dryrun/order.txt`):
+
+| 조건 | 1회차 | 2회차 | 3회차 | 4회차 | 5회차 |
+|------|------|------|------|------|------|
+| none-s24 | 1/1 | 9/18 | 5/23 | 4/31 | 3/36 |
+| advisory-try-s24 | 2/2 | 7/16 | 6/24 | 5/32 | 1/34 |
+| counter-upsert-s24 | 3/3 | 8/17 | 4/22 | 6/33 | 2/35 |
+| none-s7m1 | 4/4 | 3/12 | 8/26 | 1/28 | 6/39 |
+| advisory-try-s7m1 | 5/5 | 1/10 | 9/27 | 2/29 | 4/37 |
+| counter-upsert-s7m1 | 6/6 | 2/11 | 7/25 | 3/30 | 5/38 |
+| none-s3a20 | 7/7 | 6/15 | 2/20 | - | - |
+| advisory-try-s3a20 | 8/8 | 4/13 | 3/21 | - | - |
+| counter-upsert-s3a20 | 9/9 | 5/14 | 1/19 | - | - |
+
+요약 — 묶음 안 방식 자리(모든 묶음 같음, S3는 1~3회차만) · 회차 안 묶음 자리:
+
+| | 1회차 | 2회차 | 3회차 | 4회차 | 5회차 |
+|---|---|---|---|---|---|
+| none | 1 | 3 | 2 | 1 | 3 |
+| advisory-try | 2 | 1 | 3 | 2 | 1 |
+| counter-upsert | 3 | 2 | 1 | 3 | 2 |
+| 묶음 순서 | s24 · s7m1 · s3a20 | s7m1 · s3a20 · s24 | s3a20 · s24 · s7m1 | s7m1 · s24 | s24 · s7m1 |
 
 ## 개선 3 — 서버 I/O 지표 (`lib.sh io_snapshot`)
 
@@ -82,7 +109,8 @@ ADR-005의 끝 단계 DB 벤치(`limit-bench.sh`)는 ADR-006 매트릭스에 없
 
 - **통계 반영 대기**: PostgreSQL 백엔드는 누적 통계를 바로 공유 메모리에 내지 않는다(PG15+ — 마지막 반영 1초 뒤, 쉬면 최대 10초 뒤). 그래서 직전 스냅숏은 시드 끝에서 `IO_SETTLE_S`(기본 11초), 직후 스냅숏은 k6 끝에서 `IO_SETTLE_S`가 지난 뒤 읽는다(앞 단계가 이미 그만큼 걸렸으면 기다리지 않는다). 직전 스냅숏은 앱 누적 지표 직전 값보다 먼저 읽어 그 사이 만료 배치의 커넥션 획득이 빌림 수에 섞이지 않게 했다. 결과: 스냅숏 간격 = k6 구간 + 양 끝 대기 — 차분에는 대기 구간(유휴)의 I/O도 들어간다. meta.json `io_settle_s`.
 - **디스크 지표는 서버 전체**다 — 같은 디스크를 쓰는 이 실험 밖 프로세스(서버의 다른 컨테이너 등)의 I/O도 섞인다. 방식 간 차이의 원인 판정에는 WAL 지표(이 DB만)를 먼저 본다.
-- 회차 판정(run.sh `rep_status`) 추가: `invalid-io-before.json`·`invalid-io-after.json`(파일 없음·깨짐) · `invalid-io-*-content`(`wal_sync` 없음·장치 0개) · `io-timing-off-*`(두 타이밍 설정 중 하나라도 off).
+- 회차 판정(run.sh `rep_status`) 추가: `invalid-io-before.json`·`invalid-io-after.json`(파일 없음·깨짐) · `invalid-io-*-content`(`wal_sync` 없음·장치 0개) · `io-timing-off-*`(두 타이밍 설정 중 하나라도 off) · `hold-requests-missing-before-k6.json`·`-after-k6.raw.json`(선점 요청 수가 숫자가 아님 — 조회 실패) · `invalid-borrow-ratio`(Σ획득 ÷ Σ선점이 0.9 ~ 4 밖 — ADR-005 실측: 1방식 1.00~1.02, 다중 커넥션 방식(counter·quota-*) 2.1~3.0, serializable-retry 최대 2.72).
+- 선점 요청 수(빌림의 분모, run.sh `hold_requests`): `actuator_retry`로 읽는다. 0은 지표 목록에서 '기록 없음'이 확인될 때만(`http.server.requests`가 목록에 없음 · uri 태그 값에 선점 URI가 없음 — 태그 조회가 404인 경우) — 그 밖의 실패는 null(미측정). ADR-006 초판은 재시도 없이 읽고 실패를 0으로 채워, 직전 조회가 실패하면 분모가 누적값이 되어 빌림이 조용히 낮게 나올 수 있었다.
 
 ### 타이밍 설정 — 켰다 (ADR-005와 측정 조건이 다르다)
 
@@ -93,13 +121,13 @@ ADR-005의 끝 단계 DB 벤치(`limit-bench.sh`)는 ADR-006 매트릭스에 없
 
 ## 시간 효과 표 (명세 §9.4 ⑥)
 
-`compare.py`의 '회차별 실행 시각·순서' 표: 조건 × 셀 × 회차마다 status · k6 시작 시각 · 회차 안 순번 · 캠페인 전체 순번(order.txt) · 핵심 값(S4 새 엄격 한계·포화점 / S2 p99 / S7-m1 억울한 좌석 / S3 확정 에러율) · 요청당 빌림 · WAL fsync 평균 · 디스크 쓰기 대기·flush 평균 · 체크포인트 수. 같은 방식의 회차 흔들림이 시각·순번·I/O와 같이 움직이는지 보는 원자료다(판정은 ADR-006 문서).
+`compare.py`의 '회차별 실행 시각·순서' 표: 조건 × 셀 × 회차마다 status · **재측정**(형제 폴더 `rep<k>.retry-*`·`.path-gap-*`가 있으면 `재측정(retry)` 등) · k6 시작 시각 · 계획 회차 안 순번 · 계획 전체 순번(order.txt) · **실제 호출 순번**(CAMPAIGN.log `start` 행 중 같은 조건·회차이고 meta.json `started` 이전인 마지막 행이 몇 번째 start 행인가 — 재측정·이어서 실행이 끼어도 그 회차를 실제로 잰 호출) · 핵심 값(S4 새 엄격 한계·포화점 / S2 p99 / S7-m1 억울한 좌석 / S3 확정 에러율) · 요청당 빌림 · WAL fsync 평균 · 디스크 쓰기 대기·flush 평균 · 체크포인트 수. 같은 방식의 회차 흔들림이 시각·순번·I/O와 같이 움직이는지 보는 원자료다(판정은 ADR-006 문서).
 
 ## 실행
 
 ```bash
 k6/ADR-006/scripts/campaign.sh --sha <SHA> --id <campaign-id> --dry-run          # 순서 계획만(order.txt)
-k6/ADR-006/scripts/campaign.sh --sha <SHA> --id <campaign-id>                    # 본측정 — 9조건, 회차 우선 + 순서 섞기, 비정상 회차 재측정
+k6/ADR-006/scripts/campaign.sh --sha <SHA> --id <campaign-id>                    # 본측정 — 9조건, 회차 우선 + 순서 균형 순환, 비정상 회차 재측정
 k6/ADR-006/scripts/run.sh --sha <SHA> --limit-strategy counter-upsert --levels 4 --cells 'S7-m1' --reps 5 --id <id>   # 조건 하나
 for d in k6/ADR-006/results/<campaign-id>/*/; do [ -f "$d/plan.json" ] && k6/ADR-006/scripts/summarize.py "$d"; done
 k6/ADR-006/scripts/errsplit.py k6/ADR-006/results/<campaign-id>                   # 응답 코드 분류·원시 sha256 (compare 전에)
@@ -119,7 +147,8 @@ k6/ADR-006/scripts/recompute_s4.py k6/ADR-005/results/20261006-adr005-7acad14b k
 | `results/smoke-s4-counter-upsert` | 요청당 커넥션 빌림(명세 가정 2) · 새 규칙 엄격 한계·포화점 · I/O 기록 | 빌림 **1.0001**(획득 655,847 ÷ 선점 655,796 — 나머지 약 50회는 만료 배치 등) · 엄격 2,866(멈춘 단계 11번 4,325/s: p99 569ms) · 포화점 4,128 · 포화 단계 12번(6,487/s → 실제 도착 2,462/s) · 풀 타임아웃 0 · 데드락 0 · WAL fsync 338,180회 평균 0.744ms · 커밋/fsync 1.95 · 체크포인트 2회 · 물리 디스크 쓰기 대기 0.43ms · flush 평균 0.69ms |
 | `results/smoke-s2-counter-upsert` | 매수 정합 | 201 200/상한 200 · 매수 초과(판정기) 0 · `v_counter_mismatch` 0 · 가짜 거절 0 · 201 − 홀드 행 0 · 빌림 1.000 · p50 109 / p99 209ms |
 | `results/smoke-s7m1-counter-upsert` | 이긴 쪽 롤백 | 억울한 좌석 0/100 · U 100/100이 HOLD_LIMIT_EXCEEDED(좌석 락 전) · 일반 201 100 · `v_counter_mismatch` 0 · 빌림 1.0025(setup 200 + 측정 200 요청에 획득 401) |
-| `results/smoke-order-dryrun` | 순서 섞기 | `--dry-run` 9조건 × 5회(S3는 3회) = 39행 · 같은 `--id`로 다시 실행 → 같은 order.txt · 시드를 바꾸면 '다르다'로 거부(exit 2) |
+| `results/smoke-order-dryrun` | (폐기) sha256 정렬 순서 | `--dry-run` 39행 — 지금 하네스로 같은 `--id`를 부르면 '다르다'로 거부(exit 2, 2026-10-09 확인) |
+| `results/smoke-order-rotation-dryrun` | 순서 균형 순환 | `--dry-run` 39행(회차 1~3 9행 · 4~5 6행) · 같은 `--id`로 다시 실행 → 같은 order.txt · python3 실패(가짜 python3 exit 1)·빈 출력·한 행 빠짐 → 각각 exit 2, order.txt 안 씀 |
 
 - 스모크 1회 값이다 — 방식 비교·ADR-005와의 비교에 쓰지 않는다(본측정은 같은 캠페인 안에서만).
 - counter-upsert에서도 `seat.hold.limit.prepare`·`check` 타이머 COUNT가 요청 수만큼 나온다 — 앱이 모든 방식에서 prepare·check 호출을 타이머로 감싸고 counter-upsert는 빈 함수라 평균 0.0001ms 안팎(none과 같다). 커넥션 빌림이 1회라는 근거는 Hikari 빌림 수다.
