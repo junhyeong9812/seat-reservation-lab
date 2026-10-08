@@ -1,0 +1,23 @@
+# ADR-003 ⑦ 수평 확장: 같은 앱 2대 + nginx(라운드 로빈). 앱 1대 측정(compose.yml 단독)은 nginx를 거치지 않는다 — 기준선과 같은 경로.
+# 앱마다 APP_CPUS(L4면 2+2로 나눈다 — run.sh), nginx는 LB_CPUS(기본 1)를 따로 쓴다(편향으로 기록).
+services:
+  app:
+    ports: !reset []
+
+  app2:
+    extends:              # 파일을 명시해야 한다 — 없으면 이 오버레이 안의 app(포트만 있음)을 찾아 '이미지·빌드 없음'으로 실패(스모크 실측)
+      file: compose.yml
+      service: app
+    ports: !reset []
+
+  lb:
+    image: nginx:1.27-alpine
+    depends_on:
+      - app
+      - app2
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8101:8101"
+    cpus: ${LB_CPUS:-1}
+    mem_limit: 256m
