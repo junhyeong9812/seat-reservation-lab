@@ -16,6 +16,7 @@
 | 10-09 (삭제) | 삭제 직전 확인(repo 경로·브랜치, git 추적 파일 제외 — ADR-001 본측정 181·ADR-002 4는 커밋돼 있어 남김): **untracked 1,031개 20.8GB 삭제**(ADR-001 스모크 19 · ADR-002 364 · ADR-003 648 — 본측정분은 requests-sha256.txt 커밋됨, 스모크분은 목록 없음). 목록은 scratchpad/deleted-csv-manifest-20261009.txt. 노트북 여유 22G(96%), git status 삭제 0 | ADR-005 원시 기록은 유지 |
 | 10-09 (하네스 수정 회수) | 워커 6건 수정(오프라인 검증 — dry-run 39행·재현·가짜 python3 실패 exit 2·hold_requests 가짜 actuator·스모크 재요약 값 동일·recompute 바이트 동일) → 커밋 e88ec7bf. 실서버 확인: S2 L4 none 스모크 ok, hold_requests 1000 = 획득 1000(URI 태그 가정 실증) | — |
 | 10-09 02:24 | codex post-fix 재점검: R1~R8 해소, 신규 N1(S3 빌림 분자에 확정 섞임 → invalid-borrow-ratio 오판 가능) → S3 제외로 수정. 中 규정상 재점검 반복 없음 | 리뷰 종료 → 본측정 |
+| 10-09 02:24 | **본측정 시작**: campaign.sh --sha 022eca41 --id 20261009-adr006-022eca41 — 유닛 seatlab-adr006(Restart=on-failure), 9조건 × 회차 우선 · 균형 순환 순서 | 약 9h 추정 · 노트북 여유 22G · linger 꺼짐(로그아웃 시 정지) |
 
 ## 리뷰 ledger (中↑)
 
