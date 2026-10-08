@@ -24,6 +24,8 @@ import org.springframework.stereotype.Component
  */
 interface UserLimitStrategy {
     val type: UserLimitStrategyType
+    /** 트랜잭션 밖 준비 단계가 있는가 — 없으면 유스케이스가 prepare 호출·타이머를 건너뛴다(ADR-006: 준비 없는 방식의 prepare 타이머 0건) */
+    val hasPrepare: Boolean get() = false
     fun prepare(command: HoldSeatCommand) {}
     fun <T> around(command: HoldSeatCommand, block: () -> T): T = block()
     /** 사용자 단위 진입. false = 같은 사용자의 다른 요청이 진행 중(즉시 실패형) — 거절은 [check]에서 한다(좌석 확인 뒤, 에러 우선순위 보존). */
@@ -126,6 +128,7 @@ class QuotaLockUserLimit(
     private val jdbc: JdbcTemplate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.QUOTA_LOCK
+    override val hasPrepare = true
     override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
     override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.queryForList(
@@ -152,6 +155,7 @@ abstract class QuotaNoWaitUserLimitBase(
     private val jdbc: JdbcTemplate,
     private val early: Boolean,
 ) : UserLimitStrategy {
+    override val hasPrepare = true
     override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
     override fun acquire(command: HoldSeatCommand): Boolean {
         val got = jdbc.queryForList(
@@ -190,6 +194,7 @@ class CounterUserLimit(
     private val jdbc: JdbcTemplate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
+    override val hasPrepare = true
     override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
     override fun acquire(command: HoldSeatCommand): Boolean {
         val updated = jdbc.update(
