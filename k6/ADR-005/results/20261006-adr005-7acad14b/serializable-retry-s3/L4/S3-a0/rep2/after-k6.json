@@ -1,0 +1,46 @@
+{
+  "apps": [
+    {
+      "app": "app",
+      "strategy": "PESSIMISTIC_NOWAIT",
+      "limit_strategy": "SERIALIZABLE_RETRY",
+      "pool": 10.0,
+      "acquire": {
+        "COUNT": 797849,
+        "TOTAL_TIME": 5854.5545544569995,
+        "MAX": 0.000063873
+      },
+      "timeouts": 0,
+      "hold_requests": 758941,
+      "limit": {
+        "prepare": {
+          "COUNT": 758941,
+          "TOTAL_TIME": 0.046722252,
+          "MAX": 0.000005351
+        },
+        "acquire": {
+          "COUNT": 787782,
+          "TOTAL_TIME": 80.807848988,
+          "MAX": 0.003200973
+        },
+        "check": {
+          "COUNT": 46595,
+          "TOTAL_TIME": 93.137042306,
+          "MAX": 0.0
+        },
+        "span": {
+          "COUNT": 787782,
+          "TOTAL_TIME": 185.803738266,
+          "MAX": 0.003310028
+        },
+        "serialization_failure": 36595,
+        "retry": 28841
+      }
+    }
+  ],
+  "deadlocks_delta": 0,
+  "redis": {
+    "used_memory": 1011712,
+    "keys": 0
+  }
+}

@@ -41,6 +41,10 @@ abstract class IntegrationTest {
     fun resetData() {
         reservationRepository.deleteAllInBatch()
         jdbcTemplate.update("DELETE FROM seat_hold")
+        // ADR-005 쿼터·카운터 — flyway.target으로 앞 버전 스키마를 띄우는 테스트에는 이 테이블이 없다
+        if (jdbcTemplate.queryForObject("SELECT to_regclass('user_hold_quota') IS NOT NULL", Boolean::class.java) == true) {
+            jdbcTemplate.update("DELETE FROM user_hold_quota")
+        }
         productSeatRepository.deleteAllInBatch()
         productScheduleRepository.deleteAllInBatch()
         productRepository.deleteAllInBatch()

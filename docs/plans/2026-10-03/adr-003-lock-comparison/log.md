@@ -49,6 +49,7 @@
 | 10-06 11:39 | 사용자: try-advisory는 후순위(ADR-003 §9·NEXT N3), push 승인, README에 'ADR-005 진행 중' 추가 후 ADR-005 착수. 사이클 마감: NEXT.md 갱신 · measurement-log 1행 · 아카이브 보류(범위 미확인) | push → ADR-005 새 작업 폴더 |
 | 10-06 11:40 | push 완료(46d19731..e8422cf1, feat/adr-003-lock-comparison) · 사용자: study-note 이슈 아카이브 진행(범위 = NEXT 보류 7건) → 보류 해소, Opus 워커 위임(worktree study-note-wt-archive-1006, 브랜치 archive/2026-10-06, push·병합 금지) | 회수 대기 · 병행: ADR-005 인터뷰 준비(L0) |
 | 10-06 12:03 | 아카이브 회수·교차 확인(브랜치 커밋 6 · main..HEAD 추가 행 노출 스캔 0 · 커밋 메시지 attribution 0 · 원 checkout status 0): 아카이브: issue/kotlin/spring/default-argument-evaluated-on-proxy ⓐ 60e809cd · cross-cutting/reliability/silent-failure-vs-artifact ⓒ acee663f(기동 실패 넘김) · 같은 카드 ⓑ 무변경(무음 수집기 — 변형 A·B와 같은 방안) · java/spring/framework-default-contracts ⓒ e370bdc9 · cross-cutting/data/key-normalization-consistency ⓒ 2ca52e6a · cross-cutting/reliability/edge-detection-on-raw-signals ⓒ 10e46907 · cross-cutting/data/aggregation-semantics ⓒ 1bf8a642. 노출 스캔 파일 전문 3건(루트 README 기존 포트폴리오 표의 /home 경로 — 이번 추가 아님) 오탐 판정. 원 식별자: seat-reservation-lab·seatreservation·seatlab·junhyeong·HoldSeatProcess·ProductSeat·SeatHold·HoldStrategy·LoadtestDataService·192.168.x | study-note push(ff main) 사용자 확인 대기 · NEXT 보류 해소 |
+| 10-06 17:25 | 사용자 '2번도 진행' → study-note push: archive/2026-10-06 → origin main ff(8121ff99..1bf8a642). **함께 올라간 커밋**: 로컬 main에만 있던 b65834ab(다른 세션의 errata-fixes 기록)가 분기점이라 포함 — 사전 고지 없이 올림, 사용자 보고. 원 checkout 미수정(로컬 main ref는 b65834ab 그대로). ADR-003 PR #4 생성·merge commit 4674c3c6(사용자 지시) | ADR-003 작업 종료 |
 
 ## 리뷰 ledger (中↑)
 

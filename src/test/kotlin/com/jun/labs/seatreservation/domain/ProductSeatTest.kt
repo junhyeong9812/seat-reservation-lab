@@ -45,7 +45,7 @@ class ProductSeatTest {
         seat.confirm(hold.id!!, userId = 1, now = now.plus(Duration.ofMinutes(4)))
 
         assertEquals(SeatStatus.RESERVED, seat.status)
-        assertEquals(0, seat.expireHolds(now.plus(Duration.ofDays(1)))) // 남은 홀드 없음
+        assertEquals(0, seat.expireHolds(now.plus(Duration.ofDays(1))).size) // 남은 홀드 없음
     }
 
     @Test
@@ -71,10 +71,10 @@ class ProductSeatTest {
         val seat = seat()
         seat.hold(userId = 1, now = now, ttl = ttl)
 
-        assertEquals(0, seat.expireHolds(now.plus(ttl).minusSeconds(1)))
+        assertEquals(0, seat.expireHolds(now.plus(ttl).minusSeconds(1)).size)
         assertEquals(SeatStatus.HELD, seat.status)
 
-        assertEquals(1, seat.expireHolds(now.plus(ttl)))
+        assertEquals(1, seat.expireHolds(now.plus(ttl)).size)
         assertEquals(SeatStatus.AVAILABLE, seat.status)
     }
 }

@@ -1,0 +1,90 @@
+# 작업 로그 — ADR-005 1인 2매: 같은 사용자 동시 요청
+
+## 타임라인
+
+| 시각 | 사건 | 결과/결정 |
+|------|------|----------|
+| 10-06 (오전~17:25) | 인터뷰 1~3차(답변 원문은 requirement-spec §0). 측정 규모 A, 매수 방식 8개, 사용자 → 좌석, 거절 코드 HOLD_LIMIT_EXCEEDED 재사용, 기본 좌석 전략 3b, counter만 만료 감소·에러 순서 변경 허용 | — |
+| 10-06 17:25 | 브랜치 feat/adr-005-user-limit(main 4674c3c6) · requirement-spec 작성 | 사용자 합의 대기 |
+| 10-06 (합의) | 사용자 "진행해보자" → set-state spec-approved · mode auto(권장안 그대로 진행 지시) | SPEC=1 MODE=auto |
+| 10-06 17:43 | task 02·03(코드): 기본 좌석 전략 3b · `UserLimitStrategy` 8종(none·advisory·advisory-try·quota-lock·quota-nowait·counter·serializable·serializable-retry) · V5 `user_hold_quota` · 만료 배치가 실제 지운 홀드로 카운터 감소(counter만) · `ProductSeat.expireHolds`가 지운 홀드를 돌려줌 · 타이머 `seat.hold.limit.acquire`/`check` · 판정기 `v_counter_mismatch`(counter만 항목 생성). 테스트: 기존 68 → 기본값 테스트 1(none→3b, 명세 변경) · 판정기 null 합산 NPE 10(항목을 counter일 때만 내도록 수정) · **quota-nowait 55P03이 JdbcTemplate에서 UncategorizedSQLException으로 번역돼 catch를 지나 500**(테스트가 잡음 → DataAccessException + SQLState로) · flyway target 1 컨텍스트에 쿼터 테이블 없음(정리 조건부). 최종 124/124 green. **가정 1(테스트 수준)**: none 5라운드 안 매수 초과 재현 — 좌석 3b 아래에서도 매수 경합 그대로 · **가정 2**: 8종 모두 같은 좌석 50명 중 1명만 이김. SERIALIZABLE 적용은 SHOW transaction_isolation으로 직접 확인 | 가정 1의 S2 스모크는 하네스 뒤 |
+| 10-06 17:47 | 하네스(task 04) Opus 워커 위임(기준 HEAD 83fb4719 — k6/ADR-005 복사·--limit-strategy·S7·S2 가짜 거절·타이머 차분·limit-bench·스모크 5종, 커밋 금지) · 병행: task 01 ADR-005 §1~§6 작성(선택지 8개 코드·SQL, 단계표 ①.3, 가설 H1~H7, 측정 전 검증 6.1 발견 3건) | 워커 회수 대기 |
+| 10-06 (워커 회수) | 하네스 회수 — k6/ADR-005(복사 + --limit-strategy·S7·S2 사용자별·타이머 차분·limit-bench·mismatch), .gitignore 1행. 스모크(앱 83fb4719, worktree 배포, 워커 기록 17:58~18:13): S2 none 매수 초과 15(**가정 1 실증**) · S2 counter 0·불일치 0 · S7 none 억울한 좌석 0(U 락 21/100) · S7 counter 0(U 100/100 좌석 락 전 거절) · mismatch 주입 → limit-strategy-mismatch · bench 배경 0 ok. 메인 교차 확인: 5개 status·consistency.json 수치 일치. 서버 폴더 83fb4719-wt-* 4개 생성(컨테이너 없음) | S7 설계는 사용자 결정 |
+| 10-06 18:18 | 사용자: S7 'M=20 유지 + M=1 변형 추가'(재합의 — spec §0·§9.2) → 하네스에 셀 S7-m1(cell_base로 S7 계열, k6 M=1) · campaign S7 조건에 S7-m1 · 요약기 두 표. 스모크 S7-m1 none 1회 시작 | 결과 대기 |
+| 10-06 18:21 | 스모크 S7-m1 none(앱 899b317f, worktree, 18:20 종료): status ok · **억울한 좌석 77/100**(U 좌석 락 후 롤백 79 · 일반 201 23 · 빈 좌석 77) · 201 − 홀드 행 0 · 일반−U 보낸 시각 −1~2ms. M=20의 0과 대비 — 경쟁자가 적으면 3b 롤백 피해가 직접 드러난다 | 하네스 커밋 → 리뷰 |
+| 10-06 18:22 | task 05 中 듀얼 1패스(코드+하네스) 시작 — packet: git diff 4674c3c6..HEAD(로그·NEXT·measurement·ADR-005 results 제외) + spec + related-raw, 미러 = src·docs/adr·k6/ADR-003 스크립트·k6/ADR-005(+스모크 요약 파일), `$OUT=scratchpad/rv5`. 보안 스캔 0건 | codex(medium) ∥ Opus |
+| 10-06 (리뷰 회수) | codex 4건 · Opus 11건 + OQ 3 회수. 메인 재현: 즉시 실패형의 좌석 전 거절(코드 :67·:118) · 타이머가 좌석 구간 누락(HoldSeatProcess) · S7 억울한 409가 SNA만(summarize :276) · S3 plan reps 5(campaign :62) · ensureQuotaRow가 매 요청(around 매번) — 확인. ON CONFLICT 대기는 특성 테스트로 확인(아래) | 사용자 결정 1건(에러 순서) |
+| 10-06 (사용자) | 에러 순서: 처음 '즉시 실패형도 예외 허용' 선택 → 곧바로 "명세를 보존하고 위 내용은 추가로 확인하는게 맞지 않나?" → 해석 확인 질문 → **"명세 순서로 고치고, 먼저 거절하는 변형을 추가 측정"**(재합의: 방식 10개, quota-nowait 계열 SKIP LOCKED) | spec §0·§1·§2·§9 갱신 |
+| 10-06 18:48 | 수정(앱): prepare 단계 분리(타이머 prepare) · ensureQuotaRow 'SELECT 먼저' · span 타이머 · acquire→Boolean/check(entered) — L2·L4 명세 순서, -early 2개, L4 계열 SKIP LOCKED · 기동 검사(매수 방식 ≠ none이면 좌석 3b만) · counter + 배경 행 거부. 테스트: 40001 결정적(L6 거절 1·L7 재시도 성공) · 진입 쥔 동안 다른 사용자 통과/같은 사용자 대기·거절·경합 중 에러 순서 · ON CONFLICT 대기 특성 → **151/151 green**(중간 실패: 격리 수준 테스트가 prepare 미호출 3건 — 테스트 수정). 수정(하네스): 방식 10개 · S3 plan reps 3 · S7 억울한 409 코드 무관 + 코드별 · S7 setup 409 HLE 순차 재시도 5 · 타이머 4종 차분, MAX 교차표 제외 · 캠페인 끝 limit-bench, 없으면 '미측정'+problem. 문서: ADR-005 §2·§3·§5·§6.1·6.1.1, README | 다음: 재스모크 → codex post-fix 재점검 |
+| 10-06 (재스모크) | 재스모크 루프(a89741e9) 시작 → advisory-try exit 3: **서버 디스크 100%**(98G, 여유 0) — 배포가 git archive 전체(커밋된 k6/*/results, 회당 약 3~3.5G)를 SHA 폴더마다 복사해 ~/labs/seat-reservation-lab이 53G. advisory-try-early exit 2(run.sh 허용 목록 누락 — codex 재점검 F1과 같은 원인) → 루프 중단(TaskStop) | 다른 서비스 영향 가능 — 사용자 확인 |
+| 10-06 (재점검) | codex post-fix 재점검: C3·C4·O1·O2·O6·O7·O9·O10·OQ1 해소 · **C1 미해소(F1 run.sh 허용 목록에 -early 없음)** · **C2 미해소(F2 span이 409에서 기록 안 됨·락 대기 포함)** · O5 부분(F3 300ms 지연 의존) → 앱: span을 진입 직후 시작 + finally 기록, 40001 테스트 지연 1s — 151/151(4e506390) | 하네스 F1은 루프 종료 뒤 수정 |
+| 10-06 18:58 | 사용자 승인 "23개 전부 삭제" → 삭제 직전 재확인(경로 /home/jun/labs/seat-reservation-lab, 목록: SHA 24개 + 실패 배포 .tmp 1개 — 승인 때 23개라 말한 것과 개수 차이 고지) → 삭제 → **디스크 44%(여유 53G)**. 재발 방지: lib.sh 두 배포 함수에서 `:(exclude,glob)k6/*/results/**` — 배포 크기 3.5GB → 1.3MB. run.sh 허용 목록에 -early 2개 | 재스모크 다시 |
+| 10-06 (재스모크 2) | 4d02bdfa(앱 = 4e506390 + 하네스 수정), worktree: S2 L4 advisory-try·advisory-try-early·quota-nowait·quota-nowait-early 4개 ok — 매수 초과 0 · 201 − 홀드 0 · HLE 800 · 가짜 거절 0 · span 평균 1.6~3.1ms · **quota 계열 prepare 평균 약 60ms**(트랜잭션 밖 커넥션 1회 더 — S2 버스트에서 풀 대기로 보임) / S7 L4 serializable ok — setup 재시도로 완료, 40001 169, 억울한 좌석 1(409 20). 서버 디스크 44%, 배포 폴더 1.8M | 본측정 준비 완료 |
+| 10-06 19:06 | **본측정 시작**: campaign.sh --sha 7acad14b --id 20261006-adr005-7acad14b — 유닛 seatlab-adr005(ManagedOOMPreference=avoid, Restart=on-failure 180s·6h 5회), 30조건(방식 10 × s24·s3·s7), 회차 우선, 끝에 limit-bench | 약 50~55h 추정 · 사용자 linger 꺼짐(로그아웃 시 정지 위험 — ADR-002 이후 그대로) |
+| 10-07 18:2x | 진행 확인(1회차 30/30, 2회차 15/30, ok 146 · path-gap 1 — counter-s3 S3-a20 rep1, 끝에 재측정). 1회차 serializable S4 40001: L2 179,053 · L4 625,787(retry: 242,634 · 1,235,828) — S4는 같은 사용자 경합이 없어 전부 다른 사용자 충돌. 사용자 제기 '다른 사용자끼리 충돌인지 1명 사용자 충돌인지 중요' → ADR-005 §4에 ⑥′ 추가(측정 무변경 — 캠페인 진행 중) | 건별 분리는 후속 측정 후보 |
+| 10-07 (사용자 질문) | '셀렉트가 아닌 업데이트 쿼리 과정의 충돌?' → 40001은 ① 읽기-쓰기 의존(SSI — 매수 SELECT × 홀드 INSERT) ② 쓰기-쓰기(같은 좌석 행) 두 원인. S4는 ①로 추정(측정에 원인 기록 없음) → 후속: 메시지별 집계를 ADR-005 §4 ⑥′에 추가 | 측정 무변경 |
+| 10-08 21:38 | **본측정 종료**(CAMPAIGN.log): 비정상 회차 0 · ok 390(계획 = s24 200 + s3 90 + s7 100) · path-gap 4개(모두 S3 — counter-s3 a20 r1 · quota-nowait-early-s3 a0 r2 · serializable-retry-s3 a0 r2 · serializable-s3 a20 r2)는 재측정 1바퀴(20:15~21:33)에서 ok, 원 회차는 .path-gap-* 보존 · limit-bench 21:33~21:38 DONE | 분석 시작 |
+| 10-08 22:31 | 사용자: README ADR 요약에 측정별 기간(a~b)·걸린 시간 → '측정 기간' 표(ADR-001~005, CAMPAIGN.log 첫·끝 행 · ADR-001은 meta.json) | 요약·errsplit·compare 실행 중 |
+| 10-08 22:49 | 요약·errsplit·compare 완료(조건 30) → ADR-005 §7~§10 작성. 핵심: 매수 정합 9방식 0(전수 351회) · 가짜 거절 serializable 69/100명 · S4 쿼터 계열 1,911(prepare 약 70ms — 트랜잭션 밖 커넥션 1회 더), serializable L4 708 · S7-m1 counter만 0석(나머지 63~81) · 벤치 0.03ms(배경 무관) · v_counter_mismatch 0 · 5xx 0. **결정 제안: counter 기본(쿼터 행 사전 생성으로 회귀 제거 재측정 후 확정), 차선 advisory-try** | 다음: 결과 문서 中 듀얼 1패스 |
+| 10-08 (문서 리뷰) | 결과 문서 中 듀얼 1패스(미러 scratchpad/rv5d): codex 4건 · Opus 13건. 메인 재현: serializable L4 엄격 한계 708 = 목표 미달 다음 단계 집음(포화점 1,994) · 쿼터 계열 S4 회차별 갈림(quota-lock·nowait r1·r2 2,866 → r3~5 1,911, counter 10-07 11시~) · 요청당 커넥션 빌림 quota-lock·counter 3.00 vs none·try·serializable 1.00(after-k6 Hikari COUNT ÷ 선점 요청) · 데드락·풀 타임아웃 390회 전부 0 — 확인 | **결정 제안 변경**: counter 기본 → **advisory-try 기본, counter 조건부(트랜잭션 안 upsert로 재측정)** |
+| 10-08 23:07 | ADR-005 §7.2~§9 재작성(L2/L4 분리 회귀, 회차 갈림, 3회 빌림, 획득 대기 열, H4 부분 기각, 40001 출처 추정 한정, S2 민감도, 실패 분류·데드락 0, S7-m1 설계 한정, 3b 대가 범위) | 다음: post-fix 재점검 |
+| 10-08 (재점검) | codex post-fix 재점검: DR1~DR13 해소, 신규 3(회차별 횟수 advisory·advisory-try · 쿼터 계열 일반화에 quota-nowait-early 예외 · §8 표 serializable 칸은 포화점 명시) → 수정. 중 규정상 재점검 반복 없음 | 리뷰 종료 |
+| 10-09 (사용자) | 'count를 왜 더 맞다고?' → 실측은 advisory-try 우위 확인 · 억울한 좌석 의미(결제 전 선점 단계, 경쟁자 1명 + 1ms 창에서만) 설명 · Spring 기여 의도 → 6.2.10 바이트코드로 번역 경로 확인(NEXT N10) · 약어 괄호 설명 요청 → Opus 워커(ADR-000~005·README, 괄호 1,127개 삽입만) · **결정: ADR-005 = advisory-try 확정, counter 1문장 upsert는 새 ADR-006(none·advisory-try와 같은 캠페인)**, 기존 ADR-006~011 → 007~012(코드 주석 번호 3곳 정정) | 커밋 8509e0df·d5971007·c8ee85f4·6be4ef0f |
+| 10-09 00:44 | 사이클 마감: NEXT(N1 ADR-006 · N10 Spring 기여 후보) · measurement-log 1행 · 아카이브는 범위 확인 대기 | ADR-005 완료 |
+| 10-09 (push 거부) | 사용자 '아카이브 5건 진행, push해서 PR 머지까지' → 아카이브 Opus 워커 위임(worktree study-note-wt-archive-1009) · push 거부: GH001 100MB 초과 4개(limit-bench pgbench 디버그 출력 비압축 — ADR-002는 gzip했는데 이번 벤치 스크립트는 안 함, 커밋 전 확인 못 함) | 사용자 선택: 이력 다시 쓰기 + SHA 대응표 |
+| 10-09 00:57 | 백업 브랜치 backup/adr-005-pre-rewrite(b1eacf4a) → filter-branch(origin/main..HEAD 25커밋, q*-c1.txt 16개 제거) → **작업 트리의 원본이 체크아웃으로 지워짐**(예상 못 함) → 백업 브랜치에서 꺼내 gzip 16개(원본 sha256 일치 확인) → compare.py lat()에 .gz 읽기·limit-bench.sh gzip 저장·상태 판정 zcat·.gitignore → 재생성 COMPARISON.md 이전과 동일. 캠페인 SHA 7acad14b → 627dbfaf 등 대응표를 ADR-005 §10.1에 | push |
+
+## 리뷰 ledger (中↑)
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| C1 | 1 | codex·opus | UserLimitStrategies.kt L2·L4 acquire | 채택 — 즉시 실패형이 좌석 확인 전 거절(명세 §2 위반) | fixed(재합의: 명세 순서 + -early 변형) | 1 |
+| C2 | 1 | codex·opus(OQ2) | HoldSeatProcess.kt 타이머 | 채택 — 좌석 구간이 어느 타이머에도 없음 | fixed(span·prepare) | 1 |
+| C3 | 1 | codex·opus | summarize.py S7 wronged_409 | 채택 — SNA만 셈(L6·L7 과소) | fixed(코드 무관 + 코드별) | 1 |
+| C4 | 1 | codex | campaign.sh S3 reps | 채택 — plan 5 vs 실행 3 | fixed | 1 |
+| O1 | 1 | opus | ensureQuotaRow ON CONFLICT | 채택 — UPDATE 중인 행을 기다림(특성 테스트로 확인) | fixed(SELECT 먼저 + 특성 테스트) | 1 |
+| O2 | 1 | opus | s7 setup 병렬 + serializable | 채택 — 40001로 setup throw 반복 가능 | fixed(HLE 순차 재시도 5) — 재스모크 대상 | 1 |
+| O5 | 1 | opus | 테스트 — L7 재시도·L6 40001 경로 | 채택 | fixed(결정적 충돌 테스트) | 1 |
+| O6 | 1 | opus | 테스트 — 다른 사용자 비차단 | 채택 — 전역 직렬화여도 통과(그린 위장) | fixed(락 쥔 채 확인) | 1 |
+| O7 | 1 | opus | run.sh MAX 창 | 채택 — 예열 혼입 | fixed(교차표 제외·README) | 1 |
+| O8 | 1 | opus | ADR §2.5 '첫 요청' | 채택 — 매 요청 | fixed | 1 |
+| O9 | 1 | opus | compare.py limit-bench | 채택 — 캠페인에 없고 무음 생략 | fixed(캠페인 끝 실행 + 미측정·problem) | 1 |
+| O10 | 1 | opus | LoadtestDataService 배경 × counter | 채택 — 거짓 위반 잠복 | fixed(거부) | 1 |
+| O11 | 1 | opus | V4/V5 번호 | 기록만 — 측정 영향 없음(회차마다 DB 삭제) | user-deferred 아님·ADR 기록 | — |
+| OQ1 | 1 | opus | HoldStrategyStartupCheck | 채택 — 3b 외 조합 차단 | fixed | 1 |
+| OQ3 | 1 | opus | 앱 2대 만료 교착 | 범위 밖(앱 1대) — ADR 기록 | — | — |
+| DR1 | 1 | codex·opus | ADR §7.3③·§8 L4 회귀 | 채택 — L4는 −56%(두 칸), counter L2 2,838 | fixed | 1 |
+| DR2 | 1 | codex·opus | ADR §8·§9 '행 미리 만들면 해결' | 채택 — 요청별 SELECT 남음, S4 3회 빌림 | fixed(트랜잭션 안 upsert 후속) | 1 |
+| DR3 | 1 | codex·opus | ADR §7.3② 40001 출처 | 채택 — S2로 판정 불가 | fixed(추정 한정) | 1 |
+| DR4 | 1 | codex·opus | ADR §7.3⑥ 응답 합계·실패 분류 | 채택 — 정상 390회 범위 명시, S2·S3 기타 오류 | fixed | 1 |
+| DR5 | 1 | opus | serializable L4 708 | 채택 — 지표 산출 산물(포화점 1,994) | fixed + 하네스 후속 | 1 |
+| DR6 | 1 | opus | spec ③ 커넥션 획득 대기 열 누락 | 채택 | fixed | 1 |
+| DR7 | 1 | opus | H4 사후 지표 교체 | 채택 | fixed(부분 기각) | 1 |
+| DR8 | 1 | opus | 쿼터 계열 회차별 갈림·회차 수 | 채택 | fixed(회차별 표 + 순서 섞은 재측정 후속) | 1 |
+| DR9 | 1 | opus | §8 제외 사유·counter 우위 근거 편향 | 채택 | fixed(advisory-try 기본, counter 조건부) | 1 |
+| DR10 | 1 | opus | §8 S2 민감도 한정 | 채택 | fixed | 1 |
+| DR11 | 1 | opus | 데드락 미보고 | 채택 — 390회 0 확인 | fixed | 1 |
+| DR12 | 1 | opus | S2 prepare 혼입 | 채택 | fixed(편향) | 1 |
+| DR13 | 1 | opus | 작은 부정확 3 | 채택 | fixed | 1 |
+
+## 생략한 검증
+
+- (없음)
+
+## 완료 요약
+
+- **결과**: ADR-005 결정 = 매수 제어 기본 L2 `advisory-try`(2026-10-09 사용자 확정). counter(카운터 조건부 UPDATE)는 롤백 피해 0·같은 사용자 지연 최소지만 이번 구현은 요청당 커넥션 3회로 S4 회귀 → ADR-006에서 한 문장 upsert로 재비교.
+- **측정**: 390회(S2·S4 200 · S3 90 · S7·S7-m1 100) + DB 벤치, 비정상 0(path-gap 4회 재측정). 대조군 뺀 351회 매수 위반 0, 5xx·데드락·풀 타임아웃 0.
+- **구현 diff 핵심**(실파일 `HoldSeatProcess.kt`):
+```kotlin
+var entered = true
+meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })
+val spanStart = System.nanoTime()
+val seat = try {
+    …
+    loaded.assertHoldable() // 에러 우선순위: 선점 불가가 매수 초과보다 먼저
+    meters.timer("seat.hold.limit.check").record(Runnable { limit.check(command, entered) })
+    loaded
+} finally { meters.timer("seat.hold.limit.span").record(…) }
+```
+- **리뷰**: 코드 中 듀얼 1패스 15건 + 재점검 3 · 결과 문서 中 듀얼 1패스 17건 + 재점검 3 — 전부 fixed(결과 리뷰로 결정 제안이 counter → advisory-try로 바뀜).
