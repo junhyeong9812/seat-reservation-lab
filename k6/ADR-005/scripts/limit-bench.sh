@@ -127,7 +127,7 @@ fi
     for u in has none; do
       uid=$([[ "$u" == has ]] && echo $U_HAS || echo $U_NONE)
       psql_db -c "\"EXPLAIN (ANALYZE, BUFFERS) $(sql_of $q $uid explain)\"" > "$dir/explain-$q-$u.txt" 2>> "$dir/errors.log"
-      remote "docker exec seatlab-db-1 sh -c 'rm -rf /tmp/lb/log && mkdir -p /tmp/lb/log && cd /tmp/lb/log && pgbench -U seat -d seat -n -M prepared -c 1 -j 1 -T $SECONDS_PER -f /tmp/lb/$q-$u.sql -l --log-prefix=c1 2>&1'" > "$dir/$q-$u-c1.txt"
+      remote "docker exec seatlab-db-1 sh -c 'rm -rf /tmp/lb/log && mkdir -p /tmp/lb/log && cd /tmp/lb/log && pgbench -U seat -d seat -n -M prepared -c 1 -j 1 -T $SECONDS_PER -f /tmp/lb/$q-$u.sql -l --log-prefix=c1 2>&1'" | gzip -9 > "$dir/$q-$u-c1.txt.gz"   # 디버그 출력이라 회당 약 100MB — GitHub 100MB 한도를 넘어 push가 거부됐다(2026-10-09) → gzip
       remote "docker exec seatlab-db-1 sh -c 'cat /tmp/lb/log/c1*'" | gzip > "$dir/$q-$u-c1-latency.log.gz"
     done
   done
@@ -141,7 +141,7 @@ fi
   for q in qh qr; do
     for u in has none; do
       grep -q "Execution Time" "$dir/explain-$q-$u.txt" 2>/dev/null || reasons+=("explain-$q-$u")
-      grep -q "^tps = " "$dir/$q-$u-c1.txt" 2>/dev/null || reasons+=("pgbench-$q-$u")
+      zcat "$dir/$q-$u-c1.txt.gz" 2>/dev/null | grep -q "^tps = " || reasons+=("pgbench-$q-$u")
       [[ "$(zcat "$dir/$q-$u-c1-latency.log.gz" 2>/dev/null | head -c 1 | wc -c)" == 1 ]] || reasons+=("latency-log-$q-$u")
     done
   done

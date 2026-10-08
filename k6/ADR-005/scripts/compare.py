@@ -387,9 +387,16 @@ def main(root):
         out.append("|---|---|" + "---|" * (2 * len(sizes)))
 
         def lat(path):
-            if not path.exists():
+            # pgbench -c 1 출력(디버그 로그 포함, 회당 약 100MB)은 gzip으로 남긴다 — 원본 .txt가 없으면 .txt.gz를 읽는다
+            gz = path.with_suffix(path.suffix + ".gz")
+            if path.exists():
+                text = path.read_text(errors="replace")
+            elif gz.exists():
+                with gzip.open(gz, "rt", errors="replace") as f:
+                    text = f.read()
+            else:
                 return None
-            m = re.search(r"latency average = ([0-9.]+) ms", path.read_text(errors="replace"))
+            m = re.search(r"latency average = ([0-9.]+) ms", text)
             return float(m.group(1)) if m else None
 
         def plan_nodes(path):
