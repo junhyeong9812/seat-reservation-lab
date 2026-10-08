@@ -28,6 +28,7 @@
 | 10-08 22:49 | 요약·errsplit·compare 완료(조건 30) → ADR-005 §7~§10 작성. 핵심: 매수 정합 9방식 0(전수 351회) · 가짜 거절 serializable 69/100명 · S4 쿼터 계열 1,911(prepare 약 70ms — 트랜잭션 밖 커넥션 1회 더), serializable L4 708 · S7-m1 counter만 0석(나머지 63~81) · 벤치 0.03ms(배경 무관) · v_counter_mismatch 0 · 5xx 0. **결정 제안: counter 기본(쿼터 행 사전 생성으로 회귀 제거 재측정 후 확정), 차선 advisory-try** | 다음: 결과 문서 中 듀얼 1패스 |
 | 10-08 (문서 리뷰) | 결과 문서 中 듀얼 1패스(미러 scratchpad/rv5d): codex 4건 · Opus 13건. 메인 재현: serializable L4 엄격 한계 708 = 목표 미달 다음 단계 집음(포화점 1,994) · 쿼터 계열 S4 회차별 갈림(quota-lock·nowait r1·r2 2,866 → r3~5 1,911, counter 10-07 11시~) · 요청당 커넥션 빌림 quota-lock·counter 3.00 vs none·try·serializable 1.00(after-k6 Hikari COUNT ÷ 선점 요청) · 데드락·풀 타임아웃 390회 전부 0 — 확인 | **결정 제안 변경**: counter 기본 → **advisory-try 기본, counter 조건부(트랜잭션 안 upsert로 재측정)** |
 | 10-08 23:07 | ADR-005 §7.2~§9 재작성(L2/L4 분리 회귀, 회차 갈림, 3회 빌림, 획득 대기 열, H4 부분 기각, 40001 출처 추정 한정, S2 민감도, 실패 분류·데드락 0, S7-m1 설계 한정, 3b 대가 범위) | 다음: post-fix 재점검 |
+| 10-08 (재점검) | codex post-fix 재점검: DR1~DR13 해소, 신규 3(회차별 횟수 advisory·advisory-try · 쿼터 계열 일반화에 quota-nowait-early 예외 · §8 표 serializable 칸은 포화점 명시) → 수정. 중 규정상 재점검 반복 없음 | 리뷰 종료 |
 
 ## 리뷰 ledger (中↑)
 
