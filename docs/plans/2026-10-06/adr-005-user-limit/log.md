@@ -31,6 +31,8 @@
 | 10-08 (재점검) | codex post-fix 재점검: DR1~DR13 해소, 신규 3(회차별 횟수 advisory·advisory-try · 쿼터 계열 일반화에 quota-nowait-early 예외 · §8 표 serializable 칸은 포화점 명시) → 수정. 중 규정상 재점검 반복 없음 | 리뷰 종료 |
 | 10-09 (사용자) | 'count를 왜 더 맞다고?' → 실측은 advisory-try 우위 확인 · 억울한 좌석 의미(결제 전 선점 단계, 경쟁자 1명 + 1ms 창에서만) 설명 · Spring 기여 의도 → 6.2.10 바이트코드로 번역 경로 확인(NEXT N10) · 약어 괄호 설명 요청 → Opus 워커(ADR-000~005·README, 괄호 1,127개 삽입만) · **결정: ADR-005 = advisory-try 확정, counter 1문장 upsert는 새 ADR-006(none·advisory-try와 같은 캠페인)**, 기존 ADR-006~011 → 007~012(코드 주석 번호 3곳 정정) | 커밋 8509e0df·d5971007·c8ee85f4·6be4ef0f |
 | 10-09 00:44 | 사이클 마감: NEXT(N1 ADR-006 · N10 Spring 기여 후보) · measurement-log 1행 · 아카이브는 범위 확인 대기 | ADR-005 완료 |
+| 10-09 (push 거부) | 사용자 '아카이브 5건 진행, push해서 PR 머지까지' → 아카이브 Opus 워커 위임(worktree study-note-wt-archive-1009) · push 거부: GH001 100MB 초과 4개(limit-bench pgbench 디버그 출력 비압축 — ADR-002는 gzip했는데 이번 벤치 스크립트는 안 함, 커밋 전 확인 못 함) | 사용자 선택: 이력 다시 쓰기 + SHA 대응표 |
+| 10-09 00:57 | 백업 브랜치 backup/adr-005-pre-rewrite(b1eacf4a) → filter-branch(origin/main..HEAD 25커밋, q*-c1.txt 16개 제거) → **작업 트리의 원본이 체크아웃으로 지워짐**(예상 못 함) → 백업 브랜치에서 꺼내 gzip 16개(원본 sha256 일치 확인) → compare.py lat()에 .gz 읽기·limit-bench.sh gzip 저장·상태 판정 zcat·.gitignore → 재생성 COMPARISON.md 이전과 동일. 캠페인 SHA 7acad14b → 627dbfaf 등 대응표를 ADR-005 §10.1에 | push |
 
 ## 리뷰 ledger (中↑)
 

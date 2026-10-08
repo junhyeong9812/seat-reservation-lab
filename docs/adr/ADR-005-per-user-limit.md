@@ -214,7 +214,7 @@ override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
 
 | 항목 | 값 |
 |------|----|
-| 캠페인 | `20261006-adr005-7acad14b` — 2026-10-06 19:05 ~ 10-08 21:38 (약 50.5시간), SHA 7acad14b |
+| 캠페인 | `20261006-adr005-7acad14b` — 2026-10-06 19:05 ~ 10-08 21:38 (약 50.5시간), SHA 7acad14b(**이력 정리로 현재 `627dbfaf`** — 코드·하네스 내용은 같고 커밋 SHA만 바뀜, 아래 §10 대응표) |
 | 조건 × 회차 | 30조건(매수 방식 10 × {s24(S2·S4, L2·L4) · s3(S3, L4) · s7(S7·S7-m1, L4)}), 회차 우선. 정상 회차 **390** = S2·S4(같은 사용자 10좌석·처리량 계단) 200 + S3(입장→선점→확정/이탈 전체 흐름) 90 + S7(2매 보유자 + 일반 20명이 같은 좌석)·S7-m1(2매 보유자 + 일반 1명) 100 — 계획과 같다 |
 | 비정상 회차 | 측정 경로 단절(`path-gap`) 4회(모두 S3 — counter a20(이탈 20%) r1 · quota-nowait-early a0(이탈 0%) r2 · serializable-retry a0 r2 · serializable a20 r2) → 끝에 재측정 1바퀴에서 모두 ok(원 회차는 `.path-gap-*`로 보존). 최종 비정상 0 |
 | DB 벤치 | 배경 0 / 10만 / 100만 — 10-08 21:33 ~ 21:38 |
@@ -382,3 +382,35 @@ override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
 | `R/COMPARISON.md` · `comparison.json` · `errsplit.json` · `CAMPAIGN.log` · `limit-bench/` | 교차표(판정기 전수·응답 분류 포함)·응답 분류 원자료·캠페인 기록·DB 벤치 — §7 전부 |
 | `R/<조건>/SUMMARY.md` · `summary.json` · `L*/<셀>/rep*/` | 조건별 요약·회차 원시(end-state.json·after-k6.json 등) |
 | `docs/plans/2026-10-06/adr-005-user-limit/requirement-spec.md` · `log.md` | 합의 명세(재합의 3건) · 작업 로그·리뷰 ledger |
+
+### 10.1 커밋 SHA 대응표 (2026-10-09 이력 정리)
+
+push 전 이력에 100MB를 넘는 DB 벤치 원시 파일(pgbench 디버그 출력 `limit-bench/N*/q*-c1.txt` 16개, 약 1.5GB)이 들어 있어 GitHub가 거부했다 → push 안 된 커밋에서만 그 파일을 빼는 이력 정리(`git filter-branch --index-filter`, 사용자 승인) 후 gzip 본(5.9MB, 원본과 sha256 일치)을 새 커밋으로 넣었다. 코드·하네스·다른 결과 파일은 바뀌지 않았고 SHA만 바뀌었다. 결과 폴더의 `meta.json`·`plan.json`·로그에 적힌 옛 SHA는 이 표로 읽는다.
+
+| 옛 SHA(결과·문서에 기록) | 새 SHA | 커밋 |
+|------|------|------|
+| `27bc12e2` | `27bc12e2` | feat(seat-reservation-lab): ADR-005 1인 매수 제어 8종 + 기본 좌석 전략 3b |
+| `83fb4719` | `83fb4719` | docs(seat-reservation-lab): ADR-005 명세·작업 로그, ADR-003 로그 마감 |
+| `899b317f` | `899b317f` | docs(seat-reservation-lab): ADR-005 선택지 8개·가설·측정 계획·측정 전 검증 |
+| `2e4d83ea` | `255f21b7` | feat(seat-reservation-lab): ADR-005 하네스 — 매수 방식 축·S7 이긴 쪽 롤백(M=20·M=1) |
+| `eb990eca` | `e4f621f8` | docs(seat-reservation-lab): ADR-005 S7 M=1 변형 재합의·하네스 스모크 기록 |
+| `a89741e9` | `28285dfa` | fix(seat-reservation-lab): ADR-005 리뷰 반영 — 명세 순서·-early 변형·span 타이머·ON |
+| `cd8682b2` | `52a1b7f7` | docs(seat-reservation-lab): ADR-005 리뷰 반영 — 재합의(명세 순서·-early·SKIP LOCK |
+| `4e506390` | `5872131c` | fix(seat-reservation-lab): ADR-005 span 타이머 — 진입 직후부터, 거절로 끝나도 기록 |
+| `4d02bdfa` | `588fda3c` | fix(seat-reservation-lab): ADR-005 하네스 — 배포에서 측정 결과 제외, -early 방식 허용 |
+| `7acad14b` | `627dbfaf` | docs(seat-reservation-lab): ADR-005 로그 — 서버 디스크 100% 사고·정리·재점검 |
+| `07559348` | `23e54143` | chore(seat-reservation-lab): ADR-005 리뷰 후 재스모크 결과 |
+| `cb862dee` | `9d7f7911` | docs(seat-reservation-lab): ADR-005 재스모크·본측정 시작 기록 |
+| `555e38f9` | `52655c19` | docs(seat-reservation-lab): ADR-005 판정 기준 — 40001의 출처(같은 사용자 vs 다른 사용자 |
+| `38f91bc6` | `566dc1a5` | docs(seat-reservation-lab): ADR-005 후속 — 40001 원인별 집계 |
+| `ee47cb93` | `e9315ee4` | docs(seat-reservation-lab): README — ADR별 본측정 기간·걸린 시간 |
+| `a153fb59` | `94d25a15` | docs(seat-reservation-lab): ADR-005 본측정 종료 기록 |
+| `3dbec9c1` | `42e78161` | docs(seat-reservation-lab): ADR-005 결과·결정 제안(counter, 차선 advisory-try) |
+| `9f4c6801` | `4d02abf2` | chore(seat-reservation-lab): ADR-005 측정 결과 — 390회 + DB 벤치 |
+| `beb56b03` | `b8225007` | docs(seat-reservation-lab): ADR-005 결과 리뷰 반영 — 기본 제안 advisory-try, cou |
+| `ca5073d8` | `835b7ef8` | docs(seat-reservation-lab): ADR-005 재점검 반영 — 회차별 값·예외·포화점 표기 |
+| `8509e0df` | `ff95ca16` | docs(seat-reservation-lab): ADR 약어마다 괄호 설명(ADR-000~005·README), 낡은 NEX |
+| `d5971007` | `d4282444` | docs(seat-reservation-lab): ADR-005 HLE·SNA 약어 정의 |
+| `c8ee85f4` | `cebf7071` | chore(seat-reservation-lab): 코드 주석의 ADR 번호를 현재 번호로 |
+| `6be4ef0f` | `65ca0647` | docs(seat-reservation-lab): ADR-005 확정(advisory-try), 새 ADR-006(counte |
+| `b1eacf4a` | `9210e14b` | docs(seat-reservation-lab): ADR-005 사이클 마감 — NEXT·측정 기록·완료 요약 |
