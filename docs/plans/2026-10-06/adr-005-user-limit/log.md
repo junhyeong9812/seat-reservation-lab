@@ -33,6 +33,8 @@
 | 10-09 00:44 | 사이클 마감: NEXT(N1 ADR-006 · N10 Spring 기여 후보) · measurement-log 1행 · 아카이브는 범위 확인 대기 | ADR-005 완료 |
 | 10-09 (push 거부) | 사용자 '아카이브 5건 진행, push해서 PR 머지까지' → 아카이브 Opus 워커 위임(worktree study-note-wt-archive-1009) · push 거부: GH001 100MB 초과 4개(limit-bench pgbench 디버그 출력 비압축 — ADR-002는 gzip했는데 이번 벤치 스크립트는 안 함, 커밋 전 확인 못 함) | 사용자 선택: 이력 다시 쓰기 + SHA 대응표 |
 | 10-09 00:57 | 백업 브랜치 backup/adr-005-pre-rewrite(b1eacf4a) → filter-branch(origin/main..HEAD 25커밋, q*-c1.txt 16개 제거) → **작업 트리의 원본이 체크아웃으로 지워짐**(예상 못 함) → 백업 브랜치에서 꺼내 gzip 16개(원본 sha256 일치 확인) → compare.py lat()에 .gz 읽기·limit-bench.sh gzip 저장·상태 판정 zcat·.gitignore → 재생성 COMPARISON.md 이전과 동일. 캠페인 SHA 7acad14b → 627dbfaf 등 대응표를 ADR-005 §10.1에 | push |
+| 10-09 (push·PR) | push 성공(feat/adr-005-user-limit, 대형 파일 0 확인) → PR #5 생성·merge commit 201aabdd(사용자 지시) | — |
+| 10-09 01:00 | 아카이브 회수·교차 확인(커밋 5 · origin/main..HEAD 추가 행 노출 스캔 0 · attribution 0): 아카이브: java/spring/framework-default-contracts ⓒ 88584ab3(55P03 계층별 번역) · cross-cutting/database/sql-dialect-and-driver-traps ⓒ c778c45e(ON CONFLICT 대기) · cross-cutting/database/transaction-boundary-scope ⓒ b0c9344c(NOWAIT 오류 → 트랜잭션 abort, SKIP LOCKED) · cross-cutting/infra/deploy-artifact-scope ⓐ 1f04dca0(배포 페이로드 → 디스크 100%) · cross-cutting/testing/performance-measurement-validity ⓒ bea2ed0d(포화 뒤 단계를 한계로 집음). 파일 전문 스캔 3건(루트 README 기존 /home 경로 — 이번 추가 아님) 오탐. 원 식별자: seat-reservation-lab·seatreservation·seatlab·junhyeong·UserLimit*·HoldSeatProcess·ProductSeat·SeatHold·HoldStrategy·LoadtestDataService·user_hold_quota·192.168.x. study-note push(사용자 지시 '아카이브 진행하고 푸시'): archive/2026-10-09 → origin main ff 09826f2e..1f04dca0 | ADR-005 작업 종료 |
 
 ## 리뷰 ledger (中↑)
 
@@ -87,4 +89,5 @@ val seat = try {
     loaded
 } finally { meters.timer("seat.hold.limit.span").record(…) }
 ```
+- **아카이브**: study-note 카드 5(신규 1 · 방안 비교 4), push 완료.
 - **리뷰**: 코드 中 듀얼 1패스 15건 + 재점검 3 · 결과 문서 中 듀얼 1패스 17건 + 재점검 3 — 전부 fixed(결과 리뷰로 결정 제안이 counter → advisory-try로 바뀜).

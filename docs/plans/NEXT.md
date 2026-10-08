@@ -12,7 +12,7 @@
 - **발생 가능한 문제**: ADR-005에서 쿼터 계열 S4가 시간에 따라 1,911로 떨어졌다(원인 미확정 — I/O 추정) → 순서를 섞고 서버 디스크 지연을 같이 잰다 · S4 엄격 한계 규칙이 목표 미달 단계 뒤를 '통과'로 집는 문제(ADR-005 §7.3 ③) 먼저 수정
 - **방법론**: none·advisory-try·counter-upsert를 같은 캠페인에서(사용자 결정 — 기존 데이터 재사용 안 함), S2·S4 L2·L4 + S7-m1 L4 × 5, 약 6h
 
-### N2. ADR-005 브랜치(feat/adr-005-user-limit) main 병합 — 우선순위: 중간 · push·PR은 사용자 확인 필요
+### N2. (완료 2026-10-09) ADR-005 main 병합 — PR #5 merge commit 201aabdd
 
 ### N3. `pg_try_advisory_xact_lock` vs 3b nowait — 우선순위: 낮음(후순위, 사용자 2026-10-06) · ADR-007과 함께
 
