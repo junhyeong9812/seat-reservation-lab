@@ -43,6 +43,8 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     @Autowired lateinit var tx: TransactionTemplate
 
     private val serializable get() = type == SERIALIZABLE || type == SERIALIZABLE_RETRY
+    /** 카운터를 유지하는 방식(ADR-005 counter · ADR-006 counter-upsert) — 매수 판정이 좌석보다 먼저, 카운터 정합 단언 */
+    private val counters = setOf(COUNTER, UserLimitStrategyType.COUNTER_UPSERT)
 
     /** [requests]개를 동시에 보낸다. 결과 = "ok" 또는 에러 코드 이름(그 밖의 예외는 "ERR:…"). */
     private fun concurrently(requests: List<HoldSeatCommand>): List<String> {
@@ -153,7 +155,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
                 assertEquals("ok", submit(b).get(5, TimeUnit.SECONDS), "$type: 다른 사용자가 막혔다")
                 val same = submit(a2)
                 when (type) {
-                    UserLimitStrategyType.ADVISORY, UserLimitStrategyType.QUOTA_LOCK, COUNTER ->
+                    UserLimitStrategyType.ADVISORY, UserLimitStrategyType.QUOTA_LOCK, COUNTER, UserLimitStrategyType.COUNTER_UPSERT ->
                         assertThrows<TimeoutException>("$type: 같은 사용자가 기다리지 않았다") { same.get(1, TimeUnit.SECONDS) }
                     UserLimitStrategyType.ADVISORY_TRY, UserLimitStrategyType.QUOTA_NOWAIT -> {
                         assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, same.get(5, TimeUnit.SECONDS), "$type")
@@ -196,7 +198,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
 
         val e = assertThrows<SeatReservationException> { holdSeat.hold(HoldSeatCommand(schedule.id!!, taken.id!!, userId)) }
         // counter는 갱신이 곧 판정이라 좌석보다 먼저 판정된다(사용자 허용). 순차 호출이라 -early 변형도 진입은 성공 → 좌석 불가
-        val expected = if (type == COUNTER) ErrorCode.HOLD_LIMIT_EXCEEDED else ErrorCode.SEAT_NOT_AVAILABLE
+        val expected = if (type in counters) ErrorCode.HOLD_LIMIT_EXCEEDED else ErrorCode.SEAT_NOT_AVAILABLE
         assertEquals(expected, e.errorCode, "$type")
 
         val free = createSeat(4)
@@ -217,7 +219,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
         expire.expire()
 
         assertEquals(1, ownedBy(userId)) // 확정 1 + 만료된 홀드 0
-        if (type == COUNTER) {
+        if (type in counters) {
             assertEquals(ownedBy(userId), counterOf(userId), "카운터 = 홀드 + 확정 예약")
             assertEquals(0, counterOf(12L), "사용자 12의 홀드도 만료 → 0")
         }
@@ -267,6 +269,37 @@ class CounterUserLimitTest : UserLimitStrategyTest(COUNTER) {
             assertEquals(0, raw.get(5, TimeUnit.SECONDS)) // 롤백 뒤 풀려나 '이미 있음'으로 끝난다
         } finally {
             pool.shutdownNow()
+        }
+    }
+}
+
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert"])
+class CounterUpsertUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.COUNTER_UPSERT) {
+    /** ADR-006 가정 1: 첫 요청들이 동시에 INSERT 경로로 와도(행이 아직 없음) 카운터 = 성공 수 = DB 매수 ≤ 상한. 라운드마다 새 사용자. */
+    @Test
+    fun `새 사용자의 동시 요청 10개 — 행이 없는 상태에서 시작해도 카운터 = 성공 수 ≤ 2`() {
+        repeat(5) { r ->
+            val userId = 61_000L + r
+            val seats = (1..10).map { createSeat(r * 100 + it) }
+            val pool = Executors.newFixedThreadPool(10)
+            val start = CountDownLatch(1)
+            val outcomes = try {
+                seats.map { seat ->
+                    pool.submit<String> {
+                        start.await()
+                        try { holdSeat.hold(HoldSeatCommand(schedule.id!!, seat.id!!, userId)); "ok" }
+                        catch (e: SeatReservationException) { e.errorCode.name }
+                        catch (e: Throwable) { "ERR:${e::class.simpleName}:${e.message?.take(160)}" }
+                    }
+                }.also { start.countDown() }.map { it.get(30, TimeUnit.SECONDS) }
+            } finally {
+                pool.shutdownNow()
+            }
+            assertTrue(outcomes.none { it.startsWith("ERR") }, "라운드 $r: $outcomes")
+            val ok = outcomes.count { it == "ok" }
+            assertEquals(2, ok, "라운드 $r: 상한까지 정확히 2개 — $outcomes")
+            val cnt = jdbcTemplate.queryForObject("SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", Int::class.java, schedule.id, userId)
+            assertEquals(ok, cnt, "라운드 $r: 카운터 = 성공 수")
         }
     }
 }

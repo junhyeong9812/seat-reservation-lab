@@ -9,6 +9,9 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
+/** 카운터를 유지하는 매수 방식(ADR-005 counter · ADR-006 counter-upsert) — 판정기·배경 행 거부 대상 */
+private val COUNTER_STRATEGIES = setOf(UserLimitStrategyType.COUNTER, UserLimitStrategyType.COUNTER_UPSERT)
+
 /**
  * 부하 측정 도구(ADR-001) — 도메인이 아니다. 판정은 도메인 로직을 재사용하지 않고 DB 행을 직접 센다:
  * 측정 대상이 스스로를 채점하지 않게 하기 위해서다.
@@ -30,7 +33,7 @@ class LoadtestDataService(
         require(schedules in 1..1_000 && seatsPerSchedule in 1..100_000) { "시드 범위 초과" }
         require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
         // 배경 홀드·예약은 쿼터 행 없이 넣으므로 counter에서는 v_counter_mismatch가 거짓 위반을 낸다 — 섞지 않는다(ADR-005)
-        require(backgroundRows == 0 || properties.limitStrategy != UserLimitStrategyType.COUNTER) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
+        require(backgroundRows == 0 || properties.limitStrategy !in COUNTER_STRATEGIES) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
         )
@@ -156,7 +159,7 @@ class LoadtestDataService(
         )
         val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
         // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
-        if (properties.limitStrategy != UserLimitStrategyType.COUNTER) return base
+        if (properties.limitStrategy !in COUNTER_STRATEGIES) return base
         val counterMismatch = jdbcTemplate.queryForObject(
             """
             WITH actual AS (

@@ -201,17 +201,48 @@ class CounterUserLimit(
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
 
-    override fun onHoldsExpired(expired: List<SeatHold>) {
-        // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
-        expired.groupingBy { it.scheduleId to it.userId }.eachCount().forEach { (key, n) ->
-            val updated = jdbc.update(
-                "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?",
-                n, key.first, key.second,
-            )
-            // 카운터 행이 없으면 카운터가 이미 어긋난 것 — 조용히 넘기지 않는다(cnt < 0은 CHECK 제약이 막는다)
-            check(updated == 1) { "카운터 행 없음: 회차 ${key.first} 사용자 ${key.second}" }
-        }
+    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+}
+
+/** 만료 배치가 실제로 지운 홀드만큼 (회차, 사용자)별 카운터를 내린다 — counter·counter-upsert 공용. */
+private fun decrementCounters(jdbc: JdbcTemplate, expired: List<SeatHold>) {
+    // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
+    expired.groupingBy { it.scheduleId to it.userId }.eachCount().forEach { (key, n) ->
+        val updated = jdbc.update(
+            "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?",
+            n, key.first, key.second,
+        )
+        // 카운터 행이 없으면 카운터가 이미 어긋난 것 — 조용히 넘기지 않는다(cnt < 0은 CHECK 제약이 막는다)
+        check(updated == 1) { "카운터 행 없음: 회차 ${key.first} 사용자 ${key.second}" }
     }
+}
+
+/**
+ * ADR-006 — 카운터를 트랜잭션 안 **한 문장 upsert**로: 행이 없으면 cnt = 1로 만들고, 있으면 `cnt + 1 <= 최대`일 때만 올린다.
+ * 영향 행 1 = 통과, 0 = 거절. ADR-005 counter의 트랜잭션 밖 준비(prepare — 요청당 커넥션 3회)가 없다 → 빌림 1회.
+ * READ COMMITTED에서 `ON CONFLICT DO UPDATE`는 충돌 행을 잠그고 최신 버전으로 WHERE를 다시 본다 — 같은 사용자 동시 요청은 이 행에서 줄을 선다.
+ * 첫 요청 둘이 동시에 INSERT로 오면 하나는 상대 커밋을 기다렸다가 UPDATE 경로로 간다. 카운터 정의·만료 감소·에러 순서는 counter와 같다.
+ */
+@Component
+class CounterUpsertUserLimit(
+    private val properties: SeatHoldProperties,
+    private val jdbc: JdbcTemplate,
+) : UserLimitStrategy {
+    override val type = UserLimitStrategyType.COUNTER_UPSERT
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        val affected = jdbc.update(
+            """
+            INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
+            ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
+            WHERE user_hold_quota.cnt + 1 <= ?
+            """.trimIndent(),
+            command.scheduleId, command.userId, properties.maxPerUser,
+        )
+        if (affected == 0) limitExceeded()
+        return true
+    }
+    override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
+    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
 }
 
 /**

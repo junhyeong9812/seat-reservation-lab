@@ -14,6 +14,8 @@ enum class UserLimitStrategyType {
     QUOTA_NOWAIT,
     QUOTA_NOWAIT_EARLY,
     COUNTER,
+    /** ADR-006 — 카운터를 트랜잭션 안 한 문장 upsert로(트랜잭션 밖 준비 없음) */
+    COUNTER_UPSERT,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,
 }
