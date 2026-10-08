@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
 
 /**
- * ADR-000 기준선: 만료 배치(sweep). 만료 시각과 배치 실행 사이 좌석은 HELD로 남는다 — ADR-004에서 관측.
+ * ADR-000 기준선: 만료 배치(sweep). 만료 시각과 배치 실행 사이 좌석은 HELD로 남는다 — ADR-007(홀드 만료)에서 관측(번호 이동 전 ADR-004).
  */
 @Service
 class ExpireHoldsService(
