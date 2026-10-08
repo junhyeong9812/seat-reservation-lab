@@ -2,18 +2,17 @@
 
 ## 기준
 
-- 마지막 갱신: 2026-10-06 · 직전 완료 작업: `docs/plans/2026-10-03/adr-003-lock-comparison/`(ADR-003·004 측정·결정) · 기준 브랜치: `feat/adr-003-lock-comparison` · 병합 상태: main 미병합(PR 미생성 — 사용자 확인 필요). ADR-002는 main 병합(PR #3)
+- 마지막 갱신: 2026-10-09 · 직전 완료 작업: `docs/plans/2026-10-03/adr-003-lock-comparison/`(ADR-003·004 측정·결정) · 기준 브랜치: `feat/adr-003-lock-comparison` · 병합 상태: main 미병합(PR 미생성 — 사용자 확인 필요). ADR-002는 main 병합(PR #3)
 
 ## 다음 작업 후보 (우선순위순)
 
-### N1. ADR-005 1인 2매 — 같은 사용자 동시 요청 — 우선순위: 높음 · 진행 중(2026-10-06 사용자 지시)
+### N1. ADR-006 counter 1문장 upsert vs advisory-try — 우선순위: 높음 · 사용자 지시(2026-10-09)
 
-- **왜 다음인가**: ADR-003이 좌석 경합(3b nowait)을 정했다. 남은 정합성 구멍은 '같은 사용자가 다른 좌석을 동시에' — 잠글 행이 없는 팬텀이라 좌석 행 락으로 못 막는다(ADR-002 S2 매수 초과 15~17).
-- **발생 가능한 문제**: 사용자 단위 직렬화 락과 좌석 행 락(3b)의 순서 — 교착·NOWAIT 오분류 · 이긴 쪽 롤백(매수 초과)이 3b에서 진 요청을 되살리지 못함(ADR-003 §8 대가 ①) · 만료(ADR-007)에 종속되는 카운터 방식
-- **방법론 비교**: ADR-005 문서 후보 — advisory(회차·사용자) · 쿼터 행 FOR UPDATE · 카운터 조건부 UPDATE · SERIALIZABLE · 한계로 수용. 측정은 ADR-003 하네스(S2) 재사용이 싸다
-- **대처**: 같은 사용자만 직렬화되고 다른 사용자는 막지 않는지(S4형 무경합 처리) 함께 잰다
+- **왜 다음인가**: ADR-005가 advisory-try를 기본으로 정했지만, counter(카운터 조건부 UPDATE)는 롤백 피해 0·같은 사용자 지연 최소라는 장점이 있었고 처리량 회귀는 구현(트랜잭션 밖 prepare — 요청당 커넥션 3회) 탓이었다. 한 문장 upsert로 빌림 1회가 되면 기본이 바뀔 수 있다.
+- **발생 가능한 문제**: ADR-005에서 쿼터 계열 S4가 시간에 따라 1,911로 떨어졌다(원인 미확정 — I/O 추정) → 순서를 섞고 서버 디스크 지연을 같이 잰다 · S4 엄격 한계 규칙이 목표 미달 단계 뒤를 '통과'로 집는 문제(ADR-005 §7.3 ③) 먼저 수정
+- **방법론**: none·advisory-try·counter-upsert를 같은 캠페인에서(사용자 결정 — 기존 데이터 재사용 안 함), S2·S4 L2·L4 + S7-m1 L4 × 5, 약 6h
 
-### N2. ADR-003 main 병합 — 우선순위: 중간 · PR 생성은 사용자 확인 필요
+### N2. ADR-005 브랜치(feat/adr-005-user-limit) main 병합 — 우선순위: 중간 · push·PR은 사용자 확인 필요
 
 ### N3. `pg_try_advisory_xact_lock` vs 3b nowait — 우선순위: 낮음(후순위, 사용자 2026-10-06) · ADR-007과 함께
 
@@ -40,6 +39,11 @@
 
 - 키 기준 라우팅 · 서비스별 DB(사가·이벤트) · Redis 장애 주입(redis-nx 부분 실패) · 처리량 확장
 
+### N10. Spring JDBC 기여 후보 — 55P03 번역 불일치 — 우선순위: 낮음 · 사용자 제기(2026-10-09)
+
+- **관측**(ADR-005 §6.1): `JdbcTemplate`은 사용자 `sql-error-codes.xml`이 없으면 `SQLExceptionSubclassTranslator` → `SQLStateSQLExceptionTranslator`를 쓴다(Spring 6.2.10 바이트코드로 확인). SQLState 번역기에는 `55` 클래스·`55P03`이 없어 `UncategorizedSQLException`이 되지만, Spring이 함께 싣는 `sql-error-codes.xml`의 PostgreSQL 항목은 `55P03` → `cannotAcquireLockCodes`(CannotAcquireLockException ⊂ PessimisticLockingFailureException)다 — 같은 오류가 Spring 자신의 두 경로에서 다르게 분류된다.
+- **다음**: 기존 이슈·PR 검색 → 없으면 `40001`·`57014` 개별 매핑 선례를 근거로 이슈 초안(외부 발행은 사용자 확인 — open-source playbook)
+
 ## 보류·이월
 
 - **study-note 이슈 아카이브(ADR-003·004 CS 이슈)** — 2026-10-06 사용자 확인 후 작성 완료(브랜치 archive/2026-10-06, 커밋 6) — main ff·push만 사용자 확인 대기. 후보: Kotlin 기본 인자 × CGLIB 프록시 NPE · 기동 실패를 못 잡아 이전 컨테이너를 잼 · 오류를 삼키는 수집기의 무음 실패(빈 파일) · 단방향 @OneToMany @JoinColumn의 추가 FK UPDATE · 환경변수 로그 레벨 소문자화 · 끝 상태 판정기가 만료된 일시 중복을 놓침 · (리뷰 발견) 서로 다른 단위의 지표를 한 칸에 둔 집계 오류. 재개 조건: 사용자 범위 확인
@@ -47,6 +51,7 @@
 
 ## 완료 이력
 
+- 완료 → `docs/plans/2026-10-06/adr-005-user-limit/`(ADR-005 advisory-try 확정 · counter는 ADR-006)
 - 완료 → `docs/plans/2026-10-03/adr-003-lock-comparison/`(ADR-003 3b nowait 결정 · ADR-004 느린 작업은 판정 뒤로)
 - 완료 → `docs/plans/2026-09-29/adr-002-db-baseline/`
 - 완료 → `docs/plans/2026-09-28/adr-001-harness/`
