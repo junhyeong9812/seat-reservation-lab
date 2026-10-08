@@ -1,0 +1,11 @@
+# ADR-005 결과 요약 — `advisory-try-early-s7` · 매수 방식 advisory-try-early · 좌석 전략 pessimistic-nowait · 풀 10 · 앱 1대 · 하네스 sha:7acad14b
+
+> `scripts/summarize.py`가 원시 결과에서 산출 · 측정 SHA `7acad14b` · 계획 1단계 × 2셀 × 5회.
+> 값 = 중앙값 [최소–최대], n = 정상 회차 수. 정상이 아닌 회차(실패·미측정)는 마지막 열에 모두 표시한다.
+
+## S7 이긴 쪽 롤백 — 좌석마다 2매 보유자 U 1명 + 일반 M명. 억울한 좌석 = 끝 상태 AVAILABLE인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석
+
+| 단계 | 셀 | n | 대상 좌석 수 | 억울한 좌석 수 | 억울한 409 수 | 빈 좌석 수(끝 상태) | 일반 201 수 | 201 2건+ 좌석 수 | U 201 수(매수 위반) | U 끝 상태 매수>2 | U 코드 분포 | 일반 409 SEAT_NOT_AVAILABLE 수 | 일반 409 HOLD_LIMIT_EXCEEDED 수 | 일반−U 보낸 시각 ms p50 [min–max] | 201 − 홀드 행 | p99 ms | prepare 평균 ms | 매수 acquire 건수 | acquire 평균 ms | check 평균 ms | span 평균 ms(acquire~check) | span 최대 ms(최근 2분 창·예열 섞임 가능) | 40001 수 | 재시도 수 | 비정상 회차 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| L4 | S7 | 5 | 100 [100–100] | 0 [0–1] | 0 [0–20] | 0 [0–1] | 100 [99–100] | 0 [0–0] | 0 [0–0] | 0 [0–0] | {"HOLD_LIMIT_EXCEEDED": 23, "SEAT_NOT_AVAILABLE": 77}; {"HOLD_LIMIT_EXCEEDED": 23, "SEAT_NOT_AVAILABLE": 77}; {"SEAT_NOT_AVAILABLE": 67, "HOLD_LIMIT_EXCEEDED": 33}; {"SEAT_NOT_AVAILABLE": 77, "HOLD_LIMIT_EXCEEDED": 23}; {"SEAT_NOT_AVAILABLE": 75, "HOLD_LIMIT_EXCEEDED": 25} | 1,900 [1,900–1,901] | 0 [0–0] | 1 [-4–2]; 1 [-2–5]; 1 [-4–9]; 1 [-2–2]; 1 [-2–8] | 0 [0–0] | 76.81 [22.53–95.43] | 0.0009 [0.0007–0.0009] | 2,300 [2,300–2,300] | 0.4745 [0.3763–0.5350] | 1.0799 [1.0483–1.5452] | 1.3319 [1.1582–1.4376] | 108.299 [88.127–116.758] | 0 [0–0] | 0 [0–0] | - |
+| L4 | S7-m1 | 5 | 100 [100–100] | 68 [59–76] | 68 [59–76] | 68 [59–76] | 32 [24–41] | 0 [0–0] | 0 [0–0] | 0 [0–0] | {"HOLD_LIMIT_EXCEEDED": 61, "SEAT_NOT_AVAILABLE": 39}; {"HOLD_LIMIT_EXCEEDED": 76, "SEAT_NOT_AVAILABLE": 24}; {"SEAT_NOT_AVAILABLE": 26, "HOLD_LIMIT_EXCEEDED": 74}; {"HOLD_LIMIT_EXCEEDED": 79, "SEAT_NOT_AVAILABLE": 21}; {"HOLD_LIMIT_EXCEEDED": 64, "SEAT_NOT_AVAILABLE": 36} | 68 [59–76] | 0 [0–0] | 1 [0–2]; 1 [-2–2]; 1 [-1–2]; 1 [0–2]; 1 [-1–3] | 0 [0–0] | 17.82 [14.67–24.11] | 0.0007 [0.0007–0.0008] | 400 [400–400] | 0.2629 [0.2452–0.2751] | 0.9479 [0.8617–0.9861] | 1.3669 [1.2828–1.4199] | 85.155 [31.001–87.256] | 0 [0–0] | 0 [0–0] | - |

@@ -1,0 +1,46 @@
+{
+  "apps": [
+    {
+      "app": "app",
+      "strategy": "PESSIMISTIC_NOWAIT",
+      "limit_strategy": "COUNTER",
+      "pool": 10.0,
+      "acquire": {
+        "COUNT": 1001,
+        "TOTAL_TIME": 0.020013852,
+        "MAX": 0.008042199
+      },
+      "timeouts": 0,
+      "hold_requests": 400,
+      "limit": {
+        "prepare": {
+          "COUNT": 400,
+          "TOTAL_TIME": 0.38130274700000033,
+          "MAX": 0.083981736
+        },
+        "acquire": {
+          "COUNT": 400,
+          "TOTAL_TIME": 0.10538789100000001,
+          "MAX": 0.000991878
+        },
+        "check": {
+          "COUNT": 300,
+          "TOTAL_TIME": 0.00017314299999999973,
+          "MAX": 0.000049768
+        },
+        "span": {
+          "COUNT": 300,
+          "TOTAL_TIME": 0.11819652400000003,
+          "MAX": 0.038030744
+        },
+        "serialization_failure": 0,
+        "retry": 0
+      }
+    }
+  ],
+  "deadlocks_delta": 0,
+  "redis": {
+    "used_memory": 1011680,
+    "keys": 0
+  }
+}
