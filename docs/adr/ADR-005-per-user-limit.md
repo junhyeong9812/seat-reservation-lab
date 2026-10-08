@@ -290,7 +290,7 @@ override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
 
 **근거**(억울한 좌석 수 / 100석):
 
-| 방식 | S7(M=20) | S7-m1(M=1) | S7-m1(2매 보유자 + 일반 1명) U의 응답 |
+| 방식 | S7(M=20) | S7-m1(M=1) | S7-m1(2매 보유자 + 일반 1명) U의 응답(HLE = HOLD_LIMIT_EXCEEDED 매수 초과 · SNA = SEAT_NOT_AVAILABLE 좌석 불가) |
 |------|---------|-----------|--------------|
 | none · advisory · advisory-try · -early | 0~1 | 67~68 | HLE(HOLD_LIMIT_EXCEEDED) 70~74 · SNA(SEAT_NOT_AVAILABLE) 26~30 |
 | quota-lock · quota-nowait · -early | 0 | **79~81** | HLE(HOLD_LIMIT_EXCEEDED) 100 |
