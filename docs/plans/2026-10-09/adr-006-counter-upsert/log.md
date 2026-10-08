@@ -12,6 +12,10 @@
 | 10-09 01:50 | 하네스 커밋 · 다음: 코드·하네스 中 듀얼 1패스 | — |
 | 10-09 (코드 리뷰) | 中 듀얼 1패스(미러 scratchpad/rv6): codex 3 · Opus 5 + OQ 5. 중복 병합 8건 채택 | 앱 2건 메인 수정 · 하네스 6건 워커 위임 |
 | 10-09 02:05 | 앱 수정: hasPrepare(준비 없는 방식은 prepare 호출·타이머 생략 — 명세 §5 'prepare 타이머 0건') · upsert 경합 테스트에 ready 출발선 · 첫 요청 롤백 시 카운터 테스트 · prepare 0건 테스트 → **162/162 green**(9d225fbd). 하네스 6건(S4 포함 판정·요청 0 단계·빌림 분모 재시도·재측정 순번·order.txt 행 수·순서 균형 순환) Opus 워커 위임 | 회수 대기 |
+| 10-09 (노트북 디스크) | 사용자 '용량 많이 잡아먹는 원본 다 삭제하고 있지? 1.1기가밖에 없다는데' → 확인: 노트북 468G 중 여유 1.9G(100%), 원인 1위 = 커밋 안 하고 로컬에 둔 요청별 원시 기록 k6-requests.csv.gz 32.2GB(ADR-001 3.0·002 7.8·003 13.0·005 8.5). 서버는 52G 여유 | 사용자 선택: 끝난 ADR(001~003)만 삭제 |
+| 10-09 (삭제) | 삭제 직전 확인(repo 경로·브랜치, git 추적 파일 제외 — ADR-001 본측정 181·ADR-002 4는 커밋돼 있어 남김): **untracked 1,031개 20.8GB 삭제**(ADR-001 스모크 19 · ADR-002 364 · ADR-003 648 — 본측정분은 requests-sha256.txt 커밋됨, 스모크분은 목록 없음). 목록은 scratchpad/deleted-csv-manifest-20261009.txt. 노트북 여유 22G(96%), git status 삭제 0 | ADR-005 원시 기록은 유지 |
+| 10-09 (하네스 수정 회수) | 워커 6건 수정(오프라인 검증 — dry-run 39행·재현·가짜 python3 실패 exit 2·hold_requests 가짜 actuator·스모크 재요약 값 동일·recompute 바이트 동일) → 커밋 e88ec7bf. 실서버 확인: S2 L4 none 스모크 ok, hold_requests 1000 = 획득 1000(URI 태그 가정 실증) | — |
+| 10-09 02:24 | codex post-fix 재점검: R1~R8 해소, 신규 N1(S3 빌림 분자에 확정 섞임 → invalid-borrow-ratio 오판 가능) → S3 제외로 수정. 中 규정상 재점검 반복 없음 | 리뷰 종료 → 본측정 |
 
 ## 리뷰 ledger (中↑)
 
@@ -19,12 +23,13 @@
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
 | R1 | 1 | codex·opus | HoldSeatService.kt:29 prepare 타이머 | 채택 — 준비 없는 방식도 기록(명세 §5) | fixed(hasPrepare) | 1 |
 | R2 | 1 | opus | UserLimitStrategyTest upsert 경합 출발선 | 채택 | fixed(ready 래치 + 롤백 테스트) | 1 |
-| R3 | 1 | codex | compare.py·recompute_s4.py S4 포함 판정 | 채택 — 복합 실패 혼입 | 위임 | — |
-| R4 | 1 | codex | summarize.py 요청 0 단계 | 채택 | 위임 | — |
-| R5 | 1 | opus | run.sh hold_requests 분모 | 채택 — 빌림 무음 왜곡 | 위임 | — |
-| R6 | 1 | opus | compare.py 재측정 순번 | 채택 | 위임 | — |
-| R7 | 1 | opus | campaign.sh order.txt 행 수 | 채택 — 0조건 성공 종료 | 위임 | — |
-| R8 | 1 | opus(OQ) | 순서 균형 | 채택 — none이 s24 첫 번째 0회 | 위임(균형 순환) | — |
+| R3 | 1 | codex | compare.py·recompute_s4.py S4 포함 판정 | 채택 — 복합 실패 혼입 | fixed | 1 |
+| R4 | 1 | codex | summarize.py 요청 0 단계 | 채택 | fixed | 1 |
+| R5 | 1 | opus | run.sh hold_requests 분모 | 채택 — 빌림 무음 왜곡 | fixed | 1 |
+| R6 | 1 | opus | compare.py 재측정 순번 | 채택 | fixed | 1 |
+| R7 | 1 | opus | campaign.sh order.txt 행 수 | 채택 — 0조건 성공 종료 | fixed | 1 |
+| R8 | 1 | opus(OQ) | 순서 균형 | 채택 — none이 s24 첫 번째 0회 | fixed(균형 순환) | 1 |
+| N1 | post-fix | codex | k6/ADR-006/scripts/run.sh:493 S3 빌림 범위 | 채택 | fixed | post-fix |
 
 ## 생략한 검증
 
