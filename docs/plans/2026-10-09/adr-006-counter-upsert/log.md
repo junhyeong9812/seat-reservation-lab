@@ -17,6 +17,10 @@
 | 10-09 (하네스 수정 회수) | 워커 6건 수정(오프라인 검증 — dry-run 39행·재현·가짜 python3 실패 exit 2·hold_requests 가짜 actuator·스모크 재요약 값 동일·recompute 바이트 동일) → 커밋 e88ec7bf. 실서버 확인: S2 L4 none 스모크 ok, hold_requests 1000 = 획득 1000(URI 태그 가정 실증) | — |
 | 10-09 02:24 | codex post-fix 재점검: R1~R8 해소, 신규 N1(S3 빌림 분자에 확정 섞임 → invalid-borrow-ratio 오판 가능) → S3 제외로 수정. 中 규정상 재점검 반복 없음 | 리뷰 종료 → 본측정 |
 | 10-09 02:24 | **본측정 시작**: campaign.sh --sha 022eca41 --id 20261009-adr006-022eca41 — 유닛 seatlab-adr006(Restart=on-failure), 9조건 × 회차 우선 · 균형 순환 순서 | 약 9h 추정 · 노트북 여유 22G · linger 꺼짐(로그아웃 시 정지) |
+| 10-09 11:25 | 본측정 39칸 전부 exit=0 → 재측정 1라운드 9회차(S3 전부, invalid-borrow-ratio) 시작 | 오판 — run.sh `[[ S3 ]] \|\| jq … && reasons+=`가 `(A\|\|B)&&C`라 S3에서 늘 사유가 붙음(N1 수정이 반대로 동작). 측정값 자체는 정상 |
+| 10-09 11:49 | 사용자 선택 '중단 후 원본 복원' → 유닛 정지, advisory-try-s3a20 rep1(재측정 완료)·rep2(부분)를 `_aborted-remeasure-20261009/`로, `.retry-*` 원본을 rep1·rep2로 되돌림 | 삭제 없음 |
+| 10-09 11:51 | run.sh if 블록으로 수정(fbaaf815) — S3·ratio 5 → 0건, S4·ratio 5 → 1건 확인. S3 9회차 status를 ok로 정정(status.orig·meta.status_corrected·CAMPAIGN.log 행 남김). 다른 사유 없었음 | 84회차 전부 ok |
+| 10-09 11:55 | summarize·errsplit 9조건 + compare 실행 → COMPARISON.md | 오류 0 · 분석 착수 |
 
 ## 리뷰 ledger (中↑)
 
