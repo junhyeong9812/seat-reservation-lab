@@ -280,8 +280,11 @@ class CounterUserLimitTest : UserLimitStrategyTest(COUNTER) {
     }
 }
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert"])
-class CounterUpsertUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.COUNTER_UPSERT) {
+/**
+ * counter-upsert 계열(ADR-006 counter-upsert · ADR-007 counter-upsert-precheck) 공통 계약 — 한 문장 upsert라 준비 단계가 없고,
+ * 행이 없는 새 사용자의 동시 요청도 카운터 = 성공 수 = 상한이다. 변형은 upsert 앞에 좌석 선조회만 더하므로 같은 계약을 그대로 진다.
+ */
+abstract class CounterUpsertFamilyTest(type: UserLimitStrategyType) : UserLimitStrategyTest(type) {
     @Autowired lateinit var meters: MeterRegistry
 
     /** ADR-006 가정 1: 첫 요청들이 동시에 INSERT 경로로 와도(행이 아직 없음) 카운터 = 성공 수 = DB 매수 ≤ 상한. 라운드마다 새 사용자. */
@@ -314,6 +317,16 @@ class CounterUpsertUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.C
         }
     }
 
+    @Test
+    fun `준비 단계가 없다 — prepare 타이머 0건(명세 §5)`() {
+        val before = meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L
+        holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId = 63_000L))
+        assertEquals(before, meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L)
+    }
+}
+
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert"])
+class CounterUpsertUserLimitTest : CounterUpsertFamilyTest(UserLimitStrategyType.COUNTER_UPSERT) {
     /** 첫 요청이 좌석에서 져 롤백되면 그 INSERT(cnt = 1)도 되돌아가야 한다 — 기다리던 같은 사용자 요청이 그 뒤 정상으로 센다. */
     @Test
     fun `첫 요청이 팔린 좌석에서 져 롤백돼도 카운터는 실제 매수와 같다`() {
@@ -326,17 +339,10 @@ class CounterUpsertUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.C
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(3).id!!, userId))
         assertEquals(2, jdbcTemplate.queryForObject("SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", Int::class.java, schedule.id, userId))
     }
-
-    @Test
-    fun `준비 단계가 없다 — prepare 타이머 0건(명세 §5)`() {
-        val before = meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L
-        holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId = 63_000L))
-        assertEquals(before, meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L)
-    }
 }
 
 @TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert-precheck"])
-class CounterUpsertPrecheckUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.COUNTER_UPSERT_PRECHECK) {
+class CounterUpsertPrecheckUserLimitTest : CounterUpsertFamilyTest(UserLimitStrategyType.COUNTER_UPSERT_PRECHECK) {
     private fun quotaRow(userId: Long): Map<String, Any>? = jdbcTemplate.queryForList(
         "SELECT cnt, xmax::text AS xmax FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", schedule.id, userId,
     ).singleOrNull()
