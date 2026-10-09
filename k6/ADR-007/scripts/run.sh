@@ -225,6 +225,30 @@ app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU �
   jq -n --argjson p "$props" --argjson c "$cpu" --argjson h "$pool" --argjson m "$mem" --argjson k "$containers" --argjson i "$idx" \
     '{configprops:$p, "system.cpu.count":$c, "hikaricp.connections.max":$h, "jvm.memory.max":$m, containers:$k, db_indexes:$i}' > "$dir/app-config.json"
 }
+# 표본 서버 사본(lib.sh db_sampler) — 회차마다 하나, 배포 폴더 아래 .samples/(REMOTE_BASE 밖은 쓰지 않는다)
+sampler_copy_of() {  # 인자: level cell rep
+  echo "$REMOTE_BASE/$DEPLOY_ID/.samples/$(echo "$MATRIX_ID" | tr '/' '_')-L$1-$2-rep$3.jsonl"
+}
+# 회차 끝: 서버 사본을 받아 timeline-locks/waits를 다시 만든다(흘려받은 줄보다 많을 때만 — 흘려받기 공백 복구). 결과는 sampler-recovery.txt에 한 줄,
+# 서버 사본은 지운다(서버 디스크 — 회차당 약 1MB). 사본을 못 받으면 흘려받은 파일 그대로(공백은 rep_status waits-gap이 드러낸다)
+recover_samples() {  # 인자: 회차폴더
+  local dir="$1" tmp="$1/.sampler-remote.jsonl" nl nw rl rw
+  if remote "cat '$SAMPLER_COPY'" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+    nl=$(wc -l < "$dir/timeline-locks.jsonl" 2>/dev/null || echo 0); nw=$(wc -l < "$dir/timeline-waits.jsonl" 2>/dev/null || echo 0)
+    rl=$(grep -c '"lock_waiting"' "$tmp"); rw=$(grep -c '"waits"' "$tmp")
+    if (( rl > nl || rw > nw )); then
+      grep '"lock_waiting"' "$tmp" > "$dir/timeline-locks.jsonl"; grep '"waits"' "$tmp" > "$dir/timeline-waits.jsonl"
+      echo "$(date -Is) recovered-from-server locks $nl→$rl waits $nw→$rw" >> "$dir/sampler-recovery.txt"
+    else
+      echo "$(date -Is) stream-complete locks $nl (server $rl) waits $nw (server $rw)" >> "$dir/sampler-recovery.txt"
+    fi
+    remote "rm -f '$SAMPLER_COPY'" > /dev/null 2>&1
+  else
+    echo "$(date -Is) server-copy-unavailable" >> "$dir/sampler-recovery.txt"
+  fi
+  rm -f "$tmp"
+}
+
 start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출력
   # 수집기의 stdout은 /dev/null — $(...)가 백그라운드 프로세스의 파이프를 기다리며 멈추지 않게
   local dir="$1" cell="$2"
@@ -243,7 +267,7 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
   # SSH가 끝나면(스모크 실측 2026-10-09: k6 +261초에 표본이 끊기고 다시 나오지 않았다 — 원인 미확정) 1초 뒤 다시 연다. 끝날 때마다 errors.log에 한 줄
   # (무음 공백 금지 — 공백이 30초를 넘으면 rep_status waits-gap). 정리는 아래 stop_pollers가 루프와 그 자식(ssh·awk)을 함께 끈다
   ( while :; do
-      db_sampler 2>/dev/null < /dev/null \
+      db_sampler "$SAMPLER_COPY" 2>/dev/null < /dev/null \
         | awk -v locks="$dir/timeline-locks.jsonl" -v waits="$dir/timeline-waits.jsonl" \
             'index($0, "\"lock_waiting\"") { print >> locks; fflush(locks); next } index($0, "\"waits\"") { print >> waits; fflush(waits) }'
       echo "$(date -Is) db_sampler ended rc=${PIPESTATUS[0]}/${PIPESTATUS[1]} — reopen in 1s" >> "$dir/errors.log"
@@ -316,6 +340,7 @@ run_rep() {  # 인자: level cell rep
   app_config "$dir" 2>>"$dir/errors.log" || echo "app_config failed" >> "$dir/errors.log"
   # ADR-007 DB 설정 실제 값(SHOW) — preset 대조는 rep_status, 기록은 meta.json pg_applied에도
   pg_settings > "$dir/pg-settings.json" 2>>"$dir/errors.log" || echo "pg_settings failed" >> "$dir/errors.log"
+  SAMPLER_COPY="$(sampler_copy_of "$level" "$cell" "$rep")"
   local pids; pids=$(start_pollers "$dir" "$cell")
   # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적)
   local w; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && break; sleep 0.5; done
@@ -351,6 +376,7 @@ run_rep() {  # 인자: level cell rep
   stop_pollers $pids
   # 서버 쪽 락 표본 루프 정리 — SSH가 끊기면 다음 출력에서 끝나지만, 남지 않게 명시적으로(이 실험의 루프만 맞는 패턴)
   remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1
+  recover_samples "$dir"
   snapshot "$dir" after
 
   # 컨테이너 로그 보존 (이번 회차 구간만) · k6 경고 로그 압축
