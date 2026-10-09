@@ -23,6 +23,7 @@
 | 10-09 11:55 | summarize·errsplit 9조건 + compare 실행 → COMPARISON.md | 오류 0 · 분석 착수 |
 | 10-09 12:40 | 분석: counter-upsert S4 L4 엄격 한계 2,866(3/5)·포화점 4,143 vs 4,300. 초 단위로 보면 11단계(4,325/s)를 26~27초 p99 5~17ms로 버티다 10회 전부 같은 초에 붕괴(L2=L4 → CPU 무관, 누적 약 37만 건). L2에서는 none·advisory-try보다 높음(4,121 vs 3,674·3,533, CPU 150% vs 206%). I/O: WAL +21%·extends +44%·backend 쓰기 +27%. 원인 미확정(대기 이벤트 미수집) → s4_wall.py(0a87aadd)·결과 커밋(3cb27e2d, 원시 CSV 제외 .gitignore) | ADR-006 §5·§6(제안 A 조건부) 초안 → 문서 듀얼 1패스 |
 | 10-09 13:10 | 결과 문서 中 듀얼 1패스(packet base 5ac1bdbc, OUT=scratchpad/rv6d, 미러 33MB·원시 CSV/로그 제외, 보안 스캔 오탐만): codex 4 + OQ 2 · Opus 11 + OQ 6 → 중복 병합 D1~D11 전부 채택. 메인 확인: 쿼터 행 DELETE 없음(UserLimitStrategies.kt decrementCounters), 체크포인트 완료 +429 vs none +458(rep2 db.log) | **권장 변경: A(조건부) → 지금 B + 진단 후 전환 규칙** |
+| 10-09 13:30 | post-fix 재점검(codex): 신규 4건 — H4 요약·표 불일치, 쿼터 행 증가 기준(커밋된 사용자 vs 시도), '쓰기 2.8배'를 WAL로 한정(디스크 1.55배), 전환 규칙에 S3 쓰기 조건 없음 → 전부 수정. 中 규정상 재점검 반복 없음 | 문서 리뷰 종료 |
 
 ## 리뷰 ledger (中↑)
 
@@ -49,6 +50,10 @@
 | D10 | doc-1 | opus F10 | §6 권장 분기 없음 | 채택 — 전환 규칙 명시, 권장 B 우선 | fixed | doc-1 |
 | D11 | doc-1 | opus F11·codex F4 | '누적 상태' 단정·§7 버퍼 이분법 | 채택 — 누적/시간 교락 명시, 진단 4축 | fixed | doc-1 |
 | OQ | doc-1 | opus·codex | 초 단위 원시 CSV 미커밋(재현은 로컬 원본 필요) | spec §2 허용(sha256) — 기록만 | — | — |
+| P1 | post-fix | codex | ADR-006 H4 요약 vs ⑥ 표 | 채택 | fixed | post-fix |
+| P2 | post-fix | codex | ADR-006 §5.3② 쿼터 행 증가 기준 | 채택 — 롤백 INSERT는 살아 있는 행 아님 | fixed | post-fix |
+| P3 | post-fix | codex | ADR-006 §6 '쓰기 2.8배' | 채택 — WAL 2.8·디스크 1.55 | fixed | post-fix |
+| P4 | post-fix | codex | ADR-006 §6 전환 규칙 | 채택 — S3 쓰기 조건 추가 | fixed | post-fix |
 
 ## 생략한 검증
 
