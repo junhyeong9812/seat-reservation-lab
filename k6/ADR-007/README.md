@@ -28,6 +28,10 @@ ADR-006의 `recompute_s4.py`(ADR-005 재계산 전용)는 뺐다.
 3. **대기 이벤트 표본**(`timeline-waits.jsonl`): 기존 락 표본과 **같은 0.5초 주기·같은 SSH·같은 psql 호출**(`UNION ALL` 둘째 행) — 프로세스·연결을 늘리지 않는다. 한 줄 =
    `{"t", "waits": {"<wait_event_type>:<wait_event>": seat DB 활성 세션 수(표본 세션 제외, 대기 없음 = "CPU:-")}, "bg": {"checkpointer": "IO:DataFileWrite", …}, "bgwriter": pg_stat_bgwriter 누적값}`.
    PG16에는 `pg_stat_checkpointer`가 없다(PG17+) — 체크포인트 수·버퍼는 `pg_stat_bgwriter`, 진행 중 여부는 `bg.checkpointer`와 DB 로그. k6 구간 안 표본 공백 > 30초면 `waits-gap`, 파일이 비면 `missing-timeline-waits.jsonl`.
+   **서버 사본**: 서버 루프가 같은 줄을 배포 폴더 `.samples/<측정 id>-L<단계>-<셀>-rep<k>.jsonl`에도 덧붙이고(`tee -a`), 회차 끝(`recover_samples`)에 받아서
+   흘려받은 줄보다 많으면 `timeline-locks.jsonl`·`timeline-waits.jsonl`을 그 사본으로 다시 만든 뒤 서버 사본을 지운다(`sampler-recovery.txt`에 한 줄 — `recovered-from-server locks a→b waits c→d` / `stream-complete` / `server-copy-unavailable`).
+   스모크 실측(2026-10-09): S4·S4c 4회 모두 k6 +240~261초 무렵부터 **흘려받기만** 멈췄다 — 같은 순간 서버 루프는 계속 돌며 사본은 늘었고(k6 +290초에 1,156줄), DB 없이 같은 크기 줄을 6분 흘린 SSH 시험은 멈추지 않았다. 원인은 미확정이고 복구로 덮었다.
+   표본 SSH가 끝나면 1초 뒤 다시 연다(`errors.log`에 `db_sampler ended …`).
 4. **고정 도착률 셀** `S4c4200`·`S4c2000`(아래 표). 요약기는 '한계' 대신 30초 구간표를 낸다.
 5. **벽 분석** `wall.py`(아래).
 6. **캠페인 매트릭스·순서**(아래). L4만, 전 조건 3회(ADR-006의 `--s3-reps`는 없앴다).
@@ -61,6 +65,8 @@ ADR-006의 `recompute_s4.py`(ADR-005 재계산 전용)는 뺐다.
 
 - **무너진 초** = 초별 p99 > 200ms가 처음 나온 초(k6 시작 기준, 요청 완료 시각 초 단위).
   계단은 ADR-006 `s4_wall.py`와 같은 창(11단계 시작 = 325~344초 중 초당 완료 ≥ 3,000인 첫 초 → 그 초부터 370초 전), 고정은 0초부터 계획 시간 전까지 전체. 무너지지 않으면 '-'.
+- **고정 셀의 기동 과도**: 예열 직후 곧바로 4,200/s를 걸면 첫 30초가 과도(스모크: p99 11.8초)라 위 정의의 벽이 1초로 나온다. 그래서 `settle_s`(요청 **시작** 초 기준 p99 ≤ 200ms가 5초 연속인 첫 초)와
+  `wall_after_settle_s`(그 뒤 처음 p99 > 200ms인 시작 초)를 함께 내고, 정황(누적·체크포인트·대기 이벤트)과 compare.py 표는 과도 뒤 벽을 쓴다. 완료 초로 묶으면 과도 중에 보낸 요청이 30초 타임아웃으로 끝나는 초가 벽으로 잡힌다.
 - 그 시각의 **누적 선점**(벽 초 이전에 완료된 201) · **DB 기동 후 경과**(DB 로그의 k6 시작 전 마지막 `database system is ready to accept connections` 기준) ·
   **체크포인트 진행 중**(DB 로그 `checkpoint starting`~`complete`, shutdown 제외) · **벽 ±3초 대기 이벤트 상위 5**(`timeline-waits.jsonl` 평균 세션 수)와 체크포인터 대기 이벤트.
 - k6 구간과 겹친 체크포인트 목록(종류 · +시작~완료)도 낸다 — `nockpt`에서 측정 중 체크포인트가 없었는지(가정 1)의 근거.
@@ -110,5 +116,5 @@ k6/ADR-007/scripts/compare.py k6/ADR-007/results/<campaign-id>                # 
 ## 요약기·벽 분석 오프라인 확인 (2026-10-09)
 
 - `summarize.py`를 ADR-006 `counter-upsert-s24`(L2·L4 × S2·S4 × 5회) 사본(plan.json 복사 + 회차 폴더 심링크)에 돌렸다: SUMMARY.md의 S2·S4 행이 ADR-006 SUMMARY.md와 바이트 단위로 같고(새 'DB 설정·대기 이벤트' 표만 늘었다), summary.json의 회차별 `limits`·`stages`·빌림·WAL·S2 판정이 모두 같다.
-- `wall.py`를 같은 폴더에 돌렸다: counter-upsert 10회차의 11단계 시작·무너진 초·차이가 ADR-006 `S4-WALL.md`와 모두 같다(L4 357·357·358·358·357 등). 함께 나온 값 — 누적 선점 36.6만~37.1만 · DB 기동 후 407~409초 · 10/10 시간 기준 체크포인트(+249~251초 시작, +422~429초 완료) 진행 중.
+- `wall.py`를 같은 폴더에 돌렸다(고정 셀 과도 처리 추가 뒤 다시 돌려도 같다): counter-upsert 10회차의 11단계 시작·무너진 초·차이가 ADR-006 `S4-WALL.md`와 모두 같다(L4 357·357·358·358·357 등). 함께 나온 값 — 누적 선점 36.6만~37.1만 · DB 기동 후 407~409초 · 10/10 시간 기준 체크포인트(+249~251초 시작, +422~429초 완료) 진행 중.
 - `compare.py`를 ADR-006 6조건(none·counter-upsert × s24·s7m1·s3a20) 사본에 돌렸다: 방식 × 설정 표의 default 열 = none 4,300 / 4,300 · counter-upsert 2,866 [2,866–4,162] / 4,143(ADR-006 §5.3 ②와 같다). ADR-006 원본은 읽기만 했다.
