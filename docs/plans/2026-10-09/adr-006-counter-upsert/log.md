@@ -22,6 +22,7 @@
 | 10-09 11:51 | run.sh if 블록으로 수정(fbaaf815) — S3·ratio 5 → 0건, S4·ratio 5 → 1건 확인. S3 9회차 status를 ok로 정정(status.orig·meta.status_corrected·CAMPAIGN.log 행 남김). 다른 사유 없었음 | 84회차 전부 ok |
 | 10-09 11:55 | summarize·errsplit 9조건 + compare 실행 → COMPARISON.md | 오류 0 · 분석 착수 |
 | 10-09 12:40 | 분석: counter-upsert S4 L4 엄격 한계 2,866(3/5)·포화점 4,143 vs 4,300. 초 단위로 보면 11단계(4,325/s)를 26~27초 p99 5~17ms로 버티다 10회 전부 같은 초에 붕괴(L2=L4 → CPU 무관, 누적 약 37만 건). L2에서는 none·advisory-try보다 높음(4,121 vs 3,674·3,533, CPU 150% vs 206%). I/O: WAL +21%·extends +44%·backend 쓰기 +27%. 원인 미확정(대기 이벤트 미수집) → s4_wall.py(0a87aadd)·결과 커밋(3cb27e2d, 원시 CSV 제외 .gitignore) | ADR-006 §5·§6(제안 A 조건부) 초안 → 문서 듀얼 1패스 |
+| 10-09 13:10 | 결과 문서 中 듀얼 1패스(packet base 5ac1bdbc, OUT=scratchpad/rv6d, 미러 33MB·원시 CSV/로그 제외, 보안 스캔 오탐만): codex 4 + OQ 2 · Opus 11 + OQ 6 → 중복 병합 D1~D11 전부 채택. 메인 확인: 쿼터 행 DELETE 없음(UserLimitStrategies.kt decrementCounters), 체크포인트 완료 +429 vs none +458(rep2 db.log) | **권장 변경: A(조건부) → 지금 B + 진단 후 전환 규칙** |
 
 ## 리뷰 ledger (中↑)
 
@@ -36,6 +37,18 @@
 | R7 | 1 | opus | campaign.sh order.txt 행 수 | 채택 — 0조건 성공 종료 | fixed | 1 |
 | R8 | 1 | opus(OQ) | 순서 균형 | 채택 — none이 s24 첫 번째 0회 | fixed(균형 순환) | 1 |
 | N1 | post-fix | codex | k6/ADR-006/scripts/run.sh:493 S3 빌림 범위 | 채택 | fixed | post-fix |
+| D1 | doc-1 | codex F1·opus F1 | ADR-006 §5.3②·§6 '11단계 마지막 4초에만' | 채택 — 벽 지속 기간 관측 불가, 12단계 성공 2,605 < 2,803 | fixed | doc-1 |
+| D2 | doc-1 | opus F2 | UserLimitStrategies.kt decrementCounters(DELETE 없음) | 채택 — 쿼터 행은 만료로 안 줄어듦, '최악 조건' 구도 수정 | fixed | doc-1 |
+| D3 | doc-1 | opus F3 | db.log checkpoint 시각·checkpoint_write_time | 채택 — 체크포인트 진행 중·counter-upsert만 가속, 후보 추가 | fixed | doc-1 |
+| D4 | doc-1 | codex F3·opus F4 | ADR-006 H4 | 채택 — 지표별 판정, 부분 채택 | fixed | doc-1 |
+| D5 | doc-1 | codex F2·opus F5 | HoldSeatProcess.kt span(acquire 뒤·거절 미기록) | 채택 | fixed | doc-1 |
+| D6 | doc-1 | opus F6 | ⑦ '5회 합' → 10회 합 | 채택 | fixed | doc-1 |
+| D7 | doc-1 | opus F7 | rep2 초 기준 혼용 | 채택 | fixed | doc-1 |
+| D8 | doc-1 | opus F8 | COMPARISON.md S3 I/O(WAL ×2.8) 누락 | 채택 — ⑥·§6 표 | fixed | doc-1 |
+| D9 | doc-1 | opus F9 | §4.1 ADR-005 serializable 재계산 미보고 | 채택 | fixed | doc-1 |
+| D10 | doc-1 | opus F10 | §6 권장 분기 없음 | 채택 — 전환 규칙 명시, 권장 B 우선 | fixed | doc-1 |
+| D11 | doc-1 | opus F11·codex F4 | '누적 상태' 단정·§7 버퍼 이분법 | 채택 — 누적/시간 교락 명시, 진단 4축 | fixed | doc-1 |
+| OQ | doc-1 | opus·codex | 초 단위 원시 CSV 미커밋(재현은 로컬 원본 필요) | spec §2 허용(sha256) — 기록만 | — | — |
 
 ## 생략한 검증
 
