@@ -23,6 +23,7 @@
   결과(wall_outcome): `wall`(벽 있음 — wall_stage) · `무너지지 않음`(창 안에 완료가 있었는데 나쁜 초가 없다) · `과도 미종료`(고정: settle_s 없음 — 6분 동안
     5초 연속 정상이 한 번도 없었다 = 처음부터 무너진 상태, 리뷰 A2) · `표본 없음`(창 안에 완료가 하나도 없다). 표의 '-'는 해당 열이 정의되지 않는다는 뜻이다.
   정황(누적·체크포인트·대기 이벤트)은 계단 = wall_s, 고정 = wall_after_settle_s 기준.
+  cum370k_s = 누적 201(완료 시각 기준, 램프 포함)이 37만(ADR-006 벽 시점 누적)에 처음 닿은 k6 초 — 누적 vs 시각 판정은 계획 도착률 추정이 아니라 이 회차 실측으로 한다.
   누적 선점 = 벽 초 이전(벽 초 제외)에 완료된 201 응답 수(같은 CSV — 요청이 끝난 시각 기준, 고정 셀은 램프의 201도 센다 — DB에 쌓인 홀드 행 수).
   시계 차(리뷰 A3): 대기 표본(clock_timestamp())·DB 로그는 서버 시계, 벽·k6 구간은 k6 PC 시계다. run.sh가 k6 바로 앞·뒤에 잰 서버 − PC 차
     (clock-offset.json · meta.json clock_offset — lib.sh clock_offset)의 평균을 서버 시각에서 빼서 PC 시계로 옮긴다(없으면 0 — clock_offset_s = null로 드러난다).
@@ -30,7 +31,7 @@
   체크포인트 = DB 로그 log_checkpoints의 'checkpoint starting: <종류>' ~ 'checkpoint complete' 쌍(shutdown 제외). 벽 시각이 그 사이면 진행 중(종류·k6 기준 시작~완료 초).
     k6 구간(k6_started~k6_ended)과 겹친 체크포인트 목록도 함께 남긴다(체크포인트 없음 조건에서 측정 중 체크포인트가 없었는지 — 명세 §8 가정 1, rep_status checkpoint-during-k6).
   대기 이벤트 = timeline-waits.jsonl(lib.sh db_sampler — 0.5초 표본) 중 벽 ±3초 표본의 대기 이벤트별 평균 활성 세션 수 상위 5개(+ 표본 수 —
-    기대 약 12개, 6개 미만이면 rep_status waits-thin-at-wall). 같은 창의 체크포인터 대기 이벤트(bg.checkpointer)도 남긴다.
+    기대 약 12개, 6개 미만이면 rep_status waits-thin-at-wall — 기준 초 thin_check_s = 벽, 고정 셀 '과도 미종료'면 처음 나쁜 초 wall_s). 같은 창의 체크포인터 대기 이벤트(bg.checkpointer)도 남긴다.
 """
 import collections
 import csv
@@ -49,6 +50,7 @@ WAIT_WINDOW_S = 3
 WAITS_MIN = 6                   # 벽 ±3초 표본 하한(0.5초 표본이라 기대 약 12) — rep_status waits-thin-at-wall
 SETTLE_RUN = 5                  # 고정 셀 기동 과도 끝 = 나쁘지 않은 시작 초가 이만큼 연속인 첫 초
 CLOCK_MAX_S = 0.5               # |시계 차|가 이보다 크면 rep_status clock-offset-large
+CUM_MARK = 370_000              # ADR-006 벽 시점의 누적 선점(약 37만) — 회차마다 실제로 닿은 k6 초(cum370k_s)를 낸다(명세 §9.2 누적 vs 시각)
 PG_TS = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?) UTC ")
 
 
@@ -205,7 +207,15 @@ def one(rep_dir, meta=None, status=None):
            "db_ready_to_k6_s": None if ready is None else round(k0 - ready, 1),
            "checkpoints_during_k6": None if ckpts is None else [{"kind": c["kind"], "start_s": rel(c["start"]), "end_s": rel(c["end"])} for c in in_k6],
            "wall_p99_ms": None, "wall_zero_share": None, "cum_201_before_wall": None, "db_uptime_at_wall_s": None, "checkpoint_at_wall": None,
-           "waits_top": None, "waits_samples": 0, "checkpointer_at_wall": None}
+           "waits_top": None, "waits_samples": 0, "checkpointer_at_wall": None,
+           "cum370k_s": None, "thin_check_s": None, "thin_check_samples": None}
+    # 누적 201이 CUM_MARK에 처음 닿은 k6 초(완료 시각 기준 — 고정 셀은 램프 201 포함). 계획 도착률로 낸 추정(README) 대신 판정은 이 회차 실측을 쓴다
+    run = 0
+    for t in sorted(ok_per_s):
+        run += ok_per_s[t]
+        if run >= CUM_MARK:
+            rec["cum370k_s"] = t
+            break
     if w is not None:
         t_wall = k0 + w
         st = tags[w].most_common(1)
@@ -218,6 +228,11 @@ def one(rep_dir, meta=None, status=None):
             cur = next((c for c in ckpts if c["start"] <= t_wall and (c["end"] is None or t_wall < c["end"])), None)
             rec["checkpoint_at_wall"] = {"kind": cur["kind"], "start_s": rel(cur["start"]), "end_s": rel(cur["end"])} if cur else False
         rec["waits_top"], rec["waits_samples"], rec["checkpointer_at_wall"] = waits_near(rep_dir, t_wall, o)
+    # 회차 판정 waits-thin-at-wall(리뷰 A4)의 기준 초: 벽이 있으면 그 벽, 고정 셀이 '과도 미종료'면 처음 나쁜 초(wall_s — 완료 초)
+    if outcome == "wall":
+        rec["thin_check_s"], rec["thin_check_samples"] = w, rec["waits_samples"]
+    elif outcome == "과도 미종료" and wall is not None:
+        rec["thin_check_s"], rec["thin_check_samples"] = wall, waits_near(rep_dir, k0 + wall, o)[1]
     return rec
 
 
@@ -255,6 +270,7 @@ def main(argv):
         rep = Path(argv[1])
         rec = one(rep, meta={"k6_started": argv[2], "k6_ended": argv[3]})
         print(json.dumps({k: rec[k] for k in ("wall_outcome", "wall_s", "wall_after_settle_s", "wall_stage", "settle_s", "waits_samples",
+                                              "thin_check_s", "thin_check_samples", "cum370k_s",
                                               "checkpoints_during_k6", "clock_offset_s", "clock_offsets_s")}, ensure_ascii=False))
         return 0
     if not argv or argv[0].startswith("-"):
@@ -272,8 +288,8 @@ def main(argv):
     d = lambda v: "-" if v is None else (f"{v:,.0f}" if isinstance(v, (int, float)) else str(v))
     print("| 조건 | 단계 | 셀 | 회차 | 벽 결과(계단 = 첫 단계 뒤 전체 · 고정 = 과도 뒤, 시작 초) | 11단계 시작 초 | 무너진 초(완료 초 원 정의) | 차이 s(벽 − 11단계 시작) | 과도 끝 초(고정) | "
           "그 초 p99 ms(코드 0 제외) | 그 초 코드 0 비율 | 누적 선점(201) | DB 기동 후 경과 s | 체크포인트 진행 중 | "
-          "대기 이벤트 상위 5(벽 ±3초 평균 세션 · 표본) | 체크포인터(벽 ±3초) | k6 구간 체크포인트(종류 +시작~완료) | 시계 차 s(서버 − PC) |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+          "대기 이벤트 상위 5(벽 ±3초 평균 세션 · 표본) | 체크포인터(벽 ±3초) | k6 구간 체크포인트(종류 +시작~완료) | 시계 차 s(서버 − PC) | 누적 201 37만 도달 k6 초 |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in recs:
         w = r["wall_after_settle_s"] if r["fixed"] else r["wall_s"]
         if w is None:
@@ -288,7 +304,7 @@ def main(argv):
         zs = "-" if r["wall_zero_share"] is None else f'{r["wall_zero_share"]:.1%}'
         clk = "미측정" if r["clock_offset_s"] is None else f'{r["clock_offset_s"]:+.3f}'
         print(f'| {r["cond"]} | {r["level"]} | {r["cell"]} | {r["rep"]} | {outcome_txt(r)} | {d(r["step11_start_s"])} | {d(r["wall_s"])} | {d(r["wall_minus_start_s"])} | '
-              f'{settle} | {d(r["wall_p99_ms"])} | {zs} | {d(r["cum_201_before_wall"])} | {d(r["db_uptime_at_wall_s"]) if w is not None else "-"} | {ck} | {wt} | {cp} | {during} | {clk} |')
+              f'{settle} | {d(r["wall_p99_ms"])} | {zs} | {d(r["cum_201_before_wall"])} | {d(r["db_uptime_at_wall_s"]) if w is not None else "-"} | {ck} | {wt} | {cp} | {during} | {clk} | {d(r["cum370k_s"]) if r["cum370k_s"] is not None else "닿지 않음"} |')
     if out_json:
         Path(out_json).write_text(json.dumps(recs, ensure_ascii=False, indent=1))
     return 0

@@ -18,6 +18,11 @@ const M = Number(__ENV.M || 20);
 const LEAD_MS = Number(__ENV.LEAD_MS || 1);
 const GAP_MS = Number(__ENV.GAP_MS || 50);
 const START_DELAY_MS = Number(__ENV.START_DELAY_MS || 3000);
+// ADR-007 S7-m1-late(명세 §9.2·§9.4 ⑥ 재합의 2026-10-09): LATE=1이면 좌석마다 U를 그 좌석 R의 응답을 **받은 뒤** 보낸다 —
+// R 담당 VU가 R을 보내고(예정 시각 = S7-m1과 같은 시작 + (i−1)·GAP_MS + LEAD_MS) 응답을 받은 즉시 같은 VU에서 U를 보낸다(U 담당 VU는 요청 없이 끝난다 —
+// VU 수·setup(U 사전 선점)·좌석·사용자 번호는 S7-m1과 같다). R이 이긴 좌석의 U는 구조상 '팔린 좌석에 U'(기회)다. M=1에서만 쓴다
+const LATE = (__ENV.LATE || '0') === '1';
+if (LATE && M !== 1) throw new Error('LATE=1은 M=1(S7-m1-late)에서만');
 const U_BASE = 700000;
 const R_BASE = 710000;
 
@@ -60,14 +65,19 @@ export default function (data) {
   const r = v % (M + 1);
   const isU = r === 0;
   const userId = isU ? U_BASE + seat : R_BASE + (seat - 1) * M + r;
+  if (LATE && isU) return;   // late: U는 R 담당 VU가 R 응답 뒤에 보낸다(아래)
   const target = data.startAt + (seat - 1) * GAP_MS + (isU ? 0 : LEAD_MS);
   const wait = target - Date.now();
   if (wait > 0) sleep(wait / 1000);
   const t0 = Date.now();
   hold(1, seat, userId, { role: isU ? 'U' : 'R', seat: String(seat), user: String(userId), t0: String(t0), lag: String(t0 - target) }, { code: true });
+  if (LATE) {   // R 응답을 받은 뒤(hold가 돌아온 뒤) 같은 좌석 U — lag = R 보낸 시각 대비 늦음 ms
+    const u0 = Date.now();
+    hold(1, seat, U_BASE + seat, { role: 'U', seat: String(seat), user: String(U_BASE + seat), t0: String(u0), lag: String(u0 - t0), order: 'after_r' }, { code: true });
+  }
 }
 
 export function handleSummary(data) {
-  data.s7 = { seats: SEATS, m: M, lead_ms: LEAD_MS, gap_ms: GAP_MS, u_base: U_BASE, r_base: R_BASE };
+  data.s7 = { seats: SEATS, m: M, lead_ms: LEAD_MS, gap_ms: GAP_MS, u_base: U_BASE, r_base: R_BASE, late: LATE };
   return writeSummary(data);
 }

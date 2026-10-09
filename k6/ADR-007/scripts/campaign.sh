@@ -3,16 +3,16 @@
 # 좌석 전략은 pessimistic-nowait(3b) 고정·풀 10·앱 1대·인덱스 V2·배경 0·L4만 — 달라지는 변수는 매수 방식·DB 설정·부하(ADR-007 명세 §2·§9.2).
 #
 #   scripts/campaign.sh --sha <SHA> [--id <campaign-id>]
-#   scripts/campaign.sh --sha <SHA> --id <id> --dry-run     # 조건·순서 계획(conditions.txt·order.txt)만 쓰고 끝 — 측정 없음(기본 108행)
+#   scripts/campaign.sh --sha <SHA> --id <id> --dry-run     # 조건·순서 계획(conditions.txt·order.txt)만 쓰고 끝 — 측정 없음(기본 117행)
 #
 # 매트릭스(명세 §9.2) — 조건 이름 = <방식>-<설정>-<셀>(셀은 소문자·'-' 없앰: s4 · s4c4200 · s4c2000 · s2 · s7m1 · s3a20):
 #   진단     방식 {none, counter-upsert, counter-upsert-precheck} × 설정 {default, nockpt, buf512} × 셀 {S4, S4c4200, S4c2000} × 3회 = 81
-#   변형 확인 같은 3방식 × default × {S2, S7-m1, S3-a20} × 3회 = 27
-#   → 36조건 × 3회 = 108회 호출(run.sh 한 번 = 조건 하나의 회차 하나).
+#   변형 확인 같은 3방식 × default × {S2, S7-m1, S7-m1-late, S3-a20} × 3회 = 36 (S7-m1-late — 명세 재합의 2026-10-09: U를 R 응답 뒤에 보내 '팔린 좌석에 U' 기회를 만든다)
+#   → 39조건 × 3회 = 117회 호출(run.sh 한 번 = 조건 하나의 회차 하나).
 # 순서는 회차 우선(rep-major) + 회차마다 균형 순환(ADR-006 방식 — 근거 ADR-006 README '개선 2'):
-#   묶음 = (설정, 셀) 12개. 회차 k = 묶음 순서를 (k−1) × ⌈묶음 수 ÷ 회차 수⌉만큼 회전 + 각 묶음 안 방식 순서를 (k−1)만큼 회전.
-#   ADR-006은 묶음이 3개라 (k−1)칸 회전으로 충분했지만 12개를 1칸씩 돌리면 3회 동안 묶음 자리가 거의 그대로다(캠페인 안 시각 = 묶음).
-#   ⌈12 ÷ 3⌉ = 4칸씩 돌리면 각 묶음이 회차마다 캠페인의 앞·가운데·뒤 1/3을 한 번씩 맡는다. 묶음 목록은 설정을 섞어 둔다(BUNDLES) —
+#   묶음 = (설정, 셀) 13개. 회차 k = 묶음 순서를 (k−1) × ⌈묶음 수 ÷ 회차 수⌉만큼 회전 + 각 묶음 안 방식 순서를 (k−1)만큼 회전.
+#   ADR-006은 묶음이 3개라 (k−1)칸 회전으로 충분했지만 13개를 1칸씩 돌리면 3회 동안 묶음 자리가 거의 그대로다(캠페인 안 시각 = 묶음).
+#   ⌈13 ÷ 3⌉ = 5칸씩 돌리면 각 묶음이 회차마다 캠페인의 앞·가운데·뒤 1/3을 한 번씩 맡는다. 묶음 목록은 설정을 섞어 둔다(BUNDLES) —
 #   한 1/3 안에 세 설정이 고루 들어가게. 방식은 3개 × 3회라 묶음 안 각 자리(1·2·3번째)를 세 방식이 한 번씩 맡는다(라틴 방진).
 #   난수·해시 없이 회차 번호만으로 정해져 언제 다시 계산해도 같다(--resume도 같은 순서).
 #   실제 순서는 order.txt(회차 · 회차 안 순번 · 캠페인 전체 순번 · 조건)와 CAMPAIGN.log(ORDER 행)에 남긴다. 계산 결과는 회차별 행 수·조건 집합·순번을
@@ -59,10 +59,10 @@ LOG="$ROOT/CAMPAIGN.log"
 
 # 조건 목록(ADR-007 명세 §9.2 매트릭스, 머리말) — 이름  run.sh 인자. 묶음 = <설정>-<셀 이름표>
 LIMITS="none counter-upsert counter-upsert-precheck"   # 순서 순환의 방식 목록 순서이기도 하다(머리말)
-# 묶음 목록 순서 = 순서 순환의 묶음 순서 — 설정을 섞어 둔다(머리말: 회차마다 ⌈12 ÷ 3⌉ = 4칸씩 돌 때 한 1/3 안에 세 설정이 고루 들어가게)
-BUNDLES="default-s4 nockpt-s4 buf512-s4 default-s4c4200 nockpt-s4c4200 buf512-s4c4200 default-s4c2000 nockpt-s4c2000 buf512-s4c2000 default-s2 default-s7m1 default-s3a20"
+# 묶음 목록 순서 = 순서 순환의 묶음 순서 — 설정을 섞어 둔다(머리말: 회차마다 ⌈13 ÷ 3⌉ = 5칸씩 돌 때 한 1/3 안에 세 설정이 고루 들어가게)
+BUNDLES="default-s4 nockpt-s4 buf512-s4 default-s4c4200 nockpt-s4c4200 buf512-s4c4200 default-s4c2000 nockpt-s4c2000 buf512-s4c2000 default-s2 default-s7m1 default-s7m1late default-s3a20"
 cell_of() {  # 셀 이름표 → run.sh 셀 이름
-  case "$1" in s4) echo S4 ;; s4c4200) echo S4c4200 ;; s4c2000) echo S4c2000 ;; s2) echo S2 ;; s7m1) echo S7-m1 ;; s3a20) echo S3-a20 ;; *) return 1 ;; esac
+  case "$1" in s4) echo S4 ;; s4c4200) echo S4c4200 ;; s4c2000) echo S4c2000 ;; s2) echo S2 ;; s7m1) echo S7-m1 ;; s7m1late) echo S7-m1-late ;; s3a20) echo S3-a20 ;; *) return 1 ;; esac
 }
 SEAT="--strategy pessimistic-nowait --pool 10 --apps 1 --levels '4'"
 CONDITIONS=()
@@ -97,7 +97,7 @@ for k in range(1, reps + 1):
             pos += 1; seq += 1
             print(k, pos, seq, f"{m}-{b}")' "$REPS" "$LIMITS" "$BUNDLES" > "$ORDER_BODY" \
   || order_fail "python3 종료 코드 $?"
-# 검증(계산과 독립 — bash·awk): 회차마다 조건 집합이 rep_names와 같고(36행), 회차 안 순번 1..n, 전체 순번 1..N(기본 108행)
+# 검증(계산과 독립 — bash·awk): 회차마다 조건 집합이 rep_names와 같고(39행), 회차 안 순번 1..n, 전체 순번 1..N(기본 117행)
 total=0
 for rep in $(seq 1 "$REPS"); do
   want="$(rep_names "$rep" | sort)"; n_want=$(rep_names "$rep" | wc -l)

@@ -5,6 +5,7 @@
     scripts/summarize.py --s4-check <k6-summary.json>     S4 회차에 성공한 단계가 하나라도 있으면 exit 0
     scripts/summarize.py --fixed-check <k6-summary.json>  고정 도착률(S4c*) 회차가 정상 종료했으면 exit 0 (계획 구간 전부에 요청 · 램프 + 계획 시간을 다 돎)
     scripts/summarize.py --codes-check <회차 폴더>         S2·S7 회차의 hold_code 행 수 = 선점 요청 수이고 깨진 행이 없으면 exit 0 (리뷰 A5)
+    scripts/summarize.py --s7late-check <회차 폴더>        S7-m1-late 회차에 기회(R 201 뒤에 보낸 U)가 1건 이상이면 exit 0
 
 표의 모든 수치는 원시 파일에서 계산한다 (손 계산 금지). 회차 값은 중앙값 [최소–최대].
 행은 plan.json(실행 전에 남긴 계획) 기준 — 실행되지 않은 셀·회차는 '미측정/누락'으로 드러난다.
@@ -522,7 +523,7 @@ def s7_order(csv_gz):
             tags = dict(kv.split("=", 1) for kv in row[i_tags].split("&") if "=" in kv)
             if tags.get("role") not in ("U", "R") or "t0" not in tags:
                 continue
-            key = (tags["role"], tags.get("seat"), tags["t0"], tags.get("user"))
+            key = (tags["role"], tags.get("seat"), tags["t0"], tags.get("user"), tags.get("order"))
             if row[0] == "http_req_duration":
                 if row[i_name] == "hold":
                     dur[key] = float(row[i_val])
@@ -537,19 +538,23 @@ def s7_order(csv_gz):
     for seat, reqs in by_seat.items():
         r_done = [int(k[2]) + dur[k] for k, c in reqs if k[0] == "R" and c == "OK" and k in dur]
         r_sent = [int(k[2]) for k, c in reqs if k[0] == "R"]
+        r_ok = any(kk[0] == "R" and cc == "OK" for kk, cc in reqs)
         for k, c in reqs:
             if k[0] != "U":
                 continue
             u0 = int(k[2])
             sent_lag += [u0 - t for t in r_sent]
             recv_lag += [u0 - t for t in r_done]
-            # 기회(분모 — 리뷰 A7) = U를 보낸 시각이 같은 좌석 R의 201 수신 뒤였던 U 요청: 명세 순서라면 SEAT_NOT_AVAILABLE이어야 하는 요청 전부
-            if any(t < u0 for t in r_done):
+            # 기회(분모 — 리뷰 A7) = U를 보낸 시각이 같은 좌석 R의 201 수신 뒤였던 U 요청: 명세 순서라면 SEAT_NOT_AVAILABLE이어야 하는 요청 전부.
+            # S7-m1-late(태그 order=after_r — 같은 VU가 R 응답을 받은 뒤 보낸 U)는 시각 비교 없이 구성상 'R 응답 뒤'다: R이 201이면 기회
+            # (ms 단위 t0 + 지연 추정은 1ms 안쪽에서 U 보낸 시각을 넘을 수 있어 구성상 순서를 시각으로 다시 판정하지 않는다)
+            is_after = (k[4] == "after_r" and r_ok) or any(t < u0 for t in r_done)
+            if is_after:
                 chance += 1
                 chance_codes[c] = chance_codes.get(c, 0) + 1
             if c == "HOLD_LIMIT_EXCEEDED":
-                with_r += bool(r_done) or any(kk[0] == "R" and cc == "OK" for kk, cc in reqs)
-                after += any(t < u0 for t in r_done)
+                with_r += bool(r_done) or r_ok
+                after += is_after
 
     def dist(xs):
         if not xs:
@@ -559,6 +564,17 @@ def s7_order(csv_gz):
     return {"u_hle_after_r_201": after, "u_hle_r_201": with_r,
             "u_after_r_201": chance, "u_after_r_201_codes": chance_codes,
             "u_minus_r_sent_ms": dist(sent_lag), "u_minus_r201_recv_ms": dist(recv_lag)}
+
+
+def s7late_check(rep_dir):
+    """S7-m1-late 회차에 기회(R 201 뒤에 보낸 U — s7_order u_after_r_201)가 1건 이상이면 exit 0 — 0이면 그 회차로는 명세 순서를 판정할 수 없다(rep_status s7late-no-opportunity)."""
+    try:
+        o = s7_order(Path(rep_dir) / "k6-requests.csv.gz")
+    except (EOFError, OSError, ValueError, StopIteration) as e:
+        print(f"s7late: 읽기 실패 {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    print(f"s7late: 기회 {None if o is None else o['u_after_r_201']} · 위반 {None if o is None else o['u_hle_after_r_201']}", file=sys.stderr)
+    return 0 if o and o["u_after_r_201"] > 0 else 1
 
 
 def timer(t):
@@ -1022,4 +1038,6 @@ if __name__ == "__main__":
         sys.exit(fixed_check(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--codes-check":
         sys.exit(codes_check(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] == "--s7late-check":
+        sys.exit(s7late_check(sys.argv[2]))
     main(sys.argv[1])

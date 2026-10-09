@@ -248,7 +248,7 @@ def main(root):
                          "ownership_gap": gap, "hold_p99": p99}}
     s7_cols = ["억울한 좌석 수", "회차별 억울한 좌석", "억울한 409 수(코드 무관)", "빈 좌석 수", "일반 201 수", "201 2건+ 좌석 수", "U 201 수(위반)", "U HOLD_LIMIT_EXCEEDED 수", "U SEAT_NOT_AVAILABLE 수",
                "팔린 좌석에 LIMIT(확정 — R 201 수신 뒤 U 보냄)", "기회(R 201 수신 뒤 보낸 U — 위의 분모)", "U − R 보낸 시각 ms p50 [min–max](회차별)", "R 201 좌석에 U LIMIT(틈 포함)", "201 − 홀드 행", "p99 ms"]
-    for cell, m in (("S7", 20), ("S7-m1", 1)):
+    for cell, m in (("S7", 20), ("S7-m1", 1), ("S7-m1-late", 1)):   # S7-m1-late = U를 같은 좌석 R 응답 뒤에(명세 §9.2 재합의)
         section(f"S7 이긴 쪽 롤백(④) `{cell}` — 좌석마다 2매 보유자 U 1명 + 일반 {m}명. 억울한 좌석 = 끝 상태 AVAILABLE인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석(대상 100석 중)",
                 cell, s7_cols, s7)
 
@@ -355,8 +355,8 @@ def main(root):
         out.append("\n## 벽 분석 — 처음 무너진 초(나쁜 초 = p99(코드 0 제외) > 200ms 또는 코드 0 ≥ 1%, k6 시작 기준) · 누적 선점 · DB 기동 후 경과 · 체크포인트 · 벽 ±3초 대기 이벤트 (`wall.py` — 정의는 그 머리말)\n")
         out.append("> 벽 결과: `N초(단계 s)` = 계단은 첫 단계 뒤 전체에서 찾은 벽과 그 초의 단계 · 고정은 램프 뒤 기동 과도가 끝난 뒤의 벽(시작 초)과 구간. "
                    "`무너지지 않음` = 창 안에 완료가 있었는데 나쁜 초가 없다 · `과도 미종료` = 고정 셀에서 5초 연속 정상이 한 번도 없었다(처음부터 무너진 상태 — 벽 없음이 아니다) · `표본 없음` = 창 안 완료 0.\n")
-        out.append("| 조건 | 단계 | 셀 | 회차 | 벽 결과 | 원 정의 무너진 초(완료 초) | 과도 끝 초(고정) | 그 초 코드 0 비율 | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션 · 표본) | k6 구간 체크포인트 | 시계 차 s |")
-        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        out.append("| 조건 | 단계 | 셀 | 회차 | 벽 결과 | 원 정의 무너진 초(완료 초) | 과도 끝 초(고정) | 그 초 코드 0 비율 | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션 · 표본) | k6 구간 체크포인트 | 시계 차 s | 누적 201 37만 도달 k6 초 |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for w in sorted(walls, key=lambda x: (x["cond"], x["level"], x["cell"], x["rep"])):
             ck = w.get("checkpoint_at_wall")
             fmtn = lambda v: "-" if v is None else f"{v:,.0f}"
@@ -369,7 +369,7 @@ def main(root):
             settle = ("과도 미종료" if w.get("settle_s") is None else fmtn(w["settle_s"])) if w.get("fixed") else "-"
             clk = "미측정" if w.get("clock_offset_s") is None else f'{w["clock_offset_s"]:+.3f}'
             out.append(f'| {w["cond"]} | {w["level"]} | {w["cell"]} | {w["rep"]} | {res} | {fmtn(w["wall_s"])} | {settle} | {pct(w.get("wall_zero_share"))} | {fmtn(w["cum_201_before_wall"])} | '
-                       f'{fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} | {clk} |')
+                       f'{fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} | {clk} | {"미측정" if "cum370k_s" not in w else ("닿지 않음" if w["cum370k_s"] is None else fmtn(w["cum370k_s"]))} |')
         js["wall"] = walls
     else:
         out.append("\n## 벽 분석\n\n- **미측정**: wall.json 없음 — `wall.py <캠페인> --json <캠페인>/wall.json`을 먼저 돌린다")
@@ -415,6 +415,30 @@ def main(root):
                        f"{spread([sub(r, 's7', 'u_hle_after_r_201') for r in u7])} | {spread([sub(r, 's7', 'u_after_r_201') for r in u7])} | "
                        f"{'; '.join(json.dumps(sub(r, 's7', 'u_after_r_201_codes'), ensure_ascii=False) for r in u7) or '-'} | {lag_txt(u7, 'u_minus_r_sent_ms')} | "
                        f"{spread([sub(r, 's7', 'u_hle_r_201') for r in u7])} | {na(cm7)} |")
+
+    # ---- ADR-007 ⑥ 변형 에러 순서 — S7-m1-late(U를 R 응답 뒤에 보냄 — 명세 §9.4 ⑥): 기회 대비 위반, counter-upsert 양성 대조 ----------------
+    s7l = by_mp(conds, "L4/S7-m1-late")
+    if s7l:
+        out.append("\n## 변형 에러 순서(⑥) — S7-m1-late (U를 같은 좌석 R의 응답을 받은 뒤 보냄 · 중앙값 [최소–최대] · 회차별 나열)\n")
+        out.append("> 기회 = R이 201인 좌석에서 R 응답 뒤에 보낸 U(구성상 — summarize.py s7_order) · 위반 = 그 기회에서 U가 HOLD_LIMIT_EXCEEDED(팔린 좌석에 LIMIT — 명세 순서라면 SEAT_NOT_AVAILABLE). "
+                   "counter-upsert는 매수 판정이 좌석보다 먼저라 위반이 기회만큼 나와야 하는 양성 대조, 변형(precheck)은 0이어야 명세 순서다. 기회 0 회차는 rep_status s7late-no-opportunity로 실패다.\n")
+        out.append("| 방식 | n | 기회(분모) | 회차별 기회 | 위반(팔린 좌석에 LIMIT) | 회차별 위반 | 위반 / 기회 | 기회의 U 코드(회차별) | U 코드 전체(회차별) | U 201(매수 위반) | 억울한 좌석 | U − R 201 수신 ms p50 [min–max] |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        for m in METHODS:
+            if (m, "default") not in s7l:
+                out.append(f"| {m} | 미측정 | | | | | | | | | | |")
+                continue
+            name, reps = s7l[(m, "default")]
+            u = used_reps("S7-m1-late", reps)
+            ch = [sub(r, "s7", "u_after_r_201") for r in u]
+            vi = [sub(r, "s7", "u_hle_after_r_201") for r in u]
+            ratio = [v / c if isinstance(v, (int, float)) and c else None for v, c in zip(vi, ch)]
+            js.setdefault("s7_late", {})[m] = {"opportunities": ch, "violations": vi, "u_codes": [sub(r, "s7", "u_codes") for r in u],
+                                               "opportunity_u_codes": [sub(r, "s7", "u_after_r_201_codes") for r in u]}
+            out.append(f"| {m} | {len(u)}/{len(reps)} | {spread(ch)} | {reps_list(ch)} | {spread(vi)} | {reps_list(vi)} | {spread(ratio, 3)} | "
+                       f"{'; '.join(json.dumps(sub(r, 's7', 'u_after_r_201_codes'), ensure_ascii=False) for r in u) or '-'} | "
+                       f"{'; '.join(json.dumps(sub(r, 's7', 'u_codes'), ensure_ascii=False) for r in u) or '-'} | {spread([sub(r, 's7', 'u_201') for r in u])} | "
+                       f"{spread([sub(r, 's7', 'wronged_seats') for r in u])} | {lag_txt(u, 'u_minus_r201_recv_ms')} |")
 
     # ---- ADR-007 ⑦ 실패 모드 — 셀별 에러율·5xx·풀 타임아웃·데드락 ------------------------------------------------
     es_split = json.loads((root / "errsplit.json").read_text()) if (root / "errsplit.json").exists() else None

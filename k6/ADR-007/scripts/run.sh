@@ -202,8 +202,9 @@ k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전�
     # = 163.95만 < 시드 200만 석(seed_of). 에러율 중단(abortOnFail)은 끈다 — 무너진 뒤의 회복·지속을 끝까지 본다
     S4c*) echo "START_RATE=${base#S4c} FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50" ;;
     S6-k*) echo "K=${base#S6-k} M=20 START_RATE=200 FACTOR=2 STEPS=5 STEP_S=30 NEIGHBOR_RATE=500" ;;   # 핫 200→3,200/s + 이웃 500/s
-    S7)  local m=20; [[ "$cell" == *-m* ]] && m="${cell##*-m}"
-         echo "SEATS=100 M=$m LEAD_MS=1 GAP_MS=50 START_DELAY_MS=3000" ;;   # ADR-005 이긴 쪽 롤백 — 설계 근거 README. S7-m1 = 일반 1명(빈 좌석 비율을 직접)
+    S7)  local m=20 late=0 c="$cell"; [[ "$c" == *-late ]] && { late=1; c="${c%-late}"; }   # ADR-007 S7-m1-late = S7-m1 + U를 R 응답 뒤에(시나리오 LATE)
+         [[ "$c" == *-m* ]] && m="${c##*-m}"
+         echo "SEATS=100 M=$m LEAD_MS=1 GAP_MS=50 START_DELAY_MS=3000$( ((late)) && echo ' LATE=1')" ;;   # ADR-005 이긴 쪽 롤백 — 설계 근거 README. S7-m1 = 일반 1명(빈 좌석 비율을 직접)
   esac
 }
 
@@ -228,8 +229,8 @@ app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU �
     '{configprops:$p, "system.cpu.count":$c, "hikaricp.connections.max":$h, "jvm.memory.max":$m, containers:$k, db_indexes:$i}' > "$dir/app-config.json"
 }
 # 표본 서버 사본(lib.sh db_sampler) — 회차마다 하나, 배포 폴더 아래 .samples/(REMOTE_BASE 밖은 쓰지 않는다)
-sampler_copy_of() {  # 인자: level cell rep
-  echo "$REMOTE_BASE/$DEPLOY_ID/.samples/$(echo "$MATRIX_ID" | tr '/' '_')-L$1-$2-rep$3.jsonl"
+sampler_copy_of() {  # 인자: level cell rep — 시도마다 다른 이름(시각 + 난수, 리뷰 R2): 재측정·이어서 실행이 옛 사본에 덧붙이지 않게
+  echo "$REMOTE_BASE/$DEPLOY_ID/.samples/$(echo "$MATRIX_ID" | tr '/' '_')-L$1-$2-rep$3-$(date +%Y%m%d%H%M%S)-$RANDOM.jsonl"
 }
 # 회차 끝: 서버 사본을 받아 timeline-locks/waits를 다시 만든다(흘려받은 줄보다 많을 때만 — 흘려받기 공백 복구). 결과는 sampler-recovery.txt에 한 줄,
 # 서버 사본은 지운다(서버 디스크 — 회차당 약 1MB). 사본을 못 받으면 흘려받은 파일 그대로(공백은 rep_status waits-gap이 드러낸다)
@@ -244,9 +245,14 @@ recover_samples() {  # 인자: 회차폴더
     else
       echo "$(date -Is) stream-complete locks $nl (server $rl) waits $nw (server $rw)" >> "$dir/sampler-recovery.txt"
     fi
-    remote "rm -f '$SAMPLER_COPY'" > /dev/null 2>&1
   else
     echo "$(date -Is) server-copy-unavailable" >> "$dir/sampler-recovery.txt"
+  fi
+  # 서버 사본 지우기(서버 디스크) — 받지 못했어도 남은 것이 있으면 지운다. 지운 뒤에도 남아 있거나 확인이 실패하면 errors.log 한 줄 +
+  # sampler-recovery.txt에 sampler-copy-not-removed(rep_status 사유 — 리뷰 R2: 지우기 실패가 무음으로 서버에 쌓이지 않게)
+  if ! remote "rm -f '$SAMPLER_COPY' && test ! -e '$SAMPLER_COPY'" > /dev/null 2>&1; then
+    echo "$(date -Is) sampler copy not removed: $SAMPLER_COPY" >> "$dir/errors.log"
+    echo "$(date -Is) sampler-copy-not-removed $SAMPLER_COPY" >> "$dir/sampler-recovery.txt"
   fi
   rm -f "$tmp"
 }
@@ -630,6 +636,10 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
       *) reasons+=("waits-check-failed") ;;
     esac
   fi
+  # 서버 표본 사본을 지우지 못했으면(recover_samples — 리뷰 R2) 사유
+  if grep -qs 'sampler-copy-not-removed' "$dir/sampler-recovery.txt"; then reasons+=("sampler-copy-not-removed"); fi
+  # ADR-007 S7-m1-late(명세 §9.4 ⑥): 기회(R 201 뒤에 보낸 U)가 0이면 그 회차로는 명세 순서를 판정할 수 없다 — 실패
+  if [[ "$(basename "$(dirname "$dir")")" == *-late ]] && ! python3 "$SUMMARIZE" --s7late-check "$dir" 2>>"$dir/errors.log"; then reasons+=("s7late-no-opportunity"); fi
   # ADR-007 리뷰 A5: S2·S7 hold_code 행(요청 1건당 1행)이 선점 요청 수와 같고 깨진 행이 없나 — 빠지면 가짜 거절·명세 순서 위반이 조용히 줄어든다
   if [[ "$base" == S2 || "$base" == S7 ]]; then
     if ! python3 "$SUMMARIZE" --codes-check "$dir" 2>>"$dir/errors.log"; then reasons+=("hold-codes-mismatch"); fi
@@ -641,7 +651,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     local wj
     if wj=$(python3 "$(dirname "$0")/wall.py" --rep-check "$dir" "$k6_started" "$k6_ended" 2>>"$dir/errors.log") && jq -e . <<< "$wj" > /dev/null 2>&1; then
       echo "$wj" > "$dir/wall-check.json"
-      if jq -e '.wall_outcome == "wall" and .waits_samples < 6' <<< "$wj" > /dev/null; then reasons+=("waits-thin-at-wall"); fi
+      # 기준 초 = 벽, 고정 셀 '과도 미종료'면 처음 나쁜 초(wall.py thin_check_s — 리뷰 A4 잔여)
+      if jq -e '.thin_check_samples != null and .thin_check_samples < 6' <<< "$wj" > /dev/null; then reasons+=("waits-thin-at-wall"); fi
       if [[ "$PG_PRESET" == nockpt ]]; then
         if jq -e '.checkpoints_during_k6 == null' <<< "$wj" > /dev/null; then
           reasons+=("checkpoint-check-failed")
