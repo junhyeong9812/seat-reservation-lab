@@ -491,10 +491,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     # 빌림 = Σ획득 증가분 ÷ Σ선점 증가분이 0.9 ~ 4 밖이면 지표가 어긋난 것(분모가 누적값·다른 URI 등). ADR-005 실측: 1방식 1.00~1.02,
     # 다중 커넥션 방식(counter·quota-*) 2.1~3.0, serializable-retry 최대 2.72 — 상한 4는 그 위 여유. 계산 불가(획득 null·선점 0)는 위 사유들이 드러낸다
     # S3는 확정 요청도 커넥션을 빌리는데 분모는 선점 요청만이라 '선점당 빌림'으로 읽을 수 없다 — 범위 검사는 S2·S4·S7 계열에만(재점검 N1)
-    [[ "$base" == S3* ]] || jq -e '[.apps[].acquire.COUNT] as $a | [.apps[].hold_requests] as $h
+    # (`A || B && C`는 `(A || B) && C`라 S3에서 늘 사유가 붙었다 — if로 묶는다)
+    if [[ "$base" != S3* ]] && jq -e '[.apps[].acquire.COUNT] as $a | [.apps[].hold_requests] as $h
            | if ($a | all(type == "number")) and ($h | all(type == "number")) and ($h | add) > 0
-             then (($a | add) / ($h | add)) as $r | ($r < 0.9 or $r > 4) else false end' "$dir/after-k6.json" > /dev/null 2>&1 \
-      && reasons+=("invalid-borrow-ratio")
+             then (($a | add) / ($h | add)) as $r | ($r < 0.9 or $r > 4) else false end' "$dir/after-k6.json" > /dev/null 2>&1; then
+      reasons+=("invalid-borrow-ratio")
+    fi
   fi
   # 측정 중 k6 PC~서버 경로 단절(ADR-002 A2): 서버 지표 수집 공백이 30초를 넘으면 그 회차는 재측정 대상
   python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("path-gap")
