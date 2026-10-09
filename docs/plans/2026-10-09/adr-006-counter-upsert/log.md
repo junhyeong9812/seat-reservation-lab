@@ -24,6 +24,7 @@
 | 10-09 12:40 | 분석: counter-upsert S4 L4 엄격 한계 2,866(3/5)·포화점 4,143 vs 4,300. 초 단위로 보면 11단계(4,325/s)를 26~27초 p99 5~17ms로 버티다 10회 전부 같은 초에 붕괴(L2=L4 → CPU 무관, 누적 약 37만 건). L2에서는 none·advisory-try보다 높음(4,121 vs 3,674·3,533, CPU 150% vs 206%). I/O: WAL +21%·extends +44%·backend 쓰기 +27%. 원인 미확정(대기 이벤트 미수집) → s4_wall.py(0a87aadd)·결과 커밋(3cb27e2d, 원시 CSV 제외 .gitignore) | ADR-006 §5·§6(제안 A 조건부) 초안 → 문서 듀얼 1패스 |
 | 10-09 13:10 | 결과 문서 中 듀얼 1패스(packet base 5ac1bdbc, OUT=scratchpad/rv6d, 미러 33MB·원시 CSV/로그 제외, 보안 스캔 오탐만): codex 4 + OQ 2 · Opus 11 + OQ 6 → 중복 병합 D1~D11 전부 채택. 메인 확인: 쿼터 행 DELETE 없음(UserLimitStrategies.kt decrementCounters), 체크포인트 완료 +429 vs none +458(rep2 db.log) | **권장 변경: A(조건부) → 지금 B + 진단 후 전환 규칙** |
 | 10-09 13:30 | post-fix 재점검(codex): 신규 4건 — H4 요약·표 불일치, 쿼터 행 증가 기준(커밋된 사용자 vs 시도), '쓰기 2.8배'를 WAL로 한정(디스크 1.55배), 전환 규칙에 S3 쓰기 조건 없음 → 전부 수정. 中 규정상 재점검 반복 없음 | 문서 리뷰 종료 |
+| 10-09 13:40 | 사용자 결정: 'B 유지 + 진단 후 전환' · "처리량이 무너지는 이유를 찾고 이게 해결되면 바꾸는 방향으로" · "이걸 7번으로 해야겠네" → ADR-006 Accepted, 새 ADR-007(벽 진단) 가설 문서, 기존 ADR-007~012 → 008~013(한 번에 정규식 치환 — 이중 증가 방지, 옛 '번호 이동' 주석 줄은 그대로), README 결정·측정 기간·현재 진행, NEXT·measurement-log | 사이클 마감 ① |
 
 ## 리뷰 ledger (中↑)
 
@@ -60,3 +61,42 @@
 - (없음)
 
 ## 완료 요약
+
+### 완료 요약 (2026-10-09)
+
+- **무엇**: 매수 방식 `counter-upsert`(트랜잭션 안 한 문장 upsert, 커넥션 빌림 1회)를 추가하고, none·advisory-try와 같은 캠페인에서 84회 측정했다. 결정은 **advisory-try 유지**다. counter-upsert의 S4 벽 원인은 ADR-007에서 진단하고, 해결되면 전환한다.
+- **핵심 diff — 새 방식**(`UserLimitStrategies.kt`, 9d225fbd 실파일):
+
+```kotlin
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        val affected = jdbc.update(
+            """
+            INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
+            ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
+            WHERE user_hold_quota.cnt + 1 <= ?
+            """.trimIndent(),
+            command.scheduleId, command.userId, properties.maxPerUser,
+        )
+        if (affected == 0) limitExceeded()
+        return true
+    }
+```
+
+- **핵심 diff — 하네스 판정 버그**(`k6/ADR-006/scripts/run.sh`, fbaaf815). before → after:
+
+```bash
+-    [[ "$base" == S3* ]] || jq -e '…' "$dir/after-k6.json" > /dev/null 2>&1 \
+-      && reasons+=("invalid-borrow-ratio")
++    if [[ "$base" != S3* ]] && jq -e '…' "$dir/after-k6.json" > /dev/null 2>&1; then
++      reasons+=("invalid-borrow-ratio")
++    fi
+```
+
+- **결과**:
+  - counter-upsert 빌림 1.000, 매수 초과 0, 카운터 불일치 0.
+  - 억울한 좌석 0(advisory-try 67), S2 L4 p99 230ms(433).
+  - S4 L4 엄격 한계 2,866(3/5) vs 4,300 — 11단계 +26~27초 벽(10/10, CPU 무관).
+  - S3 WAL 2.8배, 쿼터 행 비삭제.
+- **검증**: 테스트 162 green. 스모크로 빌림 1.0001과 선점 1,000 = 획득 1,000을 확인했다. 코드·하네스 듀얼 1패스는 8건 + 재점검 1건이다. 결과 문서 듀얼 1패스는 11건 + 재점검 4건이고 전부 fixed다. 표는 `COMPARISON.md`·`S4-WALL.md`의 스크립트 산출이다.
+- **남은 것**: push·PR(사용자 확인), study-note 아카이브 범위(사용자 확인), ADR-007 명세.
+
