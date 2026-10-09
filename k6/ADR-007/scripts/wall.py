@@ -10,7 +10,11 @@
   무너진 초(벽) = 초별 p99 > 200ms가 처음 나온 초. 기준 200ms는 엄격 한계 기준 500ms보다 낮게 잡아 무너지기 시작한 초를 찾는다(ADR-006 §5.3 ②).
     - 계단(S4): ADR-006 s4_wall.py와 같다 — 11단계(목표 4,325건/s) 시작 = 325~344초 중 초당 완료가 3,000건 이상이 된 첫 초,
       벽 = 그 초부터 370초 전(12단계 앞 10초까지 — ADR-006 S4-WALL.md와 같은 창) 안에서 찾는다. 11단계 시작을 못 찾으면 '-'.
-    - 고정(S4c*): k6 시작 0초부터 계획 시간(구간 수 × 구간 초, k6-summary.json) 전까지 전체에서 찾는다.
+    - 고정(S4c*): k6 시작 0초부터 계획 시간(구간 수 × 구간 초, k6-summary.json) 전까지 전체에서 찾는다(wall_s — 명세 정의 그대로).
+      스모크 실측(2026-10-09, none nockpt S4c4200): 첫 수 초는 예열 뒤 곧바로 4,200/s를 거는 기동 과도(첫 30초 p99 11.8초)라 wall_s가 1초로 나온다.
+      그래서 과도가 끝난 뒤의 벽도 함께 낸다 — settle_s = 처음으로 SETTLE_RUN초 연속 p99 ≤ 200ms가 시작된 초, wall_after_settle_s = 그 뒤 처음 p99 > 200ms인 초.
+      과도 판정은 요청 **시작** 초(완료 초 − 지연, 초 단위 내림)로 묶는다 — 완료 초로 묶으면 과도 중에 보낸 요청이 30초 타임아웃으로 끝나는 초(스모크: +51초,
+      p99 30,000ms)가 '과도 뒤 벽'으로 잡힌다. 계단은 11단계 시작 기준이라 둘이 같다(settle_s = 11단계 시작). 비교표(compare.py)는 고정 셀에 wall_after_settle_s를 쓴다.
     - 무너지지 않으면 벽과 그에 딸린 열은 전부 '-'.
   누적 선점 = 벽 초 이전(벽 초 제외)에 완료된 201 응답 수(같은 CSV — 요청이 끝난 시각 기준).
   DB 기동 후 경과 = 벽 시각 − DB 로그(db.log.gz)의 'database system is ready to accept connections' 중 k6 시작 전 마지막 줄(초기화용 임시 서버 다음의 실제 서버).
@@ -33,6 +37,7 @@ WALL_P99_MS = 200
 STEP_START = (325, 345, 3000)   # 11단계 시작 탐색 창 [325, 345) · 초당 완료 기준(10단계 목표 2,883건/s 위)
 STEP_END = 370                  # 계단 벽 탐색 끝(제외) — ADR-006 s4_wall.py와 같다
 WAIT_WINDOW_S = 3
+SETTLE_RUN = 5                  # 고정 셀 기동 과도 끝 = p99 ≤ 200ms가 이만큼 연속인 첫 초
 PG_TS = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?) UTC ")
 
 
@@ -99,6 +104,7 @@ def one(rep_dir):
     summ = json.loads((rep_dir / "k6-summary.json").read_text()) if (rep_dir / "k6-summary.json").exists() else {}
     planned_s = len(summ.get("stage_rates") or []) * summ.get("step_seconds", 30)
     lat = collections.defaultdict(list)
+    lat_start = collections.defaultdict(list)   # 고정 셀 과도 판정용 — 요청 시작 초
     ok_per_s = collections.Counter()
     with gzip.open(rep_dir / "k6-requests.csv.gz", "rt") as f:
         r = csv.reader(f)
@@ -108,6 +114,7 @@ def one(rep_dir):
             if row[0] == "http_req_duration":
                 t = int(int(row[1]) - k0)
                 lat[t].append(float(row[2]))
+                lat_start[int(int(row[1]) - float(row[2]) / 1000 - k0)].append(float(row[2]))
                 if row[i_status] == "201":
                     ok_per_s[t] += 1
     p99 = lambda t: sorted(lat[t])[int(len(lat[t]) * 0.99)] if lat[t] else None
@@ -116,21 +123,31 @@ def one(rep_dir):
     else:
         start = next((t for t in range(*STEP_START[:2]) if len(lat[t]) >= STEP_START[2]), None)
         lo, hi = start, STEP_END
-    wall = next((t for t in range(lo, hi) if lat[t] and p99(t) > WALL_P99_MS), None) if start is not None else None
+    bad = lambda t: lat[t] and p99(t) > WALL_P99_MS
+    wall = next((t for t in range(lo, hi) if bad(t)), None) if start is not None else None
+    if fixed:
+        p99s = lambda t: sorted(lat_start[t])[int(len(lat_start[t]) * 0.99)] if lat_start[t] else None
+        bad_s = lambda t: lat_start[t] and p99s(t) > WALL_P99_MS
+        settle = next((t for t in range(lo, hi - SETTLE_RUN) if all(lat_start[u] and not bad_s(u) for u in range(t, t + SETTLE_RUN))), None)
+        wall_settled = next((t for t in range(settle, hi) if bad_s(t)), None) if settle is not None else None
+    else:
+        settle, wall_settled = start, wall
     ready, ckpts = db_log(rep_dir, k0)
     rel = lambda x: None if x is None else round(x - k0, 1)
     in_k6 = [c for c in (ckpts or []) if (k1 is None or c["start"] <= k1) and (c["end"] is None or c["end"] >= k0)]
     rec = {"cond": rep_dir.parts[-4] if len(rep_dir.parts) >= 4 else "", "level": rep_dir.parts[-3], "cell": cell, "rep": rep_dir.name,
            "status": (rep_dir / "status").read_text().strip(), "fixed": fixed, "step11_start_s": None if fixed else start, "wall_s": wall,
+           "settle_s": settle, "wall_after_settle_s": wall_settled,
            "wall_minus_start_s": None if fixed or wall is None or start is None else wall - start,
            "db_ready_to_k6_s": None if ready is None else round(k0 - ready, 1),
            "checkpoints_during_k6": None if ckpts is None else [{"kind": c["kind"], "start_s": rel(c["start"]), "end_s": rel(c["end"])} for c in in_k6],
            "wall_p99_ms": None, "cum_201_before_wall": None, "db_uptime_at_wall_s": None, "checkpoint_at_wall": None,
            "waits_top": None, "waits_samples": 0, "checkpointer_at_wall": None}
-    if wall is not None:
-        t_wall = k0 + wall
-        rec["wall_p99_ms"] = p99(wall)
-        rec["cum_201_before_wall"] = sum(v for t, v in ok_per_s.items() if t < wall)
+    w = wall_settled   # 정황(누적·체크포인트·대기 이벤트)은 과도 뒤 벽 기준 — 계단은 wall과 같다
+    if w is not None:
+        t_wall = k0 + w
+        rec["wall_p99_ms"] = p99s(w) if fixed else p99(w)
+        rec["cum_201_before_wall"] = sum(v for t, v in ok_per_s.items() if t < w)
         rec["db_uptime_at_wall_s"] = None if ready is None else round(t_wall - ready, 1)
         if ckpts is not None:
             cur = next((c for c in ckpts if c["start"] <= t_wall and (c["end"] is None or t_wall < c["end"])), None)
@@ -174,11 +191,11 @@ def main(argv):
     with ProcessPoolExecutor(8) as ex:
         recs = list(ex.map(one, reps))
     d = lambda v: "-" if v is None else (f"{v:,.0f}" if isinstance(v, (int, float)) else str(v))
-    print("| 조건 | 단계 | 셀 | 회차 | 11단계 시작 초 | 무너진 초(k6 기준) | 차이 s | 그 초 p99 ms | 누적 선점(201) | DB 기동 후 경과 s | 체크포인트 진행 중 | "
+    print("| 조건 | 단계 | 셀 | 회차 | 11단계 시작 초 | 무너진 초(k6 기준) | 차이 s | 과도 끝 초 · 과도 뒤 무너진 초(고정) | 그 초 p99 ms | 누적 선점(201) | DB 기동 후 경과 s | 체크포인트 진행 중 | "
           "대기 이벤트 상위 5(벽 ±3초 평균 세션 · 표본) | 체크포인터(벽 ±3초) | k6 구간 체크포인트(종류 +시작~완료) |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in recs:
-        if r["wall_s"] is None:
+        if r["wall_after_settle_s"] is None:
             wt, ck, cp = "-", "-", "-"
         else:
             wt = ("; ".join(f"{k} {v:.2f}" for k, v in r["waits_top"]) + f" ({r['waits_samples']})") if r["waits_top"] else "표본 없음"
@@ -187,7 +204,7 @@ def main(argv):
         during = "-" if r["checkpoints_during_k6"] is None else (
             ", ".join(f'{c["kind"]} +{c["start_s"]:.0f}~{"+%.0f" % c["end_s"] if c["end_s"] is not None else "끝 기록 없음"}' for c in r["checkpoints_during_k6"]) or "없음")
         print(f'| {r["cond"]} | {r["level"]} | {r["cell"]} | {r["rep"]} | {d(r["step11_start_s"])} | {d(r["wall_s"])} | {d(r["wall_minus_start_s"])} | '
-              f'{d(r["wall_p99_ms"])} | {d(r["cum_201_before_wall"])} | {d(r["db_uptime_at_wall_s"]) if r["wall_s"] is not None else "-"} | {ck} | {wt} | {cp} | {during} |')
+              f'{(d(r["settle_s"]) + " · " + d(r["wall_after_settle_s"])) if r["fixed"] else "-"} | {d(r["wall_p99_ms"])} | {d(r["cum_201_before_wall"])} | {d(r["db_uptime_at_wall_s"]) if r["wall_after_settle_s"] is not None else "-"} | {ck} | {wt} | {cp} | {during} |')
     if out_json:
         Path(out_json).write_text(json.dumps(recs, ensure_ascii=False, indent=1))
     return 0

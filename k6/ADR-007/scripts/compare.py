@@ -333,15 +333,15 @@ def main(root):
     if wall_f.exists():
         walls = json.loads(wall_f.read_text())
         out.append("\n## 벽 분석 — 처음 무너진 초(초별 p99 > 200ms, k6 시작 기준) · 누적 선점 · DB 기동 후 경과 · 체크포인트 · 벽 ±3초 대기 이벤트 (`wall.py` — 정의는 그 머리말)\n")
-        out.append("| 조건 | 단계 | 셀 | 회차 | 무너진 초 | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션) | k6 구간 체크포인트 |")
+        out.append("| 조건 | 단계 | 셀 | 회차 | 무너진 초(고정 = 기동 과도 뒤, 괄호 = 원 정의) | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션) | k6 구간 체크포인트 |")
         out.append("|---|---|---|---|---|---|---|---|---|---|")
         for w in sorted(walls, key=lambda x: (x["cond"], x["level"], x["cell"], x["rep"])):
             ck = w.get("checkpoint_at_wall")
-            ckt = "-" if w["wall_s"] is None or ck is None else ("아니오" if ck is False else f'예({ck["kind"]} +{ck["start_s"]:.0f})')
-            top = "-" if w["wall_s"] is None else ("; ".join(f"{k} {v:.1f}" for k, v in (w.get("waits_top") or [])[:3]) or "표본 없음")
+            ckt = "-" if w.get("wall_after_settle_s") is None or ck is None else ("아니오" if ck is False else f'예({ck["kind"]} +{ck["start_s"]:.0f})')
+            top = "-" if w.get("wall_after_settle_s") is None else ("; ".join(f"{k} {v:.1f}" for k, v in (w.get("waits_top") or [])[:3]) or "표본 없음")
             during = "-" if w.get("checkpoints_during_k6") is None else (", ".join(f'{c["kind"]} +{c["start_s"]:.0f}' for c in w["checkpoints_during_k6"]) or "없음")
             fmtn = lambda v: "-" if v is None else f"{v:,.0f}"
-            out.append(f'| {w["cond"]} | {w["level"]} | {w["cell"]} | {w["rep"]} | {fmtn(w["wall_s"])} | {fmtn(w["cum_201_before_wall"])} | {fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} |')
+            out.append(f'| {w["cond"]} | {w["level"]} | {w["cell"]} | {w["rep"]} | {fmtn(w.get("wall_after_settle_s"))}{" (원 " + fmtn(w["wall_s"]) + ")" if w.get("fixed") else ""} | {fmtn(w["cum_201_before_wall"])} | {fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} |')
         js["wall"] = walls
     else:
         out.append("\n## 벽 분석\n\n- **미측정**: wall.json 없음 — `wall.py <캠페인> --json <캠페인>/wall.json`을 먼저 돌린다")
