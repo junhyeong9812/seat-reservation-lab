@@ -137,6 +137,10 @@ EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat
 K6_TREE="$(mktemp -d)"
 # 정리는 이 실행이 만든 임시 경로만 — 동결 사본은 mktemp 경로일 때만 지운다 (작업트리 삭제 방지)
 cleanup() {
+  # 이 실행의 최상위 셸에서만 지운다 — 서브셸이 EXIT 트랩을 물려받아 실행 중에 동결 사본을 지우는 일이 없게(ADR-007 스모크: 회차 도중 동결 사본이 사라져
+  # gapcheck.py를 못 찾았다 — 원인 미확정, 방어). 누가 언제 지웠는지 남긴다
+  [[ "$BASHPID" == "$$" ]] || return 0
+  echo "[$(date '+%F %T')] cleanup pid=$BASHPID frozen=${FROZEN_DIR:-} k6_tree=$K6_TREE" >&2
   rm -rf "$K6_TREE"
   [[ -n "${FROZEN_DIR:-}" && "$FROZEN_DIR" == "${TMPDIR:-/tmp}"/tmp.* && -d "$FROZEN_DIR/scripts" ]] && rm -rf "$FROZEN_DIR"
 }
@@ -236,10 +240,15 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
     done ) > /dev/null 2>&1 & echo $!
   # 락 대기(ADR-003 ④) + 대기 이벤트(ADR-007): 서버 쪽 루프가 0.5초마다 두 줄 — SSH 하나·psql 호출 하나(lib.sh db_sampler).
   # 줄의 키로 나눠 쓴다(락 = lock_waiting, 대기 이벤트 = waits). 버퍼링 없이 줄마다 내보낸다 — 아래 '표본이 나온 뒤 부하' 대기가 파일 크기를 본다
-  db_sampler 2>/dev/null < /dev/null \
-    | awk -v locks="$dir/timeline-locks.jsonl" -v waits="$dir/timeline-waits.jsonl" \
-        'index($0, "\"lock_waiting\"") { print >> locks; fflush(locks); next } index($0, "\"waits\"") { print >> waits; fflush(waits) }' \
-    > /dev/null 2>&1 & echo $!
+  # SSH가 끝나면(스모크 실측 2026-10-09: k6 +261초에 표본이 끊기고 다시 나오지 않았다 — 원인 미확정) 1초 뒤 다시 연다. 끝날 때마다 errors.log에 한 줄
+  # (무음 공백 금지 — 공백이 30초를 넘으면 rep_status waits-gap). 정리는 아래 stop_pollers가 루프와 그 자식(ssh·awk)을 함께 끈다
+  ( while :; do
+      db_sampler 2>/dev/null < /dev/null \
+        | awk -v locks="$dir/timeline-locks.jsonl" -v waits="$dir/timeline-waits.jsonl" \
+            'index($0, "\"lock_waiting\"") { print >> locks; fflush(locks); next } index($0, "\"waits\"") { print >> waits; fflush(waits) }'
+      echo "$(date -Is) db_sampler ended rc=${PIPESTATUS[0]}/${PIPESTATUS[1]} — reopen in 1s" >> "$dir/errors.log"
+      sleep 1
+    done ) > /dev/null 2>&1 & echo $!
   # 커넥션 풀 대기: 앱의 Hikari pending/active, 1초마다(앱 2대면 nginx가 번갈아 보낸다 — 어느 앱인지는 기록하지 않음, 편향)
   ( while :; do
       pend=$(curl -fsS --max-time 2 "$BASE_URL/actuator/metrics/hikaricp.connections.pending" 2>/dev/null | jq -c '.measurements[0].value' 2>/dev/null)
@@ -261,6 +270,16 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
           sleep 10
         done ) > /dev/null 2>&1 & echo $! ;;
   esac
+}
+
+# 수집기 정리: 루프(서브셸)를 먼저 끄고 그 자식(진행 중인 ssh·awk·curl 등)도 끈다 — 루프만 끄면 표본 루프의 ssh·awk가 고아로 남는다(ADR-007 재시작 루프)
+stop_pollers() {
+  local p kids
+  for p in "$@"; do
+    kids=$(pgrep -P "$p" 2>/dev/null)
+    kill "$p" 2>/dev/null
+    [[ -n "$kids" ]] && kill $kids 2>/dev/null
+  done
 }
 
 # ---- 회차 실행 ---------------------------------------------------------------------------------------
@@ -329,7 +348,7 @@ run_rep() {  # 인자: level cell rep
   [[ "$base" == S3* ]] && sleep $(( $(ttl_s_of "$base") + grace + 2 ))
   # 최종 판정은 전체 행을 훑는다(S4는 100만 석) — 폴링보다 긴 상한
   CONSISTENCY_TIMEOUT=600 consistency "$grace" > "$dir/consistency.json" 2>>"$dir/errors.log"
-  for p in $pids; do kill "$p" 2>/dev/null; done
+  stop_pollers $pids
   # 서버 쪽 락 표본 루프 정리 — SSH가 끊기면 다음 출력에서 끝나지만, 남지 않게 명시적으로(이 실험의 루프만 맞는 패턴)
   remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1
   snapshot "$dir" after
