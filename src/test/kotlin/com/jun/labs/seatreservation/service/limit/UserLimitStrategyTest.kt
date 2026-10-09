@@ -43,8 +43,10 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     @Autowired lateinit var tx: TransactionTemplate
 
     private val serializable get() = type == SERIALIZABLE || type == SERIALIZABLE_RETRY
-    /** 카운터를 유지하는 방식(ADR-005 counter · ADR-006 counter-upsert) — 매수 판정이 좌석보다 먼저, 카운터 정합 단언 */
-    private val counters = setOf(COUNTER, UserLimitStrategyType.COUNTER_UPSERT)
+    /** 카운터를 유지하는 방식(ADR-005 counter · ADR-006 counter-upsert · ADR-007 counter-upsert-precheck) — 카운터 정합 단언 */
+    private val counters = setOf(COUNTER, UserLimitStrategyType.COUNTER_UPSERT, UserLimitStrategyType.COUNTER_UPSERT_PRECHECK)
+    /** 매수 판정이 좌석 확인보다 먼저인 방식(사용자 허용) — precheck는 명세 순서(좌석 먼저)라 빠진다 */
+    private val limitFirst = setOf(COUNTER, UserLimitStrategyType.COUNTER_UPSERT)
 
     /** [requests]개를 동시에 보낸다. 결과 = "ok" 또는 에러 코드 이름(그 밖의 예외는 "ERR:…"). */
     private fun concurrently(requests: List<HoldSeatCommand>): List<String> {
@@ -103,7 +105,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
 
     @Test
     fun `acquire 뒤 트랜잭션 격리 수준 — SERIALIZABLE 방식만 serializable, 나머지는 read committed`() {
-        val cmd = HoldSeatCommand(schedule.id!!, 1, userId = 3L)
+        val cmd = HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId = 3L) // precheck는 acquire에서 좌석을 읽는다
         activeLimit.strategy.prepare(cmd)
         val level = tx.execute { status ->
             activeLimit.strategy.acquire(cmd)
@@ -157,6 +159,11 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
                 when (type) {
                     UserLimitStrategyType.ADVISORY, UserLimitStrategyType.QUOTA_LOCK, COUNTER, UserLimitStrategyType.COUNTER_UPSERT ->
                         assertThrows<TimeoutException>("$type: 같은 사용자가 기다리지 않았다") { same.get(1, TimeUnit.SECONDS) }
+                    UserLimitStrategyType.COUNTER_UPSERT_PRECHECK -> {
+                        assertThrows<TimeoutException>("$type: 같은 사용자가 기다리지 않았다") { same.get(1, TimeUnit.SECONDS) }
+                        // 선조회: 팔린 좌석은 쿼터 행 락을 기다리지 않고 바로 좌석 불가
+                        assertEquals(ErrorCode.SEAT_NOT_AVAILABLE.name, submit(a3).get(5, TimeUnit.SECONDS), "$type")
+                    }
                     UserLimitStrategyType.ADVISORY_TRY, UserLimitStrategyType.QUOTA_NOWAIT -> {
                         assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, same.get(5, TimeUnit.SECONDS), "$type")
                         // 경합 중 에러 우선순위(명세 §2): 진입 못 해도 좌석을 먼저 확인 — 팔린 좌석이면 좌석 불가
@@ -190,7 +197,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     }
 
     @Test
-    fun `에러 우선순위(순차) — 매수가 찬 사용자가 이미 선점된 좌석을 누르면 좌석 불가, counter만 매수 초과`() {
+    fun `에러 우선순위(순차) — 매수가 찬 사용자가 이미 선점된 좌석을 누르면 좌석 불가, counter·counter-upsert만 매수 초과`() {
         val userId = 7L
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId))
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(2).id!!, userId))
@@ -198,7 +205,7 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
 
         val e = assertThrows<SeatReservationException> { holdSeat.hold(HoldSeatCommand(schedule.id!!, taken.id!!, userId)) }
         // counter는 갱신이 곧 판정이라 좌석보다 먼저 판정된다(사용자 허용). 순차 호출이라 -early 변형도 진입은 성공 → 좌석 불가
-        val expected = if (type in counters) ErrorCode.HOLD_LIMIT_EXCEEDED else ErrorCode.SEAT_NOT_AVAILABLE
+        val expected = if (type in limitFirst) ErrorCode.HOLD_LIMIT_EXCEEDED else ErrorCode.SEAT_NOT_AVAILABLE
         assertEquals(expected, e.errorCode, "$type")
 
         val free = createSeat(4)
@@ -325,6 +332,59 @@ class CounterUpsertUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.C
         val before = meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L
         holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, userId = 63_000L))
         assertEquals(before, meters.find("seat.hold.limit.prepare").timer()?.count() ?: 0L)
+    }
+}
+
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert-precheck"])
+class CounterUpsertPrecheckUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.COUNTER_UPSERT_PRECHECK) {
+    private fun quotaRow(userId: Long): Map<String, Any>? = jdbcTemplate.queryForList(
+        "SELECT cnt, xmax::text AS xmax FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", schedule.id, userId,
+    ).singleOrNull()
+
+    private fun code(command: HoldSeatCommand): String =
+        try { holdSeat.hold(command); "ok" } catch (e: SeatReservationException) { e.errorCode.name }
+
+    /** ADR-007 명세 §5 추가 ①: 팔린 좌석은 upsert 없이 거절 — 새 사용자는 쿼터 행이 생기지 않고, 행이 있는 사용자는 행에 쓰기 흔적(xmax)이 없다. */
+    @Test
+    fun `팔린 좌석은 쓰기 없이 좌석 불가 — 쿼터 행을 만들지도 건드리지도 않는다`() {
+        val taken = createSeat(1).also { holdSeat.hold(HoldSeatCommand(schedule.id!!, it.id!!, userId = 71_999L)) }
+        assertEquals(ErrorCode.SEAT_NOT_AVAILABLE.name, code(HoldSeatCommand(schedule.id!!, taken.id!!, userId = 71_000L)))
+        assertEquals(null, quotaRow(71_000L), "새 사용자: 쿼터 행이 생겼다")
+
+        holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(2).id!!, userId = 71_001L)) // cnt = 1, 커밋
+        assertEquals("0", quotaRow(71_001L)!!["xmax"], "전제: 커밋된 행의 xmax = 0")
+        assertEquals(ErrorCode.SEAT_NOT_AVAILABLE.name, code(HoldSeatCommand(schedule.id!!, taken.id!!, userId = 71_001L)))
+        // upsert가 실행됐다가 롤백됐다면 행의 xmax에 중단된 트랜잭션 id가 남는다 — 0이면 쓰기 시도가 없었다
+        assertEquals(mapOf("cnt" to 1, "xmax" to "0"), quotaRow(71_001L))
+    }
+
+    /** 추가 ③·④: 다른 트랜잭션이 커밋 전에 쥔 좌석은 잠금 없는 선조회에 AVAILABLE로 보인다(남는 틈). */
+    @Test
+    fun `커밋 전 잠긴 좌석 — 매수가 찬 사용자는 좌석 락을 시도하지 않고 매수 초과(남는 틈), 매수가 남은 사용자는 3b에서 좌석 불가`() {
+        val full = 72_000L
+        holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(1).id!!, full))
+        holdSeat.hold(HoldSeatCommand(schedule.id!!, createSeat(2).id!!, full))
+        val locked = createSeat(3)
+        val pool = Executors.newFixedThreadPool(1)
+        try {
+            tx.execute { status ->
+                jdbcTemplate.queryForList("SELECT id FROM product_seat WHERE id = ? FOR UPDATE", locked.id) // 커밋 전 좌석 락
+                fun other(userId: Long) = pool.submit<String> { code(HoldSeatCommand(schedule.id!!, locked.id!!, userId)) }.get(5, TimeUnit.SECONDS)
+                // 좌석 락을 시도했다면 3b NOWAIT이 SEAT_NOT_AVAILABLE을 냈을 것 — 매수 초과면 좌석 락 전에 거절됐다
+                assertEquals(ErrorCode.HOLD_LIMIT_EXCEEDED.name, other(full), "매수가 찬 사용자")
+                assertEquals(ErrorCode.SEAT_NOT_AVAILABLE.name, other(72_001L), "매수가 남은 사용자는 3b NOWAIT에서 진다")
+                status.setRollbackOnly()
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+        assertTrue(quotaRow(72_001L).let { it == null || it["cnt"] == 0 }, "좌석에서 진 +1은 롤백: ${quotaRow(72_001L)}")
+    }
+
+    @Test
+    fun `없는 좌석은 쓰기 없이 좌석 없음`() {
+        assertEquals(ErrorCode.SEAT_NOT_FOUND.name, code(HoldSeatCommand(schedule.id!!, 999_999L, userId = 73_000L)))
+        assertEquals(null, quotaRow(73_000L))
     }
 }
 

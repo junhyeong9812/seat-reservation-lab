@@ -4,6 +4,7 @@ import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.HoldLimitPolicy
 import com.jun.labs.seatreservation.domain.SeatHold
 import com.jun.labs.seatreservation.domain.SeatReservationException
+import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
@@ -209,7 +210,7 @@ class CounterUserLimit(
     override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
 }
 
-/** 만료 배치가 실제로 지운 홀드만큼 (회차, 사용자)별 카운터를 내린다 — counter·counter-upsert 공용. */
+/** 만료 배치가 실제로 지운 홀드만큼 (회차, 사용자)별 카운터를 내린다 — counter·counter-upsert·counter-upsert-precheck 공용. */
 private fun decrementCounters(jdbc: JdbcTemplate, expired: List<SeatHold>) {
     // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
     expired.groupingBy { it.scheduleId to it.userId }.eachCount().forEach { (key, n) ->
@@ -235,19 +236,54 @@ class CounterUpsertUserLimit(
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT
     override fun acquire(command: HoldSeatCommand): Boolean {
-        val affected = jdbc.update(
-            """
-            INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
-            ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
-            WHERE user_hold_quota.cnt + 1 <= ?
-            """.trimIndent(),
-            command.scheduleId, command.userId, properties.maxPerUser,
-        )
-        if (affected == 0) limitExceeded()
+        if (!upsertQuota(jdbc, command, properties.maxPerUser)) limitExceeded()
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
     override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+}
+
+/** 한 문장 upsert — true = 올렸다(통과), false = 상한(0행). counter-upsert·counter-upsert-precheck 공용. */
+private fun upsertQuota(jdbc: JdbcTemplate, command: HoldSeatCommand, maxPerUser: Int): Boolean = jdbc.update(
+    """
+    INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
+    ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
+    WHERE user_hold_quota.cnt + 1 <= ?
+    """.trimIndent(),
+    command.scheduleId, command.userId, maxPerUser,
+) == 1
+
+/**
+ * ADR-007 — counter-upsert 앞에 **잠금 없는** 좌석 상태 선조회를 둔다. ADR-006 S3에서 실패 시도(대부분 이미 팔린 좌석)마다
+ * upsert + 롤백이 WAL을 남겼다(none의 2.8배) — 팔린 좌석은 쓰기 없이 거절한다. 매수 초과 사용자는 여전히 좌석 락을 잡기 전에 거절된다.
+ * 에러 순서 = 명세 순서(좌석 불가 → 매수 초과, 사용자 2026-10-09): upsert가 0행이면 좌석을 다시 읽어 그 사이 팔렸으면 좌석 불가로 답한다.
+ * 남는 틈: 다른 트랜잭션이 커밋 전에 쥔 좌석은 잠금 없는 읽기에 AVAILABLE로 보여, 매수가 찬 사용자에게는 `HOLD_LIMIT_EXCEEDED`가 난다
+ * (잠금 없이는 볼 수 없다 — 잠그면 매수 초과자가 좌석 락을 잡아 억울한 좌석이 되살아난다).
+ */
+@Component
+class CounterUpsertPrecheckUserLimit(
+    private val properties: SeatHoldProperties,
+    private val jdbc: JdbcTemplate,
+) : UserLimitStrategy {
+    override val type = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        assertSeatAvailable(command)
+        if (!upsertQuota(jdbc, command, properties.maxPerUser)) {
+            assertSeatAvailable(command) // 선조회 뒤 팔렸으면 좌석 불가가 먼저
+            limitExceeded()
+        }
+        return true
+    }
+    override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
+    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+
+    private fun assertSeatAvailable(command: HoldSeatCommand) {
+        val status = jdbc.queryForList(
+            "SELECT status FROM product_seat WHERE id = ? AND schedule_id = ?", String::class.java,
+            command.seatId, command.scheduleId,
+        ).singleOrNull() ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+        if (status != SeatStatus.AVAILABLE.name) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE)
+    }
 }
 
 /**
