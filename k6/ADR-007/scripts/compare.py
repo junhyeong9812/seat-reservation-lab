@@ -147,6 +147,17 @@ def sub(r, group, key):
     return (r.get(group) or {}).get(key)
 
 
+def lag_txt(used, key):
+    """S7 시차 분포(summarize.py s7_order — {n,min,p50,max,pos}) 회차별 'p50 [min–max]'. 없으면 '-'."""
+    def one(d):
+        return "-" if not d else f'{d["p50"]:g} [{d["min"]:g}–{d["max"]:g}]'
+    return "; ".join(one(sub(r, "s7", key)) for r in used) or "-"
+
+
+def pct(x, d=1):
+    return "-" if x is None else f"{x * 100:.{d}f}%"
+
+
 def main(root):
     root = Path(root)
     conds, missing = load_conditions(root)
@@ -227,14 +238,16 @@ def main(root):
         gap = [r.get("ownership_gap") for r in used]
         p99 = [r["hold_p99"] for r in used]
         viol = [sub(r, "s7", "u_hle_after_r_201") for r in used]   # ADR-007 명세 순서 위반(확정 — summarize.py s7_order)
+        chance = [sub(r, "s7", "u_after_r_201") for r in used]      # 그 분모 = 기회(R 201 수신 뒤에 보낸 U 요청 — 리뷰 A7)
         hle_r = [sub(r, "s7", "u_hle_r_201") for r in used]
         return {"cells": [spread(ws), reps_list(ws), spread(w409), spread(empty), spread(r201), spread(multi), spread(u201), spread(u_hle), spread(u_sna),
-                          spread(viol), spread(hle_r), spread(gap), spread(p99)],
+                          spread(viol), spread(chance), lag_txt(used, "u_minus_r_sent_ms"), spread(hle_r), spread(gap), spread(p99)],
                 "json": {"wronged_seats": ws, "wronged_409": w409, "empty_seats": empty, "r_201": r201, "multi_201_seats": multi, "u_201": u201,
-                         "u_hold_limit_exceeded": u_hle, "u_seat_not_available": u_sna, "u_hle_after_r_201": viol, "u_hle_r_201": hle_r,
+                         "u_hold_limit_exceeded": u_hle, "u_seat_not_available": u_sna, "u_hle_after_r_201": viol, "u_after_r_201": chance, "u_hle_r_201": hle_r,
+                         "u_minus_r_sent_ms": [sub(r, "s7", "u_minus_r_sent_ms") for r in used], "u_minus_r201_recv_ms": [sub(r, "s7", "u_minus_r201_recv_ms") for r in used],
                          "ownership_gap": gap, "hold_p99": p99}}
     s7_cols = ["억울한 좌석 수", "회차별 억울한 좌석", "억울한 409 수(코드 무관)", "빈 좌석 수", "일반 201 수", "201 2건+ 좌석 수", "U 201 수(위반)", "U HOLD_LIMIT_EXCEEDED 수", "U SEAT_NOT_AVAILABLE 수",
-               "팔린 좌석에 LIMIT(확정 — R 201 수신 뒤 U 보냄)", "R 201 좌석에 U LIMIT(틈 포함)", "201 − 홀드 행", "p99 ms"]
+               "팔린 좌석에 LIMIT(확정 — R 201 수신 뒤 U 보냄)", "기회(R 201 수신 뒤 보낸 U — 위의 분모)", "U − R 보낸 시각 ms p50 [min–max](회차별)", "R 201 좌석에 U LIMIT(틈 포함)", "201 − 홀드 행", "p99 ms"]
     for cell, m in (("S7", 20), ("S7-m1", 1)):
         section(f"S7 이긴 쪽 롤백(④) `{cell}` — 좌석마다 2매 보유자 U 1명 + 일반 {m}명. 억울한 좌석 = 끝 상태 AVAILABLE인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석(대상 100석 중)",
                 cell, s7_cols, s7)
@@ -306,10 +319,12 @@ def main(root):
         fmp = by_mp(conds, f"L4/{fc}")
         if not fmp:
             continue
-        out.append(f"\n## {fc} 고정 도착률 — 30초 구간별 성공/s · p99 ms (회차 중앙값 · 전체 = 계획 6분 성공 RPS 중앙값 [최소–최대] · 미달 = 목표 미달 구간 수 중앙값)\n")
+        out.append(f"\n## {fc} 고정 도착률 — 30초 구간별 (램프 60초 뒤 · 회차 중앙값 · 전체 = 계획 6분 성공 RPS 중앙값 [최소–최대] · 미달 = 목표 미달 구간 수 중앙값)\n")
+        out.append("> 칸 = 도착/목표 · 성공/s · p99 ms(코드 0 제외) · 코드 0 비율. **n의 회차는 '유효한 회차'(계획 구간을 다 돎)이지 '목표 달성'이 아니다** — 무너짐 자체가 측정값이다(리뷰 A6). "
+                   "목표 달성은 도착/목표·dropped(k6가 VU가 없어 시작 못 한 반복, 램프 제외)·코드 0 비율로 본다. p99는 코드 0(요청 타임아웃·연결 실패·끊김)의 0에 가까운 지연을 뺀 값(리뷰 A12 — summarize.py fixed_csv).\n")
         nint = max((len(r.get("stages") or []) for _, reps in fmp.values() for r in reps), default=0)
-        out.append("| 방식 | 설정 | n | 전체 성공/s | 미달 구간 | " + " | ".join(f"{i * 30}s" for i in range(nint)) + " |")
-        out.append("|---|---|---|---|---|" + "---|" * nint)
+        out.append("| 방식 | 설정 | n | 전체 성공/s | 도착/목표(전체) | dropped(구간 합) | 코드 0 비율(구간 전체) | 미달 구간 | " + " | ".join(f"{i * 30}s" for i in range(nint)) + " |")
+        out.append("|---|---|---|---|---|---|---|---|" + "---|" * nint)
         for pr in PRESETS:
             for m in METHODS:
                 if (m, pr) not in fmp:
@@ -320,28 +335,41 @@ def main(root):
                 for i in range(nint):
                     st = [r["stages"][i] for r in used if len(r.get("stages") or []) > i]
                     okv = [x["ok_rps"] for x in st]
-                    p99v = [x["p99_ms"] for x in st if x["p99_ms"] is not None]
-                    cells.append(f"{statistics.median(okv):,.0f} · {statistics.median(p99v):,.0f}" if okv and p99v else "-")
-                tot = [(r.get("fixed") or {}).get("ok_rps_total") for r in used]
-                und = [(r.get("fixed") or {}).get("under_delivered_intervals") for r in used]
-                js.setdefault("fixed", {})[f"{m}/{pr}/{fc}"] = {"ok_rps_total": tot, "under_delivered_intervals": und,
+                    p99v = [x.get("p99_nz_ms") for x in st if x.get("p99_nz_ms") is not None]
+                    arv = [x.get("achieved_ratio") for x in st if x.get("achieved_ratio") is not None]
+                    z = [x.get("status0_share") for x in st if x.get("status0_share") is not None]
+                    med = lambda xs: statistics.median(xs) if xs else None
+                    cells.append(f"{pct(med(arv), 0)} · {statistics.median(okv):,.0f} · {'-' if not p99v else f'{med(p99v):,.0f}'} · {pct(med(z), 1)}" if okv else "-")
+                fx = lambda k: [(r.get("fixed") or {}).get(k) for r in used]
+                tot, und = fx("ok_rps_total"), fx("under_delivered_intervals")
+                js.setdefault("fixed", {})[f"{m}/{pr}/{fc}"] = {"ok_rps_total": tot, "under_delivered_intervals": und, "achieved_ratio_total": fx("achieved_ratio_total"),
+                                                                "dropped_hold": fx("dropped_hold"), "status0_share": fx("status0_share"),
                                                                 "stages": [r.get("stages") for r in used]}
-                out.append(f"| {m} | {pr} | {len(used)}/{len(reps)} | {spread(tot)} | {spread(und)} | " + " | ".join(cells) + " |")
+                out.append(f"| {m} | {pr} | {len(used)}/{len(reps)} | {spread(tot)} | {spread(fx('achieved_ratio_total'), 3)} | {spread(fx('dropped_hold'))} | "
+                           f"{spread(fx('status0_share'), 4)} | {spread(und)} | " + " | ".join(cells) + " |")
 
     # ---- ADR-007 ① 벽 분석(wall.py 산출) ---------------------------------------------------------------------
     wall_f = root / "wall.json"
     if wall_f.exists():
         walls = json.loads(wall_f.read_text())
-        out.append("\n## 벽 분석 — 처음 무너진 초(초별 p99 > 200ms, k6 시작 기준) · 누적 선점 · DB 기동 후 경과 · 체크포인트 · 벽 ±3초 대기 이벤트 (`wall.py` — 정의는 그 머리말)\n")
-        out.append("| 조건 | 단계 | 셀 | 회차 | 무너진 초(고정 = 기동 과도 뒤, 괄호 = 원 정의) | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션) | k6 구간 체크포인트 |")
-        out.append("|---|---|---|---|---|---|---|---|---|---|")
+        out.append("\n## 벽 분석 — 처음 무너진 초(나쁜 초 = p99(코드 0 제외) > 200ms 또는 코드 0 ≥ 1%, k6 시작 기준) · 누적 선점 · DB 기동 후 경과 · 체크포인트 · 벽 ±3초 대기 이벤트 (`wall.py` — 정의는 그 머리말)\n")
+        out.append("> 벽 결과: `N초(단계 s)` = 계단은 첫 단계 뒤 전체에서 찾은 벽과 그 초의 단계 · 고정은 램프 뒤 기동 과도가 끝난 뒤의 벽(시작 초)과 구간. "
+                   "`무너지지 않음` = 창 안에 완료가 있었는데 나쁜 초가 없다 · `과도 미종료` = 고정 셀에서 5초 연속 정상이 한 번도 없었다(처음부터 무너진 상태 — 벽 없음이 아니다) · `표본 없음` = 창 안 완료 0.\n")
+        out.append("| 조건 | 단계 | 셀 | 회차 | 벽 결과 | 원 정의 무너진 초(완료 초) | 과도 끝 초(고정) | 그 초 코드 0 비율 | 누적 선점(201) | DB 기동 후 s | 체크포인트 진행 중 | 대기 이벤트 상위 3(평균 세션 · 표본) | k6 구간 체크포인트 | 시계 차 s |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for w in sorted(walls, key=lambda x: (x["cond"], x["level"], x["cell"], x["rep"])):
             ck = w.get("checkpoint_at_wall")
-            ckt = "-" if w.get("wall_after_settle_s") is None or ck is None else ("아니오" if ck is False else f'예({ck["kind"]} +{ck["start_s"]:.0f})')
-            top = "-" if w.get("wall_after_settle_s") is None else ("; ".join(f"{k} {v:.1f}" for k, v in (w.get("waits_top") or [])[:3]) or "표본 없음")
-            during = "-" if w.get("checkpoints_during_k6") is None else (", ".join(f'{c["kind"]} +{c["start_s"]:.0f}' for c in w["checkpoints_during_k6"]) or "없음")
             fmtn = lambda v: "-" if v is None else f"{v:,.0f}"
-            out.append(f'| {w["cond"]} | {w["level"]} | {w["cell"]} | {w["rep"]} | {fmtn(w.get("wall_after_settle_s"))}{" (원 " + fmtn(w["wall_s"]) + ")" if w.get("fixed") else ""} | {fmtn(w["cum_201_before_wall"])} | {fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} |')
+            wsec = w.get("wall_after_settle_s") if w.get("fixed") else w.get("wall_s")
+            outcome = w.get("wall_outcome") or ("wall" if wsec is not None else "-")
+            res = f'{fmtn(wsec)}초({"구간" if w.get("fixed") else "단계"} {w.get("wall_stage")})' if outcome == "wall" else outcome
+            ckt = "-" if wsec is None or ck is None else ("아니오" if ck is False else f'예({ck["kind"]} +{ck["start_s"]:.0f})')
+            top = "-" if wsec is None else (("; ".join(f"{k} {v:.1f}" for k, v in (w.get("waits_top") or [])[:3]) + f' ({w.get("waits_samples", 0)})') if w.get("waits_top") else "표본 없음")
+            during = "-" if w.get("checkpoints_during_k6") is None else (", ".join(f'{c["kind"]} +{c["start_s"]:.0f}' for c in w["checkpoints_during_k6"]) or "없음")
+            settle = ("과도 미종료" if w.get("settle_s") is None else fmtn(w["settle_s"])) if w.get("fixed") else "-"
+            clk = "미측정" if w.get("clock_offset_s") is None else f'{w["clock_offset_s"]:+.3f}'
+            out.append(f'| {w["cond"]} | {w["level"]} | {w["cell"]} | {w["rep"]} | {res} | {fmtn(w["wall_s"])} | {settle} | {pct(w.get("wall_zero_share"))} | {fmtn(w["cum_201_before_wall"])} | '
+                       f'{fmtn(w["db_uptime_at_wall_s"])} | {ckt} | {top} | {during} | {clk} |')
         js["wall"] = walls
     else:
         out.append("\n## 벽 분석\n\n- **미측정**: wall.json 없음 — `wall.py <캠페인> --json <캠페인>/wall.json`을 먼저 돌린다")
@@ -367,8 +395,11 @@ def main(root):
         out.append("\n## 변형 정합·에러 순서 — S2·S7-m1 (중앙값 [최소–최대])\n")
         out.append("> 팔린 좌석에 LIMIT(명세 순서 위반) = S7-m1에서 같은 좌석 일반 사용자의 201을 k6가 받은 뒤에 보낸 U 요청이 HOLD_LIMIT_EXCEEDED(확정 위반 — summarize.py s7_order). "
                    "S2는 사용자마다 좌석이 달라 팔린 좌석이 없다(구조상 해당 없음). 틈 포함 = R 201 좌석에서 U가 LIMIT(커밋 전 잠긴 좌석 — 명세 §2 남는 틈 포함).\n")
-        out.append("| 방식 | S2 매수 초과(판정기) | S2 가짜 거절 | S2 409 SNA / HLE | S2 카운터 불일치 | S7-m1 억울한 좌석 | S7-m1 U 201(위반) | S7-m1 U HLE / SNA | S7-m1 팔린 좌석에 LIMIT(확정) | S7-m1 틈 포함 | S7-m1 카운터 불일치 |")
-        out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+        out.append("> 분모(리뷰 A7): 기회 = U를 보낸 시각이 같은 좌석 R의 201 수신 뒤였던 U 요청 수 — 시나리오는 U를 R보다 1ms 먼저 보내므로 기회는 구조적으로 드물다. "
+                   "위반 0은 '기회 > 0'일 때만 '명세 순서를 지켰다'로 읽는다. counter-upsert(매수 판정이 좌석보다 먼저 — U는 늘 HLE)가 양성 대조: 기회가 있으면 그 기회가 모두 위반으로 잡혀야 한다. "
+                   "U − R = U 보낸 시각 − R 보낸 시각(ms, 회차별 p50 [min–max]).\n")
+        out.append("| 방식 | S2 매수 초과(판정기) | S2 가짜 거절 | S2 409 SNA / HLE | S2 카운터 불일치 | S7-m1 억울한 좌석 | S7-m1 U 201(위반) | S7-m1 U HLE / SNA | S7-m1 팔린 좌석에 LIMIT(확정) | S7-m1 기회(분모) | S7-m1 기회의 U 코드 | S7-m1 U − R 보낸 시각 ms | S7-m1 틈 포함 | S7-m1 카운터 불일치 |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for m in METHODS:
             c2 = s2mp.get((m, "default")); c7 = s7mp.get((m, "default"))
             u2 = used_reps("S2", c2[1]) if c2 else []
@@ -381,7 +412,9 @@ def main(root):
                        f"{spread([sub(r, 's7', 'wronged_seats') for r in u7])} | {spread([sub(r, 's7', 'u_201') for r in u7])} | "
                        f"{spread([(sub(r, 's7', 'u_codes') or {}).get('HOLD_LIMIT_EXCEEDED', 0) if r.get('s7') else None for r in u7])} / "
                        f"{spread([(sub(r, 's7', 'u_codes') or {}).get('SEAT_NOT_AVAILABLE', 0) if r.get('s7') else None for r in u7])} | "
-                       f"{spread([sub(r, 's7', 'u_hle_after_r_201') for r in u7])} | {spread([sub(r, 's7', 'u_hle_r_201') for r in u7])} | {na(cm7)} |")
+                       f"{spread([sub(r, 's7', 'u_hle_after_r_201') for r in u7])} | {spread([sub(r, 's7', 'u_after_r_201') for r in u7])} | "
+                       f"{'; '.join(json.dumps(sub(r, 's7', 'u_after_r_201_codes'), ensure_ascii=False) for r in u7) or '-'} | {lag_txt(u7, 'u_minus_r_sent_ms')} | "
+                       f"{spread([sub(r, 's7', 'u_hle_r_201') for r in u7])} | {na(cm7)} |")
 
     # ---- ADR-007 ⑦ 실패 모드 — 셀별 에러율·5xx·풀 타임아웃·데드락 ------------------------------------------------
     es_split = json.loads((root / "errsplit.json").read_text()) if (root / "errsplit.json").exists() else None

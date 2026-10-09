@@ -3,7 +3,8 @@
 
     scripts/summarize.py results/<matrix-id>             표 산출 → SUMMARY.md · summary.json · curves/
     scripts/summarize.py --s4-check <k6-summary.json>     S4 회차에 성공한 단계가 하나라도 있으면 exit 0
-    scripts/summarize.py --fixed-check <k6-summary.json>  고정 도착률(S4c*) 회차가 정상 종료했으면 exit 0 (계획 구간 전부에 요청 · 계획 시간을 다 돎)
+    scripts/summarize.py --fixed-check <k6-summary.json>  고정 도착률(S4c*) 회차가 정상 종료했으면 exit 0 (계획 구간 전부에 요청 · 램프 + 계획 시간을 다 돎)
+    scripts/summarize.py --codes-check <회차 폴더>         S2·S7 회차의 hold_code 행 수 = 선점 요청 수이고 깨진 행이 없으면 exit 0 (리뷰 A5)
 
 표의 모든 수치는 원시 파일에서 계산한다 (손 계산 금지). 회차 값은 중앙값 [최소–최대].
 행은 plan.json(실행 전에 남긴 계획) 기준 — 실행되지 않은 셀·회차는 '미측정/누락'으로 드러난다.
@@ -24,8 +25,11 @@ S4 한계 규칙 (ADR-006 명세 §9.3 — ADR-005 §7.3 ③ 'SERIALIZABLE L4 �
   strict_legacy·loose_legacy = ADR-005 규칙(①~③만) 값 — 두 규칙이 갈리는 회차를 드러내려고 함께 남긴다.
 
 ADR-007 추가
-  고정 도착률 셀(S4c<rate> — run.sh: S4 시나리오 FACTOR=1 · 12구간 × 30초 · 에러율 중단 없음): '한계'를 내지 않는다(목표가 하나뿐이라 계단 규칙이 성립하지 않는다).
-            대신 30초 구간(= k6 stage 태그)마다 실제 도착 RPS·성공 RPS·p99·에러율 표 + 전체 성공 RPS(201 ÷ 계획 시간) · 목표 미달 구간 수.
+  고정 도착률 셀(S4c<rate> — run.sh: S4 시나리오 FACTOR=1 · 램프 60초 뒤 12구간 × 30초 · 에러율 중단 없음): '한계'를 내지 않는다(목표가 하나뿐이라 계단 규칙이 성립하지 않는다).
+            대신 30초 구간(= k6 stage 태그, 램프 'ramp' 제외)마다 실제 도착 RPS·도착/목표·dropped·성공 RPS·p99(코드 0 제외)·코드 0 비율·에러율 표 +
+            전체 성공 RPS(201 ÷ 계획 시간) · 목표 미달 구간 수(fixed_csv · fixed_summary). status ok = 회차 유효(계획 구간을 다 돎)이지 목표 달성이 아니다.
+  S4 계단의 단계 p99(k6 요약)도 코드 0 행의 0에 가까운 지연을 섞는다 — 한계 규칙은 에러율(< 1%·< 5%)로 그런 단계를 이미 멈추게 하므로 규칙은 그대로 두고,
+            단계별 코드 0 수는 compare.py '응답 코드 분류 — S4 단계별'(errsplit.py)에서 본다.
   DB 설정 = meta.json pg_preset·pg_applied(run.sh가 회차마다 SHOW로 읽은 값) · 대기 이벤트 = timeline-waits.jsonl(lib.sh db_sampler)의 k6 구간 평균 활성 세션 수 상위 5개.
   벽 분석(처음 무너진 초·체크포인트·벽 근처 대기 이벤트)은 wall.py.
 
@@ -155,28 +159,100 @@ def s4_limits(stages):
 
 
 def fixed_check(summary_path):
-    """고정 도착률 회차의 정상 종료: 계획 구간(stage_rates) 전부에 요청이 있고 k6 실행 시간이 계획(구간 수 × 구간 초) 이상."""
+    """고정 도착률 회차의 정상 종료: 계획 구간(stage_rates) 전부에 요청이 있고 k6 실행 시간이 계획(램프 + 구간 수 × 구간 초) 이상.
+    램프(stage 태그 'ramp' — 리뷰 A13)는 구간이 아니다: stage_table이 stage 0..n−1만 보므로 램프 요청은 '구간에 요청이 있다'에 들지 않는다."""
     summ = load(summary_path)
     if not summ or not summ.get("stage_rates"):
         return 1
     stages = stage_table(summ, aborted=False)
-    planned_ms = len(summ["stage_rates"]) * summ.get("step_seconds", 30) * 1000
+    planned_ms = (len(summ["stage_rates"]) * summ.get("step_seconds", 30) + (summ.get("ramp_s") or 0)) * 1000
     ran_ms = (summ.get("state") or {}).get("testRunDurationMs") or 0
     return 0 if all(s["requests"] for s in stages) and ran_ms >= planned_ms else 1
 
 
-def fixed_summary(stages, step_s):
-    """고정 도착률 회차 요약 — 계획 시간 전체 성공 RPS · 목표 미달 구간 수 · 가장 나쁜 구간 p99."""
+def fixed_csv(csv_gz, summ, stages):
+    """고정 셀 구간별 원시 집계(k6-requests.csv.gz — 리뷰 A12·A6). 구간 = stage 태그(램프 'ramp'는 따로).
+    - 코드 0(요청 타임아웃·연결 실패·끊김) 수·비율: k6는 코드 0 요청의 지연을 0에 가깝게 기록한다(스모크 smoke-b 20,222건 중 18,538건 < 5ms) —
+      k6 요약의 구간 p99(stage_table p99_ms)는 이 값을 섞어 낮게 나온다. 그래서 p99_nz_ms = 코드 0을 뺀 p99를 따로 낸다.
+    - dropped = k6 dropped_iterations 행(k6가 VU가 없어 시작하지 못한 반복) 중 램프 끝(setup_data.startedAt + ramp_s) 뒤 — 그 시각부터 구간 초로 나눠 구간별.
+      행 타임스탬프가 초 단위라 경계 ±1초는 옆 구간(램프 끝이면 램프)에 들 수 있다. 램프 몫은 ramp_dropped.
+    stages(stage_table 결과)에 키를 더하고 회차 합계 dict를 돌려준다. 원시 파일이 없거나 깨졌으면 None(구간 값은 미측정)."""
+    if not csv_gz.exists():
+        return None
+    step = summ.get("step_seconds", 30)
+    ramp_s = summ.get("ramp_s") or 0
+    started = (summ.get("setup_data") or {}).get("startedAt")
+    hold0 = started / 1000 + ramp_s if started else None
+    n_iv = len(stages)
+    lat = {i: [] for i in range(n_iv)}
+    n0 = {i: 0 for i in range(n_iv)}
+    nn = {i: 0 for i in range(n_iv)}
+    drop = {i: 0 for i in range(n_iv)}
+    ramp = {"requests": 0, "status0": 0, "dropped": 0}
+    try:
+        with gzip.open(csv_gz, "rt", newline="") as f:
+            header = next(csv.reader([f.readline()]))
+            i_ts, i_val, i_name, i_status, i_tags = (header.index(k) for k in ("timestamp", "metric_value", "name", "status", "extra_tags"))
+            for line in f:
+                if line.startswith("dropped_iterations,"):
+                    t = int(line.split(",", 2)[1])
+                    if hold0 is None or t < int(hold0):
+                        ramp["dropped"] += 1
+                    else:
+                        drop[min(n_iv - 1, int((t - int(hold0)) // step))] += 1
+                    continue
+                if not line.startswith("http_req_duration,"):
+                    continue
+                row = next(csv.reader([line]))
+                if len(row) <= i_tags or row[i_name] != "hold":
+                    continue
+                stage = next((kv[6:] for kv in row[i_tags].split("&") if kv.startswith("stage=")), None)
+                zero = row[i_status] in ("0", "")
+                if stage == "ramp":
+                    ramp["requests"] += 1
+                    ramp["status0"] += zero
+                    continue
+                if stage is None or not stage.isdigit() or int(stage) >= n_iv:
+                    continue
+                i = int(stage)
+                nn[i] += 1
+                if zero:
+                    n0[i] += 1
+                else:
+                    lat[i].append(float(row[i_val]))
+    except (EOFError, OSError, ValueError, StopIteration):
+        return None
+    for s in stages:
+        i = s["stage"]
+        xs = sorted(lat[i])
+        s.update(p99_nz_ms=xs[int(len(xs) * 0.99)] if xs else None, status0=n0[i], status0_share=n0[i] / nn[i] if nn[i] else None,
+                 dropped=drop[i] if hold0 is not None else None, achieved_ratio=s["achieved_rps"] / s["target_rps"] if s["target_rps"] else None)
+    tot = sum(nn.values())
+    return {"status0": sum(n0.values()), "status0_share": sum(n0.values()) / tot if tot else None,
+            "dropped_hold": sum(drop.values()) if hold0 is not None else None, "ramp": ramp, "ramp_s": ramp_s}
+
+
+def fixed_summary(stages, step_s, raw=None):
+    """고정 도착률 회차 요약 — 계획 시간 전체 성공 RPS · 도착/목표 비율 · 목표 미달 구간 수 · 가장 나쁜 구간 p99(k6 요약 값과 코드 0 제외 값) ·
+    구간 코드 0 합·비율 · 구간 dropped 합(fixed_csv). 램프는 들지 않는다."""
     total_s = len(stages) * step_s
+    target = sum(s["target_rps"] for s in stages) * step_s
+    raw = raw or {}
     return {"ok_rps_total": sum(s["ok_rps"] * step_s for s in stages) / total_s if total_s else None,
             "achieved_rps_total": sum(s["requests"] for s in stages) / total_s if total_s else None,
+            "achieved_ratio_total": sum(s["requests"] for s in stages) / target if target else None,
             "under_delivered_intervals": sum(1 for s in stages if s["under_delivered"]),
             "first_under_delivered": next((s["stage"] for s in stages if s["under_delivered"]), None),
-            "worst_p99_ms": max((s["p99_ms"] for s in stages if s["p99_ms"] is not None), default=None)}
+            "worst_p99_ms": max((s["p99_ms"] for s in stages if s["p99_ms"] is not None), default=None),
+            "worst_p99_nz_ms": max((s["p99_nz_ms"] for s in stages if s.get("p99_nz_ms") is not None), default=None),
+            "status0": raw.get("status0"), "status0_share": raw.get("status0_share"), "dropped_hold": raw.get("dropped_hold"),
+            "ramp": raw.get("ramp"), "ramp_s": raw.get("ramp_s")}
 
 
-def waits_top(path, window, n=5):
-    """timeline-waits.jsonl(0.5초 표본)의 window 구간 평균 — 대기 이벤트별 활성 세션 수 평균(표본 수로 나눔) 상위 n개 + 표본 수."""
+def waits_top(path, window, n=5, off=0.0):
+    """timeline-waits.jsonl(0.5초 표본)의 window 구간 평균 — 대기 이벤트별 활성 세션 수 평균(표본 수로 나눔) 상위 n개 + 표본 수.
+    표본 시각은 서버 시계라 off(서버 − PC 시계 차, meta.json clock_offset — 리뷰 A3)를 빼서 PC 시계 window와 비교한다.
+    표본 0개 → (None, 0) · 표본은 있는데 활성 세션이 하나도 없었다 → ([], 표본 수) — 표에서 둘을 다르게 적는다(리뷰 A10)."""
     if not path.exists():
         return None, 0
     tot, samples = {}, 0
@@ -185,7 +261,7 @@ def waits_top(path, window, n=5):
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if "waits" not in row or (window and not (window[0] <= ts(row["t"]) <= window[1])):
+        if "waits" not in row or (window and not (window[0] <= ts(row["t"]) - off <= window[1])):
             continue
         samples += 1
         for k, v in (row["waits"] or {}).items():
@@ -289,22 +365,48 @@ def write_rows(path, rows):
 
 
 # ---- ADR-005: 요청 기록(hold_code 행)·끝 상태 -------------------------------------------------------
-def hold_codes(csv_gz):
-    """k6-requests.csv.gz의 hold_code 행(시나리오 lib — 요청 1건당 1행) → 태그 dict 목록. 행이 하나도 없으면 None(기록 없음 ≠ 0건)."""
+def hold_codes(csv_gz, stats=None):
+    """k6-requests.csv.gz의 hold_code 행(시나리오 lib — 요청 1건당 1행) → 태그 dict 목록. 행이 하나도 없으면 None(기록 없음 ≠ 0건).
+    stats(dict)를 주면 {"lines": hold_code 행 수, "malformed": 잘렸거나 code 태그가 없는 행 수}를 채운다 — codes_check가 요청 수와 대조한다(리뷰 A5)."""
     if not csv_gz.exists():
         return None
-    rows = []
+    rows, lines, bad = [], 0, 0
     with gzip.open(csv_gz, "rt", newline="") as f:
         header = next(csv.reader([f.readline()]))
         i_tags = header.index("extra_tags")
         for line in f:
             if not line.startswith("hold_code,"):
                 continue
+            lines += 1
             row = next(csv.reader([line]))
             if len(row) <= i_tags:
+                bad += 1
                 continue  # 잘린 마지막 행
-            rows.append(dict(kv.split("=", 1) for kv in row[i_tags].split("&") if "=" in kv))
+            tags = dict(kv.split("=", 1) for kv in row[i_tags].split("&") if "=" in kv)
+            if "code" not in tags:
+                bad += 1
+                continue
+            rows.append(tags)
+    if stats is not None:
+        stats.update(lines=lines, malformed=bad)
     return rows or None
+
+
+def codes_check(rep_dir):
+    """S2·S7 hold_code 행 수 = 측정 선점 요청 수(k6 요약 hold_duration count — S7 setup의 U 사전 선점은 hold()를 거치지 않아 둘 다에 없다)이고
+    깨진 행이 없으면 exit 0(리뷰 A5 — 행이 빠지거나 깨지면 가짜 거절·명세 순서 위반 수가 조용히 줄어든다). 결과를 stderr에 한 줄."""
+    rep_dir = Path(rep_dir)
+    summ = load(rep_dir / "k6-summary.json")
+    want = metric(summ, "hold_duration", "count", None) if summ else None
+    stats = {}
+    try:
+        rows = hold_codes(rep_dir / "k6-requests.csv.gz", stats)
+    except (EOFError, OSError, ValueError, StopIteration) as e:
+        print(f"hold-codes: 읽기 실패 {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    got = len(rows or [])
+    print(f"hold-codes: 행 {stats.get('lines')} · 깨진 행 {stats.get('malformed')} · 쓸 수 있는 행 {got} · 요청 수(hold_duration) {want}", file=sys.stderr)
+    return 0 if want is not None and got == want and not stats.get("malformed") else 1
 
 
 LIMIT_CODES = ("SEAT_NOT_AVAILABLE", "HOLD_LIMIT_EXCEEDED")
@@ -397,6 +499,10 @@ def s7_seats(rows, end_state, limit):
 
 def s7_order(csv_gz):
     """ADR-007 변형 에러 순서(명세 §9.4 ⑥): S7 좌석별 U의 HOLD_LIMIT_EXCEEDED가 '팔린 좌석에 LIMIT'(명세 순서 위반)였나.
+    분모(리뷰 A7): 시나리오는 U를 R보다 LEAD_MS(1ms) **먼저** 보내므로 U가 R의 201을 받은 뒤에 나가는 일(기회)은 드물다 — 위반 0이 '순서를 지켰다'인지
+    '기회가 없었다'인지 가르려고 기회 수 u_after_r_201(+ 그 U의 코드 분포)과 시차 분포를 함께 낸다:
+      u_minus_r_sent_ms = U 보낸 시각 − 같은 좌석 R 보낸 시각(ms) · u_minus_r201_recv_ms = U 보낸 시각 − R 201 수신 시각(pos = 양수 = 기회 수와 같은 기준).
+    counter-upsert(매수 판정이 좌석보다 먼저 — U는 늘 HLE)가 양성 대조다: 기회가 있으면 그 기회는 전부 위반으로 잡혀야 한다.
     http_req_duration 행(hold — 태그 role·seat·t0 = 보낸 시각 ms, 값 = 지연 ms)과 hold_code 행(같은 태그 + code)을 (role, seat, t0)로 잇는다.
     - u_hle_after_r_201 = 같은 좌석 일반 사용자(R)의 201 응답을 k6가 **받은 시각**(t0 + 지연)이 U가 **보낸 시각**보다 앞인데 U가 HLE —
       좌석이 커밋된 뒤에 U가 읽었으므로 명세 순서라면 SEAT_NOT_AVAILABLE이어야 한다(확정 위반 — 하한: 받은 시각은 커밋보다 늦다)
@@ -425,14 +531,34 @@ def s7_order(csv_gz):
     by_seat = {}
     for key, code in codes:
         by_seat.setdefault(key[1], []).append((key, code))
-    after = with_r = 0
+    after = with_r = chance = 0
+    chance_codes = {}
+    sent_lag, recv_lag = [], []
     for seat, reqs in by_seat.items():
         r_done = [int(k[2]) + dur[k] for k, c in reqs if k[0] == "R" and c == "OK" and k in dur]
+        r_sent = [int(k[2]) for k, c in reqs if k[0] == "R"]
         for k, c in reqs:
-            if k[0] == "U" and c == "HOLD_LIMIT_EXCEEDED":
+            if k[0] != "U":
+                continue
+            u0 = int(k[2])
+            sent_lag += [u0 - t for t in r_sent]
+            recv_lag += [u0 - t for t in r_done]
+            # 기회(분모 — 리뷰 A7) = U를 보낸 시각이 같은 좌석 R의 201 수신 뒤였던 U 요청: 명세 순서라면 SEAT_NOT_AVAILABLE이어야 하는 요청 전부
+            if any(t < u0 for t in r_done):
+                chance += 1
+                chance_codes[c] = chance_codes.get(c, 0) + 1
+            if c == "HOLD_LIMIT_EXCEEDED":
                 with_r += bool(r_done) or any(kk[0] == "R" and cc == "OK" for kk, cc in reqs)
-                after += any(t < int(k[2]) for t in r_done)
-    return {"u_hle_after_r_201": after, "u_hle_r_201": with_r}
+                after += any(t < u0 for t in r_done)
+
+    def dist(xs):
+        if not xs:
+            return None
+        xs = sorted(xs)
+        return {"n": len(xs), "min": round(xs[0], 1), "p50": round(xs[len(xs) // 2], 1), "max": round(xs[-1], 1), "pos": sum(1 for x in xs if x > 0)}
+    return {"u_hle_after_r_201": after, "u_hle_r_201": with_r,
+            "u_after_r_201": chance, "u_after_r_201_codes": chance_codes,
+            "u_minus_r_sent_ms": dist(sent_lag), "u_minus_r201_recv_ms": dist(recv_lag)}
 
 
 def timer(t):
@@ -613,7 +739,10 @@ def rep_record(rep_dir, root, level, cell):
         rec["limits"] = s4_limits(rec["stages"])
     if base.startswith("S4c") and summ:   # 고정 도착률 — 구간표만(한계 규칙 없음, 머리말)
         rec["stages"] = stage_table(summ, aborted=False)
-        rec["fixed"] = fixed_summary(rec["stages"], summ.get("step_seconds", 30))
+        raw = fixed_csv(rep_dir / "k6-requests.csv.gz", summ, rec["stages"])
+        rec["fixed"] = fixed_summary(rec["stages"], summ.get("step_seconds", 30), raw)
+        if raw is None:
+            rec["codes_error"] = "고정 셀 원시 집계 실패(k6-requests.csv.gz 없음·깨짐) — 코드 0·dropped·p99(코드 0 제외) 미측정"
     if base.startswith("S3"):
         rec["curve"] = s3_curve(rep_dir, meta, root, level, cell) or {}
     if base.startswith("S6") and summ:
@@ -622,11 +751,17 @@ def rep_record(rep_dir, root, level, cell):
         rec["duplicate"] = sum(1 for _, kind in events if kind == "duplicate")
     if base in ("S2", "S7"):
         limit = cons.get("max_per_user_limit", 2)
+        stats = {}
         try:
-            codes = hold_codes(rep_dir / "k6-requests.csv.gz")
+            codes = hold_codes(rep_dir / "k6-requests.csv.gz", stats)
         except (EOFError, OSError, ValueError, StopIteration) as e:
             codes, rec["codes_error"] = None, f"{type(e).__name__}: {e}"
         end = load(rep_dir / "end-state.json")
+        # 리뷰 A5: 행 수 = 요청 수 대조(rep_status hold-codes-mismatch와 같은 기준 — 여기서는 표의 비정상 열에도 드러낸다)
+        want = metric(summ, "hold_duration", "count", None)
+        rec["hold_code_rows"], rec["hold_code_malformed"] = len(codes or []), stats.get("malformed")
+        if codes is not None and (rec["hold_code_rows"] != want or stats.get("malformed")):
+            rec["codes_error"] = f"hold_code 행 {rec['hold_code_rows']}(깨진 행 {stats.get('malformed')}) ≠ 요청 {want}"
         if codes is None:
             rec.setdefault("codes_error", "hold_code 행 없음")
         elif base == "S2":
@@ -646,7 +781,11 @@ def rep_record(rep_dir, root, level, cell):
     rec["hikari_pending_max"], rec["hikari_samples"] = timeline_max(rep_dir / "timeline-hikari.jsonl", "pending", window)
     # ADR-007: DB 설정 적용값(SHOW)·k6 구간 대기 이벤트 분포
     rec["pg_preset"], rec["pg_applied"] = meta.get("pg_preset"), meta.get("pg_applied")
-    rec["waits_top"], rec["waits_samples"] = waits_top(rep_dir / "timeline-waits.jsonl", window)
+    # 서버 − PC 시계 차(리뷰 A3 — run.sh가 k6 앞·뒤에 잰 값의 평균, 없으면 0)
+    clk = [x["offset_s"] for x in ((meta.get("clock_offset") or {}).get("before"), (meta.get("clock_offset") or {}).get("after"))
+           if isinstance(x, dict) and isinstance(x.get("offset_s"), (int, float))]
+    rec["clock_offset_s"] = sum(clk) / len(clk) if clk else None
+    rec["waits_top"], rec["waits_samples"] = waits_top(rep_dir / "timeline-waits.jsonl", window, off=rec["clock_offset_s"] or 0.0)
     # 순간 표본이 k6 구간 안에 MIN_SAMPLES개 미만이면 그 최대값은 '미측정' — 0으로 읽히지 않게(S1 버스트는 2초 안팎, 리뷰 지적)
     for key, n in (("lock_waiting_max", "lock_waiting_samples"), ("hikari_pending_max", "hikari_samples")):
         if rec[n] < MIN_SAMPLES:
@@ -812,18 +951,27 @@ def main(root):
         ok = [r for r in reps if r["status"] == "ok"]
         bad = ", ".join(f'{r["rep"]}:{r["status"]}' for r in reps if r["status"] != "ok") or "-"
         fx = lambda key: spread([(r.get("fixed") or {}).get(key) for r in ok])
-        lines.extend([f"## {cell} 고정 도착률 — 30초 구간별 (한계 규칙 없음 · 목표 미달 = 실제 도착 < 0.9 × 목표)", "",
-                      f"> {level} · n = {len(ok)} · 전체 성공 RPS {fx('ok_rps_total')} · 전체 도착 RPS {fx('achieved_rps_total')} · 목표 미달 구간 수 {fx('under_delivered_intervals')}"
-                      f" · 첫 목표 미달 구간 {fx('first_under_delivered')} · 가장 나쁜 구간 p99 ms {fx('worst_p99_ms')} · k6 미시작(dropped) {g(ok, 'dropped')}"
+        bad += "".join(f', {r["rep"]}:codes-error({r["codes_error"]})' for r in ok if r.get("codes_error"))
+        rmp = lambda key: spread([((r.get("fixed") or {}).get("ramp") or {}).get(key) for r in ok])
+        lines.extend([f"## {cell} 고정 도착률 — 30초 구간별 (한계 규칙 없음 · 목표 미달 = 실제 도착 < 0.9 × 목표 · 램프 제외)", "",
+                      "> status `ok` = 회차가 유효하다(계획 구간을 다 돌았다)는 뜻이지 목표를 냈다는 뜻이 아니다 — 무너짐 자체가 측정값이다(리뷰 A6). 목표 달성은 도착/목표·dropped·코드 0 열로 본다.",
+                      "> p99(코드 0 제외) = 코드 0(요청 타임아웃·연결 실패·끊김) 행을 뺀 p99 — k6 요약 p99는 코드 0의 0에 가까운 지연을 섞어 낮게 나온다(리뷰 A12, `fixed_csv`). "
+                      "dropped = k6가 VU가 없어 시작하지 못한 반복(구간 = 램프 끝 기준 30초, ±1초).", "",
+                      f"> {level} · n = {len(ok)} · 전체 성공 RPS {fx('ok_rps_total')} · 전체 도착 RPS {fx('achieved_rps_total')} · 도착/목표 {spread([(r.get('fixed') or {}).get('achieved_ratio_total') for r in ok], 3)}"
+                      f" · 목표 미달 구간 수 {fx('under_delivered_intervals')} · 첫 목표 미달 구간 {fx('first_under_delivered')}"
+                      f" · 가장 나쁜 구간 p99 ms(코드 0 제외) {fx('worst_p99_nz_ms')} · (k6 요약 p99 {fx('worst_p99_ms')}) · 구간 코드 0 {fx('status0')} ({spread([(r.get('fixed') or {}).get('status0_share') for r in ok], 4)})"
+                      f" · 구간 dropped {fx('dropped_hold')} · k6 dropped 전체(램프 포함) {g(ok, 'dropped')}"
+                      f" · 램프 {spread([(r.get('fixed') or {}).get('ramp_s') for r in ok])}초 요청 {rmp('requests')} · 코드 0 {rmp('status0')} · dropped {rmp('dropped')}"
                       f" · 풀 타임아웃 {g(ok, 'pool_timeouts')} · 커넥션 획득 대기 평균 ms {g(ok, 'acquire_mean_ms')} · 체크포인트 수 {g(ok, 'io_checkpoints')} · 비정상 회차 {bad}", "",
-                      "| 구간 | 시작 초 | 목표/s | 실제 도착/s | 성공/s | p99 ms | 에러율 | 목표 미달 회차 |", "|---|---|---|---|---|---|---|---|"])
+                      "| 구간 | 시작 초(램프 끝 기준) | 목표/s | 실제 도착/s | 도착/목표 | dropped | 성공/s | p99 ms(코드 0 제외) | 코드 0 비율 | 코드 0 수 | k6 요약 p99 ms | 에러율 | 목표 미달 회차 |",
+                      "|---|---|---|---|---|---|---|---|---|---|---|---|---|"])
         nst = max((len(r.get("stages") or []) for r in ok), default=0)
         for i in range(nst):
             st = [r["stages"][i] for r in ok if len(r.get("stages") or []) > i]
-            q = lambda key: spread([x[key] for x in st])
+            q = lambda key, d=None: spread([x.get(key) for x in st], d)
             step = 30
-            lines.append(f"| {i} | {i * step} | {q('target_rps')} | {q('achieved_rps')} | {q('ok_rps')} | {q('p99_ms')} | {q('error_rate')} | "
-                         f"{sum(1 for x in st if x['under_delivered'])}/{len(st)} |")
+            lines.append(f"| {i} | {i * step} | {q('target_rps')} | {q('achieved_rps')} | {q('achieved_ratio', 3)} | {q('dropped')} | {q('ok_rps')} | {q('p99_nz_ms')} | "
+                         f"{q('status0_share', 4)} | {q('status0')} | {q('p99_ms')} | {q('error_rate')} | {sum(1 for x in st if x['under_delivered'])}/{len(st)} |")
         lines.append("")
 
     # ---- ADR-007 DB 설정 적용값·대기 이벤트(k6 구간 평균 활성 세션 수 상위 5) — 회차별 ----
@@ -835,7 +983,9 @@ def main(root):
             if r["status"] == "미측정":
                 continue
             pa = r.get("pg_applied") or {}
-            top = "; ".join(f"{k} {v:.2f}" for k, v in (r.get("waits_top") or [])) or "미측정"
+            # 표본 0개(표본이 k6 구간에 하나도 없음) ≠ 표본은 있는데 활성 세션이 없었음(리뷰 A10)
+            wt = r.get("waits_top")
+            top = "표본 없음" if wt is None else ("; ".join(f"{k} {v:.2f}" for k, v in wt) or "활성 세션 없음(표본 있음)")
             lines.append(f"| {level} | {cell} | {r['rep']} | {r['status']} | {r.get('pg_preset') or '-'} | {pa.get('checkpoint_timeout', '-')} | {pa.get('max_wal_size', '-')} | "
                          f"{pa.get('shared_buffers', '-')} | {r.get('waits_samples', 0)} | {top} |")
     lines.append("")
@@ -870,4 +1020,6 @@ if __name__ == "__main__":
         sys.exit(s4_check(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--fixed-check":
         sys.exit(fixed_check(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] == "--codes-check":
+        sys.exit(codes_check(sys.argv[2]))
     main(sys.argv[1])
