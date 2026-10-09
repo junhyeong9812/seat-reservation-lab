@@ -21,6 +21,7 @@
 | 10-09 11:49 | 사용자 선택 '중단 후 원본 복원' → 유닛 정지, advisory-try-s3a20 rep1(재측정 완료)·rep2(부분)를 `_aborted-remeasure-20261009/`로, `.retry-*` 원본을 rep1·rep2로 되돌림 | 삭제 없음 |
 | 10-09 11:51 | run.sh if 블록으로 수정(fbaaf815) — S3·ratio 5 → 0건, S4·ratio 5 → 1건 확인. S3 9회차 status를 ok로 정정(status.orig·meta.status_corrected·CAMPAIGN.log 행 남김). 다른 사유 없었음 | 84회차 전부 ok |
 | 10-09 11:55 | summarize·errsplit 9조건 + compare 실행 → COMPARISON.md | 오류 0 · 분석 착수 |
+| 10-09 12:40 | 분석: counter-upsert S4 L4 엄격 한계 2,866(3/5)·포화점 4,143 vs 4,300. 초 단위로 보면 11단계(4,325/s)를 26~27초 p99 5~17ms로 버티다 10회 전부 같은 초에 붕괴(L2=L4 → CPU 무관, 누적 약 37만 건). L2에서는 none·advisory-try보다 높음(4,121 vs 3,674·3,533, CPU 150% vs 206%). I/O: WAL +21%·extends +44%·backend 쓰기 +27%. 원인 미확정(대기 이벤트 미수집) → s4_wall.py(0a87aadd)·결과 커밋(3cb27e2d, 원시 CSV 제외 .gitignore) | ADR-006 §5·§6(제안 A 조건부) 초안 → 문서 듀얼 1패스 |
 
 ## 리뷰 ledger (中↑)
 
