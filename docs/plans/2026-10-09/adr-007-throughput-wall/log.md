@@ -17,6 +17,9 @@
 | 10-09 16:55 | post-fix 타깃 재점검 + 종합 감사 codex 1회(medium, rv7b 미러 — fix diff·1패스 원문·채택표) 백그라운드 | 진행 중 |
 | 10-09 17:00 | post-fix 재점검 + 종합 감사 회수(codex) — A1~A3·A5·A6·A8~A14 fixed, A4 부분(과도 미종료 분기), A7 기회 0, 신규 N1(램프 뒤 누적 시각 설명), 감사: R1·R2 기각 근거 불충분 → 채택으로 번복. 사용자 결정(AskUserQuestion): **"늦게 보내는 셀 추가"** → spec 재합의 기록(§9.2·⑥, 117회), ADR-007 §4·§5·§5.1 갱신 | 재합의 |
 | 10-09 17:05 | task 04 fix2 같은 워커에 이어 위임 — S7-m1-late · A4 잔여 · N1 · R1·R2 보강 + smoke3(S7-m1-late × 3방식, S2 1) | 회수 대기 |
+| 10-09 18:39 | fix2 회수(같은 워커) — 952d2cf3: S7-m1-late(같은 VU가 R 응답 뒤 U · 기회는 구성상 `order=after_r`) · A4 잔여 · N1(`cum370k_s`) · R1(원격 루프 `kill -0 $PPID`·출력 실패 시 종료) · R2(사본 이름 시도마다·삭제 실패 사유). 오프라인: dry-run 117 · 판정식 69/69(픽스처 복사 — 심링크 금지) · ADR-006 wall 30/30·SUMMARY 동일. smoke3 4종 ok. 메인 재확인: summary.json 기회/위반 none 100/0 · counter-upsert 100/100 · precheck 100/0, ADR-006 tracked 변경 0 | — |
+| 10-09 18:45 | post-fix 재점검 2(codex, rv7c) — A4·A7·N1·R1·R2 fixed, 신규 N2(회전 균형). 메인 전수 계산: 13묶음은 폭 1~12 어느 것도 균형 불가, 12묶음 × 4는 가능 → S7-m1+S7-m1-late 한 묶음(ea8b85cc). dry-run 117, 12묶음 전부 앞·가운데·뒤 각 1회, 조건 39 × 3. N2는 메인 수정 — 1줄 범위라 별도 재점검 없이 dry-run 검산으로 확인. codex OQ(SSH 비정상 종료 현장 재현)는 원격 시험 1회(워커)로 갈음 | 리뷰 종료 |
+| 10-09 18:50 | **본측정 시작**: `systemd-run --user --unit seatlab-adr007 -p Restart=on-failure` campaign.sh --sha ea8b85cc --id 20261009-adr007-ea8b85cc · 39조건 × 3 = 117 · linger 꺼짐(로그아웃 시 정지) · 노트북 여유 19G(ADR-006 84회 1.6G). S4c2000은 본측정 첫 회차가 첫 실측(스모크 없음) — 첫 회차 결과 확인 예정 | 약 15h 추정 |
 
 ## 리뷰 ledger (中↑)
 
@@ -25,10 +28,10 @@
 | A1 | 1 | opus F1 | k6/ADR-007/scripts/wall.py:124-127 | 채택 — 계단 벽 창이 11단계 [시작,370)에 고정 → 밀린 벽·이른 붕괴·벽 없음이 모두 '-' | fixed |  1 |
 | A2 | 1 | codex F2 + opus F4 | wall.py:131-132 · compare.py:338-344 | 채택 — 과도 미종료(settle None)가 '벽 없음'과 같은 '-' | fixed |  1 |
 | A3 | 1 | opus F3 | wall.py:148 · lib.sh:132 | 채택 — 벽 시각(PC 시계)과 표본·DB 로그(서버 시계) 시계 차 미측정 | fixed |  1 |
-| A4 | 1 | codex F3 | run.sh:595 · wall.py:92 | 채택 — 벽 ±3초 표본 부족이 회차 판정에 없음 | open(부분 — 과도 미종료 분기 누락, post-fix 재점검) | |
+| A4 | 1 | codex F3 | run.sh:595 · wall.py:92 | 채택 — 벽 ±3초 표본 부족이 회차 판정에 없음 | fixed |  1b |
 | A5 | 1 | codex F4 | summarize.py:303 | 채택 — S2·S7 hold_code 행 수를 요청 수와 대조하지 않음 | fixed |  1 |
 | A6 | 1 | codex F1 | summarize.py:157 | 부분 채택 — status ok는 회차 유효성(붕괴 자체가 측정값)이라 유지, 비교표에 드롭·달성률 표기 | fixed |  1 |
-| A7 | 1 | opus F2 | summarize.py:398-437 · s7-winner-rollback.js:63 | 채택 — S7 순서 위반 지표에 기회 수(분모) 없음, H6 반증 기준이 틈 포함 지표에 묶임 | open(분모 추가됐으나 기회 0 — 사용자 결정 S7-m1-late) | |
+| A7 | 1 | opus F2 | summarize.py:398-437 · s7-winner-rollback.js:63 | 채택 — S7 순서 위반 지표에 기회 수(분모) 없음, H6 반증 기준이 틈 포함 지표에 묶임 | fixed |  1b |
 | A8 | 1 | opus F5 | UserLimitStrategyTest.kt:338-389 | 채택 — precheck에 동시 새 사용자 경합(카운터=성공 수)·prepare 타이머 0 계약 없음 | fixed |  1 |
 | A9 | 1 | opus F6 | results/smoke-*/pg-settings.json | 채택 — buf512 실측 스모크 없음 | fixed |  1 |
 | A10 | 1 | opus F7 | run.sh:346 · gapcheck.py:28-29 · summarize.py:838 | 채택 — 짧은 셀 k6 구간 표본 0 미검출·대기 시간 초과 무기록·'미측정' 표기 혼동 | fixed |  1 |
@@ -36,9 +39,10 @@
 | A12 | 1 | opus OQ3 → main-synthesis | wall.py:115-117 · summarize 구간표 | 채택 — status 0(타임아웃) 지연이 ≈0으로 기록돼 초별 p99 과소 | fixed |  1 |
 | A13 | 1 | opus OQ4 → main-synthesis | scenarios/s4-throughput.js(S4c) · run.sh | 채택 — 고정 셀 0초부터 목표 도착률 → VU 10,000·타임아웃 지속, 고정 셀 측정 오염 | fixed |  1 |
 | A14 | 1 | codex OQ | wall.py:137 · run.sh 회차 판정 | 채택 — nockpt 회차마다 k6 구간 체크포인트 0을 판정에 넣지 않음 | fixed |  1 |
-| R1 | 1 | opus OQ2 | run.sh:269-275 · lib.sh:132-135 | 기각 → **감사로 번복: 채택** — 0건 관측은 실패 경로 안전성을 입증하지 못함(원격 루프 종료 조건 없음) | open | |
-| R2 | 1 | opus OQ6 | run.sh:229-250 | 기각 → **감사로 번복: 채택** — 사본 삭제 실패가 무시되고 경로가 재사용됨 | open | |
-| N1 | 1 | codex post-fix | run.sh:199-204 · README.md:71 | 채택 — 램프 뒤에도 누적 37만 도달을 88·185초로 설명(계획 기준 약 118·214초) | open | |
+| R1 | 1 | opus OQ2 | run.sh:269-275 · lib.sh:132-135 | 기각 → **감사로 번복: 채택** — 0건 관측은 실패 경로 안전성을 입증하지 못함(원격 루프 종료 조건 없음) | fixed |  1b |
+| R2 | 1 | opus OQ6 | run.sh:229-250 | 기각 → **감사로 번복: 채택** — 사본 삭제 실패가 무시되고 경로가 재사용됨 | fixed |  1b |
+| N1 | 1 | codex post-fix | run.sh:199-204 · README.md:71 | 채택 — 램프 뒤에도 누적 37만 도달을 88·185초로 설명(계획 기준 약 118·214초) | fixed |  1b |
+| N2 | 1b | codex post-fix 2 | campaign.sh:91-98 | 채택 — 13묶음 × 5칸 회전은 묶음마다 앞·가운데·뒤 1/3을 한 번씩 맡지 못함(어떤 폭도 불가 — 메인 전수 계산) → S7 두 셀을 한 묶음으로, 12 × 4칸 | fixed | 1b |
 | Q1 | 1 | opus OQ5 | wall.py:13-17 | open question → 사용자 보고(고정 셀 벽 = 과도 뒤 벽 — PM 결정, A13 램프 도입 후 재판단) | — | |
 
 ## 생략한 검증
