@@ -1,0 +1,32 @@
+| 조건 | 단계 | 회차 | 11단계 시작 초 | 무너진 초 | 차이 s |
+|---|---|---|---|---|---|
+| advisory-try-s24 | L2 | rep1 | 331 | 334 | 3 |
+| advisory-try-s24 | L2 | rep2 | 330 | 332 | 2 |
+| advisory-try-s24 | L2 | rep3 | 331 | 333 | 2 |
+| advisory-try-s24 | L2 | rep4 | 331 | 333 | 2 |
+| advisory-try-s24 | L2 | rep5 | 331 | 333 | 2 |
+| advisory-try-s24 | L4 | rep1 | 331 | 363 | 32 |
+| advisory-try-s24 | L4 | rep2 | 331 | 362 | 31 |
+| advisory-try-s24 | L4 | rep3 | 329 | 361 | 32 |
+| advisory-try-s24 | L4 | rep4 | 329 | 329 | 0 |
+| advisory-try-s24 | L4 | rep5 | 331 | 361 | 30 |
+| counter-upsert-s24 | L2 | rep1 | 330 | 356 | 26 |
+| counter-upsert-s24 | L2 | rep2 | 331 | 357 | 26 |
+| counter-upsert-s24 | L2 | rep3 | 331 | 357 | 26 |
+| counter-upsert-s24 | L2 | rep4 | 330 | 357 | 27 |
+| counter-upsert-s24 | L2 | rep5 | 331 | 358 | 27 |
+| counter-upsert-s24 | L4 | rep1 | 330 | 357 | 27 |
+| counter-upsert-s24 | L4 | rep2 | 331 | 357 | 26 |
+| counter-upsert-s24 | L4 | rep3 | 331 | 358 | 27 |
+| counter-upsert-s24 | L4 | rep4 | 331 | 358 | 27 |
+| counter-upsert-s24 | L4 | rep5 | 331 | 357 | 26 |
+| none-s24 | L2 | rep1 | 331 | 340 | 9 |
+| none-s24 | L2 | rep2 | 331 | 333 | 2 |
+| none-s24 | L2 | rep3 | 330 | 338 | 8 |
+| none-s24 | L2 | rep4 | 331 | 336 | 5 |
+| none-s24 | L2 | rep5 | 331 | 332 | 1 |
+| none-s24 | L4 | rep1 | 331 | 362 | 31 |
+| none-s24 | L4 | rep2 | 329 | 361 | 32 |
+| none-s24 | L4 | rep3 | 331 | 362 | 31 |
+| none-s24 | L4 | rep4 | 331 | 364 | 33 |
+| none-s24 | L4 | rep5 | 331 | 362 | 31 |
