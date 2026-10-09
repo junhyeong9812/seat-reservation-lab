@@ -4,7 +4,7 @@
 #
 #   scripts/run.sh --sha <SHA> [--limit-strategy none] [--pg-preset default] [--strategy pessimistic-nowait] [--pool 10] [--levels "2 4"] [--reps 5] [--cells "S2 S4 S3 S7"] [--id <matrix-id>] [--only-rep k]
 #   --pg-preset default|nockpt|buf512 — DB 기동 인자(ADR-007 설정 축, preset_env). 회차마다 실제 값을 SHOW로 읽어 pg-settings.json·meta.json에 남기고 preset과 다르면 status에 사유
-#   셀 S4c4200·S4c2000 = S4 시나리오를 고정 도착률(그 값/s × 30초 × 12구간 = 6분, FACTOR=1)로 — 판정은 정상 종료만(한계 규칙 없음)
+#   셀 S4c4200·S4c2000 = S4 시나리오를 고정 도착률(램프 60초 50/s → 그 값/s 뒤 30초 × 12구간 = 6분, FACTOR=1)로 — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-007)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
 #               --inject-limit-strategy <값> — (--worktree에서만) 앱에 계획과 다른 매수 방식을 주입해 limit-strategy-mismatch 판정을 실증한다
 #   scripts/run.sh --sha <SHA> --id <matrix-id> --resume [--only-rep k]   # 이어서 (계획은 기존 plan.json)
@@ -197,8 +197,10 @@ k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전�
     S3B) echo "RATE=3000 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=3 THINK_MAX_S=24 TAIL_S=36 ABANDON=$ab" ;;
     S4)  echo "START_RATE=50 FACTOR=1.5 STEPS=16 STEP_S=30" ;;   # ADR-002 13단계(6,487)에서 한계 미관측 → 16단계(약 2.2만/s)
     # ADR-007 고정 도착률(명세 §9.2 — 지속성·누적 vs 시각): 같은 시나리오를 FACTOR=1로 — 12구간 × 30초 = 6분, 구간 = stage 태그(요약기 30초 구간표).
-    # 좌석 = 반복 번호라 누적 요청 4,200 × 360 = 151.2만 < 시드 200만 석(seed_of). 에러율 중단(abortOnFail)은 끈다 — 무너진 뒤의 회복·지속을 끝까지 본다
-    S4c*) echo "START_RATE=${base#S4c} FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0" ;;
+    # 리뷰 A13: 앞에 램프 60초(계단 시작 도착률 50/s → 목표, 선형 — stage 태그 'ramp', 구간표·판정·벽 분석 밖)를 둔다. 0초부터 목표를 걸면 기동 과도에 VU가 10,000까지 늘어
+    # 6분 내내 request timeout·dial i/o timeout이 남았다(스모크 smoke-b). 좌석 = 반복 번호라 누적 요청 = 램프 (50 + 4,200) ÷ 2 × 60 = 12.75만 + 4,200 × 360 = 151.2만
+    # = 163.95만 < 시드 200만 석(seed_of). 에러율 중단(abortOnFail)은 끈다 — 무너진 뒤의 회복·지속을 끝까지 본다
+    S4c*) echo "START_RATE=${base#S4c} FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50" ;;
     S6-k*) echo "K=${base#S6-k} M=20 START_RATE=200 FACTOR=2 STEPS=5 STEP_S=30 NEIGHBOR_RATE=500" ;;   # 핫 200→3,200/s + 이웃 500/s
     S7)  local m=20; [[ "$cell" == *-m* ]] && m="${cell##*-m}"
          echo "SEATS=100 M=$m LEAD_MS=1 GAP_MS=50 START_DELAY_MS=3000" ;;   # ADR-005 이긴 쪽 롤백 — 설계 근거 README. S7-m1 = 일반 1명(빈 좌석 비율을 직접)
@@ -263,13 +265,21 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
       sleep 5
     done ) > /dev/null 2>&1 & echo $!
   # 락 대기(ADR-003 ④) + 대기 이벤트(ADR-007): 서버 쪽 루프가 0.5초마다 두 줄 — SSH 하나·psql 호출 하나(lib.sh db_sampler).
-  # 줄의 키로 나눠 쓴다(락 = lock_waiting, 대기 이벤트 = waits). 버퍼링 없이 줄마다 내보낸다 — 아래 '표본이 나온 뒤 부하' 대기가 파일 크기를 본다
-  # SSH가 끝나면(스모크 실측 2026-10-09: k6 +261초에 표본이 끊기고 다시 나오지 않았다 — 원인 미확정) 1초 뒤 다시 연다. 끝날 때마다 errors.log에 한 줄
-  # (무음 공백 금지 — 공백이 30초를 넘으면 rep_status waits-gap). 정리는 아래 stop_pollers가 루프와 그 자식(ssh·awk)을 함께 끈다
+  # 줄의 키로 나눠 쓴다(락 = lock_waiting, 대기 이벤트 = waits). 줄마다 바로 파일에 쓴다 — 아래 '표본이 나온 뒤 부하' 대기가 파일 크기를 본다.
+  # 받는 쪽은 bash `read` 루프다: bash는 파이프 입력을 한 바이트씩 읽어 줄이 오는 즉시 쓰고, 프로세스가 꺼질 때 버퍼에 남는 줄이 없다.
+  # (ADR-007 리뷰 A11: 이전의 awk는 이 PC에서 mawk 1.3.4라 파이프 **입력**을 큰 덩어리로 블록 버퍼링했다 — fflush는 출력만 비운다. 줄이 덩어리째 늦게 오고
+  #  회차 끝에 루프를 끄면 마지막 덩어리가 사라졌다 = 스모크의 '흘려받기가 k6 +240~261초에 멈춤'·'S2 0줄'. 0.1초마다 600바이트 줄 재현: mawk 2초 뒤 0줄 · 이 루프 20줄+.
+  #  스모크 errors.log에 'db_sampler ended'는 0건 — SSH가 끊긴 것이 아니었다.)
+  # SSH가 끝나면 1초 뒤 다시 연다 — 위 원인과 무관한 무해한 보조 장치로 남긴다. 끝날 때마다 errors.log에 한 줄(무음 공백 금지 — 공백이 30초를 넘으면 rep_status waits-gap).
+  # 서버 사본 복구(recover_samples)도 보조 장치로 유지한다. 정리는 아래 stop_pollers가 루프와 그 자식(ssh·read 루프)을 함께 끈다
   ( while :; do
       db_sampler "$SAMPLER_COPY" 2>/dev/null < /dev/null \
-        | awk -v locks="$dir/timeline-locks.jsonl" -v waits="$dir/timeline-waits.jsonl" \
-            'index($0, "\"lock_waiting\"") { print >> locks; fflush(locks); next } index($0, "\"waits\"") { print >> waits; fflush(waits) }'
+        | while IFS= read -r line; do
+            case "$line" in
+              *'"lock_waiting"'*) printf '%s\n' "$line" >> "$dir/timeline-locks.jsonl" ;;
+              *'"waits"'*) printf '%s\n' "$line" >> "$dir/timeline-waits.jsonl" ;;
+            esac
+          done
       echo "$(date -Is) db_sampler ended rc=${PIPESTATUS[0]}/${PIPESTATUS[1]} — reopen in 1s" >> "$dir/errors.log"
       sleep 1
     done ) > /dev/null 2>&1 & echo $!
@@ -342,8 +352,10 @@ run_rep() {  # 인자: level cell rep
   pg_settings > "$dir/pg-settings.json" 2>>"$dir/errors.log" || echo "pg_settings failed" >> "$dir/errors.log"
   SAMPLER_COPY="$(sampler_copy_of "$level" "$cell" "$rep")"
   local pids; pids=$(start_pollers "$dir" "$cell")
-  # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적)
-  local w; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && break; sleep 0.5; done
+  # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적).
+  # 15초 안에 안 나오면 그대로 부하를 걸되 errors.log에 한 줄 남긴다(ADR-007 리뷰 A10 — 무음 금지. 짧은 셀은 rep_status waits-none-in-k6가 회차를 실패로 드러낸다)
+  local w waited=0; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && { waited=1; break; }; sleep 0.5; done
+  (( waited )) || echo "$(date -Is) samples-before-load timeout: timeline-locks.jsonl 15s 동안 비어 있음 — 표본 없이 부하 시작" >> "$dir/errors.log"
   # ADR-006 I/O 스냅숏(직전): PostgreSQL 백엔드는 누적 통계를 바로 공유 메모리에 내지 않는다(PG15+ — 마지막 반영 1초 뒤 · 쉬면 최대 10초 뒤).
   # 시드(대량 INSERT)의 통계가 부하 구간 차분에 섞이지 않게 시드 끝에서 IO_SETTLE_S(기본 11초)가 지난 뒤 읽는다(앱 누적 지표 직전 값보다 먼저 — 그 사이 만료 배치의 커넥션 획득이 빌림 수에 섞이지 않게) — 앞 단계가 이미 그만큼 걸렸으면 기다리지 않는다
   local wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - seed_done) )); (( wait_io > 0 )) && sleep "$wait_io"
@@ -353,6 +365,8 @@ run_rep() {  # 인자: level cell rep
   app_counters "$dir/before-k6.json" 2>>"$dir/errors.log"
 
   local k6env; k6env=$(k6_env_of "$cell")
+  # ADR-007 리뷰 A3: 서버 − PC 시계 차를 k6 바로 앞·바로 뒤에 잰다(lib.sh clock_offset) — wall.py·summarize.py가 서버 시계 시각(대기 표본·DB 로그)을 PC 시계로 옮긴다
+  local clk_before clk_after; clk_before=$(clock_offset 2>>"$dir/errors.log")
   local dash=()
   [[ "$base" != S1 && "$base" != S2 && "$base" != S7 ]] && dash=(K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=-1 "K6_WEB_DASHBOARD_EXPORT=$dir/k6-dashboard.html")
   local k6_started; k6_started=$(date -Is)
@@ -361,6 +375,9 @@ run_rep() {  # 인자: level cell rep
   local k6_exit=$?
   local k6_ended; k6_ended=$(date -Is)
   local k6_done=$SECONDS
+  clk_after=$(clock_offset 2>>"$dir/errors.log")
+  jq -n --argjson b "${clk_before:-null}" --argjson a "${clk_after:-null}" '{before:$b, after:$a}' > "$dir/clock-offset.json" \
+    || echo '{"before":null,"after":null}' > "$dir/clock-offset.json"
   after_k6 "$dir" "$deadlocks0" 2>>"$dir/errors.log" || echo "after_k6 failed" >> "$dir/errors.log"
   # ADR-006 I/O 스냅숏(직후): 같은 이유로 k6 끝에서 IO_SETTLE_S가 지난 뒤(after_k6 조회 시간을 빼고 남은 만큼만 기다린다)
   wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - k6_done) )); (( wait_io > 0 )) && sleep "$wait_io"
@@ -592,10 +609,49 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   fi
   # 측정 중 k6 PC~서버 경로 단절(ADR-002 A2): 서버 지표 수집 공백이 30초를 넘으면 그 회차는 재측정 대상
   if ! python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log"; then reasons+=("path-gap"); fi
-  # ADR-007 대기 이벤트 표본 공백: k6 구간 안에서 표본 사이가 30초를 넘으면 벽 시각의 대기 분포를 낼 수 없다(같은 판정기 — '{"t"'로 시작하는 줄의 t).
+  # ADR-007 시계 차(리뷰 A3 — lib.sh clock_offset, k6 앞·뒤): 대기 표본·DB 로그(서버 시계)를 PC 시계로 옮기는 값. 둘 중 하나라도 없으면 clock-offset-missing,
+  # |차| > 0.5초면 clock-offset-large(벽 ±3초 창에 비해 크다 — 시계 동기화부터 본다). 평균을 아래 표본 판정에 쓴다(없으면 0)
+  local clk_off=0
+  if jq -e '(.before.offset_s | type == "number") and (.after.offset_s | type == "number")' "$dir/clock-offset.json" > /dev/null 2>&1; then
+    clk_off=$(jq -r '(.before.offset_s + .after.offset_s) / 2' "$dir/clock-offset.json")
+    if jq -e '[.before.offset_s, .after.offset_s] | any(. > 0.5 or . < -0.5)' "$dir/clock-offset.json" > /dev/null 2>&1; then reasons+=("clock-offset-large"); fi
+  else
+    reasons+=("clock-offset-missing")
+  fi
+  # ADR-007 대기 이벤트 표본: k6 구간 안에서 표본 사이가 30초를 넘으면 벽 시각의 대기 분포를 낼 수 없다(같은 판정기 — '{"t"'로 시작하는 줄의 t, 서버 시각 − 시계 차) → waits-gap.
+  # k6 구간 안 표본이 하나도 없으면 waits-none-in-k6(리뷰 A10 — S2·S7은 k6가 몇 초라 30초 공백 판정으로는 못 잡는다; gapcheck exit 3).
   # 파일이 비어 있으면 위 missing-timeline-waits.jsonl이 이미 드러낸다
-  if [[ -s "$dir/timeline-waits.jsonl" ]] && ! python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-waits.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log"; then
-    reasons+=("waits-gap")
+  if [[ -s "$dir/timeline-waits.jsonl" ]]; then
+    python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-waits.jsonl" "$k6_started" "$k6_ended" 30 "$clk_off" 1 2>>"$dir/errors.log"
+    case $? in
+      0) ;;
+      1) reasons+=("waits-gap") ;;
+      3) reasons+=("waits-none-in-k6") ;;
+      *) reasons+=("waits-check-failed") ;;
+    esac
+  fi
+  # ADR-007 리뷰 A5: S2·S7 hold_code 행(요청 1건당 1행)이 선점 요청 수와 같고 깨진 행이 없나 — 빠지면 가짜 거절·명세 순서 위반이 조용히 줄어든다
+  if [[ "$base" == S2 || "$base" == S7 ]]; then
+    if ! python3 "$SUMMARIZE" --codes-check "$dir" 2>>"$dir/errors.log"; then reasons+=("hold-codes-mismatch"); fi
+  fi
+  # ADR-007 벽 판정(wall.py --rep-check — 코드 0 처리(리뷰 A12)가 들어간 같은 벽 정의):
+  #   벽이 있는데 벽 ±3초 대기 표본이 6개 미만(0.5초 표본이라 기대 약 12) → waits-thin-at-wall(리뷰 A4 — 벽 시각 대기 분포를 믿을 수 없다)
+  #   nockpt 조건에서 k6 구간과 겹친 체크포인트(shutdown 제외)가 있으면 checkpoint-during-k6(리뷰 A14 — 명세 §8 가정 1이 그 회차에서 깨졌다), DB 로그를 못 읽었으면 checkpoint-check-failed
+  if [[ "$base" == S4 || "$base" == S4c* ]]; then
+    local wj
+    if wj=$(python3 "$(dirname "$0")/wall.py" --rep-check "$dir" "$k6_started" "$k6_ended" 2>>"$dir/errors.log") && jq -e . <<< "$wj" > /dev/null 2>&1; then
+      echo "$wj" > "$dir/wall-check.json"
+      if jq -e '.wall_outcome == "wall" and .waits_samples < 6' <<< "$wj" > /dev/null; then reasons+=("waits-thin-at-wall"); fi
+      if [[ "$PG_PRESET" == nockpt ]]; then
+        if jq -e '.checkpoints_during_k6 == null' <<< "$wj" > /dev/null; then
+          reasons+=("checkpoint-check-failed")
+        elif jq -e '.checkpoints_during_k6 | length > 0' <<< "$wj" > /dev/null; then
+          reasons+=("checkpoint-during-k6")
+        fi
+      fi
+    else
+      reasons+=("wall-check-failed")
+    fi
   fi
   if [[ "$base" == S3* || "$base" == S4 || "$base" == S4c* || "$base" == S6* ]]; then
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
@@ -629,6 +685,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$(k6 version | head -1)" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
+        --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
           k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
           strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), delay_ms:($delay|tonumber), bg:0,
@@ -636,7 +693,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           applied:{strategy:$applied_seat, limit_strategy:$applied_lim},
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
-          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied}' > "$dir/meta.json"
+          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock}' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
 }
 

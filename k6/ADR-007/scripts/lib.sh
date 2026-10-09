@@ -126,10 +126,41 @@ actuator() {  # 인자: 경로
 #              몰아 반영하므로 진행 중 여부는 bg·DB 로그(log_checkpoints)로 본다
 # 받는 쪽(run.sh start_pollers)이 키로 나눠 timeline-locks.jsonl·timeline-waits.jsonl에 쓴다.
 # 인자: 서버 쪽 사본 경로(REMOTE_BASE 아래 — run.sh가 정한다). 서버도 같은 줄을 그 파일에 덧붙인다(tee -a) — 흘려받기가 도중에 끊겨도
-# 회차 끝에 서버 사본으로 timeline-locks/waits를 다시 만든다(run.sh recover_samples, 스모크 실측: k6 +260초 무렵부터 흘려받기만 멈춘 회차가 있었다).
+# 회차 끝에 서버 사본으로 timeline-locks/waits를 다시 만든다(run.sh recover_samples). 스모크에서 흘려받기만 k6 +240~261초에 멈춘 원인은 받는 쪽 mawk의
+# 파이프 입력 블록 버퍼링이었다(리뷰 A11 — run.sh start_pollers가 bash read 루프로 바꿨다). 서버 사본 복구는 보조 장치로 남긴다.
 db_sampler() {
   local copy="$1"
   remote "mkdir -p \"\$(dirname $copy)\" && while :; do docker exec seatlab-db-1 psql -U seat -d seat -tAc \"SELECT row_to_json(s) FROM (SELECT clock_timestamp() AS t, (SELECT count(*) FROM pg_locks WHERE NOT granted) AS lock_waiting, (SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock') AS lock_wait_sessions, (SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND datname = 'seat') AS active, (SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted) AS advisory_held) s UNION ALL SELECT row_to_json(w) FROM (SELECT clock_timestamp() AS t, (SELECT coalesce(json_object_agg(k, n), '{}') FROM (SELECT coalesce(wait_event_type, 'CPU') || ':' || coalesce(wait_event, '-') AS k, count(*) AS n FROM pg_stat_activity WHERE state = 'active' AND datname = 'seat' AND pid <> pg_backend_pid() GROUP BY 1) a) AS waits, (SELECT coalesce(json_object_agg(backend_type, coalesce(wait_event_type, 'CPU') || ':' || coalesce(wait_event, '-')), '{}') FROM pg_stat_activity WHERE backend_type IN ('checkpointer', 'walwriter', 'background writer', 'autovacuum worker')) AS bg, (SELECT row_to_json(b) FROM (SELECT checkpoints_timed, checkpoints_req, checkpoint_write_time, checkpoint_sync_time, buffers_checkpoint, buffers_clean, buffers_backend, buffers_backend_fsync, buffers_alloc FROM pg_stat_bgwriter) b) AS bgwriter) w\" 2>/dev/null | tee -a $copy; sleep 0.5; done"
+}
+
+# ADR-007 시계 차(리뷰 A3): 서버 시계 − k6 PC 시계(초). 벽 시각·k6 구간은 PC 시계(k6 CSV·date -Is), 대기 표본(clock_timestamp())·DB 로그는 서버 시계다.
+# SSH 연결 하나를 열어 둔 채(접속·인증 시간이 왕복에 섞이지 않게) 줄 하나를 보내고 서버가 date +%s.%N으로 답하게 5번 묻는다 —
+# 왕복이 가장 짧은 표본의 offset = 서버 시각 − (보낸 시각 + 받은 시각) / 2 (오차 ≤ 그 왕복 / 2 — rtt_s로 함께 남긴다). 출력 한 줄 JSON, 실패면 비어 있다
+clock_offset() {
+  python3 - "$SERVER" <<'PY'
+import json, subprocess, sys, time
+p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", sys.argv[1], "while read -r _; do date +%s.%N; done"],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+best = None
+try:
+    for _ in range(5):
+        t0 = time.time(); p.stdin.write("x\n"); p.stdin.flush()
+        line = p.stdout.readline(); t1 = time.time()
+        if not line.strip():
+            break
+        s = float(line)
+        if best is None or t1 - t0 < best[1]:
+            best = (s - (t0 + t1) / 2, t1 - t0, t0)
+except (OSError, ValueError):
+    best = None
+finally:
+    try:
+        p.stdin.close(); p.wait(timeout=10)
+    except Exception:
+        p.kill()
+if best:
+    print(json.dumps({"offset_s": round(best[0], 4), "rtt_s": round(best[1], 4), "at": best[2]}))
+PY
 }
 
 # ADR-007 DB 설정 실제 값(명세 §9.3 — SHOW와 같은 값: current_setting은 단위가 붙은 사람이 읽는 형태, 예 5min·1GB·128MB) — 한 줄 JSON
