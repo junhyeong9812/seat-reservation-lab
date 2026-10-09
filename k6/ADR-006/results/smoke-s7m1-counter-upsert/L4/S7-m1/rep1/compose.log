@@ -1,0 +1,98 @@
+[2026-10-09 01:45:11] compose down (6be8a410-wt-054f44d8)
+[2026-10-09 01:45:12] compose up (6be8a410-wt-054f44d8) HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait SEAT_HOLD_LIMIT_STRATEGY=counter-upsert FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms APP_CPUS=4 DB_CPUS=4 (attempt 1)
+ Image seatlab-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 552B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 558B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/eclipse-temurin:21-jdk
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#4 DONE 0.9s
+
+#3 [internal] load metadata for docker.io/library/eclipse-temurin:21-jdk
+#3 DONE 0.9s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 76B done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 DONE 0.0s
+
+#7 [build 1/7] FROM docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b
+#7 resolve docker.io/library/eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b 0.1s done
+#7 DONE 0.1s
+
+#8 [stage-1 1/3] FROM docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#8 resolve docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+#8 resolve docker.io/library/eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5 0.1s done
+#8 DONE 0.1s
+
+#6 [internal] load build context
+#6 transferring context: 218.12kB done
+#6 DONE 0.1s
+
+#9 [build 3/7] COPY gradlew settings.gradle.kts build.gradle.kts ./
+#9 CACHED
+
+#10 [build 6/7] COPY src src
+#10 CACHED
+
+#11 [build 4/7] COPY gradle gradle
+#11 CACHED
+
+#12 [build 5/7] RUN ./gradlew --no-daemon -q dependencies > /dev/null
+#12 CACHED
+
+#13 [stage-1 2/3] WORKDIR /app
+#13 CACHED
+
+#14 [build 7/7] RUN ./gradlew --no-daemon -q bootJar
+#14 CACHED
+
+#15 [build 2/7] WORKDIR /src
+#15 CACHED
+
+#16 [stage-1 3/3] COPY --from=build /src/build/libs/seat-reservation-lab-0.0.1-SNAPSHOT.jar app.jar
+#16 CACHED
+
+#17 exporting to image
+#17 exporting layers done
+#17 exporting manifest sha256:a1be95b479865d88f74058987063ed1df186f6910d248b04929fae72ac315bc5 done
+#17 exporting config sha256:438126b6e27a84a2f49c9b5e6b19db372314e6f4c3d19eb1187fc55de7e7cd8b done
+#17 exporting attestation manifest sha256:486deada298b19b7a998ef987b1398dbfee7ac98158548cf48ac410a80977c9d
+#17 exporting attestation manifest sha256:486deada298b19b7a998ef987b1398dbfee7ac98158548cf48ac410a80977c9d 0.0s done
+#17 exporting manifest list sha256:9baa6dfc86258576cd58374ce55cfc4ddeb773aa9fc142f04e588952acefd6f7 0.0s done
+#17 naming to docker.io/library/seatlab-app:latest done
+#17 unpacking to docker.io/library/seatlab-app:latest 0.0s done
+#17 DONE 0.1s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image seatlab-app Built 
+ Network seatlab_default Creating 
+ Network seatlab_default Created 
+ Volume seatlab_pgdata Creating 
+ Volume seatlab_pgdata Created 
+ Container seatlab-db-1 Creating 
+ Container seatlab-redis-1 Creating 
+ Container seatlab-redis-1 Created 
+ Container seatlab-db-1 Created 
+ Container seatlab-app-1 Creating 
+ Container seatlab-app-1 Created 
+ Container seatlab-redis-1 Starting 
+ Container seatlab-db-1 Starting 
+ Container seatlab-redis-1 Started 
+ Container seatlab-db-1 Started 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-app-1 Starting 
+ Container seatlab-app-1 Started 

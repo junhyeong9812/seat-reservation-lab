@@ -26,7 +26,7 @@ class HoldSeatService(
 
     override fun hold(command: HoldSeatCommand): HoldSeatResult {
         val limit = userLimit.strategy
-        meters.timer("seat.hold.limit.prepare").record(Runnable { limit.prepare(command) })
+        if (limit.hasPrepare) meters.timer("seat.hold.limit.prepare").record(Runnable { limit.prepare(command) })
         return limit.around(command) { strategy.hold(command) }
     }
 }

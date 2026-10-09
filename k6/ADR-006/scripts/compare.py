@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+"""ADR-006 조건 교차표(ADR-005 compare.py 복사 + S4 새 한계 규칙·요청당 커넥션 빌림·서버 I/O·회차별 실행 시각/순서, limit-bench 뺌) — 캠페인 결과(results/<campaign-id>/)의 조건별 summary.json에서 비교표를 산출한다.
+
+    scripts/compare.py results/<campaign-id>     → <campaign-id>/COMPARISON.md · comparison.json
+
+먼저 조건마다 `summarize.py results/<campaign-id>/<조건>`을 돌려 summary.json이 있어야 한다(conditions.txt와 대조 — 빠진 조건은 '미측정' 행).
+표의 모든 수치는 원시 파일에서 계산한다 (손 계산 금지). 값 = 중앙값 [최소–최대], 회차별 값은 괄호 없이 나열.
+
+회차 포함 규칙 (n = 계산에 쓴 회차/전체 회차):
+- S1·S2·S3·S7: status `ok`만.
+- S4: status가 정확히 `ok` 또는 단독 `s4-no-successful-stage`인 회차(첫 단계부터 한계를 넘은 것 = 실측 결과 '한계 < 첫 단계').
+  복합 실패(예: `s4-no-successful-stage,invalid-io-after.json`)와 그 밖의 비정상(하네스·경로 실패)은 제외하고 비정상 열에 사유를 적는다
+  (campaign.sh non_ok_reps의 정확 일치 `ok|s4-no-successful-stage`와 같은 기준).
+- S4 한계 = summarize.py 머리말의 새 규칙(목표 미달 단계에서도 멈춘다). 계단 끝까지 한 번도 멈추지 않았으면(멈춘 단계 없음 · k6 정상 종료) 진짜 한계가 아니라 계단 상한이다 → 값 앞에 `≥`.
+- 요청당 커넥션 빌림·서버 I/O(WAL fsync·디스크 대기)는 summarize.py가 회차마다 낸 값(정의는 그 머리말·io_delta).
+- 회차별 실행 시각·순서(명세 §9.4 ⑥ 시간 효과): order.txt(campaign.sh — 계획 순번)와 meta.json k6_started, 그리고 CAMPAIGN.log start 행에서 낸
+  실제 호출 순번(그 회차를 실제로 잰 run.sh 호출이 캠페인에서 몇 번째 호출이었나). 형제 폴더(`rep<k>.retry-*`·`.path-gap-*`)가 있으면 재측정 회차다.
+- CPU = k6 실행 구간 **전체**(과부하 단계·중단 후 꼬리 포함)의 docker stats 최대값. 구간 안 표본 사이 공백이 30초를 넘으면
+  '수집 공백'으로 표시한다(서버 지표 수집 = k6 PC에서 SSH — 공백은 경로 단절의 신호).
+"""
+import gzip
+import json
+import re
+import statistics
+import sys
+from datetime import datetime
+from pathlib import Path
+
+LEVELS = ("L2", "L4")
+S5_SIZES = (0, 10000, 100000, 1000000, 5000000)
+S5_QUERIES = {"q1": "Q1 1인 2매 — 홀드 수", "q2": "Q2 1인 2매 — 확정 수", "q3": "Q3 좌석의 홀드 목록", "q4": "Q4 만료 배치 조회"}
+RESULT_FAIL = "s4-no-successful-stage"
+GAP_S = 30
+STRICT = (500, 0.01)
+ERR_CLASSES = ("2xx", "409", "5xx", "0-1050", "0-1211", "0-1220", "0-1000")
+
+
+def spread(values, digits=0):
+    v = [x for x in values if x is not None]
+    if not v:
+        return "미측정"
+    fmt = (lambda x: f"{x:,.{digits}f}")
+    return f"{fmt(statistics.median(v))} [{fmt(min(v))}–{fmt(max(v))}]"
+
+
+def reps_list(values, digits=0):
+    return ", ".join("-" if x is None else f"{x:,.{digits}f}" for x in values)
+
+
+def ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+
+def cpu_max(rep_dir, meta):
+    """k6 실행 구간의 앱·DB CPU% 최대값 + 수집 공백(초). timeline-server.jsonl: 시각 행 뒤에 컨테이너 행들이 온다."""
+    path = rep_dir / "timeline-server.jsonl"
+    if not path.exists() or not meta.get("k6_started") or not meta.get("k6_ended"):
+        return None, None, None
+    t0, t1 = ts(meta["k6_started"]), ts(meta["k6_ended"])
+    now, stamps = None, []
+    app, db = [], []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        if "t" in r:
+            now = ts(r["t"])
+            if t0 <= now <= t1:
+                stamps.append(now)
+            continue
+        if now is None or not (t0 <= now <= t1):
+            continue
+        val = float(r.get("CPUPerc", "0").rstrip("%") or 0)
+        if r.get("Name") == "seatlab-app-1":
+            app.append(val)
+        elif r.get("Name") == "seatlab-db-1":
+            db.append(val)
+    edges = [t0] + stamps + [t1]
+    gap = max(b - a for a, b in zip(edges, edges[1:]))
+    return (max(app) if app else None), (max(db) if db else None), gap
+
+
+def censored(rec):
+    """모든 계획 단계가 끝까지 돌았고 새 규칙의 엄격 한계가 한 번도 멈추지 않았나(기준 위반·목표 미달 없음) — 그렇다면 한계는 계단 상한(진짜 한계 미관측).
+    '끝까지 돌았다' = k6 정상 종료(exit 0 — 단계 에러율 중단은 99) · 부분·미실행 단계 없음. 요청 0인 단계는 stage_table이 목표 미달로 넣어 strict_stop이 생긴다."""
+    stages = rec.get("stages") or []
+    if not stages or rec.get("meta", {}).get("k6_exit") != 0 or any(s["partial"] or s.get("not_run") for s in stages):
+        return False
+    return (rec.get("limits") or {}).get("strict_stop", "missing") is None
+
+
+def spread_censored(values, cens):
+    """중앙값 [최소–최대] — 그 값을 정하는 회차가 계단 상한이면 앞에 ≥ (짝수 개면 가운데 두 회차 중 하나라도)."""
+    if not values:
+        return "미측정"
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    n = len(order)
+    mid = [order[n // 2]] if n % 2 else [order[n // 2 - 1], order[n // 2]]
+    mark = lambda idx: "≥" if any(cens[i] for i in idx) else ""
+    lo, hi = order[0], order[-1]
+    return (f"{mark(mid)}{statistics.median(values):,.0f} [{mark([lo])}{values[lo]:,.0f}–{mark([hi])}{values[hi]:,.0f}]")
+
+
+def used_reps(cell, reps):
+    if cell == "S4":
+        return [r for r in reps if r["status"] in ("ok", RESULT_FAIL)]   # 정확 일치 — 복합 실패는 제외(머리말)
+    return [r for r in reps if r["status"] == "ok"]
+
+
+def load_conditions(root):
+    conds, missing = {}, []
+    listed = [line.split()[0] for line in (root / "conditions.txt").read_text().splitlines() if line.strip()] \
+        if (root / "conditions.txt").exists() else []
+    for name in listed or sorted(p.parent.name for p in root.glob("*/summary.json")):
+        f = root / name / "summary.json"
+        if not f.exists():
+            missing.append(name)
+            continue
+        plan = json.loads((f.parent / "plan.json").read_text())
+        conds[name] = {"plan": plan, "data": json.loads(f.read_text())}
+    return conds, missing
+
+
+def cond_label(name, plan):
+    c = plan["condition"]
+    return f"{name} (매수 {c.get('limit_strategy')}·좌석 {c['strategy']})"
+
+
+def sub(r, group, key):
+    """summary.json 회차 기록의 하위 dict 값(s2·s7) — 없으면 None(미측정)."""
+    return (r.get(group) or {}).get(key)
+
+
+def main(root):
+    root = Path(root)
+    conds, missing = load_conditions(root)
+    if not conds:
+        print(f"{root}: 조건별 summary.json 없음 — summarize.py를 먼저 돌린다", file=sys.stderr)
+        return 1
+    problems = []
+    out, js = [], {"conditions": {}, "s5": {}}
+    out.append(f"# ADR-006 조건 교차표 — `{root.name}`\n")
+    out.append("> `scripts/compare.py`가 조건별 `summary.json`(summarize.py 산출)에서 산출. "
+               "값 = 중앙값 [최소–최대]. n = 계산에 쓴 회차/전체 회차(포함 규칙은 스크립트 머리말).\n")
+    for name in missing:
+        out.append(f"- **미측정**: `{name}` — conditions.txt에 있으나 summary.json 없음")
+        problems.append(f"missing condition {name}")
+
+    def section(title, cell_suffix, cols, row_fn):
+        if not any(f"{lv}/{cell_suffix}" in c["data"] for c in conds.values() for lv in LEVELS):
+            return   # 이 캠페인에 없는 셀(S1·S7(M=20)·S3-a0 등)은 빈 표를 만들지 않는다
+        out.append(f"\n## {title}\n")
+        out.append("| 조건 | 단계 | n | " + " | ".join(cols) + " |")
+        out.append("|---|---|---|" + "---|" * len(cols))
+        for name, c in conds.items():
+            for lv in LEVELS:
+                key = f"{lv}/{cell_suffix}"
+                if key not in c["data"]:
+                    continue
+                reps = c["data"][key]
+                used = used_reps(cell_suffix, reps)
+                vals = row_fn(name, lv, reps, used)
+                js["conditions"].setdefault(name, {})[key] = vals["json"]
+                out.append(f"| {cond_label(name, c['plan'])} | {lv} | {len(used)}/{len(reps)} | " + " | ".join(vals["cells"]) + " |")
+
+    def s1(name, lv, reps, used):
+        v201 = [r["hold_201"] for r in used]
+        p99 = [r["hold_p99"] for r in used]
+        p50 = [r["hold_p50"] for r in used]
+        rank = [r.get("first_winner_rank") for r in used]
+        lockm = [r.get("lock_waiting_max") for r in used]
+        acqm = [r.get("acquire_mean_ms") for r in used]
+        acqx = [r.get("acquire_max_ms") for r in used]
+        return {"cells": [spread(v201), reps_list(v201), spread(p50), spread(p99), spread(rank), reps_list(rank), spread(lockm), spread(acqm, 1), spread(acqx)],
+                "json": {"hold_201": v201, "hold_p50": p50, "hold_p99": p99, "first_winner_rank": rank, "lock_waiting_max": lockm,
+                         "acquire_mean_ms": acqm, "acquire_max_ms": acqx}}
+    section("S1 같은 좌석 1,000명 — 201 수(정합이면 1) · 지연 · 공정성(첫 승자 도착 순위, 1,000 중) · 락·커넥션 대기", "S1",
+            ["201", "회차별 201", "p50 ms", "p99 ms", "첫 승자 순위", "회차별 순위", "DB 락 대기 최대", "커넥션 획득 대기 평균 ms", "획득 대기 최대 ms"], s1)
+
+    def s2(name, lv, reps, used):
+        v201 = [r["hold_201"] for r in used]
+        over = [r["consistency"].get("v_over_limit_users") for r in used]
+        over_r = [sub(r, "s2", "over_users_resp") for r in used]
+        fake = [sub(r, "s2", "fake_reject_users_db") for r in used]
+        mism = [sub(r, "s2", "resp_db_mismatch_users") for r in used]
+        sna = [(sub(r, "s2", "codes") or {}).get("SEAT_NOT_AVAILABLE") for r in used]
+        hle = [(sub(r, "s2", "codes") or {}).get("HOLD_LIMIT_EXCEEDED") for r in used]
+        gap = [r.get("ownership_gap") for r in used]
+        p50 = [r["hold_p50"] for r in used]
+        p99 = [r["hold_p99"] for r in used]
+        acq = [r.get("limit_acquire_mean_ms") for r in used]
+        chk = [r.get("limit_check_mean_ms") for r in used]
+        return {"cells": [spread(v201), spread(over), reps_list(over), spread(over_r), spread(fake), reps_list(fake), spread(mism), spread(sna), spread(hle),
+                          spread(gap), spread(p50), spread(p99), spread(acq, 4), spread(chk, 4)],
+                "json": {"hold_201": v201, "over_limit_users": over, "over_users_resp": over_r, "fake_reject_users_db": fake, "resp_db_mismatch_users": mism,
+                         "409_seat_not_available": sna, "409_hold_limit_exceeded": hle, "ownership_gap": gap, "hold_p50": p50, "hold_p99": p99,
+                         "limit_acquire_mean_ms": acq, "limit_check_mean_ms": chk}}
+    section("S2 같은 사용자 동시 요청(사용자 100 × 좌석 10) — 매수 정합성(①)·가짜 거절(②: 끝 상태 매수 < 2인데 HOLD_LIMIT_EXCEEDED를 받은 사용자)", "S2",
+            ["201 수", "매수 초과 사용자(판정기)", "회차별 매수 초과", "매수 초과 사용자(응답 201>2)", "가짜 거절 사용자", "회차별 가짜 거절", "응답≠끝 상태 사용자",
+             "409 SEAT_NOT_AVAILABLE 수", "409 HOLD_LIMIT_EXCEEDED 수", "201 − 홀드 행", "p50 ms", "p99 ms", "매수 acquire 평균 ms", "매수 check 평균 ms"], s2)
+
+    def s7(name, lv, reps, used):
+        ws = [sub(r, "s7", "wronged_seats") for r in used]
+        w409 = [sub(r, "s7", "wronged_409") for r in used]
+        empty = [sub(r, "s7", "empty_seats") for r in used]
+        r201 = [sub(r, "s7", "r_201") for r in used]
+        u201 = [sub(r, "s7", "u_201") for r in used]
+        multi = [sub(r, "s7", "multi_201_seats") for r in used]
+        u_hle = [(sub(r, "s7", "u_codes") or {}).get("HOLD_LIMIT_EXCEEDED", 0) if r.get("s7") else None for r in used]
+        u_sna = [(sub(r, "s7", "u_codes") or {}).get("SEAT_NOT_AVAILABLE", 0) if r.get("s7") else None for r in used]
+        gap = [r.get("ownership_gap") for r in used]
+        p99 = [r["hold_p99"] for r in used]
+        return {"cells": [spread(ws), reps_list(ws), spread(w409), spread(empty), spread(r201), spread(multi), spread(u201), spread(u_hle), spread(u_sna), spread(gap), spread(p99)],
+                "json": {"wronged_seats": ws, "wronged_409": w409, "empty_seats": empty, "r_201": r201, "multi_201_seats": multi, "u_201": u201,
+                         "u_hold_limit_exceeded": u_hle, "u_seat_not_available": u_sna, "ownership_gap": gap, "hold_p99": p99}}
+    s7_cols = ["억울한 좌석 수", "회차별 억울한 좌석", "억울한 409 수(코드 무관)", "빈 좌석 수", "일반 201 수", "201 2건+ 좌석 수", "U 201 수(위반)", "U HOLD_LIMIT_EXCEEDED 수", "U SEAT_NOT_AVAILABLE 수", "201 − 홀드 행", "p99 ms"]
+    for cell, m in (("S7", 20), ("S7-m1", 1)):
+        section(f"S7 이긴 쪽 롤백(④) `{cell}` — 좌석마다 2매 보유자 U 1명 + 일반 {m}명. 억울한 좌석 = 끝 상태 AVAILABLE인데 일반 사용자가 409 SEAT_NOT_AVAILABLE을 받은 좌석(대상 100석 중)",
+                cell, s7_cols, s7)
+
+    def s4(name, lv, reps, used):
+        acqm4 = [r.get("acquire_mean_ms") for r in used]
+        strict = [r["limits"]["strict"] for r in used]
+        sat = [r["limits"]["saturation"] for r in used]
+        cens = [censored(r) for r in used]
+        cpus = [cpu_max(root / name / lv / "S4" / r["rep"], r.get("meta", {})) for r in used]
+        app = [a for a, _, _ in cpus]
+        db = [d for _, d, _ in cpus]
+        gaps = [f"{r['rep']}:{g:.0f}s" for r, (_, _, g) in zip(used, cpus) if g is not None and g > GAP_S]
+        gaps += [f"{r['rep']}:지표 없음" for r, (_, _, g) in zip(used, cpus) if g is None]  # 수집 안 됨 ≠ 공백 없음
+        excluded = [f"{r['rep']}:{r['status']}(제외)" for r in reps if r not in used]
+        result_fail = [f"{r['rep']}:{r['status']}(결과 포함)" for r in used if r["status"] != "ok"]
+        lim = spread_censored(strict, cens)
+        per_rep = ", ".join(("≥" if c else "") + f"{v:,.0f}" for v, c in zip(strict, cens))
+        stops = [(r["limits"].get("strict_stop") or {}) for r in used]
+        stop_txt = ", ".join(f'{st["stage"]}:{"+".join(st["reasons"])}' if st else "-" for st in stops)
+        legacy = [r["limits"].get("strict_legacy") for r in used]
+        sat_st = [(r["limits"].get("saturation_stage") or {}).get("target_rps") for r in used]
+        borrow = [r.get("borrow_per_hold") for r in used]
+        return {"cells": [lim, per_rep, stop_txt, spread(legacy), spread(sat), reps_list(sat_st), spread(borrow, 3), spread(app), spread(db), spread(acqm4, 2),
+                          ", ".join(gaps) or "-", ", ".join(excluded + result_fail) or "-"],
+                "json": {"strict": strict, "censored": cens, "strict_stop": stops, "strict_legacy": legacy, "saturation": sat, "saturation_stage_target": sat_st,
+                         "borrow_per_hold": borrow, "app_cpu_max": app, "db_cpu_max": db, "acquire_mean_ms": acqm4,
+                         "collection_gaps": gaps, "excluded": excluded, "result_fail": result_fail}}
+    section("S4 처리량 한계(②) — 새 규칙 엄격(p99<500ms·에러<1%·목표 미달 아님) 직전 단계 성공 RPS(≥ = 계단 끝까지 통과 — 계단 상한) · 포화점 · 요청당 커넥션 빌림(③) · 부하 구간 전체 CPU% 최대",
+            "S4", ["엄격 한계(새 규칙)", "회차별 엄격 한계", "회차별 멈춘 단계:사유", "엄격 한계(ADR-005 규칙)", "포화점(최대 성공 RPS)", "회차별 포화 단계 목표/s",
+                   "요청당 커넥션 빌림", "앱 CPU% 최대(구간 전체)", "DB CPU% 최대(구간 전체)", "커넥션 획득 대기 평균 ms", f"서버 지표 수집 공백 >{GAP_S}s", "비정상 회차"], s4)
+
+    for cell in ("S3-a0", "S3-a20", "S3-a50"):   # ADR-006 매트릭스는 S3-a20만 — 없는 셀은 section이 건너뛴다
+        def s3(name, lv, reps, used):
+            ce = [r["confirm_error_rate"] for r in used]
+            he = [r["hold_error_rate"] for r in used]
+            conf = [r["consistency"].get("confirmed") for r in used]
+            gap = [r["ownership_gap"] for r in used]
+            over = [r["consistency"].get("v_over_limit_users") for r in used]
+            cm = [r["consistency"].get("v_counter_mismatch") for r in used]
+            cm_cell = spread(cm) if any(x is not None for x in cm) else "해당 없음(counter·counter-upsert만)"
+            return {"cells": [spread(ce, 2), reps_list(ce, 2), spread(he, 2), spread(conf), spread(gap), spread(over), cm_cell],
+                    "json": {"confirm_error_rate": ce, "hold_error_rate": he, "confirmed": conf, "ownership_gap": gap, "over_limit_users": over, "counter_mismatch": cm}}
+        section(f"S3 원본 {cell} — 확정 에러율·유령 확정(확정200 − CONFIRMED)·카운터 정합(①: v_counter_mismatch, counter·counter-upsert만)", cell,
+                ["확정 에러율", "회차별 확정 에러율", "선점 에러율", "CONFIRMED", "확정200 − CONFIRMED", "매수 초과 사용자", "카운터 불일치 사용자"], s3)
+
+    # ---- ADR-005 매수 제어 구간 타이머·SERIALIZABLE 충돌(⑤⑥): 셀마다 — 단위를 열 이름에 ---------------------
+    out.append("\n## 매수 제어 구간 타이머·40001·재시도 — 셀별 (앱 Micrometer, k6 전후 차분 · S7은 setup의 U 사전 선점 200건 포함)\n")
+    out.append("> acquire = 트랜잭션 시작 직후 사용자 단위 진입(락·카운터·격리 수준 설정), check = 좌석 확인 뒤 매수 판정(COUNT 2개). 평균 = 증가분 TOTAL_TIME ÷ COUNT. "
+               "최대 = Micrometer MAX(누적이 아니라 최근 약 2분 창). 40001 = 직렬화 충돌 수(재시도 포함), 재시도 = L7이 트랜잭션을 다시 한 수.\n")
+    out.append("| 조건 | 셀 | n | prepare 평균 ms(트랜잭션 밖 쿼터 행 준비) | acquire 건수 | acquire 평균 ms | check 평균 ms | span 평균 ms(acquire 시작~check 끝) | 40001 수 | 회차별 40001 | 재시도 수 |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for name, c in conds.items():
+        for key, reps in c["data"].items():
+            used = used_reps(key.split("/")[1], reps)
+            col = lambda k: [r.get(k) for r in used]
+            # MAX(최근 약 2분 창)는 짧은 셀에서 직전 예열이 섞여 방식 비교에 쓰지 않는다 — json에만 남긴다
+            js.setdefault("limit_meters", {})[f"{name}/{key}"] = {f"limit_{m}_{f}": col(f"limit_{m}_{f}") for m in ("prepare", "acquire", "check", "span") for f in ("n", "mean_ms", "max_ms")} | {
+                "serialization_failures": col("serialization_failures"), "limit_retries": col("limit_retries")}
+            out.append(f"| {name} | {key} | {len(used)}/{len(reps)} | {spread(col('limit_prepare_mean_ms'), 4)} | {spread(col('limit_acquire_n'))} | {spread(col('limit_acquire_mean_ms'), 4)} | "
+                       f"{spread(col('limit_check_mean_ms'), 4)} | {spread(col('limit_span_mean_ms'), 4)} | "
+                       f"{spread(col('serialization_failures'))} | {reps_list(col('serialization_failures'))} | {spread(col('limit_retries'))} |")
+
+    # ---- ADR-006 요청당 커넥션 빌림(③)·서버 I/O — 셀별 (summarize.py 회차 값의 중앙값 [최소–최대]) -------------------
+    out.append("\n## 요청당 커넥션 빌림(③)·서버 I/O — 셀별 (k6 직전·직후 차분)\n")
+    out.append("> 빌림 = Hikari 획득 COUNT ÷ 선점 요청. WAL fsync 평균 = Δwal_sync_time ÷ Δwal_sync(pg_stat_wal, track_wal_io_timing on). 커밋/fsync = Δxact_commit ÷ Δwal_sync(그룹 커밋). "
+               "관계 파일 fsync 평균 = pg_stat_io Δfsync_time ÷ Δfsyncs(체크포인터 등). 디스크 = DB 데이터 파일시스템 아래 물리 장치의 /proc/diskstats — 서버 전체 I/O(이 실험 밖 프로세스 포함): "
+               "쓰기 대기 = Δwrite_ms ÷ Δwrites(iostat w_await), flush 평균 = Δflush_ms ÷ Δflushes, util = Δio_ms ÷ 스냅숏 간격. 스냅숏 간격은 k6 구간 + 통계 반영 대기(IO_SETTLE_S, 기본 11초) 양 끝.\n")
+    io_cols = [("borrow_per_hold", 3), ("io_wal_sync", 0), ("io_wal_sync_avg_ms", 3), ("io_commits_per_wal_sync", 2), ("io_wal_mb", 1), ("io_wal_bytes_per_hold", 0),
+               ("io_checkpoints", 0), ("io_io_fsync_avg_ms", 3), ("io_disk_write_wait_ms", 3), ("io_disk_flush_avg_ms", 3), ("io_disk_util_pct", 1), ("io_disk_write_mb", 0)]
+    out.append("| 조건 | 셀 | n | 요청당 커넥션 빌림 | WAL fsync 수 | WAL fsync 평균 ms | 커밋/WAL fsync | WAL MB | 선점당 WAL B | 체크포인트 수 | 관계 파일 fsync 평균 ms | "
+               "디스크 쓰기 대기 평균 ms | 디스크 flush 평균 ms | 디스크 util % | 디스크 쓰기 MB |")
+    out.append("|---|---|---|" + "---|" * len(io_cols))
+    for name, c in conds.items():
+        for key, reps in c["data"].items():
+            used = used_reps(key.split("/")[1], reps)
+            col = lambda k: [r.get(k) for r in used]
+            js.setdefault("io", {})[f"{name}/{key}"] = {k: col(k) for k, _ in io_cols}
+            out.append(f"| {name} | {key} | {len(used)}/{len(reps)} | " + " | ".join(spread(col(k), d) for k, d in io_cols) + " |")
+
+    # ---- ADR-006 회차별 실행 시각·순서(⑥ 시간 효과): 같은 조건의 회차 흔들림이 실행 시각·캠페인 순번과 같이 움직이는지 보려는 원자료 ----------
+    order = {}
+    if (root / "order.txt").exists():
+        for line in (root / "order.txt").read_text().splitlines():
+            if line.strip() and not line.startswith("#"):
+                r_, pos, seqno, n_ = line.split()
+                order[(n_, f"rep{r_}")] = (int(pos), int(seqno))
+    # 실제 호출 순번: CAMPAIGN.log의 '<시각> <조건> rep<k> start' 행 = run.sh 호출 하나(회차 우선 본 순서 + 끝의 재측정 + 이어서 실행의 재호출).
+    # 회차 폴더의 실제 호출 = 같은 조건·회차의 start 행 중 meta.json started(run.sh가 그 회차를 시작한 시각) 이전의 마지막 행 — 이어서 실행이
+    # 끝난 회차를 건너뛰며 남긴 start 행이 섞여도 그 회차를 실제로 잰 호출을 고른다. 순번 = 그 행이 몇 번째 start 행인가(1부터).
+    starts = []
+    if (root / "CAMPAIGN.log").exists():
+        for line in (root / "CAMPAIGN.log").read_text().splitlines():
+            m = re.match(r"^(\S+) (\S+) rep(\d+) start\b", line)
+            if m:
+                try:
+                    starts.append((ts(m.group(1)), m.group(2), f"rep{m.group(3)}"))
+                except ValueError:
+                    continue
+
+    def actual_seq(name, rep, meta):
+        if not starts or not meta.get("started"):
+            return None
+        t = ts(meta["started"])
+        cand = [i for i, (st, n_, r_) in enumerate(starts, 1) if n_ == name and r_ == rep and st <= t]
+        return cand[-1] if cand else None
+
+    def remeasured(name, key, rep):   # 보존된 옛 회차 폴더(campaign.sh 재측정: .retry-·.path-gap-) 수
+        lv, cell = key.split("/")
+        d = root / name / lv / cell
+        return sorted(p.name[len(rep) + 1:].rsplit("-", 1)[0] for p in d.glob(f"{rep}.*-*") if p.name[len(rep) + 1:].startswith(("retry-", "path-gap-")))
+
+    out.append("\n## 회차별 실행 시각·순서 — 시간 효과(⑥)\n")
+    out.append("> 계획 순번 = order.txt(campaign.sh 균형 순환) 회차 안 순번 / 캠페인 전체 순번. 실제 호출 순번 = CAMPAIGN.log start 행 기준으로 그 회차를 실제로 잰 "
+               "run.sh 호출이 캠페인에서 몇 번째였나(재측정·이어서 실행 포함 — 시간 효과는 이 열과 k6 시작 시각을 본다). "
+               "재측정 = 같은 회차의 옛 폴더(`rep<k>.retry-*`·`.path-gap-*`)가 있어 끝에 다시 잰 회차 — 계획 순번이 실제 위치가 아니다. "
+               "핵심 값 = S4 새 엄격 한계(≥ 계단 상한)·포화점 / S2 p99 ms / S7-m1 억울한 좌석 / S3 확정 에러율. 상태가 ok가 아닌 회차도 적는다.\n")
+    out.append("| 조건 | 셀 | 회차 | status | 재측정 | k6 시작 | 계획 회차 안 순번 | 계획 전체 순번 | 실제 호출 순번 | 핵심 값 | 요청당 빌림 | WAL fsync 평균 ms | 디스크 쓰기 대기 ms | 디스크 flush 평균 ms | 체크포인트 수 |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    f3 = lambda x, d=3: "-" if x is None else f"{x:,.{d}f}"
+    for name, c in conds.items():
+        for key, reps in c["data"].items():
+            cell = key.split("/")[1]
+            for r in reps:
+                meta = r.get("meta") or {}
+                pos, seqno = order.get((name, r["rep"]), ("-", "-"))
+                aseq = actual_seq(name, r["rep"], meta)
+                prev = remeasured(name, key, r["rep"])
+                rem = f"재측정({', '.join(prev)})" if prev else "-"
+                if cell == "S4" and r.get("limits"):
+                    core = f'{"≥" if censored(r) else ""}{r["limits"]["strict"]:,.0f} · 포화 {r["limits"]["saturation"]:,.0f}'
+                elif cell == "S2":
+                    core = f3(r.get("hold_p99"), 1)
+                elif cell.startswith("S7"):
+                    core = str(sub(r, "s7", "wronged_seats"))
+                elif cell.startswith("S3"):
+                    core = f3(r.get("confirm_error_rate"), 4)
+                else:
+                    core = "-"
+                js.setdefault("timeline", []).append({"cond": name, "key": key, "rep": r["rep"], "status": r["status"], "k6_started": meta.get("k6_started"),
+                                                      "pos": pos, "seq": seqno, "actual_seq": aseq, "remeasured": prev, "core": core, "borrow_per_hold": r.get("borrow_per_hold"),
+                                                      "wal_sync_avg_ms": r.get("io_wal_sync_avg_ms"), "disk_write_wait_ms": r.get("io_disk_write_wait_ms"),
+                                                      "disk_flush_avg_ms": r.get("io_disk_flush_avg_ms"), "checkpoints": r.get("io_checkpoints")})
+                out.append(f"| {name} | {key} | {r['rep']} | {r['status']} | {rem} | {meta.get('k6_started') or '-'} | {pos} | {seqno} | {aseq or '-'} | {core} | {f3(r.get('borrow_per_hold'))} | "
+                           f"{f3(r.get('io_wal_sync_avg_ms'))} | {f3(r.get('io_disk_write_wait_ms'))} | {f3(r.get('io_disk_flush_avg_ms'))} | "
+                           f"{'-' if r.get('io_checkpoints') is None else r.get('io_checkpoints')} |")
+
+    # ---- S6 경합 강도 스윕(ADR-003·004): 조건(전략×지연) × K × 단계 — 회차 중앙값 ----------------------
+    s6 = [(n, c) for n, c in conds.items() if any(k.split("/")[1].startswith("S6") for k in c["data"])]
+    if s6:
+        out.append("\n## S6 경합 강도 스윕 — 전략 × 임계 구역 지연 × 핫 좌석 K × 핫 도착률 단계 (회차 중앙값)\n")
+        out.append("> 핫 201/s = 핫 스트림 201 응답 수 ÷ 단계 시간 — 중복 승리도 센다(정합 방식에서만 '좌석이 넘어간 속도'). 무경합 = 경합 없는 다른 좌석 요청 500건/s(코드·k6 태그 이름은 neighbor). "
+                   "무경합 처리/s·p99·에러율이 핫 경합의 '번짐'. 중복 = 판정기 중복 좌석 수(v_duplicate_hold_seats) / 판정기 초과 홀드 수(v_excess_hold_rows) / "
+                   "요청 기록 일시 중복 홀드 수(duplicate — 초과 홀드와 같은 단위). 커넥션 획득 평균은 획득 1회당(분모가 방식마다 다르다). "
+                   "Hikari 대기 최대·dropped(k6가 시작 못 한 반복)·락 대기는 회차 전체.\n")
+        out.append("| 조건 | K | n | 단계 목표/s | 핫 201/s | 핫 p99 ms | 핫 에러율 | 무경합 처리/s | 무경합 p99 ms | 무경합 에러율 | 중복 좌석·초과 홀드·일시 | 커넥션 획득 평균 ms | Hikari 대기 최대 | dropped | 락 대기 최대 |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        for name, c in s6:
+            for key, reps in c["data"].items():
+                lv, cell = key.split("/")
+                if not cell.startswith("S6"):
+                    continue
+                used = [r for r in reps if r["status"] == "ok"]
+                if not used:  # 무음 누락 금지 — 쓸 회차가 없으면 미측정 행
+                    out.append(f"| {name} | {cell[4:]} | 0/{len(reps)} | 미측정 | | | | | | | | | | | |")
+                    js.setdefault("s6", {})[f"{name}/{key}"] = {"stages": [], "n": 0, "n_total": len(reps)}
+                    continue
+                nst = max((len(r.get("s6_stages") or []) for r in used), default=0)
+                rows6 = []
+                for i in range(nst):
+                    st = [r["s6_stages"][i] for r in used if len(r.get("s6_stages") or []) > i]
+                    q = lambda k, d=0: spread([x[k] for x in st], d)
+                    first = i == 0
+                    out.append(f"| {name if first else ''} | {cell[4:] if first else ''} | {f'{len(used)}/{len(reps)}' if first else ''} | {st[0]['target']:,} | {q('hot_ok', 1)} | {q('hot_p99')} | "
+                               f"{q('hot_err', 3)} | {q('nb_ok', 1)} | {q('nb_p99')} | {q('nb_err', 3)} | "
+                               + (f"{spread([r['consistency'].get('v_duplicate_hold_seats') for r in used])}·{spread([r['consistency'].get('v_excess_hold_rows') for r in used])}·"
+                                  f"{spread([r.get('duplicate') for r in used])} | {spread([r.get('acquire_mean_ms') for r in used], 1)} | "
+                                  f"{spread([r.get('hikari_pending_max') for r in used])} | {spread([r.get('dropped') for r in used])} | {spread([r.get('lock_waiting_max') for r in used])} |"
+                                  if first else "| | | | |"))
+                    rows6.append({k: [x[k] for x in st] for k in st[0]})
+                js.setdefault("s6", {})[f"{name}/{key}"] = {"stages": rows6, "n": len(used), "n_total": len(reps),
+                    "dup_seats": [r["consistency"].get("v_duplicate_hold_seats") for r in used],
+                    "dup_excess_rows": [r["consistency"].get("v_excess_hold_rows") for r in used], "dup_transient": [r.get("duplicate") for r in used],
+                    "hikari_pending_max": [r.get("hikari_pending_max") for r in used], "dropped": [r.get("dropped") for r in used],
+                    "acquire_mean_ms": [r.get("acquire_mean_ms") for r in used], "lock_waiting_max": [r.get("lock_waiting_max") for r in used]}
+
+    # ---- 판정기 전수: 셀마다 위반(v_* 합 > 0) 회차 수 — 정합성 '전 회차' 주장의 산출 근거 ----------------
+    out.append("\n## 판정기 전수 — 셀별 위반 회차(v_* 합 > 0) / 정상 회차\n")
+    out.append("| 조건 | 셀 | 위반 회차 | 정상 회차 | v_* 합 최대 |")
+    out.append("|---|---|---|---|---|")
+    for name, c in conds.items():
+        for key, reps in c["data"].items():
+            ok = [r for r in reps if r["status"] == "ok"]
+            sums = [sum(v for k, v in (r.get("consistency") or {}).items() if k.startswith("v_") and isinstance(v, (int, float))) for r in ok]
+            out.append(f"| {name} | {key} | {sum(1 for x in sums if x)} | {len(ok)} | {max(sums, default=0):,} |")
+            js.setdefault("oracle_sweep", {})[f"{name}/{key}"] = {"violating": sum(1 for x in sums if x), "ok": len(ok), "max": max(sums, default=0)}
+
+    # ---- 응답 코드 분류 (errsplit.py 산출 — 있으면) ----------------------------------------------------
+    es = root / "errsplit.json"
+    if es.exists():
+        split = json.loads(es.read_text())
+        legend = ("> 0-1050 요청 타임아웃(30s) · 0-1211 연결 수립 실패(dial i/o timeout) · 0-1220 연결 끊김(reset by peer) · "
+                  "0-1000 그 밖(EOF 등). 그 밖의 코드는 '기타'. 괄호 = 그 요청 전체 대비 비율. m = 합산한 회차/포함 규칙상 회차.\n")
+
+        def row(tot):
+            n = sum(tot.values())
+            other = sum(v for k, v in tot.items() if k not in ERR_CLASSES)
+            cells = [f"{tot.get(k, 0):,} ({tot.get(k, 0) / n:.1%})" if n else "0" for k in ERR_CLASSES]
+            return f"{n:,} | " + " | ".join(cells) + f" | {other:,}"
+
+        out.append("\n## 응답 코드 분류 — S2·S3·S7 (`scripts/errsplit.py` 산출 · S7 setup의 U 사전 선점은 요청 이름 setup_hold라 이 표에 없다)\n")
+        out.append(legend)
+        out.append("| 조건 | 단계 | 셀 | 요청 | m | 전체 | " + " | ".join(ERR_CLASSES) + " | 기타 |")
+        out.append("|---|---|---|---|---|---|" + "---|" * (len(ERR_CLASSES) + 1))
+        stage_rows, out_missing = [], []
+        for name, c in conds.items():
+            for key, reps in c["data"].items():
+                lv, cell = key.split("/")
+                used = [r["rep"] for r in used_reps(cell, reps)]
+                have = [rep for rep in used if f"{name}/{lv}/{cell}/{rep}" in split
+                        and "_truncated" not in split[f"{name}/{lv}/{cell}/{rep}"]]
+                for rep in sorted(set(used) - set(have)):
+                    problems.append(f"errsplit 누락·잘림 {name}/{lv}/{cell}/{rep}")
+                    out_missing.append(f"{name}/{lv}/{cell}/{rep}")
+                for req in ("hold", "confirm"):
+                    tot, per_stage = {}, {}
+                    for rep in have:
+                        for k, v in split[f"{name}/{lv}/{cell}/{rep}"].items():
+                            if not k.startswith(req + "|"):
+                                continue
+                            _, stage, cls = k.split("|")
+                            tot[cls] = tot.get(cls, 0) + v
+                            per_stage.setdefault(stage, {})[cls] = per_stage.setdefault(stage, {}).get(cls, 0) + v
+                    if not tot:
+                        continue
+                    js.setdefault("errsplit", {})[f"{name}/{key}/{req}"] = {"m": f"{len(have)}/{len(used)}", "total": tot, "per_stage": per_stage}
+                    if cell == "S4":
+                        for stage in sorted(per_stage, key=lambda x: int(x) if x.isdigit() else -1):
+                            stage_rows.append(f"| {name} | {lv} | {stage} | {len(have)}/{len(used)} | {row(per_stage[stage])} |")
+                    else:
+                        out.append(f"| {name} | {lv} | {cell} | {req} | {len(have)}/{len(used)} | {row(tot)} |")
+        out.append("\n## 응답 코드 분류 — S4 단계별 (선점, 포함 규칙상 회차 합계)\n")
+        out.append(legend)
+        out.append("| 조건 | 단계 | S4 단계 | m | 전체 | " + " | ".join(ERR_CLASSES) + " | 기타 |")
+        out.append("|---|---|---|---|---|" + "---|" * (len(ERR_CLASSES) + 1))
+        out.extend(stage_rows)
+        if out_missing:
+            out.append(f"\n- **표에서 빠진 회차(원자료 없음·잘림)**: {', '.join(out_missing)}")
+        trunc = [k for k, v in split.items() if "_truncated" in v]
+        if trunc:
+            out.append(f"\n- 잘린 원시 파일(중단된 회차 — 표에 쓰지 않음): {', '.join(trunc)}")
+
+    # ---- S5 ------------------------------------------------------------------------------------
+    s5 = root / "s5"
+    if s5.exists():
+        def pg(path, pattern):
+            for cand in (path, path.with_suffix(path.suffix + ".gz")):
+                if cand.exists():
+                    with (gzip.open(cand, "rt", errors="replace") if cand.suffix == ".gz" else open(cand, errors="replace")) as f:
+                        for line in f:
+                            m = re.search(pattern, line)
+                            if m:
+                                return float(m.group(1))
+            return None
+
+        def scans(path):
+            if not path.exists():
+                return "미측정"
+            return " · ".join(sorted(set(m.strip() for m in re.findall(r"((?:Parallel )?(?:Seq|Index Only|Index|Bitmap Heap) Scan(?: using \w+)? on \w+)", path.read_text()))))
+
+        out.append("\n## S5 쿼리 비용 — 1연결 평균 지연 ms (pgbench, DB 컨테이너 안)\n")
+        out.append("| 단계 | 쿼리 | 인덱스 | " + " | ".join(f"{n:,}" for n in S5_SIZES) + " |")
+        out.append("|---|---|---|" + "---|" * len(S5_SIZES))
+        for lv in LEVELS:
+            for q, qname in S5_QUERIES.items():
+                for idx in ("off", "on"):
+                    vals = [pg(s5 / f"{lv}-idx{idx}" / f"N{n}" / f"{q}-c1.txt", r"latency average = ([0-9.]+)") for n in S5_SIZES]
+                    js["s5"].setdefault(lv, {}).setdefault(q, {})[idx] = {"c1_avg_ms": dict(zip(map(str, S5_SIZES), vals))}
+                    out.append(f"| {lv} | {qname} | {idx} | " + " | ".join("미측정" if v is None else f"{v:.3f}" for v in vals) + " |")
+        out.append("\n## S5 쿼리 처리량 — 10연결 tps (상대 비교 전용: pgbench 클라이언트가 DB CPU 한도를 함께 쓴다)\n")
+        out.append("| 단계 | 쿼리 | 인덱스 | " + " | ".join(f"{n:,}" for n in S5_SIZES) + " |")
+        out.append("|---|---|---|" + "---|" * len(S5_SIZES))
+        for lv in LEVELS:
+            for q, qname in S5_QUERIES.items():
+                for idx in ("off", "on"):
+                    vals = [pg(s5 / f"{lv}-idx{idx}" / f"N{n}" / f"{q}-c10.txt", r"tps = ([0-9.]+)") for n in S5_SIZES]
+                    js["s5"][lv][q][idx]["c10_tps"] = dict(zip(map(str, S5_SIZES), vals))
+                    out.append(f"| {lv} | {qname} | {idx} | " + " | ".join("미측정" if v is None else f"{v:,.0f}" for v in vals) + " |")
+        out.append("\n## S5 실행 계획 — 배경 100만, L2\n")
+        out.append("| 쿼리 | 인덱스 없음 | 인덱스 있음 |\n|---|---|---|")
+        for q, qname in S5_QUERIES.items():
+            off = scans(s5 / "L2-idxoff" / "N1000000" / f"explain-{q}.txt")
+            on = scans(s5 / "L2-idxon" / "N1000000" / f"explain-{q}.txt")
+            js["s5"].setdefault("explain_L2_N1000000", {})[q] = {"off": off, "on": on}
+            out.append(f"| {qname} | {off} | {on} |")
+
+    (root / "COMPARISON.md").write_text("\n".join(out) + "\n")
+    (root / "comparison.json").write_text(json.dumps(js, ensure_ascii=False, indent=1))
+    print(f"wrote {root / 'COMPARISON.md'}")
+    if problems:
+        print("문제 " + str(len(problems)) + "건:\n  " + "\n  ".join(problems), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
+    sys.exit(main(sys.argv[1]))
