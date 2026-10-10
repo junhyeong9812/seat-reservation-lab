@@ -42,10 +42,80 @@ ADR-003의 좌석 락(3b)은 이것을 막지 못한다 — 좌석이 서로 달
 - **응답 계약 불변**: 즉시 실패형의 거절도 기존 `HOLD_LIMIT_EXCEEDED`를 쓴다(사용자 결정). 그래서 '매수가 남았는데 거절됨'(가짜 거절)은 응답 코드로 구분되지 않고, 측정에서 끝 상태 매수로 가른다(§4 ②).
 - 앱 코드: `service/impl/limit/UserLimitStrategies.kt`(8개 + `ActiveUserLimit`), `service/impl/HoldSeatProcess.kt`(갈래점 둘 + 타이머), `service/impl/HoldSeatService.kt`(`around`), `service/impl/ExpireHoldsService.kt`(카운터 감소).
 
-### 2.2 L0 `none` — 조회 후 비교(대조군)
+#### 2.1.1 실행 흐름 — 매수 방식은 어디서 불리나
+
+매수 방식 클래스들은 `UserLimitStrategy` 인터페이스의 구현체다. `override fun`은 정의일 뿐이고 그 자체로 실행되지 않는다.
+1. Spring이 기동할 때 `@Component` 구현체를 전부 빈으로 만든다.
+2. `ActiveUserLimit`이 그중 설정값과 같은 하나를 고른다.
+3. 선점 요청의 고정된 흐름이 정해진 자리 ⓐ~ⓓ에서 그 구현체의 메서드를 부른다(전략 패턴).
+
+아래는 실파일에서 순서대로 발췌한 흐름이다(타이머 세부·주석 일부 생략). 표의 ⓪.1~⑨.2 단계와는 ⓐ = ⓪.1, ⓑ = ⓪.2, ⓒ = ①.3, ⓓ = ④로 대응한다.
 
 ```kotlin
-override fun check(command: HoldSeatCommand) = policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+// limit/UserLimitStrategies.kt — 기동 시 설정으로 하나를 고른다
+@Component
+class ActiveUserLimit(strategies: List<UserLimitStrategy>, properties: SeatHoldProperties) {
+    val strategy: UserLimitStrategy = strategies.single { it.type == properties.limitStrategy }
+}
+
+// ① api/SeatHoldController.kt — POST /api/schedules/{scheduleId}/seats/{seatId}/hold
+val result = holdSeatUseCase.hold(HoldSeatCommand(scheduleId = scheduleId, seatId = seatId, userId = userId))
+
+// ② service/impl/HoldSeatService.kt — 트랜잭션 밖
+override fun hold(command: HoldSeatCommand): HoldSeatResult {
+    val limit = userLimit.strategy
+    if (limit.hasPrepare) meters.timer("seat.hold.limit.prepare").record(Runnable { limit.prepare(command) })  // ⓐ 준비
+    return limit.around(command) { strategy.hold(command) }         // ⓑ 감싸기 → 좌석 전략
+}
+
+// ③ service/impl/hold/DbLockHoldStrategies.kt — 좌석 3b: 여기서 트랜잭션이 열린다
+override fun hold(command: HoldSeatCommand): HoldSeatResult = try {
+    tx.execute { process.hold(command, loadSeat = seats::findForUpdateNoWait) }!!
+} catch (e: PessimisticLockingFailureException) {
+    if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) seatTaken()             // 좌석이 잠겨 있으면 409 SEAT_NOT_AVAILABLE
+    throw e
+}
+
+// ④ service/impl/HoldSeatProcess.kt — 트랜잭션 안
+var entered = true
+meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })   // ⓒ 사용자 단위 진입
+val seat = try {
+    val load = loadSeat ?: productSeatRepository::findByIdAndScheduleId
+    val loaded = load(command.seatId, command.scheduleId)            // select … for no key update nowait
+        ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+    loaded.assertHoldable()                                          // AVAILABLE 아니면 409 SEAT_NOT_AVAILABLE
+    meters.timer("seat.hold.limit.check").record(Runnable { limit.check(command, entered) })    // ⓓ 매수 판정
+    loaded
+} finally { /* span 타이머 */ }
+val hold = seat.hold(command.userId, clock.instant(), properties.ttl) // 홀드 INSERT · 좌석 HELD
+productSeatRepository.flush()
+// ⑤ tx.execute 끝 → COMMIT(advisory xact 락·행 락 해제). 중간에 예외가 나면 트랜잭션 전체 롤백
+```
+
+구현하지 않은 자리는 인터페이스 기본값이 채운다(`UserLimitStrategy` 발췌):
+
+```kotlin
+val hasPrepare: Boolean get() = false                                 // ⓐ를 할지
+fun prepare(command: HoldSeatCommand) {}                              // ⓐ
+fun <T> around(command: HoldSeatCommand, block: () -> T): T = block() // ⓑ — 기본은 그냥 실행
+fun acquire(command: HoldSeatCommand): Boolean = true                 // ⓒ — 기본은 '진입함'
+fun check(command: HoldSeatCommand, entered: Boolean)                 // ⓓ — 구현 필수
+fun onHoldsExpired(expired: List<SeatHold>) {}                        // 만료 배치가 부른다
+```
+
+매수 판정에 쓰는 개수 세기(L0~L4·L6·L7의 ⓓ)는 도메인 서비스 `HoldLimitPolicy.check`다:
+
+```kotlin
+// domain/HoldLimitPolicy.kt
+fun check(scheduleId: Long, userId: Long, maxPerUser: Int) {
+    val holdCount = productSeatRepository.countByScheduleIdAndHoldsUserId(scheduleId, userId)
+    val reservedCount = reservationRepository.countByScheduleIdAndUserIdAndStatus(
+        scheduleId, userId, ReservationStatus.CONFIRMED,
+    )
+    if (holdCount + reservedCount >= maxPerUser) {
+        throw SeatReservationException(ErrorCode.HOLD_LIMIT_EXCEEDED)
+    }
+}
 ```
 
 ```sql
@@ -53,22 +123,160 @@ select count(ps1_0.id) from product_seat ps1_0 left join seat_hold h1_0 on ps1_0
 select count(r1_0.id) from reservation r1_0 where r1_0.schedule_id=? and r1_0.user_id=? and r1_0.status=?
 ```
 
-같은 사용자의 동시 요청이 모두 같은 개수를 읽는다 — 초과가 나야 정상(양성 대조).
+#### 2.1.2 쿼터 테이블 `user_hold_quota` — 사용자 한 명 = 잠글 수 있는 행 하나
+
+```sql
+-- db/migration/V5__user_hold_quota.sql
+CREATE TABLE user_hold_quota (
+    schedule_id BIGINT NOT NULL,
+    user_id     BIGINT NOT NULL,
+    cnt         INT    NOT NULL DEFAULT 0 CHECK (cnt >= 0),
+    PRIMARY KEY (schedule_id, user_id)
+);
+```
+
+- **실제 테이블이다(뷰가 아니다).** 홀드·예약 행을 복사해 두는 곳이 아니라, (회차, 사용자)마다 한 행에 숫자 하나(`cnt`)만 둔다.
+- 뷰로는 안 된다. 뷰는 조회할 때마다 홀드·예약을 다시 세는 것이라 COUNT와 같다. 잠글 행도 없고 원자적인 +1도 할 수 없다. §1의 문제(막아야 할 대상이 아직 없는 행)를 그대로 안고 간다.
+- **기본 키 `(schedule_id, user_id)`가 락 단위다.** 한 회차의 한 사용자는 딱 한 행이다.
+  - 같은 사용자가 서로 다른 좌석을 동시에 눌러도 모든 요청이 같은 행에 부딪혀 사용자 단위로 줄을 선다. 좌석 락(3b)은 좌석마다 행이 달라 이것을 못 한다.
+  - 같은 키로 행이 둘 생길 수 없다. 동시에 처음 INSERT해도 하나만 들어간다. ADR-006 upsert에서는 나머지가 `ON CONFLICT`로 UPDATE 경로에 간다.
+- 방식마다 쓰는 법이 다르다.
+
+  | 방식 | 이 테이블을 어떻게 쓰나 | `cnt` |
+  |------|-------------------|------|
+  | L3 quota-lock · L4 quota-nowait(L4e) | **잠글 대상으로만** 쓴다(`FOR UPDATE` / `SKIP LOCKED`). 개수는 ⓓ에서 홀드·예약을 COUNT | 늘 0(안 씀) |
+  | L5 counter · counter-upsert(ADR-006) · counter-upsert-precheck(ADR-007) | **잠금 + 판정을 한 문장으로**: `cnt + 1 <= 2`일 때만 +1(조건부 UPDATE·upsert). 행 락을 기다린 뒤 올라간 cnt로 조건을 다시 본다 → 중복 카운트 없음 | 홀드 + 확정 예약 수 |
+  | 그 밖(L0·L1·L2·L6·L7) | 안 쓴다 — advisory 락은 행 없이 키(회차, 사용자)에 건다 | — |
+
+- counter 계열의 `cnt`는 **앱이 직접 맞춰 두는 비정규화 값**이다.
+  - 선점: +1. 같은 트랜잭션이라 좌석에서 지면 롤백으로 원복된다.
+  - 확정: 그대로. 홀드가 예약으로 바뀔 뿐이다.
+  - 만료: 만료 배치가 지운 홀드 수만큼 −1.
+- 대가가 셋 있다.
+  - 진짜 값(홀드 + 확정)과 어긋날 수 있다 → `cnt >= 0` 제약(어긋나면 만료 배치 실패로 드러남)과 판정기 `v_counter_mismatch`로 감시한다.
+  - 쓰기가 늘어난다(ADR-006: 실제 흐름 S3 WAL 2.8배).
+  - 행이 만료로 지워지지 않고 쌓인다(ADR-008 숙제).
+- 행이 미리 있어야 하는 방식(L3·L4·L5)은 트랜잭션 밖 준비(`ensureQuotaRow`)로 만든다. 그래서 요청당 커넥션을 더 빌렸고(L5 3회), ADR-006이 이것을 한 문장 upsert로 없앴다.
+
+#### 2.1.3 트랜잭션과 사용자 락 — 무엇을 막고, 언제 풀리나
+
+현재 동작을 한곳에 모은 문서는 `docs/how-it-works/hold-request-flow.md`다. 이 절은 매수 방식 비교에 필요한 부분만 적는다.
+
+**앱 트랜잭션 = DB 트랜잭션 하나(커넥션 하나).** Spring 트랜잭션은 별도의 트랜잭션이 아니라 DB 트랜잭션을 여닫는 장치다.
+- 3b 전략의 `tx.execute { … }`가 커넥션을 하나 빌려 `autoCommit = false`로 바꾼다. DB에는 이것이 `BEGIN`이다.
+- 블록이 끝나면 `commit()`, 예외면 `rollback()`을 보낸다.
+- 그 사이 `JdbcTemplate`(advisory 락·쿼터 SQL)과 JPA 리포지토리(좌석·COUNT·홀드 저장)는 **같은 커넥션**을 쓴다. JpaTransactionManager가 트랜잭션의 커넥션을 JdbcTemplate에 노출한다(`DbLockHoldStrategies.kt`의 advisory 좌석 전략 주석과 같은 원리).
+
+advisory-try 선점 한 건이 DB에서 보이는 모습:
+
+```sql
+BEGIN                                                   -- tx.execute: setAutoCommit(false)
+SELECT pg_try_advisory_xact_lock(5, 42);                -- ⓒ 이 트랜잭션에 (회차 5, 사용자 42) 이름표
+select … from product_seat … for no key update nowait;  -- 좌석 3b
+select count(…) … seat_hold …;                          -- ⓓ 홀드 수
+select count(…) … reservation …;                        --    확정 예약 수
+insert into seat_hold …; update product_seat …;         -- 선점 저장(flush)
+COMMIT                                                  -- commit() → 이름표 자동 해제
+```
+
+- advisory-try는 카운트를 **올리지 않는다**. 락을 잡은 뒤 개수를 세고 홀드를 저장한다. 카운트를 올리는 것은 counter 계열이다(§2.1.2).
+- **조건: 판정 구간의 모든 쿼리가 이 트랜잭션 안에 있어야 한다.**
+  - 트랜잭션 밖 쿼리는 다른 커넥션의 자동 커밋 문장이라 락과 무관하고 롤백되지도 않는다. L3·L4·L5의 ⓐ 준비가 그렇다.
+  - `HoldSeatProcess.hold`는 `@Transactional(propagation = Propagation.MANDATORY)`다. 열린 트랜잭션 밖에서 부르면 예외가 나서, 판정 구간이 실수로 트랜잭션 밖에서 돌 수 없다.
+  - 측정 근거: S2(같은 사용자 동시 요청)에서 advisory-try 매수 초과 0 ×5(L2·L4), 같은 조건 none은 L4 17명 [11–24](ADR-006 §5.3 ①). 락과 COUNT가 한 트랜잭션에 묶여 있지 않았다면 초과가 났을 것이다.
+
+**advisory 락은 행이 아니라 키에 거는 약속형 락이다.**
+- `pg_try_advisory_xact_lock(회차, 사용자)`는 테이블·행을 잠그지 않는다. PostgreSQL 락 관리자에 정수 키 두 개짜리 이름표를 건다. 그래서 쿼터 테이블이 필요 없고, 사용자의 첫 요청(홀드·예약 0건)도 잠근다.
+- **같은 키로 같은 락을 묻는 코드끼리만 막힌다.** 지금 이 키를 묻는 곳은 선점의 ⓒ `acquire` 하나뿐이다. 확정(`ConfirmReservationService.confirm`)과 만료 배치(`ExpireHoldsService.expire`)는 이 락을 잡지 않고 그대로 진행한다.
+- **개수를 늘리는 작업만 이 락이 필요하다.** 만료·취소처럼 개수를 줄이는 작업은 동시에 일어나도 '2매 초과'를 만들 수 없다. 선점이 줄기 직전 개수를 읽어 거절하는 가짜 거절은 생길 수 있다.
+  - 취소 API는 아직 없다. `ReservationStatus.CANCELED` 값만 있다.
+  - 취소에 사용자 락을 쓴다면 `try`가 아니라 기다리는 `pg_advisory_xact_lock`이어야 한다. `try`면 선점이 진행 중일 때 취소가 409로 거절된다.
+- counter 계열은 다르다. 만료·취소가 카운터를 −1 해야 해서 쿼터 행을 반드시 건드린다. 선점이 그 행을 쥐고 있으면 행 락을 기다렸다가 순서대로 반영된다(무시되지 않는다).
+
+**언제 풀리나 — `_xact_`는 트랜잭션 끝에 DB가 푼다.**
+- COMMIT·ROLLBACK 어느 쪽이든 PostgreSQL이 해제한다. 앱의 unlock·finally가 없다.
+- 앱 예외는 롤백으로, 앱 프로세스 사망은 연결 끊김 → 트랜잭션 중단으로 풀린다.
+- 위험한 경우는 둘이다.
+  1. **세션 락**(`pg_advisory_lock`, `xact` 없음): COMMIT으로 안 풀리고 `pg_advisory_unlock`을 직접 불러야 한다. 커넥션 풀과 쓰면 unlock을 빠뜨린 커넥션이 락을 쥔 채 풀로 돌아가 그 사용자를 계속 막는다. 이 프로젝트는 쓰지 않는다.
+  2. **오래 열린 트랜잭션**: 트랜잭션 안의 느린 작업(ADR-004 `criticalSectionDelay`가 흉내 냄)이나 멈춘 앱이 그 시간만큼 락을 쥔다. 네트워크가 끊기면 PostgreSQL이 끊김을 알아챌 때까지(TCP keepalive) 남는다.
+     - 대비책은 `idle_in_transaction_session_timeout`·`statement_timeout`·트랜잭션 타임아웃이다.
+     - 지금은 설정하지 않았다(PostgreSQL 기본값 = 꺼짐).
+- 막혔을 때 증상:
+  - advisory-try: 그 사용자의 선점만 즉시 409가 되고 다른 사용자는 영향이 없다.
+  - advisory(기다림): 그 사용자의 요청이 커넥션을 쥔 채 줄을 선다. 풀 10개가 차면 다른 사용자도 느려진다.
+- 비교: ADR-003의 Redis 분산락은 직접 풀어야 하는 종류라 TTL과 finally 해제(`RELEASE_IF_OWNER`)·해제 실패 경고가 붙어 있다.
+
+§2.2~2.8은 방식마다 이 흐름에서 ⓐ~ⓓ가 실제로 무엇을 하는지 순서대로 적는다. 코드는 `UserLimitStrategies.kt`에서 옮겼다.
+
+### 2.2 L0 `none` — 조회 후 비교(대조군)
+
+```text
+ⓐ prepare   없음(hasPrepare = false)
+ⓑ around    기본 — 그냥 실행
+   BEGIN
+ⓒ acquire   기본 — true(아무것도 잠그지 않음)
+   좌석     select … for no key update nowait → assertHoldable()
+ⓓ check     policy.check(): COUNT(홀드) + COUNT(확정 예약) >= 2 → 409 HOLD_LIMIT_EXCEEDED
+   홀드 INSERT · 좌석 HELD → COMMIT
+```
+
+```kotlin
+// NoUserLimit
+override fun check(command: HoldSeatCommand, entered: Boolean) {
+    if (!entered) limitExceeded()
+    policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+}
+```
+
+같은 사용자의 동시 요청(서로 다른 좌석)은 각자 ⓓ에서 아직 커밋 안 된 서로의 홀드를 못 보고 같은 개수를 읽는다. 그래서 초과가 나야 정상이다(양성 대조).
 
 ### 2.3 L1 `advisory` — `pg_advisory_xact_lock(회차, 사용자)`
 
+```text
+ⓐ prepare   없음
+ⓑ around    기본
+   BEGIN
+ⓒ acquire   SELECT pg_advisory_xact_lock(회차, 사용자)
+            ← 같은 사용자의 앞 요청이 이 키를 쥐고 있으면 그 트랜잭션이 끝날 때까지 기다린다(커넥션을 쥔 채)
+   좌석     select … for no key update nowait → assertHoldable()
+ⓓ check     policy.check(): COUNT(홀드) + COUNT(확정) >= 2 → 409
+            ← 앞 요청이 커밋한 뒤에 세므로 그 홀드가 보인다
+   홀드 INSERT · 좌석 HELD → COMMIT(advisory 락 자동 해제)
+```
+
 ```kotlin
-override fun acquire(command: HoldSeatCommand) {
+// AdvisoryUserLimit
+override fun acquire(command: HoldSeatCommand): Boolean {
     jdbc.queryForList("SELECT pg_advisory_xact_lock(?, ?)", *advisoryKey(command))   // 두 정수 키
+    return true
+}
+override fun check(command: HoldSeatCommand, entered: Boolean) {
+    if (!entered) limitExceeded()
+    policy.check(command.scheduleId, command.userId, properties.maxPerUser)
 }
 ```
+
+- advisory 락은 **테이블 행이 아니라 PostgreSQL 락 관리자 안의 '이름표'(정수 키 두 개)**에 거는 락이다. 그래서 잠글 행이 미리 있을 필요가 없다. 행이 없어서 못 잠그는 문제(§1의 팬텀)를 이렇게 피한다. `xact`가 붙은 함수라 트랜잭션이 끝나면(커밋·롤백) 저절로 풀린다.
 
 - 같은 사용자의 다음 요청은 앞 트랜잭션이 커밋할 때까지 **커넥션을 쥔 채 기다린다** → 깨어나면 앞 요청의 홀드가 보이는 상태에서 센다.
 - 두 정수 키(`int4, int4`)는 ADR-003 advisory 전략의 한 정수 키(좌석 id)와 키 공간이 따로다. 회차·사용자 id가 int 범위를 넘으면 자르지 않고 실패한다(`Math.toIntExact`).
 
 ### 2.4 L2 `advisory-try` · L2e `advisory-try-early` — `pg_try_advisory_xact_lock(회차, 사용자)`
 
+```text
+ⓐ prepare   없음
+ⓑ around    기본
+   BEGIN
+ⓒ acquire   SELECT pg_try_advisory_xact_lock(회차, 사용자) → true/false(기다리지 않음)
+            false면: L2e는 여기서 바로 409 HOLD_LIMIT_EXCEEDED / L2는 entered = false로 계속
+   좌석     select … for no key update nowait → assertHoldable()   (팔렸으면 여기서 409 SEAT_NOT_AVAILABLE)
+ⓓ check     entered = false → 409 HOLD_LIMIT_EXCEEDED
+            entered = true  → policy.check(): COUNT(홀드) + COUNT(확정) >= 2 → 409
+   홀드 INSERT · 좌석 HELD → COMMIT(advisory 락 자동 해제)
+```
+
 ```kotlin
+// AdvisoryTryUserLimitBase — L2(early = false) · L2e(early = true)
 override fun acquire(command: HoldSeatCommand): Boolean {
     val got = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(?, ?)", Boolean::class.java, *advisoryKey(command)) == true
     if (!got && early) limitExceeded()      // L2e: 좌석 확인 전에 거절
@@ -80,17 +288,56 @@ override fun check(command: HoldSeatCommand, entered: Boolean) {
 }
 ```
 
+- 락을 잡았으면 같은 사용자의 다른 요청은 지금 이 트랜잭션 안에 없다. 그래서 ⓓ의 COUNT가 정확하다. 같은 사용자의 이전 요청은 이미 커밋돼 있어 보인다.
+- 이 방식도 advisory 락이라 잠글 행이 필요 없다. 사용자의 첫 요청이어도(홀드·예약이 0건) 키만으로 잠근다.
+
 - 같은 사용자의 요청이 진행 중이면 기다리지 않고 409. ADR-003의 '기다리지 않는다' 원칙과 같은 방향이지만, **매수가 0이어도** 동시에 누른 두 번째 탭은 거절된다(가짜 거절).
 - L2(advisory-try)와 L2e(advisory-try, 좌석 확인 전 거절)는 **거절 시점만** 다르다 — L2는 에러 우선순위를 지키는 대신 거절될 요청이 좌석 락을 잡고, L2e는 좌석 락을 잡지 않는 대신 팔린 좌석이어도 '매수 초과'로 답한다. S7(이긴 쪽 롤백)·S2(사용자 100명 × 각자 좌석 10개 동시)가 이 차이를 잰다.
 
 ### 2.5 L3 `quota-lock` — 쿼터 행 `FOR UPDATE`
 
+```text
+ⓐ prepare   ensureQuotaRow() — 트랜잭션 밖, 자동 커밋(커넥션 따로 빌림)
+            SELECT 1 FROM user_hold_quota WHERE (회차, 사용자)
+            없으면 INSERT INTO user_hold_quota (회차, 사용자) ON CONFLICT DO NOTHING   (cnt 0 행)
+ⓑ around    기본
+   BEGIN
+ⓒ acquire   SELECT cnt FROM user_hold_quota WHERE (회차, 사용자) FOR UPDATE
+            ← 같은 사용자의 앞 요청이 이 행을 잠그고 있으면 끝날 때까지 기다린다
+   좌석     select … for no key update nowait → assertHoldable()
+ⓓ check     policy.check(): COUNT(홀드) + COUNT(확정) >= 2 → 409
+   홀드 INSERT · 좌석 HELD → COMMIT(행 락 해제)
+```
+
 ```kotlin
-override fun <T> around(command: HoldSeatCommand, block: () -> T): T { ensureQuotaRow(jdbc, command); return block() }
-override fun acquire(command: HoldSeatCommand) {
-    jdbc.queryForList("SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE", …)
+// QuotaLockUserLimit
+override val hasPrepare = true
+override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+override fun acquire(command: HoldSeatCommand): Boolean {
+    jdbc.queryForList(
+        "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE",
+        command.scheduleId, command.userId,
+    ).ifEmpty { error("쿼터 행 없음 — prepare에서 만들어야 한다") }
+    return true
+}
+override fun check(command: HoldSeatCommand, entered: Boolean) {
+    if (!entered) limitExceeded()
+    policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+}
+
+private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand) {
+    val exists = jdbc.queryForList(
+        "SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", command.scheduleId, command.userId,
+    ).isNotEmpty()
+    if (exists) return
+    jdbc.update(
+        "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        command.scheduleId, command.userId,
+    )
 }
 ```
+
+- 여기서 `cnt` 열은 읽기만 하고 판정에 쓰지 않는다. 행은 '사용자를 대표하는 잠글 대상'일 뿐이고, 개수는 ⓓ에서 COUNT로 센다.
 
 - 잠글 행이 없던 문제를 **잠글 행을 만들어서** 푼다(`user_hold_quota`, V5). 행은 트랜잭션 밖에서 미리 만든다(`prepare`) — 트랜잭션 안의 `INSERT … ON CONFLICT`는 아직 커밋 안 된 같은 키 행을 만나면 그 트랜잭션이 끝날 때까지 기다려(사용자 첫 요청들) L4(쿼터 행 SKIP LOCKED)의 '기다리지 않음'을 깬다.
 - 준비는 **일반 SELECT 먼저**, 없을 때만 INSERT다. `INSERT … ON CONFLICT DO NOTHING`은 이미 있는 행이라도 그 행을 **UPDATE 중인** 트랜잭션(L5(카운터 조건부 UPDATE)의 cnt + 1)이 끝날 때까지 기다린다(특성 테스트로 확인 — §6.1). 그러면 같은 사용자의 대기가 트랜잭션 밖·타이머 밖으로 샌다.
@@ -98,10 +345,35 @@ override fun acquire(command: HoldSeatCommand) {
 
 ### 2.6 L4 `quota-nowait` · L4e `quota-nowait-early` — 쿼터 행 `FOR UPDATE SKIP LOCKED`
 
+```text
+ⓐ prepare   ensureQuotaRow() — L3과 같다(트랜잭션 밖 SELECT → 없으면 INSERT)
+ⓑ around    기본
+   BEGIN
+ⓒ acquire   SELECT cnt FROM user_hold_quota WHERE (회차, 사용자) FOR UPDATE SKIP LOCKED
+            1행 = 잠갔다 / 0행 = 다른 트랜잭션이 잠금(행은 ⓐ가 커밋해 뒀으므로)
+            0행이면: L4e는 여기서 바로 409 / L4는 entered = false로 계속
+   좌석     select … for no key update nowait → assertHoldable()
+ⓓ check     entered = false → 409 HOLD_LIMIT_EXCEEDED
+            entered = true  → policy.check(): COUNT(홀드) + COUNT(확정) >= 2 → 409
+   홀드 INSERT · 좌석 HELD → COMMIT(행 락 해제)
+```
+
 ```kotlin
-val got = jdbc.queryForList("SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE SKIP LOCKED", …).isNotEmpty()
-if (!got && early) limitExceeded()
-return got
+// QuotaNoWaitUserLimitBase — L4(early = false) · L4e(early = true)
+override val hasPrepare = true
+override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+override fun acquire(command: HoldSeatCommand): Boolean {
+    val got = jdbc.queryForList(
+        "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE SKIP LOCKED",
+        command.scheduleId, command.userId,
+    ).isNotEmpty()
+    if (!got && early) limitExceeded()
+    return got
+}
+override fun check(command: HoldSeatCommand, entered: Boolean) {
+    if (!entered) limitExceeded()
+    policy.check(command.scheduleId, command.userId, properties.maxPerUser)
+}
 ```
 
 - L2(advisory-try)와 같은 의미(즉시 거절, 가짜 거절 있음)를 행 락으로. 행은 `prepare`가 커밋해 두므로 0행 = 다른 트랜잭션이 잠금.
@@ -109,15 +381,37 @@ return got
 
 ### 2.7 L5 `counter` — 카운터 조건부 UPDATE
 
-```kotlin
-override fun acquire(command: HoldSeatCommand) {
-    val updated = jdbc.update(
-        "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?", …, properties.maxPerUser)
-    if (updated == 0) limitExceeded()
-}
-override fun check(command: HoldSeatCommand) {}            // acquire에서 판정 끝 — COUNT 없음
-override fun onHoldsExpired(expired: List<SeatHold>) { /* 실제로 지운 홀드만큼 (회차, 사용자)별 cnt − n */ }
+```text
+ⓐ prepare   ensureQuotaRow() — 트랜잭션 밖 SELECT → 없으면 INSERT(cnt 0 행). UPDATE는 행이 없으면 0행이라
+            '매수 초과'로 잘못 거절하므로 행을 먼저 만들어 둔다
+ⓑ around    기본
+   BEGIN
+ⓒ acquire   UPDATE user_hold_quota SET cnt = cnt + 1 WHERE (회차, 사용자) AND cnt + 1 <= 2
+            1행 = 통과(카운터 +1) / 0행 = 409 HOLD_LIMIT_EXCEEDED   ← 판정이 여기서 끝(COUNT 없음, 좌석보다 먼저)
+            ← 같은 사용자의 앞 요청이 이 행을 UPDATE 중이면 커밋까지 기다렸다가 올라간 cnt로 조건을 다시 본다
+   좌석     select … for no key update nowait → assertHoldable()   (팔렸으면 409 → 롤백으로 +1 원복)
+ⓓ check     빈 메서드
+   홀드 INSERT · 좌석 HELD → COMMIT
+만료 배치   onHoldsExpired: 지운 홀드 수만큼 UPDATE … SET cnt = cnt - n
 ```
+
+```kotlin
+// CounterUserLimit
+override val hasPrepare = true
+override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+override fun acquire(command: HoldSeatCommand): Boolean {
+    val updated = jdbc.update(
+        "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?",
+        command.scheduleId, command.userId, properties.maxPerUser,
+    )
+    if (updated == 0) limitExceeded()
+    return true
+}
+override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
+override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+```
+
+- 요청당 커넥션 빌림: 새 사용자 3회(ⓐ SELECT · ⓐ INSERT · 본 트랜잭션), 기존 사용자 2회. 이것이 §7.3 ③의 처리량 회귀 원인이고, ADR-006이 ⓐ를 없앤 한 문장 upsert로 다시 쟀다.
 
 - ADR-003의 조건부 UPDATE와 같은 원리(READ COMMITTED에서 UPDATE는 커밋된 최신 행으로 조건을 다시 본다). 같은 사용자의 다음 요청은 행 락을 기다렸다가 올라간 cnt로 재평가된다.
 - 카운터 = 홀드 + 확정 예약 수: 선점 +1(좌석에서 지면 같은 트랜잭션 롤백으로 원복), 확정은 홀드 → 예약이라 그대로, 만료 −1. **카운터를 내리는 주체가 생긴다**(만료 배치 — counter일 때만, ADR-008과 연결). 어긋나면 `cnt >= 0` 제약이 만료 배치를 실패시켜 드러낸다(무음 보정 없음). 판정기 `v_counter_mismatch`로 끝 상태를 대조한다.
@@ -125,10 +419,40 @@ override fun onHoldsExpired(expired: List<SeatHold>) { /* 실제로 지운 홀�
 
 ### 2.8 L6 `serializable` · L7 `serializable-retry`
 
+```text
+ⓐ prepare   없음
+ⓑ around    try { 아래 전체 } catch 40001 → L6: 409 HOLD_LIMIT_EXCEEDED / L7: 처음부터 다시(최대 3번, 넘으면 409)
+   BEGIN
+ⓒ acquire   SET TRANSACTION ISOLATION LEVEL SERIALIZABLE   (트랜잭션 첫 문장이어야 한다)
+   좌석     select … for no key update nowait → assertHoldable()
+ⓓ check     policy.check(): COUNT(홀드) + COUNT(확정) >= 2 → 409
+            ← 동시 트랜잭션이 서로의 쓰기를 못 본 채 둘 다 통과하는 구조면 DB가 한쪽을 40001로 실패시킨다
+   홀드 INSERT · 좌석 HELD → COMMIT(여기서도 40001이 날 수 있다 → ⓑ가 받는다)
+```
+
 ```kotlin
-override fun acquire(command: HoldSeatCommand) { jdbc.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE") }  // 트랜잭션 첫 문장
+// SerializableUserLimit — L6(retries = 0) · L7(retries = 3)
 override fun <T> around(command: HoldSeatCommand, block: () -> T): T {
-    // 40001이면 L6은 바로 409, L7은 최대 3번 다시
+    var attempt = 0
+    while (true) {
+        try {
+            return block()
+        } catch (e: RuntimeException) {
+            if (sqlStateOf(e) != SERIALIZATION_FAILURE) throw e
+            meters.counter("seat.hold.limit.serialization_failure").increment()
+            if (attempt >= retries) limitExceeded()
+            attempt++
+            meters.counter("seat.hold.limit.retry").increment()
+        }
+    }
+}
+override fun acquire(command: HoldSeatCommand): Boolean {
+    jdbc.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+    return true
+}
+override fun check(command: HoldSeatCommand, entered: Boolean) {
+    if (!entered) limitExceeded()
+    policy.check(command.scheduleId, command.userId, properties.maxPerUser)
 }
 ```
 

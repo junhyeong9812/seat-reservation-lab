@@ -1,7 +1,7 @@
 # ADR-007: counter-upsert 처리량 벽 — 원인 진단과 기본 전환 판정
 > 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
-- 상태: 가설 (Hypothesis) — 명세 합의(2026-10-09), 구현·하네스 진행 중
+- 상태: 본측정 완료(2026-10-10, §7.1) — 벽은 counter-upsert 고유가 아니라 모든 방식이 같은 지점에서 겪는 쓰기 반감. 원인 C5(디스크) 확인 중(§7.2), 결정 보류(§8)
 - 명세: `docs/plans/2026-10-09/adr-007-throughput-wall/requirement-spec.md`
 - 날짜: 2026-10-09
 - 선행: **ADR-006(counter-upsert 재비교 — 결정: advisory-try 유지, 벽 원인을 찾아 해결되면 counter-upsert로 전환)**, ADR-005(1인 매수 제어 — advisory-try 기본)
@@ -31,6 +31,7 @@ ADR-006에서 counter-upsert(트랜잭션 안 한 문장 `INSERT … ON CONFLICT
 | C2 | 버퍼 교체 — 누적 데이터가 `shared_buffers`(128MB)를 넘는다 | 백엔드 직접 쓰기·읽기 급증, 대기 이벤트 BufferIO·BufferMapping. `shared_buffers`를 키우면 벽이 밀린다 |
 | C3 | 관계 확장 락 — 쿼터 테이블·인덱스가 계속 늘어난다 | 대기 이벤트 Lock:extend |
 | C4 | B-tree 오른쪽 끝 페이지 경합 — S4는 사용자 ID가 늘 증가한다 | 대기 이벤트 LWLock:BufferContent, 설정을 바꿔도 남는다 |
+| C5 | (본측정 결과로 추가, §7.1) 저장장치·호스트 쓰기 경로 지연 — 방식·PG 설정과 무관하게 DB가 일정량을 쓰면 장치 쓰기가 느려진다 | 벽이 누적 선점·경과 시간이 아니라 DB 컨테이너의 누적 쓰기량에 맞는다. 모든 방식·설정에서 같은 지점. 호스트 디스크 지연이 함께 뛰고, PG 없이(fio) 재현되며, DB를 메모리에 두면 사라진다(§7.2 후속) |
 
 - 누적 행 수와 경과 시간이 겹쳐 있다. 도착 계획이 고정이라 ADR-006 설계로는 둘을 가를 수 없다.
 
@@ -54,6 +55,47 @@ counter-upsert-precheck의 처리 순서:
 - 매수 초과 사용자는 좌석 락을 잡기 전에 거절된다 → 억울한 좌석 0을 유지한다.
 - 남는 틈: 다른 트랜잭션이 커밋 전에 쥔 좌석은 잠금 없는 읽기에 AVAILABLE로 보인다. 그래서 매수가 찬 사용자에게 `HOLD_LIMIT_EXCEEDED`가 난다. 잠금 없이는 볼 수 없다.
 - 좌석 잠금 뒤 upsert 안은 매수 초과자가 좌석 락을 잡아 억울한 좌석이 되살아나서 제외했다.
+
+### 3.1 코드 변화 — ADR-006 `counter-upsert` → ADR-007 `counter-upsert-precheck`
+
+선점 요청의 실행 흐름(컨트롤러 → `HoldSeatService` → 좌석 3b 트랜잭션 → `HoldSeatProcess`)과 매수 방식이 끼어드는 자리 ⓐ~ⓓ는 ADR-006 §2.1 (1)과 같다. precheck가 바꾸는 것은 ⓒ `acquire` 하나다. 그 자리는 트랜잭션 안이고 좌석 `for no key update nowait`보다 앞이다. 코드는 `service/impl/limit/UserLimitStrategies.kt`에서 옮겼다. upsert 문(`upsertQuota`)과 만료 감소(`decrementCounters`)는 counter-upsert와 같은 함수를 공유한다. **바뀐 것은 upsert 앞뒤의 잠금 없는 좌석 조회뿐이다.**
+
+```kotlin
+// ADR-006 CounterUpsertUserLimit
+override fun acquire(command: HoldSeatCommand): Boolean {
+    if (!upsertQuota(jdbc, command, properties.maxPerUser)) limitExceeded()
+    return true
+}
+
+// ADR-007 CounterUpsertPrecheckUserLimit
+override fun acquire(command: HoldSeatCommand): Boolean {
+    assertSeatAvailable(command)
+    if (!upsertQuota(jdbc, command, properties.maxPerUser)) {
+        assertSeatAvailable(command) // 선조회 뒤 팔렸으면 좌석 불가가 먼저
+        limitExceeded()
+    }
+    return true
+}
+
+private fun assertSeatAvailable(command: HoldSeatCommand) {
+    val status = jdbc.queryForList(
+        "SELECT status FROM product_seat WHERE id = ? AND schedule_id = ?", String::class.java,
+        command.seatId, command.scheduleId,
+    ).singleOrNull() ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+    if (status != SeatStatus.AVAILABLE.name) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE)
+}
+```
+
+| 상황 | counter-upsert | counter-upsert-precheck |
+|------|----------------|-------------------------|
+| 팔린 좌석, 매수 남음 | upsert(+1) → 3b에서 좌석 불가 → 롤백(WAL 남김) | 선조회에서 `SEAT_NOT_AVAILABLE` — **쓰기 없음** |
+| 팔린 좌석, 매수 참 | upsert 0행 → `HOLD_LIMIT_EXCEEDED`(명세 순서 위반) | 선조회에서 `SEAT_NOT_AVAILABLE`(명세 순서) |
+| 빈 좌석, 매수 참 | upsert 0행 → `HOLD_LIMIT_EXCEEDED`, 좌석 락 없음 | 같다(재조회도 AVAILABLE) |
+| 빈 좌석, 매수 남음 | upsert(+1) → 3b 좌석 잠금 | 같다(선조회 1문장 추가) |
+| 다른 트랜잭션이 커밋 전에 쥔 좌석, 매수 참 | `HOLD_LIMIT_EXCEEDED` | 같다 — 잠금 없는 읽기에 AVAILABLE로 보인다(남는 틈) |
+
+- 선조회는 같은 트랜잭션 안의 일반 `SELECT`라 커넥션 빌림은 그대로 1회다. 좌석 행 잠금도 잡지 않는다.
+- 판정 위치는 ADR-006과 같다(`HoldSeatProcess.hold`의 `limit.acquire`, 좌석 로드 전). 그 뒤 `findByIdAndScheduleId` → `assertHoldable`의 3b 좌석 확인은 그대로다.
 
 ## 4. 가설
 
@@ -125,8 +167,93 @@ counter-upsert-precheck의 처리 순서:
 
 ## 7. 실험 결과
 
+### 7.1 본측정 (캠페인 `20261009-adr007-ea8b85cc`)
+
+- 2026-10-09 18:50 ~ 10-10 11:27, 39조건 × 3 = 117회, **전부 status ok, 재측정 0**.
+- 산출물(캠페인 폴더):
+  - `COMPARISON.md` — 교차표
+  - `WALL.md`·`wall.json` — 벽 분석
+  - `errsplit.json` — 응답 코드 분류
+- 벽 원인 심층 분석(task 06a — S4·S4c2000·S4c4200 81회 전수, 초 단위 재계산)은 작업 log `docs/plans/2026-10-09/adr-007-throughput-wall/log.md`에 회수 기록이 있다.
+
+**① 벽 원인 — 방식·PG 설정과 무관한, DB 누적 쓰기량 약 9GB 지점의 쓰기 반감.**
+
+- **81회 모두** DB 컨테이너의 누적 블록 쓰기가 **8.29~9.51GB**에 닿은 간격에서 쓰기 속도가 반으로 떨어진다. 예: S4c2000 약 38~43 → 16~24MB/s. 판정: docker stats 약 12초 간격, 직전 4간격 중앙값의 0.6배 미만.
+- 같은 순간 대기 이벤트가 바뀐다.
+  - `LWLock:WALWrite`가 평균 0.30 → 4.49세션(S4c2000)으로 뛴다.
+  - `IO:WALSync`는 0.75 → 0.98이 된다(WAL fsync가 늘 진행 중).
+  - WAL 경로의 커밋당 시간은 약 5배다. 리틀 법칙 추정으로 S4c2000 0.53 → 2.7ms, S4c4200 0.64 → 3.3ms다.
+  - 커넥션 풀이 10개라 곧 차고, 요청이 앱 안에서 줄을 선다(Hikari 대기 최대 189).
+- **붕괴·스파이크 시작이 모두 이 시점에 맞는다.**
+
+  | 셀 | 쓰기 반감 k6 초 | 그 뒤 |
+  |----|----------------|------|
+  | S4 계단 | 353~368 | 11단계(4,325/s)를 p99 약 5ms로 처리하던 중 붕괴 → 약 2,400/s |
+  | 고정 4,200/s | 153~169 | 직전까지 p99 5~7ms로 평탄하다가 급변 → 2,296~2,505/s, 코드 0 2.2~2.6% |
+  | 고정 2,000/s | 180~204 | **처리량은 6분 내내 2,000/s 유지(코드 0 = 0)**. 7~12초 주기의 지연 스파이크(p99 최대 184~1,950ms)만 생긴다 |
+
+- **이 시점은 누적 선점도 경과 시간도 아니다.**
+  - 반감 시점의 누적 201은 셀마다 다르다. S4c2000 약 30~32만, S4 약 37만, S4c4200 약 47~56만.
+  - 선점당 블록 쓰기는 도착률이 높을수록 작다. 2,000/s 약 21KB, 4,200/s 약 14KB다.
+  - ADR-006의 '10회 모두 같은 초, 누적 약 37만'은 같은 도착 계획이 같은 시각에 같은 쓰기량에 닿은 결과다.
+- **방식·설정 효과는 없다.** 체크포인트 없음(k6 중 체크포인트 0)·버퍼 512MB도 같은 지점에서 반감·붕괴한다. 전체 페이지 쓰기(FPI)는 201당 약 0.01로 무시할 수준이다.
+- 방식 차이는 **도달 시점**뿐이다.
+  - 고정 4,200/s에서 none이 9묶음(설정 × 회차) 모두 3~15초 늦게 무너진다.
+  - none은 선점당 WAL 891B·블록 12.7KB로 counter 계열(1.09KB·14.0KB)보다 덜 쓴다. 인과는 추정이다.
+  - 무너진 뒤 처리량은 세 방식이 같다(약 2,450/s).
+- 계단 S4의 벽 차이는 단계 경계 효과다.
+  - none 361~364초(12단계)와 counter 계열 357~360초(11단계)의 차이가 그렇다.
+  - 처리량 차이가 아니다. none도 12단계에 들어서고 1~4초 만에 같은 지점에서 무너진다.
+- C1~C4 신호는 모든 창에서 없다. Lock:extend·BufferContent·BufferMapping·BufferIO·DataFile*가 평균 0.05세션에 못 미친다.
+- 저장장치: `nvme1n1` Samsung SSD 980 500GB(DRAM 없음), LVM 루트, 온라인 discard 없음, 주간 fstrim.
+  - **장치 쪽 원인(C5)은 추정이다.** 이 측정에는 호스트 디스크 지표가 없다.
+  - 반감 전 38MB/s는 이 장치의 캐시 소진 뒤 순차 쓰기 속도보다 훨씬 낮다. 그래서 대역폭 소진보다 fsync·flush 지연일 가능성도 있다.
+  - 확인은 §7.2(후속)에서 한다.
+
+**가설 판정**
+
+| # | 판정 | 근거 |
+|---|------|------|
+| H1 | **반증** | 체크포인트 없음에서도 counter-upsert가 S4 11단계에서 무너진다(357~359초 — 기본과 같다) |
+| H2 | **반증(두 갈래 다)** | 벽은 누적 행 수(셀마다 30만·37만·50만)도 체크포인트 시각(체크포인트 없음에서도 같다)도 아니고 누적 쓰기량을 따른다 |
+| H3 | 성립 | 512MB에서도 같은 지점에서 무너진다 |
+| H4 | 부분 성립 | WAL 계열(`LWLock:WALWrite`·`IO:WALSync`)이 지배하고 DataFileWrite·C2~C4 계열은 없다. 단 이것은 반감 **뒤**의 정상 상태(반감 전 WALWrite 0.2~0.3)이고 벽 고유의 서명이 아니다 |
+| H5 | **성립(기대 이상)** | S3-a20 WAL: none 86.5MB · counter-upsert 243.2MB · **precheck 24.6MB**(none의 0.28배, 선점당 32B). 디스크 쓰기 none 519 · counter-upsert 796 · precheck 438MB. 억울한 좌석·매수 초과·카운터 불일치 모두 0. none보다 적은 까닭은 팔린 좌석에서 잠금 시도 없이 끝나기 때문으로 본다(none은 좌석 행 잠금이 WAL을 쓴다 — 추정) |
+| H6 | **앞 절 성립 · 뒤 절 반증** | 명세 순서: S7-m1-late 기회 100 × 3회에서 위반은 counter-upsert 100/100(양성 대조) · **precheck 0/100** · none 0/100 — 팔린(커밋된) 좌석에는 LIMIT를 주지 않는다. 남는 틈: S7-m1(U·R 동시 전송)에서 precheck의 '틈 포함'(R이 201인 좌석에서 U가 LIMIT)이 **매 회차 100/100**이다(counter-upsert와 같다). 동시 경합에서는 R이 커밋 전에 쥔 좌석이 잠금 없는 읽기에 AVAILABLE로 보여 틈이 드물지 않고 매번 난다. 매수가 찬 사용자가 '좌석 불가' 대신 'LIMIT'을 받는 것이며 정합·억울한 좌석에는 영향이 없다 |
+
+**② 지속성·③ 처리량 (L4, 중앙값 [최소–최대])**
+
+| 방식 | S4 엄격 한계 default / nockpt / buf512 | 고정 4,200/s 6분 성공/s | 고정 2,000/s 6분 성공/s |
+|------|-------------------------------------|----------------------|----------------------|
+| none | 4,300 / 4,300 / 4,300 | 2,969 [2,948–2,982] | 2,000 |
+| counter-upsert | 2,866 [2,866–4,170] / 4,209 / 4,155 [2,866–4,161] | 2,935 [2,923–2,945] | 2,000 |
+| precheck | 4,165 [2,866–4,262] / 4,221 / 4,150 [2,866–4,169] | 2,956 [2,943–2,963] | 1,995 |
+
+- S4 엄격 한계 2,866은 11단계 끝 몇 초에 반감을 맞은 회차다. 같은 조건의 다른 회차는 4,150~4,262다. 같은 지점이 단계 경계 앞에 오느냐 뒤에 오느냐로 갈린다.
+- 고정 4,200/s는 모든 방식이 반감 뒤 지속 못 하고, 고정 2,000/s는 모든 방식이 지속한다.
+
+**⑤ 정합·⑦ 실패 모드**: 117회 판정기 위반 0(none S2의 매수 초과 22명은 대조군이라 예상된 값). 5xx·풀 타임아웃·데드락 0.
+
+**측정 한계**
+
+- 오염된 것은 **처리량의 절대 한계**다. 4,200/s 지속 불가, 계단 벽 시각이 이 서버의 쓰기 반감에 묶여 있다.
+- 같은 서버·같은 조건의 방식 간 비교는 유효하다. 정합, 에러 순서, 요청당 쓰기량, 도달 순서가 그렇다.
+- 무너진 뒤 구간의 코드 0(30초당 1,808건 ≈ VU 10,000 − Tomcat `maxConnections` 8,192 — 설정값 확인, 기전은 미검증)은 클라이언트 쪽 몫이다.
+- 대기 이벤트는 0.5초 표본이고 WAL fsync 시간은 회차 전후 차분뿐이다. 그래서 '약 5배'는 추정이다.
+
+### 7.2 후속 — 디스크 원인(C5) 확인
+
+- 2026-10-10 사용자 결정으로 전환 판정을 보류하고 C5부터 확인한다.
+- 명세: `docs/plans/2026-10-10/adr-007-disk-cause/requirement-spec.md`
+- 방법 네 가지:
+  - 원래 셀을 다시 돌리며 호스트 디스크 지표를 1초로 잰다.
+  - PG 없이 fio로 재현해 본다.
+  - DB 데이터를 tmpfs에 두고 다시 잰다.
+  - 휴식 시간을 바꿔 본다.
+- 재측정은 디스크 12회와 tmpfs 12회다.
+
 미측정.
 
 ## 8. 결정
 
-미정.
+보류(2026-10-10) — §7.2의 C5 확인 뒤 결정한다. 후보는 매수 제어 기본을 counter-upsert-precheck로 전환하는 안이다(§7.1에서 정합·에러 순서·쓰기 비용 통과).
