@@ -709,7 +709,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   else
     reasons+=("invalid-host-devices.json")
   fi
-  # 호스트 표본(서버 시계 − 시계 차): 그 디스크 누적값이 든 표본이 k6 구간 초의 90% 미만이거나 최대 공백 > 2초면 host-sampler-thin(파일 없음·빈 파일 포함 — wdrop.py --coverage)
+  # 호스트 표본(서버 시계 − 시계 차): 그 디스크 누적값이 든 표본이 k6 구간 초의 90% 미만이거나 최대 공백 > 2.5초면 host-sampler-thin(파일 없음·빈 파일 포함 — wdrop.py --coverage)
   if ! python3 "$(dirname "$0")/wdrop.py" --coverage "$dir/timeline-host.jsonl" "$k6_started" "$k6_ended" "$clk_off" 0.9 "${hdisk:-nvme1n1}" 2>>"$dir/errors.log"; then reasons+=("host-sampler-thin"); fi
   # iostat 교차 확인 사본이 없거나 그 디스크 행이 없으면 host-iostat-missing
   if ! grep -qs "^${hdisk:-nvme1n1} " "$dir/iostat-host.txt"; then reasons+=("host-iostat-missing"); fi

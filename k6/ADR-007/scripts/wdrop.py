@@ -12,14 +12,14 @@
   - 시각: 06a는 서버 시각 − k6 시작(PC 시계)을 그대로 썼다. 여기서는 시계 차(meta.json clock_offset 평균 — 서버 − PC)를 빼서 PC 시계 k6 초로 낸다
     (차이 ≤ 0.5초 — 반감 간격·GB는 같고 k6 초만 반올림 1초 차이가 날 수 있다. 오프라인 확인: 20261009-adr007-ea8b85cc 81회).
 호스트 지표(timeline-host.jsonl이 있을 때 — 1초 표본, 서버 시계, 원시 누적값 → 이웃 표본 차분):
-  - 장치(--dev, 기본 nvme1n1)마다 wMB/s(Δwrite_sectors × 512 ÷ Δt ÷ 10^6) · w/s · w_await(Δwrite_ms ÷ Δwrites, ms) · flush/s · flush 평균(Δflush_ms ÷ Δflushes, ms) ·
+  - 장치(--dev, 없으면 회차의 host-devices.json disk → 없으면 nvme1n1)마다 wMB/s(Δwrite_sectors × 512 ÷ Δt ÷ 10^6) · w/s · w_await(Δwrite_ms ÷ Δwrites, ms) · flush/s · flush 평균(Δflush_ms ÷ Δflushes, ms) ·
     aqu-sz(Δweighted_ms ÷ Δt ÷ 1000) · util%(Δio_ms ÷ Δt ÷ 10) · Dirty·Writeback(MB, 표본 평균) · PSI io some·full(Δtotal μs ÷ Δt ÷ 10^4 = %).
   - 창: 반감 시각(t1, 서버 시계) 기준 [−win, 0) vs [0, +win) — 창 안 차분의 합으로(초 평균의 평균이 아니라) 비율을 낸다. w_await·flush 평균은 그 합의 비.
   - 호스트 반감(교차 확인): 같은 규칙을 호스트 장치 쓰기에 — 10초 칸(k6 시작 기준)으로 묶어 같은 0.6 × 직전 4칸 중앙값·다음 칸 조건(칸 경계가 부하 구간 끝
     이후인 칸은 뺀다 — 끝난 뒤를 반감으로 잡지 않게). GB = 그 칸 시작까지 장치 누적 쓰기(k6 시작 기준 — 서버 전체 I/O).
   - fio 폴더(meta.json kind=fio): docker stats가 없으므로 호스트 반감만(fio 시작 기준 10초 칸) + 칸별 누적 GB.
 --series-dir: 회차마다 초 단위 호스트 지표 CSV(<조건>__<회차>.csv — k6 초 · 위 지표).
---coverage(리뷰 rv8 A1): k6 구간 [시작, 끝] 안 표본(서버 시각 − 시계 차) 수 ÷ 구간 초 < 최소 비율이거나, 구간 양 끝을 포함한 이웃 표본 사이 최대 공백 > 2초면 exit 1
+--coverage(리뷰 rv8 A1): k6 구간 [시작, 끝] 안 표본(서버 시각 − 시계 차) 수 ÷ 구간 초 < 최소 비율이거나, 구간 양 끝을 포함한 이웃 표본 사이 최대 공백 > 2.5초면 exit 1(표본 1개 빠짐 + 시각 흔들림은 통과, 2개 연속 빠짐은 thin)
   (파일 없음·빈 파일 = 0%). <장치>를 주면 그 장치 누적값이 든 표본만 센다(리뷰 rv8 A4). 구간이 1초 미만이면 판정하지 않는다(exit 0). 사유는 stderr 한 줄.
   (전에는 '표본이 든 정수 초 칸' 비율이었다 — 표본이 서버 초 경계 직후 약 1ms에 찍혀 시계 차가 조금만 양수여도 두 표본이 한 칸에 몰려 거짓 thin이 났다)
 diskstats 시간 열(*_ms·io_ms·weighted_ms)은 커널에서 32비트로 돌아간다(리뷰 rv8 A5) — 차분이 음수면 2^32를 더한다. 그 밖의 누적값이 줄면 그 간격의 그 값은 버린다(None).
@@ -76,7 +76,7 @@ def host_samples(path):
 
 
 # ---- --coverage ------------------------------------------------------------------------------------------
-MAX_GAP_S = 2.0
+MAX_GAP_S = 2.5
 
 
 def coverage(path, started, ended, off, min_ratio, dev=None):
@@ -212,11 +212,19 @@ def rnd(x, n=2):
 
 def analyze(rep, dev, win, series_dir):
     meta = json.loads((rep / "meta.json").read_text())
+    if dev is None:   # 회차가 실제로 표본한 디스크(host-devices.json) — 장치 번호가 바뀌어도 그 디스크를 본다. 없으면 기본값
+        try:
+            dev = json.loads((rep / "host-devices.json").read_text())["disk"]
+        except (OSError, ValueError, KeyError):
+            dev = DEVS_DEFAULT
+    # status 파일이 정본(마감을 넘은 회차·단계는 campaign.sh가 status에만 crossed-fstrim을 붙인다)
+    st_file = rep / "status"
+    status = st_file.read_text().strip() if st_file.is_file() else meta.get("status")
     kind = meta.get("kind", "rep")
     off = clock_off(meta)
     k0 = ts(meta.get("k6_started") or meta.get("fio_started"))
     name = rep.parent.parent.parent.name + "__" + rep.name if kind == "rep" else rep.name
-    res = {"name": name, "kind": kind, "status": meta.get("status"), "pg_preset": meta.get("pg_preset"), "clock_offset_s": rnd(off, 4)}
+    res = {"name": name, "kind": kind, "status": status, "pg_preset": meta.get("pg_preset"), "clock_offset_s": rnd(off, 4)}
     # docker stats 반감 — 시각은 서버 시계 → PC 시계(− 시계 차)
     drop = None
     if kind == "rep":
@@ -285,7 +293,7 @@ def main():
     ap.add_argument("root")
     ap.add_argument("--json")
     ap.add_argument("--series-dir")
-    ap.add_argument("--dev", default=DEVS_DEFAULT)
+    ap.add_argument("--dev", default=None)   # 없으면 회차마다 host-devices.json의 disk
     ap.add_argument("--win", type=float, default=30)
     args = ap.parse_args()
     root = Path(args.root)
@@ -295,7 +303,7 @@ def main():
         return 1
     res = [analyze(r, args.dev, args.win, Path(args.series_dir) if args.series_dir else None) for r in reps]
     keys = ("wMBps", "w_await_ms", "flush_per_s", "flush_avg_ms", "aqu_sz", "util_pct", "dirty_MB", "writeback_MB", "psi_full_pct")
-    print(f"# 쓰기 반감 — `{root.name}` (docker stats 06a 정의 · 호스트 {args.dev} 창 ±{args.win:g}초)\n")
+    print(f"# 쓰기 반감 — `{root.name}` (docker stats 06a 정의 · 호스트 {args.dev or '회차별 disk'} 창 ±{args.win:g}초)\n")
     print("| 회차 | status | 반감 k6 초 | GB-at-drop | MB/s 직전 → 반감·다음 | 호스트 표본 | 호스트 반감 초 (GB) | " + " | ".join(f"{k} 전→후" for k in keys) + " |")
     print("|" + "---|" * (7 + len(keys)))
     for r in res:
