@@ -101,7 +101,7 @@ remove_run() {
   remote "base=\$(realpath -e \"\$HOME/$FIO_BASE\") && [ \"\$base\" = \"\$HOME/$FIO_BASE\" ] && p=\$(realpath -e \"\$HOME/$RUN_DIR\") && case \"\$p\" in \"\$base\"/?*) ;; *) echo \"refuse: \$p\" >&2; exit 1 ;; esac && \
     if [ '$1' = all ]; then rm -rf -- \"\$p\" && test ! -e \"\$p\"; else rm -f -- \"\$p/wal.dat\" \"\$p/data.dat\" && test ! -e \"\$p/wal.dat\" && test ! -e \"\$p/data.dat\"; fi"
 }
-PIDS="" HOST_COPY="" HOST_IOSTAT="" RUN_MADE=0 TORN=0 copied=0
+PIDS="" HOST_COPY="" HOST_IOSTAT="" RUN_MADE=0 TORN=0 copied=0 FIO_PID=""
 reasons=()
 # 정리(정상 끝·중단 공용, 한 번만 — 리뷰 rv8 A10): ① 로컬 표본 루프 ② 이 실행의 컨테이너 ③ 이 실행의 서버 표본 사본(받고 지움 — host_recover)
 #   ④ 로그 회수 ⑤ 시험 파일 둘 지움 ⑥ 회수가 됐을 때만 실행 폴더 지움(아니면 근거로 남기고 errors.log에 경로)
@@ -110,6 +110,7 @@ teardown() {
   local p kids
   for p in $PIDS; do kids=$(pgrep -P "$p" 2>/dev/null); kill "$p" 2>/dev/null; [[ -n "$kids" ]] && kill $kids 2>/dev/null; done; PIDS=""
   remote "docker rm -f $CNAME" > /dev/null 2>&1   # --rm이라 정상 끝이면 이미 없다
+  [[ -n "$FIO_PID" ]] && kill "$FIO_PID" 2>/dev/null   # 컨테이너를 지우면 ssh도 끝나지만 남지 않게
   if [[ -n "$HOST_COPY" ]]; then host_sampler_kill "$HOST_COPY"; host_recover "$OUT" "$HOST_COPY" "$HOST_IOSTAT"; fi
   (( RUN_MADE )) || return 0
   if remote "cd \"\$HOME/$RUN_DIR\" && tar -cf - \$(ls fio.json *.log 2>/dev/null)" 2>>"$OUT/errors.log" | tar -x -C "$OUT" 2>>"$OUT/errors.log" && [[ -s "$OUT/fio.json" ]]; then
@@ -161,17 +162,20 @@ dir="$OUT"
 PIDS="$!"
 for w in $(seq 1 30); do [[ -s "$OUT/timeline-host.jsonl" ]] && break; sleep 0.5; done
 [[ -s "$OUT/timeline-host.jsonl" ]] || echo "$(date -Is) host-samples-before-fio timeout" >> "$OUT/errors.log"
-sleep "$PRE_S"   # fio 앞 기준선
+sleep "$PRE_S" & wait $!   # fio 앞 기준선
 CLK_BEFORE=$(clock_offset 2>>"$OUT/errors.log")
 
 # 3. fio
 FIO_STARTED=$(date +%Y-%m-%dT%H:%M:%S.%6N%:z)
+# 배경 실행 + wait — bash는 앞쪽(foreground) 자식이 끝날 때까지 trap을 미룬다(중단 시험 실측: TERM 뒤 fio가 끝까지 돌았다). wait는 신호에 바로 깨어난다
 remote "docker run --rm --name $CNAME --label com.docker.compose.project=seatlab --user \$(id -u):\$(id -g) -v \"\$HOME/$RUN_DIR\":/work -w /work $IMAGE \
-  fio --output-format=json --output=/work/fio.json /work/job.fio" > "$OUT/fio-stdout.log" 2>&1
+  fio --output-format=json --output=/work/fio.json /work/job.fio" > "$OUT/fio-stdout.log" 2>&1 &
+FIO_PID=$!
+wait "$FIO_PID"
 FIO_EXIT=$?
 FIO_ENDED=$(date +%Y-%m-%dT%H:%M:%S.%6N%:z)
 (( FIO_EXIT == 0 )) || reasons+=("fio-exit-$FIO_EXIT")
-sleep "$TAIL_S"   # 쓰기 뒤 꼬리(더티 페이지 flush)
+sleep "$TAIL_S" & wait $!   # 쓰기 뒤 꼬리(더티 페이지 flush) — 신호에 바로 깨게
 CLK_AFTER=$(clock_offset 2>>"$OUT/errors.log")
 trap '' INT TERM HUP   # 정리 중에는 끊지 않는다(정리는 한 번만)
 teardown
