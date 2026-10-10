@@ -21,6 +21,14 @@
 # 끝나면 정상이 아닌 회차를 다시 잰다(최대 2바퀴) —
 # 단, '한계 < 첫 단계'(s4-no-successful-stage만 — 계단 S4)는 실패가 아니라 결과라 다시 재지 않는다. 그래도 남는 비정상 회차는 목록으로 남기고 exit 1.
 # 중단되면 같은 --id로 다시 부르면 된다: 각 조건은 run.sh --resume으로 이어서 재고, 끝난 회차(status 있음)는 건너뛴다.
+#
+# ADR-007 후속(디스크 원인 C5 — docs/plans/2026-10-10/adr-007-disk-cause 명세 §9 task 04) — --set으로 고른다(기본 main = 위 117회, 바이트 그대로):
+#   --set disk-cause  재측정 24회: 방식 {none, counter-upsert, counter-upsert-precheck} × 셀 {S4, S4c4200} × 설정 {default(디스크), tmpfs} × 2회(--reps 기본 2).
+#                     조건 이름 = <방식>-<default|tmpfs>-<s4|s4c4200>. 순서 = 회차 우선 · 회차 k는 셀 순서·방식 순서·설정 순서를 각각 (k−1)만큼 회전 —
+#                     회차 안에서 디스크·tmpfs가 한 번씩 번갈아 온다(1회차 D T D T …, 2회차 T D T D …). 재측정·이어서 실행·검증은 main과 같다.
+#   --set disk-rest   휴식 시험(이어서 실행 없음 — 시간 간격이 측정값이라 중간부터 다시 잴 수 없다: results/<id>/rest/가 이미 있으면 거부):
+#                     fio-1(--fio-size, 기본 15G) → 바로 fio-2 → --rest-s(기본 1800초) 휴식 → fio-3 → 바로(휴식 없이) 디스크 S4 1회(counter-upsert·default).
+#                     결과 = results/<id>/rest/fio-N/(fio-disk.sh) · results/<id>/rest/counter-upsert-default-s4-afterfill/(run.sh). 계획 = steps.txt. --dry-run은 단계만 쓴다.
 set -uo pipefail
 # 스크립트 동결 — 장시간 도는 동안 작업트리를 고쳐도 실행 중인 캠페인이 깨지지 않게(ADR-001 실측).
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -32,7 +40,8 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
   exec bash "$frozen/scripts/campaign.sh" "$@"
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
-SHA="" CAMPAIGN="" REPS=3 SUITE=main DRY_RUN=0   # ADR-007 명세 §9.2: 전 조건 3회
+SHA="" CAMPAIGN="" REPS="" SUITE=main DRY_RUN=0   # ADR-007 명세 §9.2: 전 조건 3회(main) · 후속 disk-cause 2회
+SET=main FIO_SIZE=15G REST_S=1800   # ADR-007 후속(머리말)
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -40,6 +49,9 @@ while (( $# )); do
     --reps) REPS="$2"; shift 2 ;;   # 스모크용 — 본측정은 3
     --suite) SUITE="$2"; shift 2 ;;   # ADR-007은 main만
     --dry-run) DRY_RUN=1; shift ;;
+    --set) SET="$2"; shift 2 ;;
+    --fio-size) FIO_SIZE="$2"; shift 2 ;;
+    --rest-s) REST_S="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -47,12 +59,14 @@ done
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA
 [[ "$SUITE" == main ]] || { echo "--suite main only (ADR-007)" >&2; exit 2; }
+case "$SET" in main) REPS="${REPS:-3}" ;; disk-cause) REPS="${REPS:-2}" ;; disk-rest) REPS=1 ;; *) echo "--set main|disk-cause|disk-rest" >&2; exit 2 ;; esac
+[[ "$REST_S" =~ ^[0-9]+$ ]] || { echo "--rest-s <초>" >&2; exit 2; }
 # dry-run은 아무것도 재지 않으므로(계획 파일만) 작업트리 하네스 검사를 건너뛴다
 if (( ! DRY_RUN )) && { ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-007 ':(exclude)k6/ADR-007/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-007 ':(exclude)k6/ADR-007/results')" ]]; }; then
   echo "k6/ADR-007 differs from $SHA — commit first" >&2; exit 2
 fi
-CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr007-$SHA}"
+if [[ "$SET" == main ]]; then CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr007-$SHA}"; else CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr007-$SET-$SHA}"; fi
 ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
@@ -66,7 +80,49 @@ cell_of() {  # 셀 이름표 → run.sh 셀 이름
   case "$1" in s4) echo S4 ;; s4c4200) echo S4c4200 ;; s4c2000) echo S4c2000 ;; s2) echo S2 ;; s7m1) echo S7-m1 ;; s7m1late) echo S7-m1-late ;; s3a20) echo S3-a20 ;; *) return 1 ;; esac
 }
 SEAT="--strategy pessimistic-nowait --pool 10 --apps 1 --levels '4'"
+# ---- ADR-007 후속 휴식 시험(--set disk-rest, 머리말) — 조건 목록·순서 순환을 쓰지 않는 별도 경로 -----------------------------------
+if [[ "$SET" == disk-rest ]]; then
+  REST_ROOT="$ROOT/rest"
+  STEPS=("fio-1 fio --size $FIO_SIZE" "fio-2 fio --size $FIO_SIZE" "rest-${REST_S}s rest $REST_S" "fio-3 fio --size $FIO_SIZE"
+         "counter-upsert-default-s4-afterfill rep --limit-strategy counter-upsert --pg-preset default $SEAT --cells 'S4'")
+  if (( DRY_RUN )); then
+    printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
+    echo "$(date -Is) DRY-RUN set=disk-rest sha=$SHA steps=${#STEPS[@]} — steps.txt만 썼다" >> "$LOG"
+    cat "$ROOT/steps.txt"
+    echo "계획(disk-rest): 단계 ${#STEPS[@]}개 — fio 3회(각 $FIO_SIZE) · 휴식 ${REST_S}초 · S4 1회(fio 직후)" >&2
+    exit 0
+  fi
+  [[ -e "$REST_ROOT" ]] && { echo "$REST_ROOT 이미 있음 — 휴식 시험은 이어서 실행하지 않는다(새 --id로)" >&2; exit 2; }
+  mkdir -p "$REST_ROOT"; printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
+  echo "$(date -Is) REST start sha=$SHA steps=${#STEPS[@]}" >> "$LOG"
+  rest_fail=0
+  for step in "${STEPS[@]}"; do
+    read -r sname skind sargs <<< "$step"
+    echo "$(date -Is) REST $sname start ($skind $sargs)" >> "$LOG"
+    case "$skind" in
+      fio)  eval bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/rest" --name "$sname" $sargs >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
+            echo "$(date -Is) REST $sname exit=$rc status=$(cat "$REST_ROOT/$sname/status" 2>/dev/null || echo none)" >> "$LOG"
+            # fio 하나라도 실패하면 뒤 단계의 '바로 다음'·'휴식 뒤' 의미가 깨진다 — 멈춘다
+            (( rc == 0 )) || { echo "$(date -Is) ABORT REST $sname" >> "$LOG"; exit 1; } ;;
+      rest) sleep "$sargs"; echo "$(date -Is) REST $sname done" >> "$LOG" ;;
+      rep)  eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/rest/$sname" --reps 1 --only-rep 1 $sargs >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
+            st="$(cat "$REST_ROOT/$sname"/L*/*/rep1/status 2>/dev/null || echo none)"
+            echo "$(date -Is) REST $sname exit=$rc status=$st" >> "$LOG"
+            [[ "$rc" == 0 && "$st" == ok ]] || rest_fail=1 ;;
+    esac
+  done
+  echo "$(date -Is) REST done fail=$rest_fail" >> "$LOG"
+  exit "$rest_fail"
+fi
 CONDITIONS=()
+if [[ "$SET" == disk-cause ]]; then
+  # 재측정 24회(머리말) — 셀 · 방식 · 설정(default = 디스크, tmpfs) 순서가 조건 목록 순서이자 순서 회전의 기준
+  DC_TAGS="s4 s4c4200" DC_PRESETS="default tmpfs"
+  for tag in $DC_TAGS; do
+    cell="$(cell_of "$tag")"
+    for l in $LIMITS; do for preset in $DC_PRESETS; do CONDITIONS+=("$l-$preset-$tag --limit-strategy $l --pg-preset $preset $SEAT --cells '$cell'"); done; done
+  done
+else
 for b in $BUNDLES; do
   preset="${b%%-*}"
   IFS='+' read -ra tags <<< "${b#*-}"
@@ -75,6 +131,7 @@ for b in $BUNDLES; do
     for l in $LIMITS; do CONDITIONS+=("$l-$preset-$tag --limit-strategy $l --pg-preset $preset $SEAT --cells '$cell'"); done
   done
 done
+fi
 # 조건 목록이 바뀐 채로 이어서 실행하면 결과 폴더 하나에 다른 계획이 섞인다 — 기존 목록과 다르면 멈춘다
 if [[ -f "$ROOT/conditions.txt" ]] && ! diff -q <(printf '%s\n' "${CONDITIONS[@]}") "$ROOT/conditions.txt" > /dev/null; then
   echo "conditions.txt가 기존 캠페인과 다르다 — 같은 --id로 다른 조건을 이어 잴 수 없음" >&2; exit 2
@@ -89,6 +146,21 @@ rep_names() {  # 인자: 회차 → 그 회차에 도는 조건 이름 한 줄�
 ORDER_BODY="$(mktemp)" ORDER_NEW="$(mktemp)"
 order_fail() { echo "order.txt 계산 실패: $1 — 캠페인을 시작하지 않는다" >&2; rm -f "$ORDER_BODY" "$ORDER_NEW"; exit 2; }
 # 계산: 회차 k → 묶음 순서 (k−1)×⌈묶음 수÷회차 수⌉ 회전, 각 묶음 안 방식 순서 (k−1) 회전. 출력 = '회차 회차안순번 전체순번 조건'
+# (disk-cause: 셀·방식·설정 순서를 각각 (k−1) 회전 — 머리말)
+if [[ "$SET" == disk-cause ]]; then
+python3 -c 'import sys
+reps, methods, tags, presets = int(sys.argv[1]), sys.argv[2].split(), sys.argv[3].split(), sys.argv[4].split()
+rot = lambda xs, k: xs[k % len(xs):] + xs[:k % len(xs)]
+seq = 0
+for k in range(1, reps + 1):
+    pos = 0
+    for t in rot(tags, k - 1):
+        for m in rot(methods, k - 1):
+            for p in rot(presets, k - 1):
+                pos += 1; seq += 1
+                print(k, pos, seq, f"{m}-{p}-{t}")' "$REPS" "$LIMITS" "$DC_TAGS" "$DC_PRESETS" > "$ORDER_BODY" \
+  || order_fail "python3 종료 코드 $?"
+else
 python3 -c 'import sys
 reps, methods, bundles = int(sys.argv[1]), sys.argv[2].split(), sys.argv[3].split()
 rot = lambda xs, k: xs[k % len(xs):] + xs[:k % len(xs)]
@@ -103,6 +175,7 @@ for k in range(1, reps + 1):
                 pos += 1; seq += 1
                 print(k, pos, seq, f"{m}-{preset}-{t}")' "$REPS" "$LIMITS" "$BUNDLES" > "$ORDER_BODY" \
   || order_fail "python3 종료 코드 $?"
+fi
 # 검증(계산과 독립 — bash·awk): 회차마다 조건 집합이 rep_names와 같고(39행), 회차 안 순번 1..n, 전체 순번 1..N(기본 117행)
 total=0
 for rep in $(seq 1 "$REPS"); do
@@ -115,7 +188,11 @@ done
 [[ "$(wc -l < "$ORDER_BODY")" -eq "$total" && "$(awk '{print $3}' "$ORDER_BODY")" == "$(seq 1 "$total")" ]] \
   || order_fail "전체 행 수·순번이 기대($total행, 1..$total)와 다르다(실제 $(wc -l < "$ORDER_BODY")행)"
 {
+  if [[ "$SET" == disk-cause ]]; then
+    echo "# ADR-007 후속 disk-cause 조건 순서 — 회차 k = 셀($DC_TAGS)·방식($LIMITS)·설정($DC_PRESETS) 순서를 각각 (k−1) 회전 — 디스크·tmpfs 번갈아 (campaign.sh 머리말)"
+  else
   echo "# ADR-007 조건 순서 — 균형 순환: 회차 k = 묶음($BUNDLES) 순서 (k−1)×⌈묶음 수÷회차 수⌉ 회전 · 묶음 안 방식($LIMITS) 순서 (k−1) 회전 (campaign.sh 머리말)"
+  fi
   echo "# 회차 회차안순번 전체순번 조건"
   cat "$ORDER_BODY"
 } > "$ORDER_NEW"
@@ -125,7 +202,7 @@ if [[ -f "$ROOT/order.txt" ]] && ! diff -q "$ORDER_NEW" "$ROOT/order.txt" > /dev
 fi
 mv "$ORDER_NEW" "$ROOT/order.txt"
 if (( DRY_RUN )); then
-  echo "$(date -Is) DRY-RUN sha=$SHA reps=$REPS order=rotation conditions=${#CONDITIONS[@]} planned_calls=$total — conditions.txt·order.txt만 썼다" >> "$LOG"
+  echo "$(date -Is) DRY-RUN $([[ "$SET" != main ]] && echo "set=$SET ")sha=$SHA reps=$REPS order=rotation conditions=${#CONDITIONS[@]} planned_calls=$total — conditions.txt·order.txt만 썼다" >> "$LOG"
   for rep in $(seq 1 "$REPS"); do echo "$(date -Is) ORDER rep$rep: $(awk -v r="$rep" '$1 == r {printf "%s ", $4}' "$ROOT/order.txt")" >> "$LOG"; done
   cat "$ROOT/order.txt"
   echo "계획: 조건 ${#CONDITIONS[@]}개 × ${REPS}회 = ${total}회 호출" >&2
@@ -156,7 +233,7 @@ non_ok_reps() {  # 정상 아닌 회차의 status 경로 — 보존된 옛 회�
   grep -LxsE 'ok|s4-no-successful-stage' "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true
 }
 
-echo "$(date -Is) CAMPAIGN start sha=$SHA suite=$SUITE reps=$REPS order=rotation conditions=${#CONDITIONS[@]} planned_calls=$total" >> "$LOG"
+echo "$(date -Is) CAMPAIGN start $([[ "$SET" != main ]] && echo "set=$SET ")sha=$SHA suite=$SUITE reps=$REPS order=rotation conditions=${#CONDITIONS[@]} planned_calls=$total" >> "$LOG"
 for rep in $(seq 1 "$REPS"); do
   echo "$(date -Is) ORDER rep$rep: $(awk -v r="$rep" '$1 == r {printf "%s ", $4}' "$ROOT/order.txt")" >> "$LOG"
   for name in $(awk -v r="$rep" '$1 == r {print $4}' "$ROOT/order.txt"); do   # order.txt가 정본 — 위에서 다시 계산해 같음을 확인했다

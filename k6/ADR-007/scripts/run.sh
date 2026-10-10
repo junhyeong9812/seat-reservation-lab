@@ -4,6 +4,8 @@
 #
 #   scripts/run.sh --sha <SHA> [--limit-strategy none] [--pg-preset default] [--strategy pessimistic-nowait] [--pool 10] [--levels "2 4"] [--reps 5] [--cells "S2 S4 S3 S7"] [--id <matrix-id>] [--only-rep k]
 #   --pg-preset default|nockpt|buf512 — DB 기동 인자(ADR-007 설정 축, preset_env). 회차마다 실제 값을 SHOW로 읽어 pg-settings.json·meta.json에 남기고 preset과 다르면 status에 사유
+#   --pg-preset tmpfs — (ADR-007 후속 디스크 원인) default와 같은 PG 설정 + 데이터 디렉터리를 tmpfs 볼륨에(compose.tmpfs.yml) · DB 메모리 한도 8g. 적용 확인 = pg-storage.json(tmpfs-not-applied)
+#   ADR-007 후속: 모든 회차에 호스트 디스크 표본(timeline-host.jsonl 1초 · iostat-host.txt — lib.sh host_sampler)과 pg-storage.json(DB 크기·WAL·저장 위치)이 붙는다
 #   셀 S4c4200·S4c2000 = S4 시나리오를 고정 도착률(램프 60초 50/s → 그 값/s 뒤 30초 × 12구간 = 6분, FACTOR=1)로 — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-007)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
 #               --inject-limit-strategy <값> — (--worktree에서만) 앱에 계획과 다른 매수 방식을 주입해 limit-strategy-mismatch 판정을 실증한다
@@ -69,10 +71,12 @@ preset_env() {
     default) echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB" ;;
     nockpt)  echo "PG_CHECKPOINT_TIMEOUT=1h PG_MAX_WAL_SIZE=16GB PG_SHARED_BUFFERS=128MB" ;;
     buf512)  echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=512MB" ;;
+    # ADR-007 후속(디스크 원인 C5 — 2026-10-10 명세 §2): PG 설정은 default 그대로 + tmpfs 크기·DB 메모리 한도(compose.tmpfs.yml이 읽는다 — 대조 루프는 PG_* 세 키만 본다)
+    tmpfs)   echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g" ;;
     *) return 1 ;;
   esac
 }
-preset_env "$PG_PRESET" > /dev/null || { echo "--pg-preset one of: default nockpt buf512" >&2; exit 2; }
+preset_env "$PG_PRESET" > /dev/null || { echo "--pg-preset one of: default nockpt buf512 tmpfs" >&2; exit 2; }
 if (( WORKTREE )); then
   [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]] || { echo "--worktree는 스모크 전용 — 캠페인에서는 커밋된 하네스만" >&2; exit 2; }
   (( ! RESUME )) || { echo "--worktree와 --resume은 함께 쓸 수 없다(작업트리 하네스는 이어서 잴 근거가 없다)" >&2; exit 2; }
@@ -98,7 +102,7 @@ if (( RESUME )); then
   # 이어서 실행: 계획·셀·회차는 기존 plan.json 그대로. 측정 대상(앱·시나리오·compose)이 계획의 SHA와 같을 때만 허용한다
   [[ -f "$OUT_ROOT/plan.json" ]] || { echo "resume: $OUT_ROOT/plan.json 없음" >&2; exit 2; }
   PLAN_SHA="$(jq -r .sha "$OUT_ROOT/plan.json")"
-  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore k6/ADR-007/scenarios k6/ADR-007/compose.yml k6/ADR-007/compose.two-apps.yml k6/ADR-007/nginx.conf; then
+  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore k6/ADR-007/scenarios k6/ADR-007/compose.yml k6/ADR-007/compose.two-apps.yml k6/ADR-007/compose.tmpfs.yml k6/ADR-007/nginx.conf; then
     echo "resume: 측정 대상이 계획($PLAN_SHA)과 다르다 — 이어서 잴 수 없음" >&2; exit 2
   fi
   LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"
@@ -133,6 +137,8 @@ EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat
 [[ "$STRATEGY" == unique ]] && EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id,uq_seat_hold_seat_id"
 # 앱 2대: nginx 오버레이. 앱마다 CPU를 단계의 절반씩(L4 = 2 + 2) — compose_up/down이 이 변수를 쓴다
 (( APPS == 2 )) && export COMPOSE_EXTRA="-f k6/ADR-007/compose.two-apps.yml"
+# ADR-007 후속 tmpfs preset: DB 볼륨을 tmpfs로(오버레이). compose_down은 오버레이 없이도 같은 볼륨(pgdata)을 지운다(down -v)
+[[ "$PG_PRESET" == tmpfs ]] && export COMPOSE_EXTRA="${COMPOSE_EXTRA:-} -f k6/ADR-007/compose.tmpfs.yml"
 
 K6_TREE="$(mktemp -d)"
 # 정리는 이 실행이 만든 임시 경로만 — 동결 사본은 mktemp 경로일 때만 지운다 (작업트리 삭제 방지)
@@ -289,6 +295,14 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
       echo "$(date -Is) db_sampler ended rc=${PIPESTATUS[0]}/${PIPESTATUS[1]} — reopen in 1s" >> "$dir/errors.log"
       sleep 1
     done ) > /dev/null 2>&1 & echo $!
+  # ADR-007 후속 호스트 디스크 표본(lib.sh host_sampler — 서버 1초 루프, 받는 쪽은 위와 같은 bash read 루프: mawk 버퍼링 재발 금지·리뷰 A11).
+  # 서버 사본(HOST_COPY)·iostat 사본(HOST_IOSTAT)은 회차 끝 host_recover가 받는다. SSH가 끝나면 1초 뒤 다시 연다(errors.log 한 줄 — 무음 공백 금지)
+  ( while :; do
+      host_sampler "$HOST_COPY" "$HOST_IOSTAT" 2>/dev/null \
+        | while IFS= read -r line; do printf '%s\n' "$line" >> "$dir/timeline-host.jsonl"; done
+      echo "$(date -Is) host_sampler ended rc=${PIPESTATUS[0]}/${PIPESTATUS[1]} — reopen in 1s" >> "$dir/errors.log"
+      sleep 1
+    done ) > /dev/null 2>&1 & echo $!
   # 커넥션 풀 대기: 앱의 Hikari pending/active, 1초마다(앱 2대면 nginx가 번갈아 보낸다 — 어느 앱인지는 기록하지 않음, 편향)
   ( while :; do
       pend=$(curl -fsS --max-time 2 "$BASE_URL/actuator/metrics/hikaricp.connections.pending" 2>/dev/null | jq -c '.measurements[0].value' 2>/dev/null)
@@ -357,11 +371,15 @@ run_rep() {  # 인자: level cell rep
   # ADR-007 DB 설정 실제 값(SHOW) — preset 대조는 rep_status, 기록은 meta.json pg_applied에도
   pg_settings > "$dir/pg-settings.json" 2>>"$dir/errors.log" || echo "pg_settings failed" >> "$dir/errors.log"
   SAMPLER_COPY="$(sampler_copy_of "$level" "$cell" "$rep")"
+  HOST_COPY="${SAMPLER_COPY%.jsonl}-host.jsonl" HOST_IOSTAT="${SAMPLER_COPY%.jsonl}-iostat.txt"   # ADR-007 후속 호스트 표본 서버 사본(같은 시도 이름)
   local pids; pids=$(start_pollers "$dir" "$cell")
   # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적).
   # 15초 안에 안 나오면 그대로 부하를 걸되 errors.log에 한 줄 남긴다(ADR-007 리뷰 A10 — 무음 금지. 짧은 셀은 rep_status waits-none-in-k6가 회차를 실패로 드러낸다)
   local w waited=0; for w in $(seq 1 30); do [[ -s "$dir/timeline-locks.jsonl" ]] && { waited=1; break; }; sleep 0.5; done
   (( waited )) || echo "$(date -Is) samples-before-load timeout: timeline-locks.jsonl 15s 동안 비어 있음 — 표본 없이 부하 시작" >> "$dir/errors.log"
+  # ADR-007 후속: 호스트 표본도 나온 뒤에(최대 10초 — 보통 위 대기 중에 이미 나온다). 시간 초과는 errors.log 한 줄 — 공백은 rep_status host-sampler-thin이 드러낸다
+  waited=0; for w in $(seq 1 20); do [[ -s "$dir/timeline-host.jsonl" ]] && { waited=1; break; }; sleep 0.5; done
+  (( waited )) || echo "$(date -Is) host-samples-before-load timeout: timeline-host.jsonl 10s 동안 비어 있음" >> "$dir/errors.log"
   # ADR-006 I/O 스냅숏(직전): PostgreSQL 백엔드는 누적 통계를 바로 공유 메모리에 내지 않는다(PG15+ — 마지막 반영 1초 뒤 · 쉬면 최대 10초 뒤).
   # 시드(대량 INSERT)의 통계가 부하 구간 차분에 섞이지 않게 시드 끝에서 IO_SETTLE_S(기본 11초)가 지난 뒤 읽는다(앱 누적 지표 직전 값보다 먼저 — 그 사이 만료 배치의 커넥션 획득이 빌림 수에 섞이지 않게) — 앞 단계가 이미 그만큼 걸렸으면 기다리지 않는다
   local wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - seed_done) )); (( wait_io > 0 )) && sleep "$wait_io"
@@ -388,6 +406,8 @@ run_rep() {  # 인자: level cell rep
   # ADR-006 I/O 스냅숏(직후): 같은 이유로 k6 끝에서 IO_SETTLE_S가 지난 뒤(after_k6 조회 시간을 빼고 남은 만큼만 기다린다)
   wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - k6_done) )); (( wait_io > 0 )) && sleep "$wait_io"
   io_snapshot > "$dir/io-after.json" 2>>"$dir/errors.log" || echo "io_snapshot after failed" >> "$dir/errors.log"
+  # ADR-007 후속: DB 저장 위치·크기(모든 preset 기록 — tmpfs면 rep_status가 tmpfs 적용을 대조)
+  pg_storage > "$dir/pg-storage.json" 2>>"$dir/errors.log" || echo "pg_storage failed" >> "$dir/errors.log"
   # ADR-005 끝 상태(DB 사실): S2 사용자별 매수 · S7 대상 좌석별 상태·보유자 — 가짜 거절·이긴 쪽 롤백 판정의 근거
   [[ "$base" == S2 || "$base" == S7 ]] && { end_state "$dir" "$base" "$k6env" 2>>"$dir/errors.log" || echo "end_state failed" >> "$dir/errors.log"; }
 
@@ -400,6 +420,8 @@ run_rep() {  # 인자: level cell rep
   # 서버 쪽 락 표본 루프 정리 — SSH가 끊기면 다음 출력에서 끝나지만, 남지 않게 명시적으로(이 실험의 루프만 맞는 패턴)
   remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1
   recover_samples "$dir"
+  host_sampler_kill "$HOST_COPY"
+  host_recover "$dir" "$HOST_COPY" "$HOST_IOSTAT"
   snapshot "$dir" after
 
   # 컨테이너 로그 보존 (이번 회차 구간만) · k6 경고 로그 압축
@@ -668,6 +690,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
     [[ -s "$dir/k6-dashboard.html" ]] || reasons+=("missing-k6-dashboard.html")
   fi
+  # ADR-007 후속(디스크 원인 — 2026-10-10 명세 §5): 호스트 디스크 표본(서버 시계 − 시계 차)이 k6 구간의 1초 칸 90% 미만에 있으면 host-sampler-thin(파일 없음·빈 파일 포함)
+  if ! python3 "$(dirname "$0")/wdrop.py" --coverage "$dir/timeline-host.jsonl" "$k6_started" "$k6_ended" "$clk_off" 0.9 2>>"$dir/errors.log"; then reasons+=("host-sampler-thin"); fi
+  # 호스트 표본 서버 사본을 지우지 못했으면(lib.sh host_recover) 사유
+  if grep -qs 'host-copy-not-removed' "$dir/host-recovery.txt"; then reasons+=("host-copy-not-removed"); fi
+  # tmpfs preset: 데이터 디렉터리가 실제로 tmpfs인가(컨테이너 안 stat -f — pg-storage.json). 파일이 없거나 깨져도 확인 불가 = 미적용
+  if [[ "$PG_PRESET" == tmpfs ]] && ! jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1; then reasons+=("tmpfs-not-applied"); fi
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
 }
 

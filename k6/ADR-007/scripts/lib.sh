@@ -225,3 +225,73 @@ t1=$(date +%s.%N)
 printf '{"t0":%s,"t1":%s,"fs_source":"%s","devices":%s,"pg":%s,"disk":{%s}}\n' "$t0" "$t1" "$src" "$devj" "$pg" "$disk"
 REMOTE
 }
+
+# ---- ADR-007 후속: 디스크 원인(C5 — docs/plans/2026-10-10/adr-007-disk-cause 명세 §2·§3·§9 task 01) ----------------------------------------
+# 호스트 디스크 표본(host-sampler.sh — 서버 /proc/diskstats·/proc/meminfo·/proc/pressure/io 1초 + iostat -x 교차). 스크립트는 표준 입력으로 보낸다(서버에 배포 불필요 —
+# 동결 사본 그대로라 기록된 하네스와 같다). 인자: 서버 쪽 사본 경로(jsonl) · iostat 사본 경로(txt) — 둘 다 REMOTE_BASE 아래. 장치 = HOST_DEVS(기본 nvme1n1 dm-0 —
+# DB 볼륨이 있는 / = LVM ubuntu-lv = dm-0 → nvme1n1, 명세 §0 서버 확인. nvme0n1(Windows 디스크)은 읽지도 않는다 — 명세 §4)
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST_DEVS="${HOST_DEVS:-nvme1n1 dm-0}"
+host_sampler() {
+  remote "bash -s -- '$1' '$2' $HOST_DEVS" < "$LIB_DIR/host-sampler.sh"
+}
+# 서버 쪽 호스트 표본 루프 정리(이 사본 경로의 루프만 — [b] 패턴은 pkill을 띄운 셸 자신의 명령줄과 맞지 않게). 루프가 끝나면 trap이 iostat도 끈다
+host_sampler_kill() {
+  remote "pkill -f '[b]ash -s -- $1 ' || true" > /dev/null 2>&1
+}
+# 회차(또는 fio) 끝: 서버 사본을 받아 흘려받은 줄보다 많으면 timeline-host.jsonl을 사본으로 다시 만든다(db_sampler recover_samples와 같은 규칙).
+# iostat 사본은 그대로 받아 iostat-host.txt로. 결과 한 줄씩 host-recovery.txt — recovered-from-server a→b / stream-complete a (server b) / server-copy-unavailable ·
+# iostat-copied n줄 / iostat-copy-unavailable. 서버 사본 둘은 지운다 — 지운 뒤에도 남거나 확인이 실패하면 errors.log 한 줄 + host-copy-not-removed(rep_status 사유)
+# 인자: 출력폴더 사본 iostat사본
+host_recover() {
+  local dir="$1" copy="$2" io="$3" tmp="$1/.host-remote.jsonl" n r
+  if remote "cat '$copy'" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+    n=$(grep -c '^{"t"' "$dir/timeline-host.jsonl" 2>/dev/null); n=${n:-0}
+    r=$(grep -c '^{"t"' "$tmp")
+    if (( r > n )); then
+      grep '^{"t"' "$tmp" > "$dir/timeline-host.jsonl"
+      echo "$(date -Is) recovered-from-server host $n→$r" >> "$dir/host-recovery.txt"
+    else
+      echo "$(date -Is) stream-complete host $n (server $r)" >> "$dir/host-recovery.txt"
+    fi
+  else
+    echo "$(date -Is) server-copy-unavailable" >> "$dir/host-recovery.txt"
+  fi
+  if remote "cat '$io'" > "$dir/iostat-host.txt" 2>/dev/null && [[ -s "$dir/iostat-host.txt" ]]; then
+    echo "$(date -Is) iostat-copied $(wc -l < "$dir/iostat-host.txt") lines" >> "$dir/host-recovery.txt"
+  else
+    echo "$(date -Is) iostat-copy-unavailable" >> "$dir/host-recovery.txt"
+  fi
+  if ! remote "rm -f '$copy' '$io' && test ! -e '$copy' && test ! -e '$io'" > /dev/null 2>&1; then
+    echo "$(date -Is) host sampler copy not removed: $copy $io" >> "$dir/errors.log"
+    echo "$(date -Is) host-copy-not-removed $copy $io" >> "$dir/host-recovery.txt"
+  fi
+  rm -f "$tmp"
+}
+
+# DB 저장 위치·크기(명세 §5 tmpfs 확인 · §8 가정 2) — 한 줄 JSON. 모든 preset에서 회차 끝(k6 뒤)에 읽는다(기록만 — 판정은 tmpfs에서만: rep_status tmpfs-not-applied).
+#   data_directory(SHOW) · fstype(컨테이너 안 stat -f — tmpfs면 "tmpfs") · findmnt(SOURCE FSTYPE SIZE USED OPTIONS — 없으면 빈 값) · df_bytes(size used avail)
+#   db_bytes = pg_database_size('seat') · wal_bytes = pg_ls_waldir() 합 · cgroup = 컨테이너 memory.current·memory.peak·memory.max(바이트)·shmem(memory.stat — tmpfs 페이지)
+#   oom_killed = docker inspect .State.OOMKilled
+pg_storage() {
+  timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" bash -s <<'REMOTE'
+set -uo pipefail
+c=seatlab-db-1
+q() { docker exec "$c" psql -U seat -d seat -tAc "$1" 2>/dev/null | tr -d '[:space:]'; }
+dd=$(q "SHOW data_directory")
+fs=$(docker exec "$c" stat -f -c %T "$dd" 2>/dev/null | tr -d '[:space:]')
+fm=$(docker exec "$c" findmnt -n -o SOURCE,FSTYPE,SIZE,USED,OPTIONS --target "$dd" 2>/dev/null | head -1 | tr -s ' ' | tr -d '"')
+df=$(docker exec "$c" df -B1 --output=size,used,avail "$dd" 2>/dev/null | tail -1 | tr -s ' ' | sed 's/^ //')
+db=$(q "SELECT pg_database_size('seat')")
+wal=$(q "SELECT coalesce(sum(size), 0) FROM pg_ls_waldir()")
+cg() { docker exec "$c" cat "/sys/fs/cgroup/$1" 2>/dev/null | tr -d '[:space:]'; }
+cur=$(cg memory.current); peak=$(cg memory.peak); max=$(cg memory.max)
+shm=$(docker exec "$c" cat /sys/fs/cgroup/memory.stat 2>/dev/null | sed -n 's/^shmem //p')
+oom=$(docker inspect -f '{{.State.OOMKilled}}' "$c" 2>/dev/null)
+num() { [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || echo null; }
+set -- $df
+printf '{"t":"%s","data_directory":"%s","fstype":"%s","findmnt":"%s","df_bytes":{"size":%s,"used":%s,"avail":%s},"db_bytes":%s,"wal_bytes":%s,"cgroup":{"current":%s,"peak":%s,"max":"%s","shmem":%s},"oom_killed":%s}\n' \
+  "$(date -Is)" "$dd" "$fs" "$fm" "$(num "${1:-}")" "$(num "${2:-}")" "$(num "${3:-}")" "$(num "$db")" "$(num "$wal")" \
+  "$(num "$cur")" "$(num "$peak")" "$max" "$(num "$shm")" "$([[ "$oom" == true || "$oom" == false ]] && echo "$oom" || echo null)"
+REMOTE
+}
