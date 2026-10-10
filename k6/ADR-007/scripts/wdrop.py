@@ -15,7 +15,8 @@
   - 장치(--dev, 기본 nvme1n1)마다 wMB/s(Δwrite_sectors × 512 ÷ Δt ÷ 10^6) · w/s · w_await(Δwrite_ms ÷ Δwrites, ms) · flush/s · flush 평균(Δflush_ms ÷ Δflushes, ms) ·
     aqu-sz(Δweighted_ms ÷ Δt ÷ 1000) · util%(Δio_ms ÷ Δt ÷ 10) · Dirty·Writeback(MB, 표본 평균) · PSI io some·full(Δtotal μs ÷ Δt ÷ 10^4 = %).
   - 창: 반감 시각(t1, 서버 시계) 기준 [−win, 0) vs [0, +win) — 창 안 차분의 합으로(초 평균의 평균이 아니라) 비율을 낸다. w_await·flush 평균은 그 합의 비.
-  - 호스트 반감(교차 확인): 같은 규칙을 호스트 장치 쓰기에 — 10초 칸(k6 시작 기준)으로 묶어 같은 0.6 × 직전 4칸 중앙값·다음 칸 조건. GB = 그 칸 시작까지 장치 누적 쓰기(k6 시작 기준 — 서버 전체 I/O).
+  - 호스트 반감(교차 확인): 같은 규칙을 호스트 장치 쓰기에 — 10초 칸(k6 시작 기준)으로 묶어 같은 0.6 × 직전 4칸 중앙값·다음 칸 조건(칸 경계가 부하 구간 끝
+    이후인 칸은 뺀다 — 끝난 뒤를 반감으로 잡지 않게). GB = 그 칸 시작까지 장치 누적 쓰기(k6 시작 기준 — 서버 전체 I/O).
   - fio 폴더(meta.json kind=fio): docker stats가 없으므로 호스트 반감만(fio 시작 기준 10초 칸) + 칸별 누적 GB.
 --series-dir: 회차마다 초 단위 호스트 지표 CSV(<조건>__<회차>.csv — k6 초 · 위 지표).
 --coverage: k6 구간 [시작, 끝)의 1초 칸(정수 초 — 구간 안에 온전히 든 칸) 중 표본(서버 시각 − 시계 차)이 하나 이상인 칸의 비율 < 최소 비율이면 exit 1
@@ -214,7 +215,10 @@ def analyze(rep, dev, win, series_dir):
             res["host_pre"] = {k: rnd(v) for k, v in (window(rel, drop["t"] - win, drop["t"]) or {}).items()}
             res["host_post"] = {k: rnd(v) for k, v in (window(rel, drop["t"], drop["t"] + win) or {}).items()}
         hpts = host_cum_points([dict(r, t=r["t"] - off - k0) for r in samples], dev, 0.0)
-        hd = find_drop(hpts, 30)
+        # 호스트 반감은 부하 구간 안에서만 찾는다(끝난 뒤의 0으로 떨어짐을 반감으로 잡지 않게 — fio 스모크 실측)
+        end = meta.get("k6_ended") or meta.get("fio_ended")
+        dur = ts(end) - k0 if end else float("inf")
+        hd = find_drop([p for p in hpts if p[0] <= dur], 30)
         res["host_drop"] = None if not hd else {"s": round(hd["t"]), "gb_since_start": rnd(hd["bytes"] / 1e9), "prev_mbps": rnd(hd["prev_mbps"], 1),
                                                   "drop_mbps": rnd(hd["drop_mbps"], 1), "next_mbps": rnd(hd["next_mbps"], 1)}
         if hd:
