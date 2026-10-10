@@ -348,7 +348,11 @@ run_rep() {  # 인자: level cell rep
   log "L$level $cell rep$rep → $dir"
 
   # 회차마다 새 컨테이너 — JVM·커넥션 풀·DB 캐시 상태를 회차 사이에 넘기지 않는다
-  compose_down "$DEPLOY_ID" >> "$dir/compose.log" 2>&1
+  # ADR-007 후속(리뷰 rv8 A2): 내리기가 끝내 실패하면(DB 볼륨·컨테이너가 남음) 이 회차를 띄우지 않는다 — 이전 회차의 볼륨(tmpfs 포함)을 이어 쓰지 않게
+  if ! compose_down "$DEPLOY_ID" >> "$dir/compose.log" 2>&1; then
+    UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "compose-down-failed" -1 ""; return 1
+  fi
   # 기동 실패를 넘기면 이전 회차의 컨테이너가 남아 health가 UP이 되고 다른 조건의 앱을 재게 된다(스모크 실측) — 실패로 끊는다
   if ! compose_up "$DEPLOY_ID" $cfg_env >> "$dir/compose.log" 2>&1; then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
@@ -372,6 +376,12 @@ run_rep() {  # 인자: level cell rep
   pg_settings > "$dir/pg-settings.json" 2>>"$dir/errors.log" || echo "pg_settings failed" >> "$dir/errors.log"
   SAMPLER_COPY="$(sampler_copy_of "$level" "$cell" "$rep")"
   HOST_COPY="${SAMPLER_COPY%.jsonl}-host.jsonl" HOST_IOSTAT="${SAMPLER_COPY%.jsonl}-iostat.txt"   # ADR-007 후속 호스트 표본 서버 사본(같은 시도 이름)
+  # 표본 장치 = DB 볼륨(Docker 데이터 루트)의 장치 사슬(리뷰 rv8 A4 — lib.sh host_devices). 못 정하면 기본값(HOST_DEVS)으로 돌고 rep_status가 드러낸다
+  if host_devices docker > "$dir/host-devices.json" 2>>"$dir/errors.log" && jq -e '.sampled | length > 0' "$dir/host-devices.json" > /dev/null 2>&1; then
+    HOST_DEVS="$(jq -r '.sampled | join(" ")' "$dir/host-devices.json")"
+  else
+    echo "$(date -Is) host_devices failed — sampler uses default devices: $HOST_DEVS" >> "$dir/errors.log"
+  fi
   local pids; pids=$(start_pollers "$dir" "$cell")
   # 락 표본이 실제로 나오기 시작한 뒤 부하를 건다 — S1은 2초 안팎이라 표본보다 먼저 끝나면 0만 남는다(리뷰 지적).
   # 15초 안에 안 나오면 그대로 부하를 걸되 errors.log에 한 줄 남긴다(ADR-007 리뷰 A10 — 무음 금지. 짧은 셀은 rep_status waits-none-in-k6가 회차를 실패로 드러낸다)
@@ -690,12 +700,41 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     [[ -s "$dir/timeline-db.jsonl" ]] || reasons+=("missing-timeline-db.jsonl")
     [[ -s "$dir/k6-dashboard.html" ]] || reasons+=("missing-k6-dashboard.html")
   fi
-  # ADR-007 후속(디스크 원인 — 2026-10-10 명세 §5): 호스트 디스크 표본(서버 시계 − 시계 차)이 k6 구간의 1초 칸 90% 미만에 있으면 host-sampler-thin(파일 없음·빈 파일 포함)
-  if ! python3 "$(dirname "$0")/wdrop.py" --coverage "$dir/timeline-host.jsonl" "$k6_started" "$k6_ended" "$clk_off" 0.9 2>>"$dir/errors.log"; then reasons+=("host-sampler-thin"); fi
+  # ADR-007 후속(디스크 원인 — 2026-10-10 명세 §5 · 리뷰 rv8 A1·A4): 표본 장치(host-devices.json — 디스크 모델이 EXPECTED_DISK_MODEL이어야 한다).
+  # 파일이 없거나 깨지면 invalid-host-devices.json, 모델·장치가 다르면 host-device-unexpected
+  local hdisk=""
+  if jq -e '(.disk | type == "string") and (.sampled | type == "array")' "$dir/host-devices.json" > /dev/null 2>&1; then
+    hdisk="$(jq -r .disk "$dir/host-devices.json")"
+    if ! jq -e --arg m "$EXPECTED_DISK_MODEL" '.model == $m and (.disk as $d | .sampled | any(. == $d))' "$dir/host-devices.json" > /dev/null 2>&1; then reasons+=("host-device-unexpected"); fi
+  else
+    reasons+=("invalid-host-devices.json")
+  fi
+  # 호스트 표본(서버 시계 − 시계 차): 그 디스크 누적값이 든 표본이 k6 구간 초의 90% 미만이거나 최대 공백 > 2초면 host-sampler-thin(파일 없음·빈 파일 포함 — wdrop.py --coverage)
+  if ! python3 "$(dirname "$0")/wdrop.py" --coverage "$dir/timeline-host.jsonl" "$k6_started" "$k6_ended" "$clk_off" 0.9 "${hdisk:-nvme1n1}" 2>>"$dir/errors.log"; then reasons+=("host-sampler-thin"); fi
+  # iostat 교차 확인 사본이 없거나 그 디스크 행이 없으면 host-iostat-missing
+  if ! grep -qs "^${hdisk:-nvme1n1} " "$dir/iostat-host.txt"; then reasons+=("host-iostat-missing"); fi
   # 호스트 표본 서버 사본을 지우지 못했으면(lib.sh host_recover) 사유
   if grep -qs 'host-copy-not-removed' "$dir/host-recovery.txt"; then reasons+=("host-copy-not-removed"); fi
   # tmpfs preset: 데이터 디렉터리가 실제로 tmpfs인가(컨테이너 안 stat -f — pg-storage.json). 파일이 없거나 깨져도 확인 불가 = 미적용
-  if [[ "$PG_PRESET" == tmpfs ]] && ! jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1; then reasons+=("tmpfs-not-applied"); fi
+  if [[ "$PG_PRESET" == tmpfs ]]; then
+    if ! jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1; then reasons+=("tmpfs-not-applied"); fi
+    # 회차 끝 tmpfs 남은 공간이 TMPFS_MIN_AVAIL(기본 512MiB) 미만이면 — 크기를 넘기 직전이었다(명세 §8 가정 2, 리뷰 rv8 A3)
+    if jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1 \
+       && ! jq -e --argjson min "${TMPFS_MIN_AVAIL:-536870912}" '(.df_bytes.avail | type == "number") and .df_bytes.avail >= $min' "$dir/pg-storage.json" > /dev/null 2>&1; then
+      reasons+=("tmpfs-low-space")
+    fi
+  else
+    # 반대 방향(리뷰 rv8 A2): 디스크 preset인데 데이터 디렉터리가 tmpfs면(이전 tmpfs 볼륨을 이어 씀 등) disk-preset-on-tmpfs, 저장 위치를 못 읽었으면 storage-check-failed
+    if ! jq -e '.fstype | type == "string" and length > 0' "$dir/pg-storage.json" > /dev/null 2>&1; then
+      reasons+=("storage-check-failed")
+    elif jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1; then
+      reasons+=("disk-preset-on-tmpfs")
+    fi
+  fi
+  # DB 메모리 초과 종료(모든 preset — 리뷰 rv8 A3): memory.events oom_kill > 0 또는 OOMKilled
+  if jq -e '.oom_killed == true or ((.cgroup.oom_kill // 0) > 0)' "$dir/pg-storage.json" > /dev/null 2>&1; then reasons+=("db-oom-kill"); fi
+  # DB 로그의 치명 신호(모든 preset): PANIC · 백엔드가 신호로 죽음 · 공간 없음
+  if zgrep -qsE 'PANIC|terminated by signal|No space left on device' "$dir/db.log.gz" 2>/dev/null; then reasons+=("db-log-fatal"); fi
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
 }
 
@@ -768,15 +807,15 @@ for level in $LEVELS; do
       # 일시 실패 한 번에 캠페인 전체가 멈추지 않게 캠페인이 연속 실패를 따로 센다(campaign.sh)
       if [[ -z "$FIRST_REP_DONE" && "${CAMPAIGN_FROZEN:-0}" != 1 ]] && (( UNHEALTHY_STREAK > 0 )); then
         echo "$(date -Is) ABORT first-rep-unhealthy" >> "$MATRIX_LOG"; log "first rep unhealthy — abort"
-        compose_down "$DEPLOY_ID"; exit 4
+        { compose_down "$DEPLOY_ID" || echo "$(date -Is) compose-down-failed-at-abort" >> "$MATRIX_LOG"; }; exit 4
       fi
       FIRST_REP_DONE=1
       if (( UNHEALTHY_STREAK >= 3 )); then
         echo "$(date -Is) ABORT unhealthy-3-in-a-row" >> "$MATRIX_LOG"; log "3 consecutive unhealthy — abort"
-        compose_down "$DEPLOY_ID"; exit 4
+        { compose_down "$DEPLOY_ID" || echo "$(date -Is) compose-down-failed-at-abort" >> "$MATRIX_LOG"; }; exit 4
       fi
     done
   done
 done
-compose_down "$DEPLOY_ID"
+compose_down "$DEPLOY_ID" || { echo "$(date -Is) compose-down-failed-at-end" >> "$MATRIX_LOG"; log "compose down failed at end"; }
 log "matrix done: $OUT_ROOT"

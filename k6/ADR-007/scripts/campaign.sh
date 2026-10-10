@@ -29,6 +29,14 @@
 #   --set disk-rest   휴식 시험(이어서 실행 없음 — 시간 간격이 측정값이라 중간부터 다시 잴 수 없다: results/<id>/rest/가 이미 있으면 거부):
 #                     fio-1(--fio-size, 기본 15G) → 바로 fio-2 → --rest-s(기본 1800초) 휴식 → fio-3 → 바로(휴식 없이) 디스크 S4 1회(counter-upsert·default).
 #                     결과 = results/<id>/rest/fio-N/(fio-disk.sh) · results/<id>/rest/counter-upsert-default-s4-afterfill/(run.sh). 계획 = steps.txt. --dry-run은 단계만 쓴다.
+#                     fio-1 앞에 배포·이미지 빌드(compose build — DB는 띄우지 않는다: fio 단독 조건을 오염시키지 않게)를 미리 해 둔다. 그래도 S4는 compose up·health·예열·시드 뒤에
+#                     k6를 시작하므로 '바로'가 아니다 — 단계 사이 실제 간격(앞 단계 부하 끝 → 이 단계 부하 시작, fio = fio 컨테이너 실행, S4 = k6 시작)을 rest/gaps.txt와
+#                     CAMPAIGN.log(REST gap 행)에 남긴다(리뷰 rv8 A6). fio 단계는 --pre-s 2 --tail-s 5(간격을 줄이려고 — 로그 회수·시험 파일 지우기는 다음 단계 앞에 한다).
+#   마감(리뷰 rv8 A9 — 명세 §2: 정기 fstrim 전에 **끝낸다**): main이 아닌 세트는 회차·단계마다 예상 끝(지금 + 계획 시간 + 여유 300초)이 --deadline(기본 2026-10-12T10:21:00+09:00)을
+#     넘으면 시작하지 않고 'ABORT deadline' 한 줄 + exit 5. 끝난 뒤 지금 시각이 마감을 넘었거나 서버 fstrim.service 실행 시각(systemctl show — sudo 불필요)이
+#     캠페인 시작 때와 달라졌으면 그 회차·단계의 status에 crossed-fstrim을 붙이고 exit 5(비교에서 빼게). 시작 때 전체 계획이 마감 안에 드는지 추정해 넘으면 경고.
+#     마감 뒤 관찰은 --allow-after-fstrim을 줄 때만(그때는 거부·표시 대신 로그 한 줄).
+#   재측정(main이 아닌 세트): status가 ok가 아닌 회차는 전부 다시 잰다(s4-no-successful-stage도 — 리뷰 rv8 A11).
 set -uo pipefail
 # 스크립트 동결 — 장시간 도는 동안 작업트리를 고쳐도 실행 중인 캠페인이 깨지지 않게(ADR-001 실측).
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -42,6 +50,7 @@ fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
 SHA="" CAMPAIGN="" REPS="" SUITE=main DRY_RUN=0   # ADR-007 명세 §9.2: 전 조건 3회(main) · 후속 disk-cause 2회
 SET=main FIO_SIZE=15G REST_S=1800   # ADR-007 후속(머리말)
+DEADLINE="2026-10-12T10:21:00+09:00" ALLOW_AFTER=0   # ADR-007 후속 마감(머리말 — 리뷰 rv8 A9)
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -52,6 +61,8 @@ while (( $# )); do
     --set) SET="$2"; shift 2 ;;
     --fio-size) FIO_SIZE="$2"; shift 2 ;;
     --rest-s) REST_S="$2"; shift 2 ;;
+    --deadline) DEADLINE="$2"; shift 2 ;;
+    --allow-after-fstrim) ALLOW_AFTER=1; shift ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -61,6 +72,8 @@ SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 [[ "$SUITE" == main ]] || { echo "--suite main only (ADR-007)" >&2; exit 2; }
 case "$SET" in main) REPS="${REPS:-3}" ;; disk-cause) REPS="${REPS:-2}" ;; disk-rest) REPS=1 ;; *) echo "--set main|disk-cause|disk-rest" >&2; exit 2 ;; esac
 [[ "$REST_S" =~ ^[0-9]+$ ]] || { echo "--rest-s <초>" >&2; exit 2; }
+[[ "$FIO_SIZE" =~ ^[0-9]+[KMG]$ ]] || { echo "--fio-size <정수><K|M|G>" >&2; exit 2; }   # 리뷰 rv8 A12 — fio-disk.sh로 넘기기 전에
+DEADLINE_S="$(date -d "$DEADLINE" +%s 2>/dev/null)" || { echo "--deadline <ISO 시각>" >&2; exit 2; }
 # dry-run은 아무것도 재지 않으므로(계획 파일만) 작업트리 하네스 검사를 건너뛴다
 if (( ! DRY_RUN )) && { ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-007 ':(exclude)k6/ADR-007/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-007 ':(exclude)k6/ADR-007/results')" ]]; }; then
@@ -80,34 +93,104 @@ cell_of() {  # 셀 이름표 → run.sh 셀 이름
   case "$1" in s4) echo S4 ;; s4c4200) echo S4c4200 ;; s4c2000) echo S4c2000 ;; s2) echo S2 ;; s7m1) echo S7-m1 ;; s7m1late) echo S7-m1-late ;; s3a20) echo S3-a20 ;; *) return 1 ;; esac
 }
 SEAT="--strategy pessimistic-nowait --pool 10 --apps 1 --levels '4'"
+# ---- ADR-007 후속 마감(머리말 — 리뷰 rv8 A9). main 세트는 쓰지 않는다 ----------------------------------------------------------------
+MARGIN_S=300
+FSTRIM0=""
+fstrim_mark() {   # 서버 fstrim.service 마지막 실행 시각(읽기 전용 — sudo 불필요). 실패면 빈 값
+  ( source "$DIR/lib.sh" > /dev/null 2>&1; set +e; remote "systemctl show fstrim.service -p ExecMainStartTimestamp --value" 2>/dev/null ) | tr -d '\r'
+}
+fio_planned_s() {  # fio 한 번 계획 시간: data job 크기 ÷ 35 MiB/s + 120초(이미지·표본·꼬리·정리)
+  python3 -c 'import sys; s=sys.argv[1]; n,u=int(s[:-1]),s[-1]; print(int(n*1024**"KMG".index(u)*1024/(35*2**20))+120)' "$FIO_SIZE"
+}
+rep_planned_s() { case "$1" in *-s4|*-s4-*) echo 720 ;; *) echo 660 ;; esac; }   # 회차 한 번(배포 끝난 뒤): S4 약 10.3분 · S4c 약 9.5분 → 반올림
+guard_start() {  # 인자: 이름 계획초 — 예상 끝이 마감을 넘으면 시작하지 않는다(exit 5)
+  (( ALLOW_AFTER )) && return 0
+  local now; now=$(date +%s)
+  if (( now + $2 + MARGIN_S > DEADLINE_S )); then
+    echo "$(date -Is) ABORT deadline: $1 예상 끝 $(date -d "@$((now + $2 + MARGIN_S))" -Is)(계획 $2초 + 여유 ${MARGIN_S}초) > 마감 $DEADLINE — 시작하지 않음" >> "$LOG"
+    echo "deadline: $1 시작 거부" >&2; exit 5
+  fi
+  if [[ -n "$FSTRIM0" ]]; then
+    local f; f="$(fstrim_mark)"
+    if [[ -n "$f" && "$f" != "$FSTRIM0" ]]; then echo "$(date -Is) ABORT fstrim-ran: $f (캠페인 시작 때 $FSTRIM0) — $1 시작하지 않음" >> "$LOG"; exit 5; fi
+  fi
+}
+mark_crossed() {  # 인자: 이름 status파일 — 끝난 뒤 마감을 넘었거나 fstrim이 돌았으면 crossed-fstrim을 붙이고 exit 5
+  local now f st crossed=""; now=$(date +%s); f="$(fstrim_mark)"
+  (( now > DEADLINE_S )) && crossed="끝 $(date -Is) > 마감 $DEADLINE"
+  [[ -n "$FSTRIM0" && -n "$f" && "$f" != "$FSTRIM0" ]] && crossed="${crossed:+$crossed · }fstrim 실행 $f"
+  [[ -n "$crossed" ]] || return 0
+  if (( ALLOW_AFTER )); then echo "$(date -Is) POST-CUTOFF $1 ($crossed) — --allow-after-fstrim이라 표시하지 않음" >> "$LOG"; return 0; fi
+  if [[ -f "$2" ]]; then st="$(cat "$2")"; [[ "$st" == ok ]] && st=crossed-fstrim || st="$st,crossed-fstrim"; echo "$st" > "$2"; fi
+  echo "$(date -Is) ABORT crossed-fstrim: $1 ($crossed) — status에 crossed-fstrim" >> "$LOG"; exit 5
+}
+dc_planned_s() { local n t=120; for n in $(awk '!/^#/ {print $4}' "$ROOT/order.txt"); do t=$(( t + $(rep_planned_s "$n") )); done; echo "$t"; }   # 120 = 배포
+plan_check() {  # 인자: 계획 총초 — 전체가 마감 안에 드는지 추정(넘으면 경고만 — 회차마다 guard_start가 막는다)
+  local now; now=$(date +%s)
+  local msg="계획 추정 $(( $1 / 60 ))분 → 예상 끝 $(date -d "@$((now + $1))" -Is) · 마감 $DEADLINE"
+  if (( now + $1 > DEADLINE_S )); then echo "$(date -Is) WARN deadline: $msg — 마감 전에 다 끝나지 않는다" >> "$LOG"; echo "WARN: $msg — 마감 초과" >&2
+  else echo "$(date -Is) PLAN $msg" >> "$LOG"; echo "$msg" >&2; fi
+}
 # ---- ADR-007 후속 휴식 시험(--set disk-rest, 머리말) — 조건 목록·순서 순환을 쓰지 않는 별도 경로 -----------------------------------
 if [[ "$SET" == disk-rest ]]; then
   REST_ROOT="$ROOT/rest"
-  STEPS=("fio-1 fio --size $FIO_SIZE" "fio-2 fio --size $FIO_SIZE" "rest-${REST_S}s rest $REST_S" "fio-3 fio --size $FIO_SIZE"
-         "counter-upsert-default-s4-afterfill rep --limit-strategy counter-upsert --pg-preset default $SEAT --cells 'S4'")
+  REP_NAME=counter-upsert-default-s4-afterfill
+  REP_ARGS=(--limit-strategy counter-upsert --pg-preset default --strategy pessimistic-nowait --pool 10 --apps 1 --levels 4 --cells S4)
+  FIO_ARGS=(--sha "$SHA" --size "$FIO_SIZE" --pre-s 2 --tail-s 5)
+  STEPS=("fio-1 fio ${FIO_ARGS[*]}" "fio-2 fio ${FIO_ARGS[*]}" "rest-${REST_S}s rest $REST_S" "fio-3 fio ${FIO_ARGS[*]}" "$REP_NAME rep ${REP_ARGS[*]}")
+  FIO_S=$(fio_planned_s); REST_PLAN=$(( 180 + FIO_S * 3 + REST_S + $(rep_planned_s "$REP_NAME") ))   # 180 = 배포·이미지 빌드
   if (( DRY_RUN )); then
     printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
     echo "$(date -Is) DRY-RUN set=disk-rest sha=$SHA steps=${#STEPS[@]} — steps.txt만 썼다" >> "$LOG"
     cat "$ROOT/steps.txt"
-    echo "계획(disk-rest): 단계 ${#STEPS[@]}개 — fio 3회(각 $FIO_SIZE) · 휴식 ${REST_S}초 · S4 1회(fio 직후)" >&2
+    echo "계획(disk-rest): 단계 ${#STEPS[@]}개 — fio 3회(각 $FIO_SIZE) · 휴식 ${REST_S}초 · S4 1회(fio-3 뒤 — 배포·빌드는 미리, compose up·시드 간격은 gaps.txt)" >&2
+    plan_check "$REST_PLAN"
     exit 0
   fi
   [[ -e "$REST_ROOT" ]] && { echo "$REST_ROOT 이미 있음 — 휴식 시험은 이어서 실행하지 않는다(새 --id로)" >&2; exit 2; }
   mkdir -p "$REST_ROOT"; printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
-  echo "$(date -Is) REST start sha=$SHA steps=${#STEPS[@]}" >> "$LOG"
-  rest_fail=0
+  FSTRIM0="$(fstrim_mark)"
+  echo "$(date -Is) REST start sha=$SHA steps=${#STEPS[@]} fstrim_last=${FSTRIM0:-unknown}" >> "$LOG"
+  plan_check "$REST_PLAN"
+  guard_start "rest-protocol(전체)" "$REST_PLAN"
+  # 배포 + 앱 이미지 빌드만 미리(DB는 띄우지 않는다 — 머리말)
+  if ( source "$DIR/lib.sh"; set +e; deploy_sha "$SHA" && remote "cd $REMOTE_BASE/$SHA && docker compose -p seatlab -f $COMPOSE_FILE build" ) >> "$REST_ROOT/prestage.log" 2>&1; then
+    echo "$(date -Is) REST prestage ok (deploy + compose build)" >> "$LOG"
+  else
+    echo "$(date -Is) ABORT REST prestage failed" >> "$LOG"; exit 3
+  fi
+  iso_s() { python3 -c 'import sys, datetime; print(datetime.datetime.fromisoformat(sys.argv[1]).timestamp())' "$1" 2>/dev/null; }
+  gap() {  # 인자: 앞 이름 앞 끝(epoch) 이 이름 이 시작(epoch) 설명
+    local g; g=$(python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$2" "$4")
+    echo "$1 → $3 = ${g}s ($5)" >> "$REST_ROOT/gaps.txt"; echo "$(date -Is) REST gap $1 → $3 = ${g}s ($5)" >> "$LOG"
+  }
+  rest_fail=0 prev="" prev_end=""
   for step in "${STEPS[@]}"; do
-    read -r sname skind sargs <<< "$step"
-    echo "$(date -Is) REST $sname start ($skind $sargs)" >> "$LOG"
+    read -r sname skind _ <<< "$step"
     case "$skind" in
-      fio)  eval bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/rest" --name "$sname" $sargs >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
+      fio)  guard_start "$sname" "$FIO_S"
+            echo "$(date -Is) REST $sname start" >> "$LOG"
+            bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/rest" --name "$sname" "${FIO_ARGS[@]}" >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
             echo "$(date -Is) REST $sname exit=$rc status=$(cat "$REST_ROOT/$sname/status" 2>/dev/null || echo none)" >> "$LOG"
+            fs=$(iso_s "$(jq -r '.fio_started // empty' "$REST_ROOT/$sname/meta.json" 2>/dev/null)"); fe=$(iso_s "$(jq -r '.fio_ended // empty' "$REST_ROOT/$sname/meta.json" 2>/dev/null)")
+            [[ -n "$prev" && -n "$prev_end" && -n "$fs" ]] && gap "$prev" "$prev_end" "$sname" "$fs" "앞 부하 끝 → fio 컨테이너 실행 — 꼬리·정리·이미지 확인·표본 시작·기준선 포함"
+            mark_crossed "$sname" "$REST_ROOT/$sname/status"
             # fio 하나라도 실패하면 뒤 단계의 '바로 다음'·'휴식 뒤' 의미가 깨진다 — 멈춘다
-            (( rc == 0 )) || { echo "$(date -Is) ABORT REST $sname" >> "$LOG"; exit 1; } ;;
-      rest) sleep "$sargs"; echo "$(date -Is) REST $sname done" >> "$LOG" ;;
-      rep)  eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/rest/$sname" --reps 1 --only-rep 1 $sargs >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
-            st="$(cat "$REST_ROOT/$sname"/L*/*/rep1/status 2>/dev/null || echo none)"
+            (( rc == 0 )) || { echo "$(date -Is) ABORT REST $sname" >> "$LOG"; exit 1; }
+            prev="$sname" prev_end="$fe" ;;
+      rest) guard_start "$sname" "$REST_S"
+            echo "$(date -Is) REST $sname start" >> "$LOG"
+            sleep "$REST_S"; echo "$(date -Is) REST $sname done" >> "$LOG" ;;   # 간격은 다음 fio의 gap 행이 앞 fio 끝부터 잰다
+      rep)  guard_start "$sname" "$(rep_planned_s "$sname")"
+            echo "$(date -Is) REST $sname start" >> "$LOG"
+            bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/rest/$sname" --reps 1 --only-rep 1 "${REP_ARGS[@]}" >> "$REST_ROOT/$sname.runner.log" 2>&1; rc=$?
+            stf="$(ls "$REST_ROOT/$sname"/L*/*/rep1/status 2>/dev/null | head -1)"; st="$(cat "$stf" 2>/dev/null || echo none)"
             echo "$(date -Is) REST $sname exit=$rc status=$st" >> "$LOG"
+            m="$(dirname "${stf:-/nonexistent/x}")/meta.json"
+            rs=$(iso_s "$(jq -r '.started // empty' "$m" 2>/dev/null)"); ks=$(iso_s "$(jq -r '.k6_started // empty' "$m" 2>/dev/null)")
+            [[ -n "$prev_end" && -n "$rs" ]] && gap "$prev" "$prev_end" "$sname(회차 시작)" "$rs" "fio 끝 → run.sh 회차 시작 — fio 꼬리·정리·run.sh 기동"
+            [[ -n "$prev_end" && -n "$ks" ]] && gap "$prev" "$prev_end" "$sname(k6 시작)" "$ks" "fio 끝 → k6 시작 — 위 + compose down/up·health·예열·시드(200만 석)·표본 대기"
+            mark_crossed "$sname" "$stf"
             [[ "$rc" == 0 && "$st" == ok ]] || rest_fail=1 ;;
     esac
   done
@@ -206,12 +289,15 @@ if (( DRY_RUN )); then
   for rep in $(seq 1 "$REPS"); do echo "$(date -Is) ORDER rep$rep: $(awk -v r="$rep" '$1 == r {printf "%s ", $4}' "$ROOT/order.txt")" >> "$LOG"; done
   cat "$ROOT/order.txt"
   echo "계획: 조건 ${#CONDITIONS[@]}개 × ${REPS}회 = ${total}회 호출" >&2
+  [[ "$SET" != main ]] && plan_check "$(dc_planned_s)"
   exit 0
 fi
 
+if [[ "$SET" != main ]]; then FSTRIM0="$(fstrim_mark)"; (( DRY_RUN )) || echo "$(date -Is) fstrim_last=${FSTRIM0:-unknown}" >> "$LOG"; fi
 INFRA_STREAK=0
 run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니면(인자·SHA·배포) 캠페인을 멈춘다 — 조용히 넘어가지 않게
   local line="$1" rep="$2" name="${1%% *}" args="${1#* }" resume="" rc
+  [[ "$SET" != main ]] && guard_start "$name rep$rep" "$(rep_planned_s "$name")"   # ADR-007 후속 마감(머리말)
   [[ -f "$ROOT/$name/plan.json" ]] && resume="--resume"
   local mark; mark="$(mktemp)"   # 이 호출이 쓴 status만 세려고(재측정 전의 옛 실패를 연속 실패로 세지 않게)
   echo "$(date -Is) $name rep$rep start $resume" >> "$LOG"
@@ -219,6 +305,7 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
   rc=$?
   echo "$(date -Is) $name rep$rep exit=$rc" >> "$LOG"
   if (( rc != 0 )); then echo "$(date -Is) ABORT $name rep$rep exit=$rc" >> "$LOG"; exit "$rc"; fi
+  [[ "$SET" != main ]] && mark_crossed "$name rep$rep" "$(ls "$ROOT/$name"/L*/*/rep"$rep"/status 2>/dev/null | head -1)"
   # 기동 계열 실패(앱이 안 뜸)가 호출 5번 연속이면 빌드·서버 문제 — 멈춘다. 한두 번은 끝의 재측정이 맡는다
   local fresh; fresh=$(find "$ROOT/$name" -path "*/rep$rep/status" -newer "$mark" 2>/dev/null); rm -f "$mark"
   if [[ -n "$fresh" ]] && grep -qsE '^(unhealthy|compose-up-failed|seed-failed)$' $fresh; then
@@ -230,10 +317,13 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
 }
 
 non_ok_reps() {  # 정상 아닌 회차의 status 경로 — 보존된 옛 회차(.path-gap-·.retry-·.incomplete-)와 '결과로서의 실패'는 뺀다
-  grep -LxsE 'ok|s4-no-successful-stage' "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true
+  # ADR-007 후속 세트는 ok만 정상(리뷰 rv8 A11 — s4-no-successful-stage도 다시 잰다)
+  local okre='ok|s4-no-successful-stage'; [[ "$SET" != main ]] && okre='ok'
+  grep -LxsE "$okre" "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true
 }
 
 echo "$(date -Is) CAMPAIGN start $([[ "$SET" != main ]] && echo "set=$SET ")sha=$SHA suite=$SUITE reps=$REPS order=rotation conditions=${#CONDITIONS[@]} planned_calls=$total" >> "$LOG"
+[[ "$SET" != main ]] && plan_check "$(dc_planned_s)"
 for rep in $(seq 1 "$REPS"); do
   echo "$(date -Is) ORDER rep$rep: $(awk -v r="$rep" '$1 == r {printf "%s ", $4}' "$ROOT/order.txt")" >> "$LOG"
   for name in $(awk -v r="$rep" '$1 == r {print $4}' "$ROOT/order.txt"); do   # order.txt가 정본 — 위에서 다시 계산해 같음을 확인했다

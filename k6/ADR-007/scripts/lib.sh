@@ -70,10 +70,19 @@ compose_up() {   # SSH 순간 단절에 회차가 통째로 실패하지 않게 
 }
 
 compose_down() {
-  local sha="$1"
-  log "compose down ($sha)"
-  # 앱 2대 오버레이까지 함께 지정해야 app2·lb도 내려간다 — 다음 회차가 1대 조건이어도 남지 않게(--remove-orphans가 보조)
-  remote "cd $REMOTE_BASE/$sha && docker compose -p seatlab -f $COMPOSE_FILE -f k6/ADR-007/compose.two-apps.yml down -v --remove-orphans" >&2 || true
+  local sha="$1" i
+  # ADR-007 후속(리뷰 rv8 A2): 3번까지 다시 하고, 내린 뒤 DB 볼륨(seatlab_pgdata — tmpfs 회차 뒤 다음 회차가 같은 볼륨을 이어 쓰지 않게)과
+  # DB 컨테이너가 정말 없는지 확인한다. 끝내 남으면 1(run.sh가 그 회차를 compose-down-failed로 끊는다 — 다음 회차는 이 확인을 다시 통과해야 뜬다)
+  for i in 1 2 3; do
+    log "compose down ($sha) (attempt $i)"
+    # 앱 2대 오버레이까지 함께 지정해야 app2·lb도 내려간다 — 다음 회차가 1대 조건이어도 남지 않게(--remove-orphans가 보조)
+    remote "cd $REMOTE_BASE/$sha && docker compose -p seatlab -f $COMPOSE_FILE -f k6/ADR-007/compose.two-apps.yml down -v --remove-orphans" >&2
+    if remote "! docker volume inspect seatlab_pgdata > /dev/null 2>&1 && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=db)\" ]" >&2; then
+      return 0
+    fi
+    log "compose down: seatlab_pgdata 볼륨 또는 db 컨테이너가 남았거나 확인 실패 — retry in 10s"; sleep 10
+  done
+  return 1
 }
 
 wait_health() {
@@ -231,7 +240,26 @@ REMOTE
 # 동결 사본 그대로라 기록된 하네스와 같다). 인자: 서버 쪽 사본 경로(jsonl) · iostat 사본 경로(txt) — 둘 다 REMOTE_BASE 아래. 장치 = HOST_DEVS(기본 nvme1n1 dm-0 —
 # DB 볼륨이 있는 / = LVM ubuntu-lv = dm-0 → nvme1n1, 명세 §0 서버 확인. nvme0n1(Windows 디스크)은 읽지도 않는다 — 명세 §4)
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOST_DEVS="${HOST_DEVS:-nvme1n1 dm-0}"
+HOST_DEVS="${HOST_DEVS:-nvme1n1 dm-0}"   # 기본값 — 회차·fio마다 host_devices가 실제 장치로 바꾼다(리뷰 rv8 A4)
+EXPECTED_DISK_MODEL="${EXPECTED_DISK_MODEL:-Samsung SSD 980 500GB}"   # 명세 §0 서버 확인 — 다르면 rep_status host-device-unexpected
+# 표본 장치 정하기(리뷰 rv8 A4 — io_snapshot과 같은 방법): 대상 경로의 파일시스템 원본 → lsblk -s로 그 아래 장치 사슬(LVM dm → 파티션 → 디스크).
+# 인자: docker(= Docker 데이터 루트 — DB 볼륨이 그 아래) 또는 서버 홈 기준 경로(fio-tmp). 한 줄 JSON:
+#   {"target","fs_source","chain":[{"name","type"}],"sampled":[사슬 장치 이름 — 표본 대상],"disk":"<TYPE disk 장치>","model":"/sys/block/<disk>/device/model"}
+# 모델은 사슬의 디스크 하나만 읽는다(다른 디스크는 읽지 않는다 — 명세 §4)
+host_devices() {
+  timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" bash -s -- "$1" <<'REMOTE'
+set -uo pipefail
+if [ "$1" = docker ]; then p=$(docker info -f '{{.DockerRootDir}}'); else p="$HOME/$1"; fi
+src=$(findmnt -n -o SOURCE --target "$p") || exit 1
+chain=$(lsblk -s -no KNAME,TYPE "$src") || exit 1
+disk=$(printf '%s\n' "$chain" | awk '$2 == "disk" {print $1; exit}')
+[ -n "$disk" ] || exit 1
+model=$(sed 's/[[:space:]]*$//' "/sys/block/$disk/device/model" 2>/dev/null)
+cj=$(printf '%s\n' "$chain" | awk 'NF {printf "%s{\"name\":\"%s\",\"type\":\"%s\"}", (n++ ? "," : ""), $1, $2}')
+sj=$(printf '%s\n' "$chain" | awk 'NF {printf "%s\"%s\"", (n++ ? "," : ""), $1}')
+printf '{"target":"%s","fs_source":"%s","chain":[%s],"sampled":[%s],"disk":"%s","model":"%s"}\n' "$p" "$src" "$cj" "$sj" "$disk" "$model"
+REMOTE
+}
 host_sampler() {
   remote "bash -s -- '$1' '$2' $HOST_DEVS" < "$LIB_DIR/host-sampler.sh"
 }
@@ -272,7 +300,7 @@ host_recover() {
 # DB 저장 위치·크기(명세 §5 tmpfs 확인 · §8 가정 2) — 한 줄 JSON. 모든 preset에서 회차 끝(k6 뒤)에 읽는다(기록만 — 판정은 tmpfs에서만: rep_status tmpfs-not-applied).
 #   data_directory(SHOW) · fstype(컨테이너 안 stat -f — tmpfs면 "tmpfs") · findmnt(SOURCE FSTYPE SIZE USED OPTIONS — 없으면 빈 값) · df_bytes(size used avail)
 #   db_bytes = pg_database_size('seat') · wal_bytes = pg_ls_waldir() 합 · cgroup = 컨테이너 memory.current·memory.peak·memory.max(바이트)·shmem(memory.stat — tmpfs 페이지)
-#   oom_killed = docker inspect .State.OOMKilled
+#   cgroup.oom_kill = memory.events oom_kill(리뷰 rv8 A3) · oom_killed = docker inspect .State.OOMKilled
 pg_storage() {
   timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=5 "$SERVER" bash -s <<'REMOTE'
 set -uo pipefail
@@ -286,12 +314,13 @@ db=$(q "SELECT pg_database_size('seat')")
 wal=$(q "SELECT coalesce(sum(size), 0) FROM pg_ls_waldir()")
 cg() { docker exec "$c" cat "/sys/fs/cgroup/$1" 2>/dev/null | tr -d '[:space:]'; }
 cur=$(cg memory.current); peak=$(cg memory.peak); max=$(cg memory.max)
+oomk=$(docker exec "$c" cat /sys/fs/cgroup/memory.events 2>/dev/null | sed -n 's/^oom_kill //p')
 shm=$(docker exec "$c" cat /sys/fs/cgroup/memory.stat 2>/dev/null | sed -n 's/^shmem //p')
 oom=$(docker inspect -f '{{.State.OOMKilled}}' "$c" 2>/dev/null)
 num() { [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || echo null; }
 set -- $df
-printf '{"t":"%s","data_directory":"%s","fstype":"%s","findmnt":"%s","df_bytes":{"size":%s,"used":%s,"avail":%s},"db_bytes":%s,"wal_bytes":%s,"cgroup":{"current":%s,"peak":%s,"max":"%s","shmem":%s},"oom_killed":%s}\n' \
+printf '{"t":"%s","data_directory":"%s","fstype":"%s","findmnt":"%s","df_bytes":{"size":%s,"used":%s,"avail":%s},"db_bytes":%s,"wal_bytes":%s,"cgroup":{"current":%s,"peak":%s,"max":"%s","shmem":%s,"oom_kill":%s},"oom_killed":%s}\n' \
   "$(date -Is)" "$dd" "$fs" "$fm" "$(num "${1:-}")" "$(num "${2:-}")" "$(num "${3:-}")" "$(num "$db")" "$(num "$wal")" \
-  "$(num "$cur")" "$(num "$peak")" "$max" "$(num "$shm")" "$([[ "$oom" == true || "$oom" == false ]] && echo "$oom" || echo null)"
+  "$(num "$cur")" "$(num "$peak")" "$max" "$(num "$shm")" "$(num "$oomk")" "$([[ "$oom" == true || "$oom" == false ]] && echo "$oom" || echo null)"
 REMOTE
 }

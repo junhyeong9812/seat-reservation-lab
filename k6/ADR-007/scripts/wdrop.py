@@ -2,7 +2,7 @@
 """ADR-007 후속(디스크 원인 C5 — docs/plans/2026-10-10/adr-007-disk-cause 명세 §3·§5·§9 task 01): 쓰기 반감 탐지 + 호스트 디스크 지표.
 
     scripts/wdrop.py <캠페인 루트|조건 폴더|회차 폴더|fio 폴더> [--json <파일>] [--series-dir <폴더>] [--dev nvme1n1] [--win 30]
-    scripts/wdrop.py --coverage <timeline-host.jsonl> <k6_started ISO> <k6_ended ISO> <시계 차 초> [<최소 비율 0.9>]   # run.sh rep_status host-sampler-thin
+    scripts/wdrop.py --coverage <timeline-host.jsonl> <k6_started ISO> <k6_ended ISO> <시계 차 초> [<최소 비율 0.9> [<장치>]]   # run.sh rep_status host-sampler-thin
 
 쓰기 반감(task 06a 분석 정의를 그대로 옮겼다 — 근거 scratchpad an7/worker/extra.py·wdrop.py):
   - 표본 = timeline-server.jsonl(10초 루프의 docker stats)에서 DB 컨테이너(이름에 'db') BlockIO 쓰기 누적(바이트 — docker의 10진 단위 kB·MB·GB) · 시각 = 바로 앞 시각 행.
@@ -19,8 +19,10 @@
     이후인 칸은 뺀다 — 끝난 뒤를 반감으로 잡지 않게). GB = 그 칸 시작까지 장치 누적 쓰기(k6 시작 기준 — 서버 전체 I/O).
   - fio 폴더(meta.json kind=fio): docker stats가 없으므로 호스트 반감만(fio 시작 기준 10초 칸) + 칸별 누적 GB.
 --series-dir: 회차마다 초 단위 호스트 지표 CSV(<조건>__<회차>.csv — k6 초 · 위 지표).
---coverage: k6 구간 [시작, 끝)의 1초 칸(정수 초 — 구간 안에 온전히 든 칸) 중 표본(서버 시각 − 시계 차)이 하나 이상인 칸의 비율 < 최소 비율이면 exit 1
-  (파일 없음·빈 파일 = 0%). 구간이 1초 미만이면 판정하지 않는다(exit 0). 비율은 stderr 한 줄.
+--coverage(리뷰 rv8 A1): k6 구간 [시작, 끝] 안 표본(서버 시각 − 시계 차) 수 ÷ 구간 초 < 최소 비율이거나, 구간 양 끝을 포함한 이웃 표본 사이 최대 공백 > 2초면 exit 1
+  (파일 없음·빈 파일 = 0%). <장치>를 주면 그 장치 누적값이 든 표본만 센다(리뷰 rv8 A4). 구간이 1초 미만이면 판정하지 않는다(exit 0). 사유는 stderr 한 줄.
+  (전에는 '표본이 든 정수 초 칸' 비율이었다 — 표본이 서버 초 경계 직후 약 1ms에 찍혀 시계 차가 조금만 양수여도 두 표본이 한 칸에 몰려 거짓 thin이 났다)
+diskstats 시간 열(*_ms·io_ms·weighted_ms)은 커널에서 32비트로 돌아간다(리뷰 rv8 A5) — 차분이 음수면 2^32를 더한다. 그 밖의 누적값이 줄면 그 간격의 그 값은 버린다(None).
 결과 폴더에는 쓰지 않는다(읽기만).
 """
 import argparse
@@ -74,18 +76,24 @@ def host_samples(path):
 
 
 # ---- --coverage ------------------------------------------------------------------------------------------
-def coverage(path, started, ended, off, min_ratio):
+MAX_GAP_S = 2.0
+
+
+def coverage(path, started, ended, off, min_ratio, dev=None):
     t0, t1 = ts(started), ts(ended)
-    lo, hi = math.ceil(t0), math.floor(t1)
-    total = hi - lo
+    total = t1 - t0
     if total < 1:
-        print(f"host coverage: k6 구간 {t1 - t0:.1f}s < 1s — 판정 안 함", file=sys.stderr)
+        print(f"host coverage: k6 구간 {total:.1f}s < 1s — 판정 안 함", file=sys.stderr)
         return 0
-    secs = {math.floor(r["t"] - off) for r in host_samples(path)}
-    got = sum(1 for s in range(lo, hi) if s in secs)
-    ratio = got / total
-    if ratio < min_ratio:
-        print(f"host-sampler-thin: k6 구간 1초 칸 {got}/{total} = {ratio:.1%} < {min_ratio:.0%}", file=sys.stderr)
+    stamps = sorted(r["t"] - off for r in host_samples(path)
+                    if (dev in (r.get("disk") or {}) if dev else bool(r.get("disk"))))
+    inw = [t for t in stamps if t0 <= t <= t1]
+    ratio = len(inw) / total
+    edges = [t0] + inw + [t1]
+    gap = max(b - a for a, b in zip(edges, edges[1:]))
+    if ratio < min_ratio or gap > MAX_GAP_S:
+        print(f"host-sampler-thin: k6 구간 {total:.0f}s 표본 {len(inw)}개 = {ratio:.1%} (최소 {min_ratio:.0%}) · 최대 공백 {gap:.2f}s (최대 {MAX_GAP_S:g}s)"
+              + (f" · 장치 {dev}" if dev else ""), file=sys.stderr)
         return 1
     return 0
 
@@ -123,6 +131,19 @@ def find_drop(points, min_t):
 
 
 # ---- 호스트 지표 -----------------------------------------------------------------------------------------
+MS_FIELDS = {"read_ms", "write_ms", "io_ms", "weighted_ms", "discard_ms", "flush_ms"}
+
+
+def delta(a, b, wraps32):
+    """누적값 차분 — 시간 열은 32비트로 돈다(음수면 + 2^32), 그 밖의 값이 줄면 None"""
+    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+        return None
+    d = b - a
+    if d < 0:
+        return d + 2**32 if wraps32 else None
+    return d
+
+
 def per_second(samples, dev):
     """이웃 표본 차분 → [(t_end, dt, {Δ값})]"""
     rows = []
@@ -131,8 +152,7 @@ def per_second(samples, dev):
         dt = b["t"] - a["t"]
         if not da or not db or dt <= 0:
             continue
-        d = {k: (db[k] - da[k]) if isinstance(db.get(k), (int, float)) and isinstance(da.get(k), (int, float)) else None
-             for k in ("writes", "write_sectors", "write_ms", "flushes", "flush_ms", "weighted_ms", "io_ms")}
+        d = {k: delta(da.get(k), db.get(k), k in MS_FIELDS) for k in ("writes", "write_sectors", "write_ms", "flushes", "flush_ms", "weighted_ms", "io_ms")}
         for kind in ("some", "full"):
             pa, pb = ((a.get("psi_io") or {}).get(kind) or {}).get("total"), ((b.get("psi_io") or {}).get(kind) or {}).get("total")
             d["psi_" + kind] = (pb - pa) if isinstance(pa, (int, float)) and isinstance(pb, (int, float)) else None
@@ -257,10 +277,10 @@ def fmt(x):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--coverage":
         a = sys.argv[2:]
-        if len(a) not in (4, 5):
+        if len(a) not in (4, 5, 6):
             print(__doc__, file=sys.stderr)
             return 2
-        return coverage(a[0], a[1], a[2], float(a[3]), float(a[4]) if len(a) > 4 else 0.9)
+        return coverage(a[0], a[1], a[2], float(a[3]), float(a[4]) if len(a) > 4 else 0.9, a[5] if len(a) > 5 else None)
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--json")
