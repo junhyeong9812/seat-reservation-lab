@@ -158,7 +158,7 @@ CREATE TABLE user_hold_quota (
   - 확정: 그대로
   - 만료: 배치가 지운 수만큼 −1(`decrementCounters` — 행이 없으면 예외, 음수는 CHECK가 막음)
 - 감시: 판정기 `v_counter_mismatch`(cnt vs 실제 홀드 + 확정). advisory 계열은 `v_over_limit_users`(실제 홀드 + 확정을 사용자별 COUNT)로 감시한다. 둘 다 `loadtest/LoadtestDataService.kt`에 있다.
-- 행은 만료로 지워지지 않고 쌓인다(ADR-008 숙제).
+- 행은 만료로 지워지지 않고 쌓인다(ADR-009 숙제).
 
 ## 6. 락이 안 풀리면? — `_xact_`와 세션 락
 
