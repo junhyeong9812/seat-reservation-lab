@@ -326,18 +326,58 @@ REMOTE
 }
 
 # ---- ADR-008 기본값 출처 증거(명세 §5 — 매수 방식을 주입하지 않고 떴는가) ----------------------------------------------------------------
-# 앱 컨테이너 환경에 매수 방식 키가 있는지만 센다 — 환경 전체는 기록하지 않는다(DB_PASSWORD가 들어 있다). 세는 일은 서버에서 하고 숫자만 받는다.
-#   env = SEAT_HOLD_LIMIT…로 시작하는 환경변수(relaxed binding 이름 포함 — SEAT_HOLD_LIMIT_STRATEGY·SEAT_HOLD_LIMITSTRATEGY) 개수
-#   json = SPRING_APPLICATION_JSON 안의 limit-strategy·limitStrategy·limit_strategy 키 등장 수
-# 인자: 컨테이너 이름 → 한 줄 JSON {"container","env","json","present"} (조회 실패면 1 — run.sh가 limit-key-check-failed로 드러낸다)
+# 앱 컨테이너에서 매수 방식 설정 흔적을 **개수만** 센다 — 값은 기록하지 않는다(환경에 DB_PASSWORD가 있다). 세는 일은 서버에서 하고 숫자만 받는다.
+#   정규식 = 대소문자 무시 limit[._-]?strategy (relaxed binding 이름 SEAT_HOLD_LIMIT_STRATEGY·SEAT_HOLD_LIMITSTRATEGY, -Dseat.hold.limit-strategy=,
+#            SPRING_APPLICATION_JSON의 limit-strategy·limitStrategy 키 모두 걸린다 — 리뷰 루프 1 C8)
+#   env  = 환경변수 줄 전체(이름=값 — JAVA_TOOL_OPTIONS·SPRING_APPLICATION_JSON·SPRING_CONFIG_* 포함)에서의 등장 수
+#   cmd  = .Path · .Args · .Config.Entrypoint · .Config.Cmd 에서의 등장 수(--seat.hold.limit-strategy= 같은 명령줄 인자)
+#   spring_config = 이름이 SPRING_CONFIG_로 시작하는 환경변수 수(외부 설정 파일 위치 — 그 파일의 내용은 볼 수 없으므로 있는 것 자체를 드러낸다)
+# 인자: 컨테이너 이름 → 한 줄 JSON {"container","env","cmd","spring_config","present"} (조회 실패면 1 — run.sh가 limit-key-check-failed로 드러낸다)
 limit_key_check() {
-  local c="$1" out e j
-  out=$(remote "docker inspect '$c' --format '{{range .Config.Env}}{{println .}}{{end}}' > /dev/null 2>&1 || exit 3
-    docker inspect '$c' --format '{{range .Config.Env}}{{println .}}{{end}}' | { e=0 j=0; while IFS= read -r l; do
-      case \"\$l\" in SEAT_HOLD_LIMIT*) e=\$((e+1)) ;; esac
-      case \"\$l\" in SPRING_APPLICATION_JSON=*) j=\$((j + \$(printf '%s' \"\$l\" | grep -oE 'limit[-_]?[sS]trategy' | wc -l))) ;; esac
-    done; echo \"\$e \$j\"; }") || return 1
-  read -r e j <<< "$out"
-  [[ "$e" =~ ^[0-9]+$ && "$j" =~ ^[0-9]+$ ]] || return 1
-  jq -nc --arg c "$c" --argjson e "$e" --argjson j "$j" '{container:$c, env:$e, json:$j, present:(($e + $j) > 0)}'
+  local c="$1" out e m sc
+  out=$(remote "bash -s -- '$c'" <<'SH'
+c="$1"
+docker inspect "$c" > /dev/null 2>&1 || exit 3
+docker inspect "$c" --format '{{range .Config.Env}}E {{.}}{{println}}{{end}}{{range .Config.Entrypoint}}C {{.}}{{println}}{{end}}{{range .Config.Cmd}}C {{.}}{{println}}{{end}}C {{.Path}}{{println}}{{range .Args}}C {{.}}{{println}}{{end}}' \
+  | awk '{ l = tolower(substr($0, 3)); n = gsub(/limit[._-]?strategy/, "", l)
+           if (substr($0, 1, 2) == "E ") { e += n; if (substr($0, 3, 14) == "SPRING_CONFIG_") s++ } else m += n }
+         END { printf "%d %d %d\n", e, m, s }'
+SH
+) || return 1
+  read -r e m sc <<< "$out"
+  [[ "$e" =~ ^[0-9]+$ && "$m" =~ ^[0-9]+$ && "$sc" =~ ^[0-9]+$ ]] || return 1
+  jq -nc --arg c "$c" --argjson e "$e" --argjson m "$m" --argjson s "$sc" '{container:$c, env:$e, cmd:$m, spring_config:$s, present:(($e + $m) > 0)}'
+}
+
+# ---- ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — 회차 전에 한 번, 측정 대상 앱 SHA 기준) -------------------------------------------------
+# 매수 방식은 src/main/resources/application.yml만 정할 수 있고 그 값은 counter-upsert-precheck여야 한다. 프로필 설정(loadtest 등)이 덮으면 '기본값'을 잰 것이 아니다.
+#   ① <SHA>의 src/main/resources 아래 application*.{yml,yaml,properties}(하위 폴더 포함) 중 application.yml이 아닌 파일에서 limit[._-]?strategy(대소문자 무시, 주석 제외)가
+#      한 번이라도 나오면 limit-set-by-profile
+#   ② application.yml: 그 정규식이 나오는 (주석 아닌) 줄이 정확히 하나이고 그 줄이 `limit-strategy: counter-upsert-precheck`가 아니면 limit-default-not-precheck
+#   ③ 실제로 띄울 compose 파일들(인자)의 주석 아닌 줄에 SPRING_CONFIG_가 있으면 spring-config-override(외부 설정 위치 — 내용을 볼 수 없다)
+# 인자: sha compose파일... (compose 파일은 로컬 경로 — 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 사본) → 한 줄 JSON {"sha","files","application_yml","spring_config","reasons"}
+limit_config_check() {
+  local sha="$1"; shift
+  local f files="[]" n app_lines app_ok=false sc=0 reasons=() cf
+  strip() { case "$1" in *.properties) grep -vE '^[[:space:]]*[#!]' ;; *) sed -E 's/(^|[[:space:]])#.*$//' ;; esac; }
+  while IFS= read -r f; do
+    [[ "$(basename "$f")" =~ ^application.*\.(ya?ml|properties)$ ]] || continue
+    n=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -ciE 'limit[._-]?strategy')
+    files=$(jq -c --arg f "$f" --argjson n "${n:-0}" '. + [{path:$f, matches:$n}]' <<< "$files")
+    if [[ "$f" == src/main/resources/application.yml ]]; then
+      app_lines=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -iE 'limit[._-]?strategy')
+      if [[ "$(grep -c . <<< "$app_lines")" == 1 ]] && grep -qE '^[[:space:]]*limit-strategy:[[:space:]]*counter-upsert-precheck[[:space:]]*$' <<< "$app_lines"; then app_ok=true; fi
+    elif (( n > 0 )); then
+      reasons+=("limit-set-by-profile")
+    fi
+  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- src/main/resources) || return 1
+  [[ "$files" != "[]" ]] || return 1   # 설정 파일을 하나도 못 찾으면 확인 실패(조용히 통과하지 않게)
+  [[ "$app_ok" == true ]] || reasons+=("limit-default-not-precheck")
+  for cf in "$@"; do
+    [[ -s "$cf" ]] || return 1
+    sc=$(( sc + $(sed -E 's/(^|[[:space:]])#.*$//' "$cf" | grep -c 'SPRING_CONFIG_') ))
+  done
+  (( sc == 0 )) || reasons+=("spring-config-override")
+  jq -nc --arg sha "$sha" --argjson files "$files" --argjson ok "$app_ok" --argjson sc "$sc" --arg r "$(printf '%s\n' "${reasons[@]}" | sort -u | grep . | tr '\n' ' ')" \
+    '{sha:$sha, files:$files, application_yml:{precheck:$ok}, spring_config:$sc, reasons:($r | split(" ") | map(select(. != "")))}'
 }

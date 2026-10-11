@@ -12,8 +12,10 @@
 #   실제 순서는 order.txt(회차 · 회차 안 순번 · 전체 순번 · 조건)와 CAMPAIGN.log(ORDER 행). 이어서 실행할 때 다시 계산한 순서가 order.txt와 다르면 멈춘다.
 # 중단되면 같은 --id로 다시 부르면 된다: 각 조건은 run.sh --resume으로 이어서 재고, 끝난 회차(status 있음)는 건너뛴다.
 # 끝나면 정상이 아닌 회차를 다시 잰다(최대 2바퀴) — **단 회차 합격 사유(run.sh rep_status: over-limit · counter-mismatch* · s7-wronged-seats ·
-#   s7late-order-violation · borrow-not-one · limit-strategy-mismatch · limit-key-present)가 있는 회차는 다시 재지 않는다**: 그것은 측정 결과(기본값이 기준을 못 지켰다)이지
-#   하네스 실패가 아니다 — 다시 재서 ok가 나오면 실패가 가려진다. 그대로 남기고 exit 1. 'S4 한계 < 첫 단계'(s4-no-successful-stage 단독)도 결과다(ADR-007과 같다).
+#   s7late-order-violation · borrow-not-one · limit-strategy-mismatch · limit-key-present · limit-set-by-profile · limit-default-not-precheck ·
+#   spring-config-override)가 있거나, 판정기 consistency.json에 위반(v_over_limit_users > 0 또는 v_counter_mismatch > 0)이 찍힌 회차는 — 다른 사유가 무엇이든 —
+#   다시 재지 않는다**(리뷰 루프 1 C6): 그것은 측정 결과(기본값이 기준을 못 지켰다)이지 하네스 실패가 아니다 — 다시 재서 ok가 나오면 실패가 가려진다. 그대로 남기고 exit 1.
+#   ADR-008에서는 status가 정확히 ok인 회차만 정상이다 — S4의 s4-no-successful-stage도 정상이 아니다(리뷰 루프 1 C2. ADR-007은 '한계 < 첫 단계'를 결과로 봤다).
 set -uo pipefail
 # 스크립트 동결 — 장시간 도는 동안 작업트리를 고쳐도 실행 중인 캠페인이 깨지지 않게(ADR-001 실측).
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -125,12 +127,15 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
 }
 
 # 회차 합격 사유(머리말) — 이 사유가 하나라도 있는 회차는 다시 재지 않는다
-ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|s7-wronged-seats|s7late-order-violation|borrow-not-one|limit-strategy-mismatch|limit-key-present)(,|$)'
+ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|s7-wronged-seats|s7late-order-violation|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-set-by-profile|limit-default-not-precheck|spring-config-override)(,|$)'
 all_status() { ls "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true; }
-non_ok_reps() {  # 정상 아닌 회차의 status 경로(보존된 옛 회차 제외) — 'S4 한계 < 첫 단계' 단독은 결과
-  local st; for st in $(all_status); do grep -qxsE 'ok|s4-no-successful-stage' "$st" || echo "$st"; done
+non_ok_reps() {  # 정상 아닌 회차의 status 경로(보존된 옛 회차 제외) — status가 정확히 ok만 정상(머리말 C2)
+  local st; for st in $(all_status); do grep -qxs 'ok' "$st" || echo "$st"; done
 }
-retryable() { local st; for st in $(non_ok_reps); do grep -qsE "$ACCEPT_RE" "$st" || echo "$st"; done; }
+consistency_violation() {  # 인자: status 경로 — 그 회차 consistency.json에 위반이 찍혔으면 0(머리말 C6). 파일이 없거나 깨졌으면 1(위반 증거 없음)
+  jq -e '((.v_over_limit_users // 0) > 0) or ((.v_counter_mismatch // 0) > 0)' "$(dirname "$1")/consistency.json" > /dev/null 2>&1
+}
+retryable() { local st; for st in $(non_ok_reps); do grep -qsE "$ACCEPT_RE" "$st" || consistency_violation "$st" || echo "$st"; done; }
 
 echo "$(date -Is) CAMPAIGN start sha=$SHA conditions=${#CONDITIONS[@]} planned_calls=$total" >> "$LOG"
 for rep in $(seq 1 "$REPS_SHORT"); do

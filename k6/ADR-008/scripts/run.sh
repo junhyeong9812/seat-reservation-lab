@@ -2,7 +2,7 @@
 # ADR-008 측정 실행기 (ADR-007 실행기 복사 — 매수 방식을 주입하지 않고 앱 기본값으로 띄운다 · 기본값 출처 증거 limit-key.json · 회차 합격 판정 summarize.py --accept-check).
 #   매수 방식 축 없음: --limit-strategy·--inject-limit-strategy를 받지 않는다. LIMIT_STRATEGY는 '기대 기본값'(counter-upsert-precheck — ADR-008 결정)이고 회차마다 configprops와 대조한다(limit-strategy-mismatch).
 #   plan·meta에 limit_source=default. 앱 컨테이너 환경에 매수 방식 키가 있으면 limit-key-present(lib.sh limit_key_check — 환경 전체는 기록하지 않는다).
-#   회차 합격(명세 §5): 매수 초과·v_counter_mismatch·억울한 좌석(S7-m1)·명세 순서 위반(S7-m1-late)·빌림 1.0(S3 제외) — 하나라도 어긋나면 그 사유로 ok가 아니다.
+#   회차 합격(명세 §5): 매수 초과·v_counter_mismatch·억울한 좌석(S7-m1)·명세 순서 위반(S7-m1-late)·빌림 1.0(모든 셀 — 리뷰 루프 1 C1) — 하나라도 어긋나면 그 사유로 ok가 아니다.
 # 그 앞: ADR-007 측정 실행기 (ADR-006 실행기 복사 + 매수 방식 counter-upsert-precheck + DB 설정 축 --pg-preset + 대기 이벤트 표본 timeline-waits.jsonl + 고정 도착률 셀 S4c<rate>). k6 PC에서 실행. 측정 대상 = 로컬 커밋 SHA 하나 — 서버의 앱과 k6 시나리오 모두 그 커밋에서 꺼낸다.
 # 인덱스는 V2 고정(ADR-002 기준선), 배경 0. 좌석 전략은 pessimistic-nowait(ADR-003 결정 3b) 고정이 기본 — 적용 값은 회차마다 대조한다.
 #
@@ -355,6 +355,7 @@ run_rep() {  # 인자: level cell rep
   local dir="$OUT_ROOT/L$level/$cell/rep$rep"
   mkdir -p "$dir"
   local started; started=$(date -Is)
+  [[ -n "$LIMIT_CONFIG" ]] && echo "$LIMIT_CONFIG" > "$dir/limit-config.json"   # ADR-008 설정 파일 정적 검사(회차 전 한 번 — 위) 사본
   local cfg_env; cfg_env="$(config_env "$(config_of "$base")") APP_CPUS=$(app_cpus "$level") DB_CPUS=$level"
   log "L$level $cell rep$rep → $dir"
 
@@ -641,15 +642,26 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   else
     reasons+=("limit-key-check-failed")
   fi
-  # ADR-008 회차 합격(명세 §5 — summarize.py --accept-check: 매수 초과 · v_counter_mismatch · 억울한 좌석(S7-m1) · 명세 순서 위반(S7-m1-late) · 빌림 1.0(S3 제외)).
-  # 사유는 한 줄에 하나(exit 1). 판정 자체가 안 되면(exit 2 등) accept-check-failed — 조용히 ok가 되지 않게
+  # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4): limit-set-by-profile · limit-default-not-precheck · spring-config-override, 확인 실패면 limit-config-check-failed
+  if jq -e '.reasons | type == "array"' "$dir/limit-config.json" > /dev/null 2>&1; then
+    local lcr; for lcr in $(jq -r '.reasons[]' "$dir/limit-config.json"); do reasons+=("$lcr"); done
+  else
+    reasons+=("limit-config-check-failed")
+  fi
+  # 런타임 쪽(리뷰 루프 1 C8): 앱 컨테이너 환경에 SPRING_CONFIG_*가 있으면 외부 설정 위치 — 정적 검사와 같은 사유(한 번만)
+  if jq -e 'type == "array" and any(.[]; (.spring_config // 0) > 0)' "$dir/limit-key.json" > /dev/null 2>&1 && [[ " ${reasons[*]} " != *" spring-config-override "* ]]; then
+    reasons+=("spring-config-override")
+  fi
+  # ADR-008 회차 합격(명세 §5 — summarize.py --accept-check: 매수 초과 · v_counter_mismatch · 억울한 좌석(S7-m1) · 명세 순서 위반(S7-m1-late) · 빌림 1.0(모든 셀 — 리뷰 루프 1 C1)).
+  # 사유는 한 줄에 하나(exit 1). 낸 사유는 종료 코드와 무관하게 모두 붙인다(리뷰 루프 1 C6 — 판정 실패가 이미 찾은 사유를 지우지 않게).
+  # exit 0인데 사유가 있거나, exit 1인데 사유가 없거나, 그 밖의 종료(파이썬 자체 실패 등)면 accept-check-failed — 조용히 ok가 되지 않게
   local acc acc_rc r
   acc=$(python3 "$SUMMARIZE" --accept-check "$dir" "$(basename "$(dirname "$dir")")" 2>>"$dir/errors.log"); acc_rc=$?
-  case "$acc_rc" in
-    0) ;;
-    1) if [[ -n "$acc" ]]; then for r in $acc; do reasons+=("$r"); done; else reasons+=("accept-check-failed"); fi ;;
-    *) reasons+=("accept-check-failed") ;;
-  esac
+  for r in $acc; do reasons+=("$r"); done
+  if { [[ "$acc_rc" == 0 && -n "$acc" ]] || [[ "$acc_rc" == 1 && -z "$acc" ]] || [[ "$acc_rc" != 0 && "$acc_rc" != 1 ]]; } \
+     && [[ " ${reasons[*]} " != *" accept-check-failed "* ]]; then
+    reasons+=("accept-check-failed")
+  fi
   # 앱마다 계획한 전략·풀로 떠서 부하 중 선점 요청을 실제로 받았는가(예열 제외 증가분) — 앱 2대에서 한 대만 살아도 nginx가 다른 쪽으로 몰아
   # '1대 측정'이 되는 것을 잡는다. 지표 조회 자체가 실패한 것(null)은 불일치와 따로 표시한다
   if jq empty "$dir/after-k6.json" 2>/dev/null; then
@@ -811,6 +823,21 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
   --arg pg "$PG_PRESET" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))), condition:{limit_strategy:$limit, limit_source:"default", pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay}, created:(now|todate)}' > "$OUT_ROOT/plan.json"
+
+# ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — lib.sh limit_config_check): 측정 대상 앱 SHA의 프로필 설정이 매수 방식을 덮지 않는가 ·
+# application.yml이 counter-upsert-precheck인가 · 띄울 compose에 SPRING_CONFIG_*가 없는가. 회차 전에 한 번 — 결과는 회차마다 limit-config.json으로 남고
+# rep_status가 사유로 낸다(확인 자체가 실패하면 limit-config-check-failed). compose는 실제로 띄울 사본: 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 것
+LC_TREE="$(mktemp -d)"
+lc_files=()
+for f in k6/ADR-008/compose.yml $(sed -n 's/-f \([^ ]*\)/\1/gp' <<< "${COMPOSE_EXTRA:-}"); do
+  mkdir -p "$LC_TREE/$(dirname "$f")"
+  if (( WORKTREE )); then cp "$REPO_ROOT/$f" "$LC_TREE/$f" 2>/dev/null; else git -C "$REPO_ROOT" show "$SHA:$f" > "$LC_TREE/$f" 2>/dev/null; fi
+  lc_files+=("$LC_TREE/$f")
+done
+LIMIT_CONFIG="$(limit_config_check "$SHA" "${lc_files[@]}" 2>/dev/null)" || LIMIT_CONFIG=""
+rm -rf "$LC_TREE"
+if [[ -n "$LIMIT_CONFIG" ]]; then echo "$LIMIT_CONFIG" > "$OUT_ROOT/limit-config.json"; fi
+echo "$(date -Is) limit-config $(if [[ -n "$LIMIT_CONFIG" ]]; then jq -c .reasons <<< "$LIMIT_CONFIG"; else echo check-failed; fi)" >> "$MATRIX_LOG"
 
 if (( WORKTREE )); then
   deploy_worktree "$SHA" "$DEPLOY_ID" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }

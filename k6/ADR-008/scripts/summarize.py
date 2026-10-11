@@ -6,7 +6,7 @@
     scripts/summarize.py --fixed-check <k6-summary.json>  고정 도착률(S4c*) 회차가 정상 종료했으면 exit 0 (계획 구간 전부에 요청 · 램프 + 계획 시간을 다 돎)
     scripts/summarize.py --codes-check <회차 폴더>         S2·S7 회차의 hold_code 행 수 = 선점 요청 수이고 깨진 행이 없으면 exit 0 (리뷰 A5)
     scripts/summarize.py --s7late-check <회차 폴더>        S7-m1-late 회차에 기회(R 201 뒤에 보낸 U)가 1건 이상이면 exit 0
-    scripts/summarize.py --accept-check <회차 폴더> <셀>   ADR-008 회차 합격(명세 §5) — 사유를 한 줄에 하나씩 stdout, exit 0 합격 · 1 사유 있음 · 2 판정 불가
+    scripts/summarize.py --accept-check <회차 폴더> <셀>   ADR-008 회차 합격(명세 §5) — 사유를 한 줄에 하나씩 stdout(판정 실패는 accept-check-failed), exit 0 합격 · 1 사유 있음
 
 표의 모든 수치는 원시 파일에서 계산한다 (손 계산 금지). 회차 값은 중앙값 [최소–최대].
 행은 plan.json(실행 전에 남긴 계획) 기준 — 실행되지 않은 셀·회차는 '미측정/누락'으로 드러난다.
@@ -589,26 +589,31 @@ def borrow_per_hold(apps):
 
 
 # ADR-008 회차 합격(명세 §5 판정) — rep_status가 회차마다 부른다(사유가 하나라도 있으면 그 회차는 ok가 아니다).
-# 빌림 허용 폭: ADR-005 실측 1커넥션 방식 1.00~1.02(run.sh invalid-borrow-ratio 주석)를 '빌림 1.0'의 폭으로 쓴다. ADR-007 precheck 실측 S2 1.000 · S4 1.0001 · S7 1.0025.
-# S3는 확정 요청도 커넥션을 빌려 '선점당 빌림'이 아니다 — run.sh invalid-borrow-ratio와 같이 빼고(ADR-007 precheck S3-a20 실측 1.013), 나머지 항목만 본다.
+# 빌림 허용 폭 [0.98, 1.02]: ADR-005 실측 1커넥션 방식 1.00~1.02(run.sh invalid-borrow-ratio 주석)를 '빌림 1.0'의 폭으로 쓴다. **모든 셀**(명세 §5 — 리뷰 루프 1 C1).
+# ADR-007 precheck-default 실측(20261009-adr007-ea8b85cc, 3회씩): S2 1.000 · S4 1.0001 · S7 1.0025 · S3-a20 1.012901 · 1.012935 · 1.012943(최대) — 전부 폭 안이라 S3도 같은 폭.
+#   (S3 분모는 선점 요청뿐이고 확정 요청도 커넥션을 빌린다 — 그래도 ADR-007 실측이 폭 안이다. 기존 invalid-borrow-ratio의 S3 제외는 그대로 둔다.)
 BORROW_ONE = (0.98, 1.02)
 
 
 def accept_check(rep_dir, cell):
-    """ADR-008 명세 §5 회차 합격: 매수 초과 0 · v_counter_mismatch = 0 · 억울한 좌석 0(S7-m1) · 명세 순서 위반 0(S7-m1-late) · 요청당 빌림 1.0(S3 제외).
+    """ADR-008 명세 §5 회차 합격: 매수 초과 0 · v_counter_mismatch = 0 · 억울한 좌석 0(S7-m1) · 명세 순서 위반 0(S7-m1-late) · 요청당 빌림 1.0(모든 셀).
     사유(stdout 한 줄에 하나): over-limit · counter-mismatch · counter-mismatch-missing(판정기가 항목을 내지 않음 = 카운터 방식이 아님) · accept-consistency-missing ·
-    s7-wronged-seats · s7late-order-violation · s7-check-failed(S7 입력 없음) · borrow-not-one · borrow-missing.
-    판정은 기존 도우미를 그대로 쓴다(s2_users · s7_seats · s7_order · borrow_per_hold — 요약표와 같은 정의). exit 0 = 합격, 1 = 사유 있음, 2 = 입력 읽기 실패."""
+    s2-check-failed(S2 응답 기록·끝 상태 없음) · s7-wronged-seats · s7late-order-violation · s7-check-failed(S7 입력 없음·hold_code 0행) · borrow-not-one · borrow-missing ·
+    accept-check-failed(어느 항목의 판정 중 예외 — 그때까지·그 뒤의 다른 항목 사유는 그대로 낸다, 리뷰 루프 1 C6).
+    판정은 기존 도우미를 그대로 쓴다(s2_users · s7_seats · s7_order · borrow_per_hold — 요약표와 같은 정의). 항목마다 따로 try — 한 항목의 예외가 다른 항목의 사유를 지우지 않는다.
+    exit 0 = 합격(사유 없음), 1 = 사유 있음(accept-check-failed 포함)."""
     rep_dir = Path(rep_dir)
     base = cell.split("-a")[0].split("-m")[0]
     reasons = []
     add = lambda r: r in reasons or reasons.append(r)
-    cons = load(rep_dir / "consistency.json")
-    limit = 2
-    if not isinstance(cons, dict) or not isinstance(cons.get("v_over_limit_users"), (int, float)):
-        add("accept-consistency-missing")
-    else:
-        limit = cons.get("max_per_user_limit", 2)
+    state = {"limit": 2, "codes": None, "codes_read": False}
+
+    def consistency():
+        cons = load(rep_dir / "consistency.json")
+        if not isinstance(cons, dict) or not isinstance(cons.get("v_over_limit_users"), (int, float)):
+            add("accept-consistency-missing")
+            return
+        state["limit"] = cons.get("max_per_user_limit", 2)
         if cons["v_over_limit_users"] != 0:
             add("over-limit")
         cm = cons.get("v_counter_mismatch")
@@ -616,37 +621,64 @@ def accept_check(rep_dir, cell):
             add("counter-mismatch-missing")
         elif cm != 0:
             add("counter-mismatch")
-    try:
-        if base in ("S2", "S7"):
-            codes = hold_codes(rep_dir / "k6-requests.csv.gz")
-            end = load(rep_dir / "end-state.json")
-            if base == "S2":
-                s2 = s2_users(codes, end, limit) if codes is not None else None
-                if s2 and (s2.get("over_users_resp") or s2.get("over_users_db")):
-                    add("over-limit")
-            elif cell == "S7-m1":
-                s7 = s7_seats(codes, end, limit) if codes is not None and end else None
-                if s7 is None or s7.get("wronged_seats") is None:
-                    add("s7-check-failed")
-                elif s7["wronged_seats"] != 0:
-                    add("s7-wronged-seats")
-            elif cell == "S7-m1-late":
-                o = s7_order(rep_dir / "k6-requests.csv.gz")
-                if o is None:
-                    add("s7-check-failed")
-                elif o["u_hle_after_r_201"] != 0:
-                    add("s7late-order-violation")
-    except (EOFError, OSError, ValueError, StopIteration) as e:
-        print(f"accept: 읽기 실패 {type(e).__name__}: {e}", file=sys.stderr)
-        return 2
+
+    def codes():
+        if not state["codes_read"]:
+            state["codes"], state["codes_read"] = hold_codes(rep_dir / "k6-requests.csv.gz"), True
+        return state["codes"]
+
+    def s2():
+        rows, end = codes(), load(rep_dir / "end-state.json")
+        if rows is None or not isinstance(end, dict) or not isinstance(end.get("per_user"), dict):
+            add("s2-check-failed")   # 리뷰 루프 1 C7 — 입력이 없으면 건너뛰지 않는다
+            return
+        r = s2_users(rows, end, state["limit"])
+        if r.get("over_users_resp") or r.get("over_users_db"):
+            add("over-limit")
+
+    def s7_m1():
+        rows, end = codes(), load(rep_dir / "end-state.json")
+        r = s7_seats(rows, end, state["limit"]) if rows is not None and isinstance(end, dict) and end.get("per_seat") else None
+        if r is None or not isinstance(r.get("wronged_seats"), int):
+            add("s7-check-failed")
+        elif r["wronged_seats"] != 0:
+            add("s7-wronged-seats")
+
+    def s7_late():
+        if codes() is None:   # hold_code 0행이면 s7_order가 0을 내 조용히 통과한다(리뷰 루프 1 C7)
+            add("s7-check-failed")
+            return
+        o = s7_order(rep_dir / "k6-requests.csv.gz")
+        if o is None:
+            add("s7-check-failed")
+        elif o["u_hle_after_r_201"] != 0:
+            add("s7late-order-violation")
+
     borrow = None
-    if not base.startswith("S3"):
+
+    def borrow_check():
+        nonlocal borrow
         after = load(rep_dir / "after-k6.json") or {}
         borrow = borrow_per_hold(after.get("apps") or [])
         if borrow is None:
             add("borrow-missing")
         elif not (BORROW_ONE[0] <= borrow <= BORROW_ONE[1]):
             add("borrow-not-one")
+
+    checks = [consistency]
+    if base == "S2":
+        checks.append(s2)
+    elif cell == "S7-m1":
+        checks.append(s7_m1)
+    elif cell == "S7-m1-late":
+        checks.append(s7_late)
+    checks.append(borrow_check)
+    for f in checks:
+        try:
+            f()
+        except Exception as e:   # 한 항목의 실패는 그 항목만 — 사유로 드러내고 나머지 항목은 계속 본다
+            print(f"accept: {f.__name__} 판정 실패 {type(e).__name__}: {e}", file=sys.stderr)
+            add("accept-check-failed")
     print(f"accept: {cell} 사유 {reasons or '없음'} · 빌림 {borrow}", file=sys.stderr)
     for r in reasons:
         print(r)
