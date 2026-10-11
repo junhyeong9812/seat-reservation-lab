@@ -32,7 +32,10 @@
 #     wal  = wal.dat **안을 덮어쓰기**(overwrite=1 · size=--wal-prefill — 끝에 닿으면 처음부터) 8 KiB 순차 + 매 쓰기 fdatasync · rate --wal-rate(16 MiB/s ≈ 2,000회/s)
 #     data = append와 같은 버퍼 순차 8 KiB · rate --data-rate · fsync --fsync-every 쓰기마다 · size=--size(상한 — data.dat는 쓰는 만큼 자란다; --data-rate × --runtime 이상이어야 한다)
 #   바이트 검증(시간 끝): job마다 쓴 바이트 < rate × runtime × 0.95면 fio-wal-short / fio-data-short. meta.json fio_bytes에 job별 기대값·통과 여부.
-#   상태 사유 추가: fio-prefill-exit-<n> · fio-prefill-short(채운 바이트 < --wal-prefill).
+#   상태 사유 추가: fio-prefill-exit-<n> · fio-prefill-short(채운 바이트 < --wal-prefill) — 이 둘이면 측정 fio를 건너뛰고 바로 정리(리뷰 rv10 B2) ·
+#     db-running(seatlab DB 컨테이너가 떠 있으면 시작하지 않음 — 단독 조건, B1) · fio-wal-file-grew(wal.dat 크기가 채운 직후·정리 직전 둘 중 하나라도 --wal-prefill과 다름, B5).
+#   wal job 부족은 실패가 아니라 관찰값(명세 §2 사용자 재합의 — B7): fio_bytes.wal_ok·wal_ratio(쓴 바이트 ÷ rate × runtime)만 남기고 사유를 붙이지 않는다.
+#   meta 추가: wal_file_bytes {after_prefill, before_remove} · data_file_bytes · wal_wrapped(wal 쓴 바이트 > 채운 크기 — 300초면 예상, 60초 스모크면 false).
 set -uo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 set +e
@@ -71,7 +74,8 @@ case "$PATTERN" in
           [[ "$WAL_RATE" != 0 ]] || { echo "--pattern pgwal needs --wal-rate > 0 (byte check is rate × runtime)" >&2; exit 2; } ;;
   *) echo "--pattern append|pgwal" >&2; exit 2 ;;
 esac
-[[ "$SIZE" =~ ^[0-9]+[KMGkmg]$ && "$WAL_BS" =~ ^[0-9]+[kKmM]$ && "$DATA_RATE" =~ ^[0-9]+[kKmM]$ && "$WAL_RATE" =~ ^([0-9]+[kKmM]|0)$ ]] || { echo "bad size/bs/rate" >&2; exit 2; }
+# 속도 0(0k·0m·00m 등)은 거부한다(리뷰 rv10 B3) — 단 --wal-rate의 글자 그대로 0은 append의 '속도 제한 없음'(지금과 같다)
+[[ "$SIZE" =~ ^[0-9]+[KMGkmg]$ && "$WAL_BS" =~ ^[0-9]+[kKmM]$ && "$DATA_RATE" =~ ^[1-9][0-9]*[kKmM]$ && "$WAL_RATE" =~ ^([1-9][0-9]*[kKmM]|0)$ ]] || { echo "bad size/bs/rate" >&2; exit 2; }
 [[ "$FSYNC_EVERY" =~ ^[0-9]+$ && "$TAIL_S" =~ ^[0-9]+$ && "$PRE_S" =~ ^[0-9]+$ ]] || { echo "bad --fsync-every/--tail-s/--pre-s" >&2; exit 2; }
 # 1024 단위 크기(K/M/G) → 바이트 (pgwal 검증용)
 to_bytes() { python3 -c 'import sys; s=sys.argv[1]; print(int(s[:-1]) * 1024 ** ("KMG".index(s[-1].upper()) + 1))' "$1"; }
@@ -172,13 +176,20 @@ log "fio $NAME size=$SIZE data_rate=$DATA_RATE fsync_every=$FSYNC_EVERY wal_bs=$
 printf '%s\n' "$JOB" > "$OUT/job.fio"
 [[ "$PATTERN" == pgwal ]] && printf '%s\n' "$PREFILL_JOB" > "$OUT/prefill.fio"
 : > "$OUT/errors.log"
+# pgwal 단독 조건(리뷰 rv10 B1): seatlab DB 컨테이너가 떠 있으면(또는 확인 실패) 시작하지 않는다
+if [[ "$PATTERN" == pgwal ]]; then
+  dbup=$(remote "docker ps -q --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=db" 2>>"$OUT/errors.log"); dbrc=$?
+  if (( dbrc != 0 )) || [[ -n "$dbup" ]]; then
+    echo "$(date -Is) db-running check: rc=$dbrc containers=[$dbup] — fio not started" >> "$OUT/errors.log"; echo db-running > "$OUT/status"; log "seatlab db running (or check failed) — refuse"; exit 3
+  fi
+fi
 
 # 서버 실행 폴더 지우기 — 실제 경로가 fio-tmp 아래(그 자체가 아닌 하위)일 때만. 인자: 'files'(시험 파일 둘만) | 'all'(실행 폴더 통째로)
 remove_run() {
   remote "base=\$(realpath -e \"\$HOME/$FIO_BASE\") && [ \"\$base\" = \"\$HOME/$FIO_BASE\" ] && p=\$(realpath -e \"\$HOME/$RUN_DIR\") && case \"\$p\" in \"\$base\"/?*) ;; *) echo \"refuse: \$p\" >&2; exit 1 ;; esac && \
     if [ '$1' = all ]; then rm -rf -- \"\$p\" && test ! -e \"\$p\"; else rm -f -- \"\$p/wal.dat\" \"\$p/data.dat\" && test ! -e \"\$p/wal.dat\" && test ! -e \"\$p/data.dat\"; fi"
 }
-PIDS="" HOST_COPY="" HOST_IOSTAT="" RUN_MADE=0 TORN=0 copied=0 FIO_PID=""
+PIDS="" HOST_COPY="" HOST_IOSTAT="" RUN_MADE=0 TORN=0 copied=0 FIO_PID="" PREFILL_FAILED=0 WAL_SZ_PREFILL=null WAL_SZ_END=null DATA_SZ_END=null
 reasons=()
 # 정리(정상 끝·중단 공용, 한 번만 — 리뷰 rv8 A10): ① 로컬 표본 루프 ② 이 실행의 컨테이너 ③ 이 실행의 서버 표본 사본(받고 지움 — host_recover)
 #   ④ 로그 회수 ⑤ 시험 파일 둘 지움 ⑥ 회수가 됐을 때만 실행 폴더 지움(아니면 근거로 남기고 errors.log에 경로)
@@ -190,10 +201,16 @@ teardown() {
   [[ -n "$FIO_PID" ]] && kill "$FIO_PID" 2>/dev/null   # 컨테이너를 지우면 ssh도 끝나지만 남지 않게
   if [[ -n "$HOST_COPY" ]]; then host_sampler_kill "$HOST_COPY"; host_recover "$OUT" "$HOST_COPY" "$HOST_IOSTAT"; fi
   (( RUN_MADE )) || return 0
-  if remote "cd \"\$HOME/$RUN_DIR\" && tar -cf - \$(ls fio.json prefill.json *.log 2>/dev/null)" 2>>"$OUT/errors.log" | tar -x -C "$OUT" 2>>"$OUT/errors.log" && [[ -s "$OUT/fio.json" ]]; then
+  if remote "cd \"\$HOME/$RUN_DIR\" && tar -cf - \$(ls fio.json prefill.json *.log 2>/dev/null)" 2>>"$OUT/errors.log" | tar -x -C "$OUT" 2>>"$OUT/errors.log" \
+     && { [[ -s "$OUT/fio.json" ]] || { (( PREFILL_FAILED )) && [[ -s "$OUT/prefill.json" ]]; }; }; then
     copied=1
   else
     reasons+=("fio-logs-not-copied")
+  fi
+  # pgwal: 지우기 직전 파일 크기(리뷰 rv10 B5 — wal.dat는 덮어쓰기라 채운 크기 그대로여야 한다)
+  if [[ "$PATTERN" == pgwal ]]; then
+    read -r WAL_SZ_END DATA_SZ_END < <(remote "cd \"\$HOME/$RUN_DIR\" && echo \$(stat -c %s wal.dat 2>/dev/null || echo null) \$(stat -c %s data.dat 2>/dev/null || echo null)" 2>>"$OUT/errors.log")
+    [[ "$WAL_SZ_END" =~ ^[0-9]+$ ]] || WAL_SZ_END=null; [[ "$DATA_SZ_END" =~ ^[0-9]+$ ]] || DATA_SZ_END=null
   fi
   remove_run files >> "$OUT/errors.log" 2>&1 || reasons+=("fio-files-not-removed")
   if (( copied )); then
@@ -252,8 +269,20 @@ if [[ "$PATTERN" == pgwal ]]; then
   wait "$FIO_PID"
   PREFILL_EXIT=$?
   PREFILL_ENDED=$(date +%Y-%m-%dT%H:%M:%S.%6N%:z)
-  (( PREFILL_EXIT == 0 )) || reasons+=("fio-prefill-exit-$PREFILL_EXIT")
+  if (( PREFILL_EXIT != 0 )); then
+    reasons+=("fio-prefill-exit-$PREFILL_EXIT"); PREFILL_FAILED=1
+  else
+    # 채운 바이트(prefill.json — 서버에서 바로 읽는다)와 채운 직후 wal.dat 크기(B5). 모자라면 측정을 건너뛴다(B2)
+    pf=$(remote "cat \"\$HOME/$RUN_DIR/prefill.json\"" 2>>"$OUT/errors.log" | python3 -c 'import json,sys; print(sum(j["write"]["io_bytes"] for j in json.load(sys.stdin)["jobs"]))' 2>>"$OUT/errors.log")
+    WAL_SZ_PREFILL=$(remote "stat -c %s \"\$HOME/$RUN_DIR/wal.dat\"" 2>>"$OUT/errors.log"); [[ "$WAL_SZ_PREFILL" =~ ^[0-9]+$ ]] || WAL_SZ_PREFILL=null
+    if ! [[ "$pf" =~ ^[0-9]+$ ]] || (( pf < $(to_bytes "$WAL_PREFILL") )); then
+      echo "$(date -Is) prefill bytes ${pf:-unreadable} < $(to_bytes "$WAL_PREFILL") — measured fio skipped" >> "$OUT/errors.log"
+      reasons+=("fio-prefill-short"); PREFILL_FAILED=1
+    fi
+  fi
 fi
+FIO_STARTED="" FIO_ENDED="" FIO_EXIT=null
+if (( ! PREFILL_FAILED )); then
 sleep "$PRE_S" & wait $!   # fio 앞 기준선
 CLK_BEFORE=$(clock_offset 2>>"$OUT/errors.log")
 
@@ -268,6 +297,7 @@ FIO_EXIT=$?
 FIO_ENDED=$(date +%Y-%m-%dT%H:%M:%S.%6N%:z)
 (( FIO_EXIT == 0 )) || reasons+=("fio-exit-$FIO_EXIT")
 sleep "$TAIL_S" & wait $!   # 쓰기 뒤 꼬리(더티 페이지 flush) — 신호에 바로 깨게
+fi
 CLK_AFTER=$(clock_offset 2>>"$OUT/errors.log")
 trap '' INT TERM HUP   # 정리 중에는 끊지 않는다(정리는 한 번만)
 teardown
@@ -285,6 +315,8 @@ PY
 )
 if ! jq -e . <<< "$FIO_BYTES" > /dev/null 2>&1; then reasons+=("invalid-fio.json"); FIO_BYTES=null
 elif ! jq -e '.data_ok' <<< "$FIO_BYTES" > /dev/null; then reasons+=("fio-data-short"); fi
+elif (( PREFILL_FAILED )); then
+FIO_BYTES=null   # 측정을 건너뜀 — 사유는 위(fio-prefill-*)
 else
 # pgwal(머리말): 시간 끝이라 기준 = rate × runtime × 0.95(job마다) · 채우기 = --wal-prefill 이상
 FIO_BYTES=$(python3 - "$OUT/fio.json" "$OUT/prefill.json" "$WAL_RATE" "$DATA_RATE" "$RUNTIME" "$WAL_PREFILL" <<'PY' 2>>"$OUT/errors.log"
@@ -300,17 +332,26 @@ except Exception:
 print(json.dumps({"wal": b.get("wal"), "data": b.get("data"), "total": sum(v for v in b.values() if v),
                   "wal_expected_min": int(we), "data_expected_min": int(de),
                   "wal_ok": bool(b.get("wal") and b["wal"] >= we), "data_ok": bool(b.get("data") and b["data"] >= de),
+                  "wal_ratio": round(b["wal"] / (we / 0.95), 4) if b.get("wal") else None,
+                  "wal_wrapped": bool(b.get("wal") and b["wal"] > B(sys.argv[6])),
                   "prefill": p, "prefill_expected": B(sys.argv[6]), "prefill_ok": bool(p is not None and p >= B(sys.argv[6]))}))
 PY
 )
 if ! jq -e . <<< "$FIO_BYTES" > /dev/null 2>&1; then reasons+=("invalid-fio.json"); FIO_BYTES=null
 else
-  jq -e '.wal_ok' <<< "$FIO_BYTES" > /dev/null || reasons+=("fio-wal-short")
+  # wal 부족은 관찰값(B7 — 사유 없음, fio_bytes.wal_ok·wal_ratio)
   jq -e '.data_ok' <<< "$FIO_BYTES" > /dev/null || reasons+=("fio-data-short")
   jq -e '.prefill_ok' <<< "$FIO_BYTES" > /dev/null || reasons+=("fio-prefill-short")
 fi
 fi
+if (( ! PREFILL_FAILED )); then
 for j in wal data; do ls "$OUT/${j}_bw."*.log > /dev/null 2>&1 && ls "$OUT/${j}_clat."*.log > /dev/null 2>&1 || reasons+=("missing-fio-logs-$j"); done
+fi
+# B5: wal.dat 크기 = 채운 크기(채운 직후·정리 직전 — 측정을 건너뛰었으면 채운 직후만)
+if [[ "$PATTERN" == pgwal && "$WAL_SZ_PREFILL" != null ]]; then
+  want_wal=$(to_bytes "$WAL_PREFILL")
+  if [[ "$WAL_SZ_PREFILL" != "$want_wal" ]] || { (( ! PREFILL_FAILED )) && [[ "$WAL_SZ_END" != "$want_wal" ]]; }; then reasons+=("fio-wal-file-grew"); fi
+fi
 jq -n --argjson b "${CLK_BEFORE:-null}" --argjson a "${CLK_AFTER:-null}" '{before:$b, after:$a}' > "$OUT/clock-offset.json" 2>/dev/null || echo '{"before":null,"after":null}' > "$OUT/clock-offset.json"
 CLK_OFF=$(jq -r 'if (.before.offset_s|type)=="number" and (.after.offset_s|type)=="number" then (.before.offset_s + .after.offset_s)/2 else 0 end' "$OUT/clock-offset.json")
 HDISK=""
@@ -320,7 +361,9 @@ if jq -e '(.disk | type == "string") and (.sampled | type == "array")' "$OUT/hos
 else
   reasons+=("invalid-host-devices.json")
 fi
+if (( ! PREFILL_FAILED )); then
 python3 "$(dirname "$0")/wdrop.py" --coverage "$OUT/timeline-host.jsonl" "$FIO_STARTED" "$FIO_ENDED" "$CLK_OFF" 0.9 "${HDISK:-nvme1n1}" 2>>"$OUT/errors.log" || reasons+=("host-sampler-thin")
+fi
 grep -qs "^${HDISK:-nvme1n1} " "$OUT/iostat-host.txt" || reasons+=("host-iostat-missing")
 grep -qs 'host-copy-not-removed' "$OUT/host-recovery.txt" && reasons+=("host-copy-not-removed")
 STATUS=ok; (( ${#reasons[@]} )) && STATUS=$(IFS=,; echo "${reasons[*]}")
@@ -336,7 +379,9 @@ jq -n --arg id "$ID" --arg name "$NAME" --arg size "$SIZE" --arg rate "$DATA_RAT
 # pgwal: 패턴·채우기 시각(측정 구간 밖)·시간을 덧붙인다 — append는 위 meta 그대로(바이트 동일)
 if [[ "$PATTERN" == pgwal ]]; then
   jq --arg wp "$WAL_PREFILL" --arg rt "$RUNTIME" --arg ps "$PREFILL_STARTED" --arg pe "$PREFILL_ENDED" --argjson px "$PREFILL_EXIT" \
-    '. + {pattern:"pgwal", wal_prefill:$wp, runtime_s:($rt|tonumber), prefill_started:$ps, prefill_ended:$pe, prefill_exit:$px}' "$OUT/meta.json" > "$OUT/meta.json.tmp" \
+     --argjson wsp "$WAL_SZ_PREFILL" --argjson wse "$WAL_SZ_END" --argjson dse "$DATA_SZ_END" --argjson skipped "$( (( PREFILL_FAILED )) && echo true || echo false)" \
+    '. + {pattern:"pgwal", wal_prefill:$wp, runtime_s:($rt|tonumber), prefill_started:$ps, prefill_ended:$pe, prefill_exit:$px,
+          wal_file_bytes:{after_prefill:$wsp, before_remove:$wse}, data_file_bytes:$dse, wal_wrapped:(.fio_bytes.wal_wrapped // null), measured_skipped:$skipped}' "$OUT/meta.json" > "$OUT/meta.json.tmp" \
     && mv "$OUT/meta.json.tmp" "$OUT/meta.json"
 fi
 log "fio $NAME done: $STATUS"

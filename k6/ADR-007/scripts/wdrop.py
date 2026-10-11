@@ -18,6 +18,18 @@
   - 호스트 반감(교차 확인): 같은 규칙을 호스트 장치 쓰기에 — 10초 칸(k6 시작 기준)으로 묶어 같은 0.6 × 직전 4칸 중앙값·다음 칸 조건(칸 경계가 부하 구간 끝
     이후인 칸은 뺀다 — 끝난 뒤를 반감으로 잡지 않게). GB = 그 칸 시작까지 장치 누적 쓰기(k6 시작 기준 — 서버 전체 I/O).
   - fio 폴더(meta.json kind=fio): docker stats가 없으므로 호스트 반감만(fio 시작 기준 10초 칸) + 칸별 누적 GB.
+  - flush 반감(리뷰 rv10 B8 — host_flush_drop): 같은 규칙(0.6 × 직전 4칸 중앙값·다음 칸, 10초 칸, 부하 구간 안)을 호스트 장치 flush 누적 수에 —
+    flush/s(직전 중앙값 → 반감·다음)와 그때 장치 누적 쓰기 GB(시작 기준). **fio에서는 이것이 주 신호다**: pgwal 패턴은 data 버퍼 쓰기가 총량을 받쳐
+    디스크가 느려져도 총 쓰기 반감이 안 보일 수 있다(wal의 fdatasync 수가 먼저 줄어든다). 회차(kind=rep)는 새 필드로만 더한다(기존 필드는 그대로).
+  - fio 추가(리뷰 rv10 B4·B9): 반감 전후 ±win 창은 fio 측정 구간 [fio_started, fio_ended] 안으로 자른다 · 측정 첫 30초 기준값(host_baseline30 — flush 평균·
+    w_await·flush/s 등) · 반감 시각의 누적 GB를 채우기 시작(prefill_started — pgwal)부터도(gb_since_prefill, 채우기 바이트 포함).
+    측정 구간이 없는 fio 폴더(채우기 실패로 측정을 건너뜀 등 — fio_started 없음)는 status만 낸다.
+  - 지속 상승(리뷰 rv10 B8 보강 — host_rise): flush 지연은 오르는데 flush/s·총 MB/s는 버틸 수 있다(반감 규칙이 놓친다). 10초 칸(시작 기준)마다
+    flush 평균 ms·w_await ms — 기준 = 처음 3칸 중앙값, 시작 = 3번째 칸 뒤에서 그 칸과 다음 칸 모두 > 2.0 × 기준인 첫 칸. 시작 초와 그때 누적 GB(시작 기준 ·
+    fio pgwal은 채우기 시작 기준도). 회차·fio 모두 새 필드로만 더한다.
+  - fio wal 추세(교차 확인 — wal_trend): fio의 lat 로그(wal_lat·clat)는 쓰기 호출 지연뿐이고 **fdatasync 시간이 없다**(스모크 실측: 로그 평균 수 µs ·
+    fio.json sync 평균 0.45ms) — 그래서 지연 추세는 내지 않는다(sync 평균·p50·p99는 fio.json 전체 값만). 대신 wal_bw.1.log(1초 평균 — 매 쓰기 fdatasync라
+    sync가 느려지면 속도 제한 아래로 떨어진다)의 10초 평균: 기준(처음 3칸 중앙값) · 최소 10초 평균과 그 초.
 --series-dir: 회차마다 초 단위 호스트 지표 CSV(<조건>__<회차>.csv — k6 초 · 위 지표).
 --coverage(리뷰 rv8 A1): k6 구간 [시작, 끝] 안 표본(서버 시각 − 시계 차) 수 ÷ 구간 초 < 최소 비율이거나, 구간 양 끝을 포함한 이웃 표본 사이 최대 공백 > 2.5초면 exit 1(표본 1개 빠짐 + 시각 흔들림은 통과, 2개 연속 빠짐은 thin)
   (파일 없음·빈 파일 = 0%). <장치>를 주면 그 장치 누적값이 든 표본만 센다(리뷰 rv8 A4). 구간이 1초 미만이면 판정하지 않는다(exit 0). 사유는 stderr 한 줄.
@@ -189,9 +201,10 @@ def window(rows, lo, hi):
     return agg([r for r in rows if lo <= r[0] - r[1] / 2 < hi])
 
 
-def host_cum_points(samples, dev, t0, bin_s=10):
-    """장치 쓰기 누적(바이트, t0 기준 0)을 t0 + k·bin_s 칸 경계마다 — 칸 경계에 가장 가까운 앞 표본"""
-    pts = [(r["t"], r["disk"][dev]["write_sectors"] * 512) for r in samples if (r.get("disk") or {}).get(dev)]
+def host_cum_points(samples, dev, t0, bin_s=10, key="write_sectors", scale=512):
+    """장치 누적값(기본 쓰기 바이트 — key·scale, t0 기준 0)을 t0 + k·bin_s 칸 경계마다 — 칸 경계에 가장 가까운 앞 표본"""
+    pts = [(r["t"], r["disk"][dev][key] * scale) for r in samples
+           if (r.get("disk") or {}).get(dev) and isinstance(r["disk"][dev].get(key), (int, float))]
     if len(pts) < 2:
         return []
     base = next((v for t, v in pts if t >= t0), pts[0][1])
@@ -210,6 +223,57 @@ def rnd(x, n=2):
     return None if x is None else round(x, n)
 
 
+def dev_bytes_at(samples, dev, t):
+    """서버 시각 t 이후 첫 표본의 장치 쓰기 누적(바이트) — 없으면 None"""
+    return next((r["disk"][dev]["write_sectors"] * 512 for r in samples if r["t"] >= t and (r.get("disk") or {}).get(dev)), None)
+
+
+def bins10(rel, dur, bin_s=10):
+    """[(칸 시작 s, agg)] — 시작 기준 0부터 dur 안에 온전히 든 10초 칸"""
+    n = int(dur // bin_s) if dur != float("inf") else int(max((t for t, _, _ in rel), default=0) // bin_s)
+    return [(i * bin_s, window(rel, i * bin_s, (i + 1) * bin_s)) for i in range(max(n, 0))]
+
+
+def rise_onset(bins, key, factor=2.0):
+    vals = [(s, (a or {}).get(key)) for s, a in bins]
+    base_v = [v for _, v in vals[:3] if v is not None]
+    if len(base_v) < 3:
+        return None
+    base = statistics.median(base_v)
+    out = {"baseline": rnd(base, 3), "factor": factor, "s": None}
+    for i in range(3, len(vals) - 1):
+        (s, v), (_, v2) = vals[i], vals[i + 1]
+        if v is not None and v2 is not None and v > factor * base and v2 > factor * base:
+            out.update(s=s, value=rnd(v, 3), next=rnd(v2, 3))
+            break
+    return out
+
+
+def wal_trend(rep):
+    """fio wal_bw.1.log(1초 평균 KiB/s, 시각 ms) → 10초 평균의 기준·최소. 없으면 None"""
+    p = next(iter(sorted(rep.glob("wal_bw.*.log"))), None)
+    if not p:
+        return None
+    pts = []
+    for line in p.read_text().splitlines():
+        f = [x.strip() for x in line.split(",")]
+        try:
+            pts.append((int(f[0]) / 1000, float(f[1])))
+        except (ValueError, IndexError):
+            continue
+    b = {}
+    for t, v in pts:
+        b.setdefault(int((t - 0.001) // 10), []).append(v)
+    avgs = [(k * 10, statistics.mean(v)) for k, v in sorted(b.items()) if len(v) >= 5]
+    if len(avgs) < 3:
+        return None
+    base = statistics.median(v for _, v in avgs[:3])
+    mn = min(avgs[3:] or avgs, key=lambda x: x[1])
+    return {"source": p.name, "unit": "KiB/s", "baseline_10s": rnd(base, 0), "min_10s": rnd(mn[1], 0), "min_s": mn[0],
+            "min_ratio": rnd(mn[1] / base, 3) if base else None,
+            "sync_latency_trend": "unavailable — fio lat logs hold write-call latency only (no fdatasync time); see fio.json sync totals"}
+
+
 def analyze(rep, dev, win, series_dir):
     meta = json.loads((rep / "meta.json").read_text())
     if dev is None:   # 회차가 실제로 표본한 디스크(host-devices.json) — 장치 번호가 바뀌어도 그 디스크를 본다. 없으면 기본값
@@ -222,9 +286,12 @@ def analyze(rep, dev, win, series_dir):
     status = st_file.read_text().strip() if st_file.is_file() else meta.get("status")
     kind = meta.get("kind", "rep")
     off = clock_off(meta)
-    k0 = ts(meta.get("k6_started") or meta.get("fio_started"))
     name = rep.parent.parent.parent.name + "__" + rep.name if kind == "rep" else rep.name
     res = {"name": name, "kind": kind, "status": status, "pg_preset": meta.get("pg_preset"), "clock_offset_s": rnd(off, 4)}
+    if not (meta.get("k6_started") or meta.get("fio_started")):   # 측정 구간 없음(채우기 실패 등 — 머리말)
+        res["host_samples"] = len(host_samples(rep / "timeline-host.jsonl"))
+        return res
+    k0 = ts(meta.get("k6_started") or meta.get("fio_started"))
     # docker stats 반감 — 시각은 서버 시계 → PC 시계(− 시계 차)
     drop = None
     if kind == "rep":
@@ -249,11 +316,48 @@ def analyze(rep, dev, win, series_dir):
         hd = find_drop([p for p in hpts if p[0] <= dur], 30)
         res["host_drop"] = None if not hd else {"s": round(hd["t"]), "gb_since_start": rnd(hd["bytes"] / 1e9), "prev_mbps": rnd(hd["prev_mbps"], 1),
                                                   "drop_mbps": rnd(hd["drop_mbps"], 1), "next_mbps": rnd(hd["next_mbps"], 1)}
+        # fio는 창을 측정 구간 안으로 자른다(리뷰 rv10 B4 — 채우기·꼬리가 섞이지 않게). 회차는 그대로
+        clip = (lambda lo, hi: (max(lo, 0.0), min(hi, dur))) if kind == "fio" else (lambda lo, hi: (lo, hi))
         if hd:
-            res["host_drop_pre"] = {k: rnd(v) for k, v in (window(rel, hd["t"] - win, hd["t"]) or {}).items()}
-            res["host_drop_post"] = {k: rnd(v) for k, v in (window(rel, hd["t"], hd["t"] + win) or {}).items()}
+            res["host_drop_pre"] = {k: rnd(v) for k, v in (window(rel, *clip(hd["t"] - win, hd["t"])) or {}).items()}
+            res["host_drop_post"] = {k: rnd(v) for k, v in (window(rel, *clip(hd["t"], hd["t"] + win)) or {}).items()}
         if kind == "fio":
             res["host_cum_gb_by_10s"] = [[round(t), rnd(v / 1e9)] for t, v in hpts]
+        # flush 반감(리뷰 rv10 B8 — 머리말): flush 누적 수 10초 칸에 같은 규칙. find_drop의 속도 단위는 10^6/s라 flush/s로 되돌린다
+        fpts = host_cum_points([dict(r, t=r["t"] - off - k0) for r in samples], dev, 0.0, key="flushes", scale=1)
+        fd = find_drop([p for p in fpts if p[0] <= dur], 30)
+        gb_at = dict(hpts)
+        res["host_flush_drop"] = None if not fd else {
+            "s": round(fd["t"]), "gb_since_start": rnd(gb_at[fd["t"]] / 1e9) if fd["t"] in gb_at else None,
+            "prev_flush_per_s": rnd(fd["prev_mbps"] * 1e6, 1), "drop_flush_per_s": rnd(fd["drop_mbps"] * 1e6, 1), "next_flush_per_s": rnd(fd["next_mbps"] * 1e6, 1)}
+        # 지속 상승(머리말 host_rise): 칸 시작의 누적 GB(시작 기준 — hpts는 같은 10초 경계)
+        bins = bins10(rel, dur)
+        hall = host_cum_points([dict(r, t=r["t"] - off - k0) for r in samples], dev, 0.0, bin_s=1)   # 1초 경계 누적(시작 기준)
+        res["host_rise"] = {}
+        for key in ("flush_avg_ms", "w_await_ms"):
+            ro = rise_onset(bins, key)
+            if ro and ro["s"] is not None:   # 칸 시작 시각 이전 마지막 표본의 누적(시작 기준 — host_cum_points와 같은 규칙)
+                ro["gb_since_start"] = next((rnd(v / 1e9) for t, v in reversed(hall) if t <= ro["s"]), None)
+            res["host_rise"][key] = ro
+        if kind == "fio":
+            res["host_bins10"] = [[s_, rnd((a or {}).get("flush_per_s"), 1), rnd((a or {}).get("flush_avg_ms"), 3), rnd((a or {}).get("w_await_ms"), 3),
+                                   rnd((a or {}).get("wMBps"), 1)] for s_, a in bins]   # [s, flush/s, flush 평균 ms, w_await ms, wMB/s]
+            res["wal_trend"] = wal_trend(rep)
+            if fd:
+                res["host_flush_drop_pre"] = {k: rnd(v) for k, v in (window(rel, *clip(fd["t"] - win, fd["t"])) or {}).items()}
+                res["host_flush_drop_post"] = {k: rnd(v) for k, v in (window(rel, *clip(fd["t"], fd["t"] + win)) or {}).items()}
+            res["host_baseline30"] = {k: rnd(v) for k, v in (window(rel, 0.0, min(30.0, dur)) or {}).items()}
+            # 채우기 시작부터의 누적(pgwal): 채우기 시작 ~ 측정 시작 사이 장치 쓰기를 더한다(서버 시각 = PC 시각 + 시계 차)
+            if meta.get("prefill_started"):
+                b_pf, b_fs = dev_bytes_at(samples, dev, ts(meta["prefill_started"]) + off), dev_bytes_at(samples, dev, k0 + off)
+                extra = (b_fs - b_pf) if b_pf is not None and b_fs is not None else None
+                res["prefill_to_start_gb"] = rnd(extra / 1e9) if extra is not None else None
+                for key in ("host_drop", "host_flush_drop"):
+                    if res.get(key) and res[key].get("gb_since_start") is not None and extra is not None:
+                        res[key]["gb_since_prefill"] = rnd(res[key]["gb_since_start"] + extra / 1e9)
+                for ro in res["host_rise"].values():
+                    if ro and ro.get("gb_since_start") is not None and extra is not None:
+                        ro["gb_since_prefill"] = rnd(ro["gb_since_start"] + extra / 1e9)
         if series_dir:
             series_dir.mkdir(parents=True, exist_ok=True)
             cols = ("wMBps", "w_per_s", "w_await_ms", "flush_per_s", "flush_avg_ms", "aqu_sz", "util_pct", "dirty_MB", "writeback_MB", "psi_some_pct", "psi_full_pct")
@@ -304,8 +408,8 @@ def main():
     res = [analyze(r, args.dev, args.win, Path(args.series_dir) if args.series_dir else None) for r in reps]
     keys = ("wMBps", "w_await_ms", "flush_per_s", "flush_avg_ms", "aqu_sz", "util_pct", "dirty_MB", "writeback_MB", "psi_full_pct")
     print(f"# 쓰기 반감 — `{root.name}` (docker stats 06a 정의 · 호스트 {args.dev or '회차별 disk'} 창 ±{args.win:g}초)\n")
-    print("| 회차 | status | 반감 k6 초 | GB-at-drop | MB/s 직전 → 반감·다음 | 호스트 표본 | 호스트 반감 초 (GB) | " + " | ".join(f"{k} 전→후" for k in keys) + " |")
-    print("|" + "---|" * (7 + len(keys)))
+    print("| 회차 | status | 반감 k6 초 | GB-at-drop | MB/s 직전 → 반감·다음 | 호스트 표본 | 호스트 반감 초 (GB) | " + " | ".join(f"{k} 전→후" for k in keys) + " | flush 반감 초 (GB) · flush/s 직전 → 반감 |")
+    print("|" + "---|" * (8 + len(keys)))
     for r in res:
         d = r.get("docker_drop")
         hd = r.get("host_drop")
@@ -314,6 +418,8 @@ def main():
                  "-" if not d else f"{fmt(d['prev_mbps'])} → {fmt(d['drop_mbps'])}·{fmt(d['next_mbps'])}", str(r.get("host_samples", 0)),
                  "-" if not hd else f"{hd['s']} ({fmt(hd['gb_since_start'])})"]
         cells += [f"{fmt(pre.get(k))} → {fmt(post.get(k))}" if (pre or post) else "-" for k in keys]
+        fd = r.get("host_flush_drop")
+        cells.append("-" if not fd else f"{fd['s']} ({fmt(fd.get('gb_since_start'))}) · {fmt(fd['prev_flush_per_s'])} → {fmt(fd['drop_flush_per_s'])}")
         print("| " + " | ".join(cells) + " |")
     print("\n창 기준: docker 반감이 있으면 그 시각, 없고 호스트 반감만 있으면(fio 등) 호스트 반감 시각. '반감 없음' = '-'.")
     if args.json:

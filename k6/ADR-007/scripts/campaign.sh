@@ -148,6 +148,15 @@ if [[ "$SET" == fsync-fio ]]; then
   FSYNC_ARGS=(--sha "$SHA" --pattern pgwal --runtime "$FIO_RUNTIME")
   STEPS=("fio-sync-1 fio ${FSYNC_ARGS[*]}" "fio-sync-2 fio ${FSYNC_ARGS[*]}")
   FS_STEP_S=$(( FIO_RUNTIME + 180 ))   # 측정 + 채우기(1G)·이미지 확인·표본·기준선 5초·꼬리 20초·정리
+  # 인자 조합 검증(리뷰 rv10 B6): fio-disk.sh가 같은 인자로 job 파일을 만들 수 있는지(예: --fio-runtime 3600이면 data 12 MiB/s × 3600 > --size 15G → 거부)
+  argerr=$(bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/fsync" --name fio-sync-1 "${FSYNC_ARGS[@]}" --dry-run 2>&1 > /dev/null) \
+    || { echo "fsync-fio: fio-disk.sh가 인자를 거부했다 — $argerr" >&2; echo "$(date -Is) ABORT FSYNC argcheck: $argerr" >> "$LOG"; exit 2; }
+  # 단독 조건(리뷰 rv10 B1): seatlab DB 컨테이너가 떠 있으면(또는 확인 실패) 그 fio를 시작하지 않는다
+  db_idle() {
+    local out; out=$( (source "$DIR/lib.sh" > /dev/null 2>&1; set +e; remote "docker ps -q --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=db") ) \
+      || { echo "$(date -Is) ABORT FSYNC $1: seatlab DB 확인 실패" >> "$LOG"; return 1; }
+    [[ -z "$out" ]] || { echo "$(date -Is) ABORT FSYNC $1: seatlab DB 컨테이너가 떠 있다($out) — 단독 조건 아님" >> "$LOG"; return 1; }
+  }
   if (( DRY_RUN )); then
     printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
     echo "$(date -Is) DRY-RUN set=fsync-fio sha=$SHA steps=${#STEPS[@]} — steps.txt만 썼다" >> "$LOG"
@@ -167,6 +176,7 @@ if [[ "$SET" == fsync-fio ]]; then
   for step in "${STEPS[@]}"; do
     read -r sname _ <<< "$step"
     guard_start "$sname" "$FS_STEP_S"
+    db_idle "$sname" || exit 6
     echo "$(date -Is) FSYNC $sname start" >> "$LOG"
     bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/fsync" --name "$sname" "${FSYNC_ARGS[@]}" >> "$FS_ROOT/$sname.runner.log" 2>&1; rc=$?
     echo "$(date -Is) FSYNC $sname exit=$rc status=$(cat "$FS_ROOT/$sname/status" 2>/dev/null || echo none)" >> "$LOG"
