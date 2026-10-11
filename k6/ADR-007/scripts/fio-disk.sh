@@ -381,7 +381,7 @@ if [[ "$PATTERN" == pgwal ]]; then
   jq --arg wp "$WAL_PREFILL" --arg rt "$RUNTIME" --arg ps "$PREFILL_STARTED" --arg pe "$PREFILL_ENDED" --argjson px "$PREFILL_EXIT" \
      --argjson wsp "$WAL_SZ_PREFILL" --argjson wse "$WAL_SZ_END" --argjson dse "$DATA_SZ_END" --argjson skipped "$( (( PREFILL_FAILED )) && echo true || echo false)" \
     '. + {pattern:"pgwal", wal_prefill:$wp, runtime_s:($rt|tonumber), prefill_started:$ps, prefill_ended:$pe, prefill_exit:$px,
-          wal_file_bytes:{after_prefill:$wsp, before_remove:$wse}, data_file_bytes:$dse, wal_wrapped:(.fio_bytes.wal_wrapped // null), measured_skipped:$skipped}' "$OUT/meta.json" > "$OUT/meta.json.tmp" \
+          wal_file_bytes:{after_prefill:$wsp, before_remove:$wse}, data_file_bytes:$dse, wal_wrapped:(if (.fio_bytes | type) == "object" then .fio_bytes.wal_wrapped else null end), measured_skipped:$skipped}' "$OUT/meta.json" > "$OUT/meta.json.tmp" \
     && mv "$OUT/meta.json.tmp" "$OUT/meta.json"
 fi
 log "fio $NAME done: $STATUS"
