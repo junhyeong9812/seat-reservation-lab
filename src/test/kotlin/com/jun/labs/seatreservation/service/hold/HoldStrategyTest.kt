@@ -25,7 +25,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * ADR-003 DB 계열 전략(Redis·유니크 제외 — 각각 별도 컨텍스트). 모든 전략 빈은 한 컨텍스트에 있고 기본 활성 전략은 none이다.
+ * ADR-003 DB 계열 전략(Redis·유니크 제외 — 각각 별도 컨텍스트). 모든 전략 빈은 한 컨텍스트에 있고, 테스트는 전략 빈을 직접 고른다
+ * (활성 좌석 전략은 설정 기본값 pessimistic-nowait — ADR-003 결정 3b).
  * 판정은 응답과 DB 행을 함께 본다 — 성공 응답 수 = 그 좌석의 홀드 행 수(응답-DB 대조, ADR-001).
  * 매수 방식은 none으로 고정한다(ADR-008 — 기본값이 counter-upsert-precheck로 바뀌었다): 전략 빈을 직접 불러 기동 검사를 건너뛰므로,
  * 고정하지 않으면 기동 검사가 금지하는 조합(좌석 3b 외 + 매수 방식)이 조용히 돈다.
