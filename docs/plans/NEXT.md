@@ -2,26 +2,25 @@
 
 ## 기준
 
-- 마지막 갱신: 2026-10-11 · 직전 완료 작업: `docs/plans/2026-10-09/adr-007-throughput-wall/` → `2026-10-10/adr-007-disk-cause/` → `2026-10-11/adr-007-fsync-fio/`(ADR-007 C5 확인·전환 결정) · 작업 브랜치: `feat/adr-007-throughput-wall`(미push)
+- 마지막 갱신: 2026-10-12 · 직전 완료 작업: `docs/plans/2026-10-11/adr-008-precheck-default/`(ADR-008 기본값 적용·확정) ← `2026-10-11/adr-007-fsync-fio/`(ADR-007 C5 확인·전환 결정) · 작업 브랜치: `feat/adr-007-throughput-wall`(미push)
 
 ## 다음 작업 후보 (우선순위순)
 
-### N1. 새 ADR-008 counter-upsert-precheck 기본 적용·검증 — 우선순위: 높음 · 사용자 지시(2026-10-11 "전환및 테스트까지", "adr8로", "정말 괜찮은지 보고 확정하는 과정까지")
+### N1. (완료 2026-10-12) 새 ADR-008 counter-upsert-precheck 기본 적용·검증 — `docs/adr/ADR-008-precheck-default.md`
 
-- **왜 다음인가**: ADR-007 §8 결정(advisory-try → counter-upsert-precheck). 그런데 코드 기본값은 지금도 `none`이다(`application.yml:36`·`SeatHoldProperties.kt:14`) — ADR-005의 advisory-try 결정도 코드에 반영된 적이 없다.
-- **사용자 합의(인터뷰 2026-10-11)**: 설정+코드 기본값 둘 다 · Flyway 백필 마이그레이션(유효(만료 전 HELD) 홀드 + 확정 예약으로 `user_hold_quota.cnt`) · 기존 테스트 전체 + 기본값 테스트 · 서버 스모크(기본값 기동) · 부하 하네스 무영향 확인 · 기본값으로 기능 셀 재측정(S2·S3-a20·S7-m1·S7-m1-late × 3, S4 1) · 번호 = 기존 ADR-008~013을 009~014로 옮김(2026-10-11 완료) — 새 ADR-008.
-- **발생 가능한 문제**: 백필은 데이터 변경(stakes 높음 — 불가역) · counter 계열은 배경 행 시드를 거부(`LoadtestDataService.kt:38`) → 방식을 명시하지 않는 기존 하네스(ADR-002 배경 행 등)가 기본값 변경으로 깨질 수 있음 · 만료 배치가 카운터를 내리는 경로(새 ADR-009 홀드 만료와 겹침).
-- **대처**: 명세 인터뷰부터(새 작업 폴더) · 하네스 전수 grep으로 방식 미지정 호출을 찾아 none 명시 · 백필은 빈 DB·홀드 있는 DB 양쪽 테스트.
+- 기본값 none → counter-upsert-precheck · V6 백필 · 기본값 확정 측정 13회 전부 ok(정합·동작 ADR-007 precheck와 같음). 남은 원인 미확인: S2 선점 p99 1.75배(판정 아님, ADR-008 §5).
 
 ### N1a. 서버 디스크가 처리량 측정을 깎는다 — 우선순위: 중간 · ADR-007 §7.2
 
 - **관측**: 이 서버 저장 경로(`nvme1n1` Samsung 980 · ext4 · LVM)에서 flush가 일정 쓰기 뒤 느려진다 — flush/s 약 1/3·flush 평균 약 3배. fio 단독(pgwal, flush 약 2,000회/s)에서는 약 3분(+179초 · 5.2GB) 뒤, DB S4c4200에서는 +149~160초 · 호스트 누적 3.50~3.74GB 뒤다(`20261010-dc-b943a3f0/WDROP.md`). DB 회차의 S4 벽(디스크 12회 중 11회 — precheck rep1의 256초 벽은 미설명)과 **같은 서명**이다. 쉬면 회복되는지는 pgwal 1회(40.5초 쉼 → 정상 기준선)뿐이고, 옛 append fio-2는 23초 쉬고 일찍(60초 · 3.79GB) 꺾였다. "DRAM 없는 SSD 동작"은 해석(장치 안은 미측정).
 - **대처 후보**: 처리량 비교는 tmpfs 조건 병행 · 다른 디스크(nvme0n1은 Windows — 금지) · `synchronous_commit`·`commit_delay`로 flush 빈도 낮추기(측정 의미가 바뀜 — 명세 필요) · 반감 위치 차이(fio 5.2GB vs DB 3.5GB) 원인은 미확인.
 
-### N1b. ADR-009 홀드 만료(기존 ADR-008 — 2026-10-11 번호 이동) — 우선순위: 높음(새 ADR-008 뒤)
+### N1b. ADR-009 홀드 만료(기존 ADR-008 — 2026-10-11 번호 이동) — 우선순위: **최우선**(ADR-008 완료 — 기본값이 counter 계열이 됐다)
 
 - counter-upsert-precheck를 기본으로 택했으므로(ADR-007 §8) 만료 배치가 카운터를 내리는 주체다. 쿼터 행은 만료로 지워지지 않는다 — 회차 종료 정리·vacuum 비용을 함께 본다(ADR-006 §7).
 - **쿼터 행 정리 설계**는 ADR-006 §6 전환 규칙의 조건이었지만 ADR-007 §8 결정에 포함하지 않고 여기로 넘겼다.
+- **ADR-008에서 넘긴 것**(ADR-008 §6): ① R1 카운터 어긋남 — 쿼터 행 없음·음수면 만료 배치가 매 틱 전체 롤백(수동 복구까지 전역 만료 정지), 덜 어긋나면 조용히 매수 초과 허용 또는 거절 → 탐지(주기 점검)·격리(쌍 단위)·복구 설계 ② 쿼터 테이블 없는 환경의 기동 시 검사(fail-fast) ③ 쿼터 행 정리.
+- **발생 가능한 문제**: 만료 배치를 쌍 단위로 격리하면 부분 실패가 생긴다 — 실패 쌍을 어떻게 드러낼지(무음 스킵 금지) · 점검 쿼리 비용(전 테이블 집계)이 부하 중 DB와 경합(ADR-001 실측 L1 58s).
 
 ### N2. (완료 2026-10-09) ADR-005 main 병합 — PR #5 merge commit 201aabdd
 
@@ -64,6 +63,7 @@
 
 ## 완료 이력
 
+- 완료 → `docs/plans/2026-10-11/adr-008-precheck-default/`(ADR-008 매수 제어 기본값 counter-upsert-precheck 적용·V6 백필·확정 측정 13회 합격)
 - 완료 → `docs/plans/2026-10-11/adr-007-fsync-fio/`·`2026-10-10/adr-007-disk-cause/`·`2026-10-09/adr-007-throughput-wall/`(ADR-007 벽 = 서버 디스크(C5 확인) · counter-upsert-precheck 전환 결정 → 새 ADR-008)
 - 완료 → `docs/plans/2026-10-09/adr-006-counter-upsert/`(ADR-006 advisory-try 유지 · counter-upsert 벽 진단은 ADR-007, 해결 시 전환)
 - 완료 → `docs/plans/2026-10-06/adr-005-user-limit/`(ADR-005 advisory-try 확정 · counter는 ADR-006)

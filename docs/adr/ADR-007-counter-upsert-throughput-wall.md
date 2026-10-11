@@ -2,7 +2,7 @@
 > 번호 이동(2026-10-11, 3차): counter-upsert-precheck 기본 적용·검증을 새 ADR-008로 넣으며 기존 ADR-008~013을 009~014로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
-- 상태: 결정됨(Accepted) — 2026-10-11. 벽은 모든 방식이 같은 지점에서 겪는 쓰기 반감이고(디스크 12회 중 11회 — precheck S4 rep1의 256초 벽은 반감으로 설명되지 않음, §7.2) 원인은 C5(이 서버 저장 경로 — `nvme1n1`·호스트 쓰기 경로) **확인**(§7.2). 매수 제어 기본을 advisory-try → **counter-upsert-precheck**로 전환한다(§8, 사용자 결정). **미적용 — 코드 기본값은 아직 `none`**(새 ADR-008). 코드 적용·검증은 별도 후속 **ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)
+- 상태: 결정됨(Accepted) — 2026-10-11. 벽은 모든 방식이 같은 지점에서 겪는 쓰기 반감이고(디스크 12회 중 11회 — precheck S4 rep1의 256초 벽은 반감으로 설명되지 않음, §7.2) 원인은 C5(이 서버 저장 경로 — `nvme1n1`·호스트 쓰기 경로) **확인**(§7.2). 매수 제어 기본을 advisory-try → **counter-upsert-precheck**로 전환한다(§8, 사용자 결정). **적용 완료(2026-10-12, ADR-008)** — 기본값 none → counter-upsert-precheck · V6 백필 · 기본값 확정 측정 13회 합격. 코드 적용·검증은 별도 후속 **ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)
 - 명세: `docs/plans/2026-10-09/adr-007-throughput-wall/requirement-spec.md`
 - 날짜: 2026-10-09
 - 선행: **ADR-006(counter-upsert 재비교 — 결정: advisory-try 유지, 벽 원인을 찾아 해결되면 counter-upsert로 전환)**, ADR-005(1인 매수 제어 — advisory-try 기본)
@@ -368,7 +368,8 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 **결정 (2026-10-11, 사용자): 매수 제어 기본을 advisory-try에서 counter-upsert-precheck로 전환한다.**
 
 - 기록: `docs/plans/2026-10-11/adr-007-fsync-fio/log.md` 10-11 10:4x 행("사용자 결정: advisory-try → counter-upsert-precheck 전환").
-- **미적용 — 코드 기본값은 아직 `none`이다**(아래 '확인한 사실'). 적용은 새 ADR-008 (2026-10-11 번호 이동 — 홀드 만료는 ADR-009).
+- (결정 당시 2026-10-11) **미적용 — 코드 기본값은 아직 `none`이었다**(아래 '확인한 사실'). 적용은 새 ADR-008 (2026-10-11 번호 이동 — 홀드 만료는 ADR-009).
+- **적용 완료(2026-10-12)**: ADR-008 — 기본값 전환·V6 백필·기본값 확정 측정 13회 합격(ADR-008 §5). 아래 '확인한 사실'의 "아직 하지 않았다"는 결정 당시 상태다.
 
 **전환 규칙(ADR-006 §6 · 이 문서 §6)과의 관계** — 규칙은 **문자 그대로는 충족되지 않았다.**
 
@@ -398,7 +399,7 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 - **지금 코드 기본값은 advisory-try가 아니라 `none`이다**: `src/main/resources/application.yml:36` `limit-strategy: none` · `src/main/kotlin/com/jun/labs/seatreservation/service/SeatHoldProperties.kt:14` `UserLimitStrategyType.NONE`. ADR-005의 결정(advisory-try 기본)은 코드에 반영된 적이 없다.
 - 그래서 이 결정의 적용은 **새 후속 ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)에서 한다. **아직 하지 않았다.** 범위(`docs/plans/NEXT.md` N1과 같다):
   - 설정·코드 기본값을 `counter-upsert-precheck`로
-  - Flyway 백필: **유효(만료 전 HELD) 홀드 + 확정 예약**으로 `user_hold_quota.cnt`를 채운다
+  - Flyway 백필: **`seat_hold` 행 전체(만료 전·후 구분 없음) + 확정 예약**으로 `user_hold_quota.cnt`를 채운다 (정정 2026-10-12 — 처음 적은 "유효(만료 전 HELD) 홀드"는 틀렸다. 만료 배치가 실제로 지운 홀드만큼 내리므로 판정기 `v_counter_mismatch`와 같은 정의여야 한다, ADR-008 §3)
   - 기존 테스트 전체 + 기본값 테스트
   - 서버 스모크(기본값으로 기동)
   - 부하 하네스 무영향 확인 — counter 계열은 배경 행 시드를 거부한다(`src/main/kotlin/com/jun/labs/seatreservation/loadtest/LoadtestDataService.kt:38`). 방식을 명시하지 않는 기존 하네스(배경 행을 쓰는 ADR-002 등)가 기본값 변경으로 깨질 수 있다
