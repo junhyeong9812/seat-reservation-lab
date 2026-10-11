@@ -1,0 +1,1030 @@
+{
+ "L4/S4": [
+  {
+   "rep": "rep1",
+   "status": "ok",
+   "meta": {
+    "sha": "b943a3f0",
+    "level": 4,
+    "cell": "S4",
+    "rep": 1,
+    "started": "2026-10-11T00:47:44+09:00",
+    "ended": "2026-10-11T00:58:28+09:00",
+    "k6_started": "2026-10-11T00:48:40+09:00",
+    "k6_ended": "2026-10-11T00:57:16+09:00",
+    "ttl_s": 3600,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-upsert",
+    "injected_limit_strategy": null,
+    "harness": "sha:b943a3f0",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_UPSERT"
+    },
+    "k6_env": "START_RATE=50 FACTOR=1.5 STEPS=16 STEP_S=30",
+    "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait SEAT_HOLD_LIMIT_STRATEGY=counter-upsert FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "tmpfs",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0015,
+      "rtt_s": 0.0018,
+      "at": 1791647320.1468587
+     },
+     "after": {
+      "offset_s": 0.0069,
+      "rtt_s": 0.003,
+      "at": 1791647836.5628493
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 2000000,
+    "available": 810356,
+    "held": 1189644,
+    "reserved": 0,
+    "hold_rows": 1189644,
+    "confirmed": 0,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-10T15:57:28.980+00:00",
+    "v_counter_mismatch": 0
+   },
+   "hold_201": 1189352,
+   "hold_409": 0,
+   "hold_other": 3480,
+   "hold_error_rate": 0.002917426762528168,
+   "confirm_error_rate": null,
+   "hold_p50": 4.3165130000000005,
+   "hold_p99": 2467.5518824499995,
+   "confirm_200": 0,
+   "confirm_409": 0,
+   "session_confirmed": 0,
+   "session_abandoned": 0,
+   "session_gave_up": 0,
+   "session_error": 0,
+   "iterations": 1192832,
+   "dropped": 763281,
+   "stages": [
+    {
+     "stage": 0,
+     "target_rps": 50,
+     "requests": 1498,
+     "achieved_rps": 49.93333333333333,
+     "ok_rps": 49.93333333333333,
+     "p99_ms": 7.438350559999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 1,
+     "target_rps": 75,
+     "requests": 2237,
+     "achieved_rps": 74.56666666666666,
+     "ok_rps": 74.56666666666666,
+     "p99_ms": 6.813945439999996,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 2,
+     "target_rps": 113,
+     "requests": 3370,
+     "achieved_rps": 112.33333333333333,
+     "ok_rps": 112.33333333333333,
+     "p99_ms": 5.52640281,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 3,
+     "target_rps": 169,
+     "requests": 5041,
+     "achieved_rps": 168.03333333333333,
+     "ok_rps": 168.03333333333333,
+     "p99_ms": 5.261427000000002,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 4,
+     "target_rps": 253,
+     "requests": 7546,
+     "achieved_rps": 251.53333333333333,
+     "ok_rps": 251.53333333333333,
+     "p99_ms": 5.018745750000001,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 5,
+     "target_rps": 380,
+     "requests": 11334,
+     "achieved_rps": 377.8,
+     "ok_rps": 377.8,
+     "p99_ms": 2.08865581,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 6,
+     "target_rps": 570,
+     "requests": 17000,
+     "achieved_rps": 566.6666666666666,
+     "ok_rps": 566.6666666666666,
+     "p99_ms": 1.6122444699999985,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 7,
+     "target_rps": 854,
+     "requests": 25471,
+     "achieved_rps": 849.0333333333333,
+     "ok_rps": 849.0333333333333,
+     "p99_ms": 1.503128899999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 8,
+     "target_rps": 1281,
+     "requests": 38206,
+     "achieved_rps": 1273.5333333333333,
+     "ok_rps": 1273.5333333333333,
+     "p99_ms": 1.638463049999993,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 9,
+     "target_rps": 1922,
+     "requests": 57325,
+     "achieved_rps": 1910.8333333333333,
+     "ok_rps": 1910.8333333333333,
+     "p99_ms": 1.4512570400000047,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 10,
+     "target_rps": 2883,
+     "requests": 85987,
+     "achieved_rps": 2866.233333333333,
+     "ok_rps": 2866.233333333333,
+     "p99_ms": 1.9605389999999987,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 11,
+     "target_rps": 4325,
+     "requests": 128995,
+     "achieved_rps": 4299.833333333333,
+     "ok_rps": 4299.833333333333,
+     "p99_ms": 3.4101237199999987,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 12,
+     "target_rps": 6487,
+     "requests": 193334,
+     "achieved_rps": 6444.466666666666,
+     "ok_rps": 6444.466666666666,
+     "p99_ms": 4.389003480000012,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 13,
+     "target_rps": 9731,
+     "requests": 258108,
+     "achieved_rps": 8603.6,
+     "ok_rps": 8603.6,
+     "p99_ms": 287.29224465999994,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    },
+    {
+     "stage": 14,
+     "target_rps": 14596,
+     "requests": 226085,
+     "achieved_rps": 7536.166666666667,
+     "ok_rps": 7479.7,
+     "p99_ms": 2382.2540980400004,
+     "error_rate": 0.007492757148859942,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    },
+    {
+     "stage": 15,
+     "target_rps": 21895,
+     "requests": 131295,
+     "achieved_rps": 4376.5,
+     "ok_rps": 4316.966666666666,
+     "p99_ms": 3015.2463157400002,
+     "error_rate": 0.013602955177272554,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    }
+   ],
+   "limits": {
+    "strict": 6444.466666666666,
+    "strict_stop": {
+     "stage": 13,
+     "target_rps": 9731,
+     "reasons": [
+      "under-delivered"
+     ]
+    },
+    "loose": 6444.466666666666,
+    "loose_stop": {
+     "stage": 13,
+     "target_rps": 9731,
+     "reasons": [
+      "under-delivered"
+     ]
+    },
+    "saturation": 8603.6,
+    "saturation_stage": {
+     "stage": 13,
+     "target_rps": 9731,
+     "achieved_rps": 8603.6,
+     "ok_rps": 8603.6
+    },
+    "strict_legacy": 8603.6,
+    "loose_legacy": 8603.6,
+    "under_delivered_stages": 3
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 895,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 895,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 895,
+   "hikari_pending_max": 189.0,
+   "hikari_samples": 408,
+   "pg_preset": "tmpfs",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": 0.0042,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.3463687150837989
+    ],
+    [
+     "CPU:-",
+     0.33743016759776534
+    ],
+    [
+     "Timeout:VacuumDelay",
+     0.013407821229050279
+    ],
+    [
+     "LWLock:BufferContent",
+     0.0033519553072625698
+    ],
+    [
+     "IO:WALWrite",
+     0.0022346368715083797
+    ]
+   ],
+   "waits_samples": 895,
+   "acquire_max_ms": 758.253797,
+   "acquire_mean_ms": 14.12727307206112,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    1189467
+   ],
+   "borrow_per_hold": 1.000042876347137,
+   "io": {
+    "elapsed_s": 529.2395505905151,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 17676751,
+     "wal_fpi": 16695,
+     "wal_bytes": 1308388558,
+     "wal_buffers_full": 0,
+     "wal_write": 1180408,
+     "wal_sync": 1180163,
+     "wal_write_time": 3305.309,
+     "wal_sync_time": 584.5,
+     "wal_sync_avg_ms": 0.0004952705685570553,
+     "wal_write_avg_ms": 0.0028001411376405447,
+     "wal_bytes_per_hold": 1099.9788628015742,
+     "commits": 1192197,
+     "commits_per_wal_sync": 1.0101968965303945
+    },
+    "io": {
+     "reads": 167119,
+     "read_time": 635.053,
+     "writes": 73765,
+     "write_time": 208.022,
+     "writebacks": 65308,
+     "writeback_time": 4.005,
+     "extends": 40430,
+     "extend_time": 422.48799999999994,
+     "fsyncs": 154,
+     "fsync_time": 0.082,
+     "fsync_avg_ms": 0.0005324675324675325,
+     "write_avg_ms": 0.0028200637158544025
+    },
+    "bgwriter": {
+     "checkpoints_timed": 1,
+     "checkpoints_req": 2,
+     "checkpoint_write_time": 188423,
+     "checkpoint_sync_time": 2,
+     "buffers_checkpoint": 12710,
+     "buffers_backend": 53600,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 1,
+      "read_ms": 9,
+      "writes": 15537,
+      "write_sectors": 157712,
+      "write_ms": 27999,
+      "io_ms": 3920,
+      "weighted_ms": 28251,
+      "flushes": 120,
+      "flush_ms": 244,
+      "write_wait_ms": 1.8020853446611316,
+      "flush_avg_ms": 2.033333333333333,
+      "util_pct": 0.7406853844589167,
+      "aqu": 0.053380364276400145,
+      "write_mb": 80.748544
+     },
+     "nvme1n1p3": {
+      "reads": 1,
+      "read_ms": 9,
+      "writes": 15537,
+      "write_sectors": 157712,
+      "write_ms": 27999,
+      "io_ms": 6577,
+      "weighted_ms": 28008,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.8020853446611316,
+      "flush_avg_ms": null,
+      "util_pct": 1.2427264728536467,
+      "aqu": 0.05292121491817688,
+      "write_mb": 80.748544
+     },
+     "dm-0": {
+      "reads": 1,
+      "read_ms": 8,
+      "writes": 18106,
+      "write_sectors": 157712,
+      "write_ms": 42392,
+      "io_ms": 14529,
+      "weighted_ms": 42400,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 2.3413233182370483,
+      "flush_avg_ms": null,
+      "util_pct": 2.745259681327449,
+      "aqu": 0.08011494974759711,
+      "write_mb": 80.748544
+     }
+    },
+    "disk_main": "nvme1n1"
+   },
+   "io_wal_sync": 1180163,
+   "io_wal_sync_avg_ms": 0.0004952705685570553,
+   "io_wal_mb": 1308.388558,
+   "io_wal_bytes_per_hold": 1099.9788628015742,
+   "io_commits_per_wal_sync": 1.0101968965303945,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.0005324675324675325,
+   "io_disk_write_wait_ms": 1.8020853446611316,
+   "io_disk_flush_avg_ms": 2.033333333333333,
+   "io_disk_util_pct": 0.7406853844589167,
+   "io_disk_write_mb": 80.748544,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 1189467,
+   "limit_acquire_mean_ms": 0.18434263509202023,
+   "limit_acquire_max_ms": 96.173897,
+   "limit_check_n": 1189467,
+   "limit_check_mean_ms": 6.302018298952389e-05,
+   "limit_check_max_ms": 0.10403899999999999,
+   "limit_span_n": 1189467,
+   "limit_span_mean_ms": 0.1363425755611547,
+   "limit_span_max_ms": 61.218742,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011712,
+   "redis_keys": 0
+  },
+  {
+   "rep": "rep2",
+   "status": "ok",
+   "meta": {
+    "sha": "b943a3f0",
+    "level": 4,
+    "cell": "S4",
+    "rep": 2,
+    "started": "2026-10-11T03:13:32+09:00",
+    "ended": "2026-10-11T03:24:02+09:00",
+    "k6_started": "2026-10-11T03:14:26+09:00",
+    "k6_ended": "2026-10-11T03:23:01+09:00",
+    "ttl_s": 3600,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-upsert",
+    "injected_limit_strategy": null,
+    "harness": "sha:b943a3f0",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_UPSERT"
+    },
+    "k6_env": "START_RATE=50 FACTOR=1.5 STEPS=16 STEP_S=30",
+    "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait SEAT_HOLD_LIMIT_STRATEGY=counter-upsert FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "tmpfs",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0329,
+      "rtt_s": 0.0026,
+      "at": 1791656066.295822
+     },
+     "after": {
+      "offset_s": 0.0153,
+      "rtt_s": 0.003,
+      "at": 1791656581.7640314
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 2000000,
+    "available": 774544,
+    "held": 1225456,
+    "reserved": 0,
+    "hold_rows": 1225456,
+    "confirmed": 0,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-10T18:23:13.887+00:00",
+    "v_counter_mismatch": 0
+   },
+   "hold_201": 1225355,
+   "hold_409": 0,
+   "hold_other": 3473,
+   "hold_error_rate": 0.0028262702347277243,
+   "confirm_error_rate": null,
+   "hold_p50": 75.349201,
+   "hold_p99": 2166.96458322,
+   "confirm_200": 0,
+   "confirm_409": 0,
+   "session_confirmed": 0,
+   "session_abandoned": 0,
+   "session_gave_up": 0,
+   "session_error": 0,
+   "iterations": 1228828,
+   "dropped": 727419,
+   "stages": [
+    {
+     "stage": 0,
+     "target_rps": 50,
+     "requests": 1499,
+     "achieved_rps": 49.96666666666667,
+     "ok_rps": 49.96666666666667,
+     "p99_ms": 7.41394562,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 1,
+     "target_rps": 75,
+     "requests": 2237,
+     "achieved_rps": 74.56666666666666,
+     "ok_rps": 74.56666666666666,
+     "p99_ms": 6.751512679999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 2,
+     "target_rps": 113,
+     "requests": 3370,
+     "achieved_rps": 112.33333333333333,
+     "ok_rps": 112.33333333333333,
+     "p99_ms": 5.45755942,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 3,
+     "target_rps": 169,
+     "requests": 5041,
+     "achieved_rps": 168.03333333333333,
+     "ok_rps": 168.03333333333333,
+     "p99_ms": 5.1360918,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 4,
+     "target_rps": 253,
+     "requests": 7547,
+     "achieved_rps": 251.56666666666666,
+     "ok_rps": 251.56666666666666,
+     "p99_ms": 5.018481019999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 5,
+     "target_rps": 380,
+     "requests": 11334,
+     "achieved_rps": 377.8,
+     "ok_rps": 377.8,
+     "p99_ms": 1.7510385300000002,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 6,
+     "target_rps": 570,
+     "requests": 17002,
+     "achieved_rps": 566.7333333333333,
+     "ok_rps": 566.7333333333333,
+     "p99_ms": 1.5703616300000005,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 7,
+     "target_rps": 854,
+     "requests": 25473,
+     "achieved_rps": 849.1,
+     "ok_rps": 849.1,
+     "p99_ms": 1.4256811199999997,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 8,
+     "target_rps": 1281,
+     "requests": 38209,
+     "achieved_rps": 1273.6333333333334,
+     "ok_rps": 1273.6333333333334,
+     "p99_ms": 1.5024603999999997,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 9,
+     "target_rps": 1922,
+     "requests": 57330,
+     "achieved_rps": 1911.0,
+     "ok_rps": 1911.0,
+     "p99_ms": 1.3759184899999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 10,
+     "target_rps": 2883,
+     "requests": 85993,
+     "achieved_rps": 2866.4333333333334,
+     "ok_rps": 2866.4333333333334,
+     "p99_ms": 2.510857320000006,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 11,
+     "target_rps": 4325,
+     "requests": 129005,
+     "achieved_rps": 4300.166666666667,
+     "ok_rps": 4300.166666666667,
+     "p99_ms": 2.384804439999976,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 12,
+     "target_rps": 6487,
+     "requests": 193341,
+     "achieved_rps": 6444.7,
+     "ok_rps": 6444.7,
+     "p99_ms": 3.8516550000000036,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": false
+    },
+    {
+     "stage": 13,
+     "target_rps": 9731,
+     "requests": 258843,
+     "achieved_rps": 8628.1,
+     "ok_rps": 8628.1,
+     "p99_ms": 286.8530441999999,
+     "error_rate": 0,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    },
+    {
+     "stage": 14,
+     "target_rps": 14596,
+     "requests": 243387,
+     "achieved_rps": 8112.9,
+     "ok_rps": 8056.733333333334,
+     "p99_ms": 1977.03670846,
+     "error_rate": 0.006923130652006886,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    },
+    {
+     "stage": 15,
+     "target_rps": 21895,
+     "requests": 149217,
+     "achieved_rps": 4973.9,
+     "ok_rps": 4914.3,
+     "p99_ms": 2472.7604306,
+     "error_rate": 0.01198254890528559,
+     "partial": false,
+     "not_run": false,
+     "under_delivered": true
+    }
+   ],
+   "limits": {
+    "strict": 6444.7,
+    "strict_stop": {
+     "stage": 13,
+     "target_rps": 9731,
+     "reasons": [
+      "under-delivered"
+     ]
+    },
+    "loose": 6444.7,
+    "loose_stop": {
+     "stage": 13,
+     "target_rps": 9731,
+     "reasons": [
+      "under-delivered"
+     ]
+    },
+    "saturation": 8628.1,
+    "saturation_stage": {
+     "stage": 13,
+     "target_rps": 9731,
+     "achieved_rps": 8628.1,
+     "ok_rps": 8628.1
+    },
+    "strict_legacy": 8628.1,
+    "loose_legacy": 8628.1,
+    "under_delivered_stages": 3
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 896,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 896,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 896,
+   "hikari_pending_max": 189.0,
+   "hikari_samples": 408,
+   "pg_preset": "tmpfs",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": 0.0241,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.33705357142857145
+    ],
+    [
+     "CPU:-",
+     0.33035714285714285
+    ],
+    [
+     "Timeout:VacuumDelay",
+     0.014508928571428572
+    ],
+    [
+     "LWLock:BufferContent",
+     0.013392857142857142
+    ],
+    [
+     "IO:WALWrite",
+     0.002232142857142857
+    ]
+   ],
+   "waits_samples": 896,
+   "acquire_max_ms": 506.84069200000005,
+   "acquire_mean_ms": 14.051075737173267,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    1225456
+   ],
+   "borrow_per_hold": 1.0000416171612854,
+   "io": {
+    "elapsed_s": 527.9033997058868,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 18217250,
+     "wal_fpi": 17136,
+     "wal_bytes": 1349333912,
+     "wal_buffers_full": 123,
+     "wal_write": 1215491,
+     "wal_sync": 1215122,
+     "wal_write_time": 3371.821,
+     "wal_sync_time": 553.69,
+     "wal_sync_avg_ms": 0.00045566618002142997,
+     "wal_write_avg_ms": 0.0027740402849548043,
+     "wal_bytes_per_hold": 1101.0871969291431,
+     "commits": 1228032,
+     "commits_per_wal_sync": 1.0106244475863329
+    },
+    "io": {
+     "reads": 168461,
+     "read_time": 366.588,
+     "writes": 74633,
+     "write_time": 186.562,
+     "writebacks": 65912,
+     "writeback_time": 3.2159999999999997,
+     "extends": 41830,
+     "extend_time": 438.483,
+     "fsyncs": 153,
+     "fsync_time": 0.066,
+     "fsync_avg_ms": 0.00043137254901960784,
+     "write_avg_ms": 0.0024997253225784843
+    },
+    "bgwriter": {
+     "checkpoints_timed": 1,
+     "checkpoints_req": 2,
+     "checkpoint_write_time": 185750,
+     "checkpoint_sync_time": 2,
+     "buffers_checkpoint": 14201,
+     "buffers_backend": 55406,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 17322,
+      "write_sectors": 170048,
+      "write_ms": 28757,
+      "io_ms": 3878,
+      "weighted_ms": 28930,
+      "flushes": 113,
+      "flush_ms": 172,
+      "write_wait_ms": 1.6601431705345804,
+      "flush_avg_ms": 1.5221238938053097,
+      "util_pct": 0.7346040965374664,
+      "aqu": 0.05480169291601058,
+      "write_mb": 87.064576
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 17322,
+      "write_sectors": 170048,
+      "write_ms": 28758,
+      "io_ms": 7044,
+      "weighted_ms": 28758,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.6602009005888465,
+      "flush_avg_ms": null,
+      "util_pct": 1.334335032493531,
+      "aqu": 0.05447587573033641,
+      "write_mb": 87.064576
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 20008,
+      "write_sectors": 170048,
+      "write_ms": 44825,
+      "io_ms": 20962,
+      "weighted_ms": 44825,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 2.240353858456617,
+      "flush_avg_ms": null,
+      "util_pct": 3.97080223610582,
+      "aqu": 0.08491136830142323,
+      "write_mb": 87.064576
+     }
+    },
+    "disk_main": "nvme1n1"
+   },
+   "io_wal_sync": 1215122,
+   "io_wal_sync_avg_ms": 0.00045566618002142997,
+   "io_wal_mb": 1349.333912,
+   "io_wal_bytes_per_hold": 1101.0871969291431,
+   "io_commits_per_wal_sync": 1.0106244475863329,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.00043137254901960784,
+   "io_disk_write_wait_ms": 1.6601431705345804,
+   "io_disk_flush_avg_ms": 1.5221238938053097,
+   "io_disk_util_pct": 0.7346040965374664,
+   "io_disk_write_mb": 87.064576,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 1225456,
+   "limit_acquire_mean_ms": 0.18190334840989802,
+   "limit_acquire_max_ms": 131.237616,
+   "limit_check_n": 1225456,
+   "limit_check_mean_ms": 5.222439483751354e-05,
+   "limit_check_max_ms": 0.10653900000000001,
+   "limit_span_n": 1225456,
+   "limit_span_mean_ms": 0.1345414284119544,
+   "limit_span_max_ms": 122.67878,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.01168,
+   "redis_keys": 0
+  }
+ ]
+}

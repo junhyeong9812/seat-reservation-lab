@@ -1,0 +1,58 @@
+[
+ {
+  "cond": "smoke-a3-cu-default-s4",
+  "level": "L4",
+  "cell": "S4",
+  "rep": "rep1",
+  "status": "ok",
+  "fixed": false,
+  "step11_start_s": 331,
+  "wall_s": 356,
+  "settle_s": 331,
+  "wall_after_settle_s": 356,
+  "wall_minus_start_s": 25,
+  "db_ready_to_k6_s": 61.2,
+  "checkpoints_during_k6": [
+   {
+    "kind": "time",
+    "start_s": 238.2,
+    "end_s": 420.5
+   },
+   {
+    "kind": "wal",
+    "start_s": 435.5,
+    "end_s": null
+   }
+  ],
+  "wall_p99_ms": 326.860484,
+  "cum_201_before_wall": 362309,
+  "db_uptime_at_wall_s": 417.2,
+  "checkpoint_at_wall": {
+   "kind": "time",
+   "start_s": 238.2,
+   "end_s": 420.5
+  },
+  "waits_top": [
+   [
+    "LWLock:WALWrite",
+    4.1
+   ],
+   [
+    "Client:ClientRead",
+    1.0
+   ],
+   [
+    "IO:WALSync",
+    0.9
+   ],
+   [
+    "CPU:-",
+    0.7
+   ]
+  ],
+  "waits_samples": 10,
+  "checkpointer_at_wall": {
+   "Timeout:CheckpointWriteDelay": 10
+  }
+ }
+]
