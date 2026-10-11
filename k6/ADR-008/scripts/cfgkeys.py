@@ -41,8 +41,9 @@ def keys(path, text):
             line = line.strip()
             if not line or line[0] in "#!":
                 continue
-            cut = min([i for i in (line.find("="), line.find(":")) if i >= 0], default=len(line))
-            out.append(line[:cut].strip())
+            # 키 끝 = 첫 '='·':'·공백(java.util.Properties — 공백도 구분자다, 루프 3 재점검)
+            cut = next((i for i, ch in enumerate(line) if ch in "=: \t\f"), len(line))
+            out.append(line[:cut])
         return out
     import yaml
     return [k for doc in yaml.safe_load_all(text) if doc is not None for k in flat(doc)]
