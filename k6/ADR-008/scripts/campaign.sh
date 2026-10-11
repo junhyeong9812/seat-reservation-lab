@@ -13,7 +13,7 @@
 # 중단되면 같은 --id로 다시 부르면 된다: 각 조건은 run.sh --resume으로 이어서 재고, 끝난 회차(status 있음)는 건너뛴다.
 # 끝나면 정상이 아닌 회차를 다시 잰다(최대 2바퀴) — **단 회차 합격 사유(run.sh rep_status: over-limit · counter-mismatch* · s7-wronged-seats ·
 #   s7late-order-violation · borrow-not-one · limit-strategy-mismatch · limit-key-present · limit-set-by-profile · limit-default-not-precheck ·
-#   spring-config-override)가 있거나, 판정기 consistency.json에 위반(v_over_limit_users > 0 또는 v_counter_mismatch > 0)이 찍힌 회차는 — 다른 사유가 무엇이든 —
+#   spring-config-override · spring-config-import)가 있거나, 판정기 consistency.json에 위반(v_over_limit_users > 0 또는 v_counter_mismatch > 0)이 찍힌 회차는 — 다른 사유가 무엇이든 —
 #   다시 재지 않는다**(리뷰 루프 1 C6): 그것은 측정 결과(기본값이 기준을 못 지켰다)이지 하네스 실패가 아니다 — 다시 재서 ok가 나오면 실패가 가려진다. 그대로 남기고 exit 1.
 #   ADR-008에서는 status가 정확히 ok인 회차만 정상이다 — S4의 s4-no-successful-stage도 정상이 아니다(리뷰 루프 1 C2. ADR-007은 '한계 < 첫 단계'를 결과로 봤다).
 set -uo pipefail
@@ -115,6 +115,8 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
   eval bash "$DIR/run.sh" --sha "$SHA" --id "$CAMPAIGN/$name" --reps "$(reps_of "$name")" --only-rep "$rep" $args $resume >> "$ROOT/$name.runner.log" 2>&1
   rc=$?
   echo "$(date -Is) $name rep$rep exit=$rc" >> "$LOG"
+  # run.sh exit 6 = 설정 파일 정적 검사 실패·사유(리뷰 루프 2 D4) — 배포 전에 멈췄다. 다른 0이 아닌 종료와 같이 캠페인 전체를 멈춘다(재측정 없음)
+  if (( rc == 6 )); then echo "$(date -Is) ABORT limit-config $name rep$rep exit=6 — $(grep -h 'ABORT limit-config' "$ROOT/$name/MATRIX.log" 2>/dev/null | tail -1)" >> "$LOG"; exit 6; fi
   if (( rc != 0 )); then echo "$(date -Is) ABORT $name rep$rep exit=$rc" >> "$LOG"; exit "$rc"; fi
   # 기동 계열 실패(앱이 안 뜸)가 호출 5번 연속이면 빌드·서버 문제 — 멈춘다
   local fresh; fresh=$(find "$ROOT/$name" -path "*/rep$rep/status" -newer "$mark" 2>/dev/null); rm -f "$mark"
@@ -127,7 +129,7 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
 }
 
 # 회차 합격 사유(머리말) — 이 사유가 하나라도 있는 회차는 다시 재지 않는다
-ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|s7-wronged-seats|s7late-order-violation|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-set-by-profile|limit-default-not-precheck|spring-config-override)(,|$)'
+ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|s7-wronged-seats|s7late-order-violation|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-set-by-profile|limit-default-not-precheck|spring-config-override|spring-config-import)(,|$)'
 all_status() { ls "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true; }
 non_ok_reps() {  # 정상 아닌 회차의 status 경로(보존된 옛 회차 제외) — status가 정확히 ok만 정상(머리말 C2)
   local st; for st in $(all_status); do grep -qxs 'ok' "$st" || echo "$st"; done

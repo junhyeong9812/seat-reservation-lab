@@ -499,18 +499,23 @@ limit_metrics() {  # 인자: 앱 → {"prepare"|"acquire"|"check"|"span":{COUNT,
 #   (그 URI로 요청이 한 번도 없으면 태그 조회가 404). 그 밖의 실패(목록·태그 조회 실패, 값 아님)는 null — 0으로 채우면 직전 값이 0이 되어
 #   차분이 누적값이 되고 빌림이 조용히 낮게 나온다(ADR-006 리뷰 지적). 조회마다 actuator_retry(과부하 직후 늦은 응답).
 HOLD_URI='/api/schedules/{scheduleId}/seats/{seatId}/hold'
-hold_requests() {
-  local a="$1" names base v
+# ADR-008(리뷰 루프 2 D1): 확정 요청도 커넥션을 빌린다(S3) — 요청당 빌림의 분모에 넣으려고 같은 방식으로 센다. 시나리오가 보내는 앱 요청은 선점·확정 둘뿐이다
+# (scenarios/lib/common.js http.post 2곳 — /internal·/actuator는 run.sh가 부하 밖에서 부르고, 그중 DB를 쓰는 /internal은 k6 직전·직후 스냅숏 사이에 없다)
+CONFIRM_URI='/api/holds/{holdId}/confirm'
+uri_requests() {  # 인자: 앱 URI템플릿 → 그 URI의 http.server.requests COUNT · 0(기록 없음 확인) · null(조회 실패) — 정의는 위 머리말(hold_requests)
+  local a="$1" uri="$2" names base v
   names=$(actuator_retry "$a" metrics | jq -c '.names') || { echo null; return; }
   jq -e 'type == "array"' <<< "$names" > /dev/null 2>&1 || { echo null; return; }
   jq -e 'index("http.server.requests") != null' <<< "$names" > /dev/null || { echo 0; return; }
   base=$(actuator_retry "$a" metrics/http.server.requests) || { echo null; return; }
   jq -e '.availableTags | type == "array"' <<< "$base" > /dev/null 2>&1 || { echo null; return; }
-  jq -e --arg u "$HOLD_URI" '[.availableTags[] | select(.tag == "uri") | .values[]] | index($u) != null' <<< "$base" > /dev/null || { echo 0; return; }
-  v=$(actuator_retry "$a" "metrics/http.server.requests?tag=uri:/api/schedules/%7BscheduleId%7D/seats/%7BseatId%7D/hold" \
+  jq -e --arg u "$uri" '[.availableTags[] | select(.tag == "uri") | .values[]] | index($u) != null' <<< "$base" > /dev/null || { echo 0; return; }
+  v=$(actuator_retry "$a" "metrics/http.server.requests?tag=uri:$(sed 's/{/%7B/g; s/}/%7D/g' <<< "$uri")" \
         | jq -c '[.measurements[] | select(.statistic=="COUNT") | .value][0]') || { echo null; return; }
   jq -e 'type == "number"' <<< "$v" > /dev/null 2>&1 && echo "$v" || echo null
 }
+hold_requests() { uri_requests "$1" "$HOLD_URI"; }
+confirm_requests() { uri_requests "$1" "$CONFIRM_URI"; }
 
 app_counters() {  # 인자: 출력 파일
   local out="$1" arr="[]" a apps="app"
@@ -525,8 +530,9 @@ app_counters() {  # 인자: 출력 파일
     acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
     tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
     req=$(hold_requests "$a")   # 숫자 · 0(기록 없음 확인) · null(조회 실패) — 위 함수
-    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" --argjson l "${lim:-null}" \
-          '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, limit:$l}]' <<< "$arr")
+    local creq; creq=$(confirm_requests "$a")   # ADR-008 D1 — 같은 규칙
+    arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" --argjson l "${lim:-null}" --argjson cr "${creq:-null}" \
+          '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, confirm_requests:$cr, limit:$l}]' <<< "$arr")
   done
   echo "$arr" > "$out"
 }
@@ -545,7 +551,8 @@ after_k6() {  # 인자: 폴더 부하 전 deadlocks — 부하 중 증가분(직
                               . + {($m): {COUNT: ($x.limit[$m].COUNT - $y.limit[$m].COUNT), TOTAL_TIME: ($x.limit[$m].TOTAL_TIME - $y.limit[$m].TOTAL_TIME), MAX: $x.limit[$m].MAX}})
                            + {serialization_failure: ($x.limit.serialization_failure - $y.limit.serialization_failure),
                               retry: ($x.limit.retry - $y.limit.retry)}) else null end),
-                hold_requests: (if $y and $x.hold_requests != null and $y.hold_requests != null then $x.hold_requests - $y.hold_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
+                hold_requests: (if $y and $x.hold_requests != null and $y.hold_requests != null then $x.hold_requests - $y.hold_requests else null end),
+                confirm_requests: (if $y and $x.confirm_requests != null and $y.confirm_requests != null then $x.confirm_requests - $y.confirm_requests else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
   local d1 redis
   d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
   redis=$(remote "docker exec seatlab-redis-1 sh -c 'redis-cli info memory | grep ^used_memory: | cut -d: -f2; redis-cli dbsize'" | tr -d '\r' | tr '\n' ' ')
@@ -838,6 +845,14 @@ LIMIT_CONFIG="$(limit_config_check "$SHA" "${lc_files[@]}" 2>/dev/null)" || LIMI
 rm -rf "$LC_TREE"
 if [[ -n "$LIMIT_CONFIG" ]]; then echo "$LIMIT_CONFIG" > "$OUT_ROOT/limit-config.json"; fi
 echo "$(date -Is) limit-config $(if [[ -n "$LIMIT_CONFIG" ]]; then jq -c .reasons <<< "$LIMIT_CONFIG"; else echo check-failed; fi)" >> "$MATRIX_LOG"
+# 캠페인(리뷰 루프 2 D4): 정적 검사가 실패했거나 사유가 하나라도 있으면 배포 전에 멈춘다(exit 6) — 회차마다 같은 사유로 실패할 것이 정해져 있다.
+# campaign.sh는 run.sh가 0이 아니면 캠페인 전체를 멈춘다(재측정하지 않는다). 작업트리 스모크(--worktree — 음성 대조 fb181a30)와 캠페인 밖 단독 실행은
+# 그대로 회차를 돌려 회차 status에 사유를 남긴다(음성 대조는 그 사유를 보려고 돈다)
+if [[ "${CAMPAIGN_FROZEN:-0}" == 1 ]] && { [[ -z "$LIMIT_CONFIG" ]] || jq -e '.reasons | length > 0' <<< "$LIMIT_CONFIG" > /dev/null; }; then
+  echo "$(date -Is) ABORT limit-config $(if [[ -n "$LIMIT_CONFIG" ]]; then jq -c .reasons <<< "$LIMIT_CONFIG"; else echo check-failed; fi) — 캠페인에서는 배포 전에 멈춘다" >> "$MATRIX_LOG"
+  log "limit-config check failed or has reasons — abort before deploy (campaign)"
+  exit 6
+fi
 
 if (( WORKTREE )); then
   deploy_worktree "$SHA" "$DEPLOY_ID" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }

@@ -10,7 +10,8 @@ ADR-007 compare.py(방식 × 설정 117회 교차표)는 쓰지 않는다 — �
 
 판정(명세 §5) — 하나라도 어긋나면 '문제'로 세고 exit 1:
   합격 항목(ADR-008 회차마다 rep_status도 같은 기준으로 본다 — summarize.py --accept-check): 매수 초과 0(판정기 + S2 응답·끝 상태 사용자 수) · v_counter_mismatch 0 ·
-    억울한 좌석 0(S7-m1) · 명세 순서 위반 0(S7-m1-late, 기회 > 0) · 요청당 빌림 1.0 = [0.98, 1.02](모든 셀 — 리뷰 루프 1 C1, 근거는 summarize.py BORROW_ONE 주석) ·
+    억울한 좌석 0(S7-m1) · 명세 순서 위반 0(S7-m1-late, 기회 > 0) · 요청당 빌림(분모 = 선점 + 확정 — 리뷰 루프 2 D1) 1.0 = [0.98, 1.02](모든 셀 — 리뷰 루프 1 C1,
+    근거는 summarize.py BORROW_ONE 주석) · 매수 초과·카운터 불일치 항목이 빠진 회차가 있으면 그것도 문제(D3) ·
     적용 매수 방식 = COUNTER_UPSERT_PRECHECK(meta applied) · limit_source = default.
   계획 회차 수: 짧은 셀 3회 · S4 1회가 모두 ok.
   기준(ADR-007) 쪽(리뷰 루프 1 C3): 기준 폴더가 없으면 exit 2. 셀마다 기준 summary.json이 없거나, 기준 회차가 0이거나, 기준 ok 회차가 계획(3회 — S4는 1회 이상)보다 적으면 '문제'.
@@ -80,9 +81,12 @@ def accept_row(cell, reps):
     s7 = [r.get("s7") or {} for r in reps]
     row = {
         "over_limit_max": max((c.get("v_over_limit_users") for c in cons if c.get("v_over_limit_users") is not None), default=None),
+        "over_limit_missing": sum(1 for c in cons if c.get("v_over_limit_users") is None),   # 리뷰 루프 2 D3 — 빠진 회차를 조용히 건너뛰지 않게
         "counter_mismatch_max": max((c.get("v_counter_mismatch") for c in cons if c.get("v_counter_mismatch") is not None), default=None),
         "counter_mismatch_missing": sum(1 for c in cons if c.get("v_counter_mismatch") is None),
-        "borrow": [r.get("borrow_per_hold") for r in reps],
+        # 요청당 빌림(리뷰 루프 2 D1 — summarize.py borrow_per_request). 그 필드가 없는 옛 요약(ADR-007 기준 쪽)은 선점당 값으로 보여 준다(기준 열은 표시만, 판정 아님)
+        "borrow": [r.get("borrow_per_request", r.get("borrow_per_hold")) for r in reps],
+        "borrow_kind": sorted({"request" if "borrow_per_request" in r else "hold" for r in reps}),
         "applied_limit": sorted({((r.get("meta") or {}).get("applied") or {}).get("limit_strategy") for r in reps} - {None}),
         "limit_source": sorted({(r.get("meta") or {}).get("limit_source") for r in reps} - {None}),
     }
@@ -102,8 +106,8 @@ def problems_of(cell, plan_reps, all_reps, reps, row):
     out = []
     if len(all_reps) != plan_reps or len(reps) != plan_reps:
         out.append(f"회차 {len(reps)}/{plan_reps} ok(전체 {len(all_reps)}: {[r.get('status') for r in all_reps]})")
-    if row["over_limit_max"] != 0:
-        out.append(f"매수 초과 {row['over_limit_max']}")
+    if row["over_limit_max"] != 0 or row["over_limit_missing"]:
+        out.append(f"매수 초과 {row['over_limit_max']} (항목 없음 {row['over_limit_missing']}회)")
     if cell == "S2" and any(x != 0 for x in row["over_users_resp"] + row["over_users_db"]):
         out.append(f"S2 매수 초과 사용자 응답 {row['over_users_resp']} · 끝 상태 {row['over_users_db']}")
     if row["counter_mismatch_max"] != 0 or row["counter_mismatch_missing"]:
@@ -115,7 +119,9 @@ def problems_of(cell, plan_reps, all_reps, reps, row):
             out.append(f"명세 순서 위반 {row['order_violations']}")
         if any(not o for o in row["opportunities"]):
             out.append(f"기회 0 회차 {row['opportunities']}")
-    if any(b is None or not (0.98 <= b <= 1.02) for b in row["borrow"]):   # 모든 셀(리뷰 루프 1 C1)
+    if row["borrow_kind"] != ["request"]:   # ADR-008 요약기는 늘 요청당 빌림을 낸다 — 없으면 옛 요약기로 요약한 것
+        out.append(f"요청당 빌림 없음({row['borrow_kind']} — ADR-008 summarize.py로 다시 요약)")
+    if any(b is None or not (0.98 <= b <= 1.02) for b in row["borrow"]):   # 모든 셀(리뷰 루프 1 C1) · 요청당(D1)
         out.append(f"빌림 {row['borrow']}")
     if row["applied_limit"] != [EXPECTED_LIMIT]:
         out.append(f"적용 매수 방식 {row['applied_limit']}")
@@ -137,7 +143,7 @@ def main(argv):
            "> `k6/ADR-008/scripts/compare.py`가 두 캠페인의 조건별 `summary.json`에서 산출. 값 = 중앙값 [회차별]. 판정 기준은 머리말(명세 §5).\n"]
     js = {"campaign": root.name, "baseline": str(base), "cells": {}}
     problems, magnitude_diff = [], []
-    out.append("| 셀 | n(ok/계획) | 매수 초과(최대) | 카운터 불일치(최대) | 억울한 좌석 | 순서 위반 / 기회 | 빌림 | 적용 매수 방식 | 기준 n · 매수 초과 · 불일치 · 빌림 | 문제 |")
+    out.append("| 셀 | n(ok/계획) | 매수 초과(최대) | 카운터 불일치(최대) | 억울한 좌석 | 순서 위반 / 기회 | 요청당 빌림 | 적용 매수 방식 | 기준 n · 매수 초과 · 불일치 · 빌림(옛 요약은 선점당) | 문제 |")
     out.append("|---|---|---|---|---|---|---|---|---|---|")
     for tag, cell, plan_reps in CELLS:
         all_reps = reps_of(root, f"default-{tag}", cell)

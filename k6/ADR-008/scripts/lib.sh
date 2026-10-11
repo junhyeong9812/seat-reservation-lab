@@ -355,15 +355,21 @@ SH
 #      한 번이라도 나오면 limit-set-by-profile
 #   ② application.yml: 그 정규식이 나오는 (주석 아닌) 줄이 정확히 하나이고 그 줄이 `limit-strategy: counter-upsert-precheck`가 아니면 limit-default-not-precheck
 #   ③ 실제로 띄울 compose 파일들(인자)의 주석 아닌 줄에 SPRING_CONFIG_가 있으면 spring-config-override(외부 설정 위치 — 내용을 볼 수 없다)
+#   ④ (리뷰 루프 2 D2) 같은 설정 파일들(application.yml 포함)에 spring.config.import · spring.config.location · spring.config.additional-location ·
+#      spring.profiles.active · spring.profiles.include · spring.profiles.group.*가 있으면 spring-config-import — 다른 파일·프로필이 끼어들 수 있다
+#      (YAML 중첩·문서 여러 개·relaxed 이름까지 펼쳐 보는 cfgkeys.py. 파싱 실패면 확인 실패)
 # 인자: sha compose파일... (compose 파일은 로컬 경로 — 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 사본) → 한 줄 JSON {"sha","files","application_yml","spring_config","reasons"}
 limit_config_check() {
   local sha="$1"; shift
-  local f files="[]" n app_lines app_ok=false sc=0 reasons=() cf
+  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf
   strip() { case "$1" in *.properties) grep -vE '^[[:space:]]*[#!]' ;; *) sed -E 's/(^|[[:space:]])#.*$//' ;; esac; }
   while IFS= read -r f; do
     [[ "$(basename "$f")" =~ ^application.*\.(ya?ml|properties)$ ]] || continue
     n=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -ciE 'limit[._-]?strategy')
-    files=$(jq -c --arg f "$f" --argjson n "${n:-0}" '. + [{path:$f, matches:$n}]' <<< "$files")
+    k=$(git -C "$REPO_ROOT" show "$sha:$f" | python3 -I "$LIB_DIR/cfgkeys.py" "$f" 2>/dev/null) || return 1
+    [[ "$k" =~ ^[0-9]+$ ]] || return 1
+    (( k == 0 )) || reasons+=("spring-config-import")
+    files=$(jq -c --arg f "$f" --argjson n "${n:-0}" --argjson k "$k" '. + [{path:$f, matches:$n, config_keys:$k}]' <<< "$files")
     if [[ "$f" == src/main/resources/application.yml ]]; then
       app_lines=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -iE 'limit[._-]?strategy')
       if [[ "$(grep -c . <<< "$app_lines")" == 1 ]] && grep -qE '^[[:space:]]*limit-strategy:[[:space:]]*counter-upsert-precheck[[:space:]]*$' <<< "$app_lines"; then app_ok=true; fi

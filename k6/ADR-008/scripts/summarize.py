@@ -588,10 +588,32 @@ def borrow_per_hold(apps):
     return sum(x["COUNT"] for x in acq) / sum(holds)
 
 
+def borrow_per_request(apps, summ):
+    """ADR-008(리뷰 루프 2 D1) 요청당 커넥션 빌림 = Σ Hikari 획득 증가분 ÷ Σ(선점 + 확정 요청 증가분) — 회차 합격의 빌림 1.0은 이 값이다.
+    시나리오가 보내는 앱 요청은 선점·확정 둘뿐이다(scenarios/lib/common.js). borrow_per_hold(선점만 분모)는 ADR-007 요약 호환으로 그대로 둔다 —
+    S3는 확정도 빌려 선점당으로는 1.013(ADR-007 precheck)이지만 요청당으로는 1.000(남는 몇십 건 = 만료 배치 주기마다 1회).
+    확정 수: after-k6.json apps의 confirm_requests(서버 http.server.requests — ADR-008 run.sh가 남긴다)가 기준. 키 자체가 없는 옛 회차(ADR-007 등)만
+    k6 요약 confirm_duration count로 대신한다(source = "k6"). 키가 있는데 null(조회 실패)이면 None(미측정 — 대신 채우지 않는다).
+    반환 (값 또는 None, source "server" | "k6" | None)."""
+    acq = [a.get("acquire") for a in apps]
+    holds = [a.get("hold_requests") for a in apps]
+    if not apps or any(x is None for x in acq) or any(h is None for h in holds):
+        return None, None
+    if all("confirm_requests" in a for a in apps):
+        conf = [a.get("confirm_requests") for a in apps]
+        if any(c is None for c in conf):
+            return None, "server"
+        confirms, source = sum(conf), "server"
+    else:
+        confirms, source = metric(summ, "confirm_duration", "count", 0), "k6"
+    total = sum(holds) + confirms
+    return (sum(x["COUNT"] for x in acq) / total if total else None), source
+
+
 # ADR-008 회차 합격(명세 §5 판정) — rep_status가 회차마다 부른다(사유가 하나라도 있으면 그 회차는 ok가 아니다).
 # 빌림 허용 폭 [0.98, 1.02]: ADR-005 실측 1커넥션 방식 1.00~1.02(run.sh invalid-borrow-ratio 주석)를 '빌림 1.0'의 폭으로 쓴다. **모든 셀**(명세 §5 — 리뷰 루프 1 C1).
-# ADR-007 precheck-default 실측(20261009-adr007-ea8b85cc, 3회씩): S2 1.000 · S4 1.0001 · S7 1.0025 · S3-a20 1.012901 · 1.012935 · 1.012943(최대) — 전부 폭 안이라 S3도 같은 폭.
-#   (S3 분모는 선점 요청뿐이고 확정 요청도 커넥션을 빌린다 — 그래도 ADR-007 실측이 폭 안이다. 기존 invalid-borrow-ratio의 S3 제외는 그대로 둔다.)
+# 판정 값은 **요청당 빌림**(borrow_per_request — 분모 = 선점 + 확정, 리뷰 루프 2 D1). ADR-007 precheck-default 실측(20261009-adr007-ea8b85cc, 3회씩 — 확정 수는 k6 요약):
+#   S3-a20 선점당 1.0129 → 요청당 1.0001 · S2 1.000 · S4 1.0001 · S7 1.0025(확정 없음 — 선점당과 같다). 기존 invalid-borrow-ratio(선점당, S3 제외)는 그대로 둔다.
 BORROW_ONE = (0.98, 1.02)
 
 
@@ -600,7 +622,7 @@ def accept_check(rep_dir, cell):
     사유(stdout 한 줄에 하나): over-limit · counter-mismatch · counter-mismatch-missing(판정기가 항목을 내지 않음 = 카운터 방식이 아님) · accept-consistency-missing ·
     s2-check-failed(S2 응답 기록·끝 상태 없음) · s7-wronged-seats · s7late-order-violation · s7-check-failed(S7 입력 없음·hold_code 0행) · borrow-not-one · borrow-missing ·
     accept-check-failed(어느 항목의 판정 중 예외 — 그때까지·그 뒤의 다른 항목 사유는 그대로 낸다, 리뷰 루프 1 C6).
-    판정은 기존 도우미를 그대로 쓴다(s2_users · s7_seats · s7_order · borrow_per_hold — 요약표와 같은 정의). 항목마다 따로 try — 한 항목의 예외가 다른 항목의 사유를 지우지 않는다.
+    판정은 기존 도우미를 그대로 쓴다(s2_users · s7_seats · s7_order · borrow_per_request(요청당 — D1) — 요약표와 같은 정의). 항목마다 따로 try — 한 항목의 예외가 다른 항목의 사유를 지우지 않는다.
     exit 0 = 합격(사유 없음), 1 = 사유 있음(accept-check-failed 포함)."""
     rep_dir = Path(rep_dir)
     base = cell.split("-a")[0].split("-m")[0]
@@ -659,7 +681,7 @@ def accept_check(rep_dir, cell):
     def borrow_check():
         nonlocal borrow
         after = load(rep_dir / "after-k6.json") or {}
-        borrow = borrow_per_hold(after.get("apps") or [])
+        borrow, _src = borrow_per_request(after.get("apps") or [], load(rep_dir / "k6-summary.json"))
         if borrow is None:
             add("borrow-missing")
         elif not (BORROW_ONE[0] <= borrow <= BORROW_ONE[1]):
@@ -930,6 +952,7 @@ def rep_record(rep_dir, root, level, cell):
     # (ADR-006 초판은 실패를 0으로 채워 직전 값이 0이 되면 분모가 누적값이 되어 빌림이 조용히 낮게 나왔다). 범위 검사는 run.sh rep_status(invalid-borrow-ratio)
     holds = [a.get("hold_requests") for a in apps]
     rec["borrow_per_hold"] = borrow_per_hold(apps)
+    rec["borrow_per_request"], rec["borrow_confirm_source"] = borrow_per_request(apps, summ)   # ADR-008 D1 — 합격 판정의 빌림(새 필드)
     rec["io"] = io_delta(rep_dir, sum(holds) if holds and all(h is not None for h in holds) else None)
     rec.update({f"io_{k}": v for k, v in io_flat(rec["io"]).items()})
     rec["deadlocks"] = after.get("deadlocks_delta")
