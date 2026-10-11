@@ -6,12 +6,15 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.test.context.ActiveProfiles
+import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.assertEquals
 
+// 매수 방식 none 고정(ADR-008): 판정기 단위 시험은 쿼터 행 없이 홀드·예약을 직접 넣고 배경 행도 시드한다 — counter 계열이면 v_counter_mismatch·배경 거부가 섞인다
 @ActiveProfiles("loadtest")
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
 @AutoConfigureMockMvc
 class LoadtestEndpointsTest : IntegrationTest() {
 

@@ -50,8 +50,9 @@ services:
       DB_USERNAME: seat
       DB_PASSWORD: seat
       # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
+      # 매수 방식은 none 고정(ADR-008 — 앱 기본값이 counter-upsert-precheck로 바뀌었다. 매수 방식이 none이 아니면 좌석 3b 외 전략은 기동 검사에서 거부된다)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-none}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
+        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-none}","limit-strategy":"none","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}

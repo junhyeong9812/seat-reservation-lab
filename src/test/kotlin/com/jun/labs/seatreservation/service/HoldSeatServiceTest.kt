@@ -9,9 +9,12 @@ import com.jun.labs.seatreservation.support.IntegrationTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.test.context.TestPropertySource
 import java.time.Duration
 import kotlin.test.assertEquals
 
+/** ADR-000 기준선 선점 규칙(매수 = HoldLimitPolicy 조회 후 비교) — 매수 방식 none 고정(ADR-008 기본값 전환 뒤에도 같은 의미). */
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
 class HoldSeatServiceTest : IntegrationTest() {
 
     @Autowired lateinit var holdSeatUseCase: HoldSeatUseCase

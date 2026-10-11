@@ -1,0 +1,64 @@
+{
+  "kind": "fio",
+  "id": "20261011-fsync-dfad9a68/fsync",
+  "name": "fio-sync-2",
+  "size": "15G",
+  "data_rate": "12m",
+  "fsync_every": 4096,
+  "wal_bs": "8k",
+  "wal_rate": "16m",
+  "tail_s": 20,
+  "pre_s": 5,
+  "image": "seatlab-fio:alpine3.20",
+  "image_id": "sha256:ecd0edf9be58229f6262d9375196038a5e60767c935df5db417aff7bbaf1bd15",
+  "fio_version": "fio-3.36",
+  "server_run_dir": "~/labs/seat-reservation-lab/fio-tmp/20261011-fsync-dfad9a68_fsync-fio-sync-2-20261011101959",
+  "container": "seatlab-fio-fio-sync-2",
+  "fio_started": "2026-10-11T10:20:13.532346+09:00",
+  "fio_ended": "2026-10-11T10:25:14.930812+09:00",
+  "script_started": "2026-10-11T10:19:59.738221+09:00",
+  "script_ended": "2026-10-11T10:25:40.338249+09:00",
+  "fio_exit": 0,
+  "fio_bytes": {
+    "wal": 3476086784,
+    "data": 3774873600,
+    "total": 7250960384,
+    "wal_expected_min": 4781506560,
+    "data_expected_min": 3586129920,
+    "wal_ok": false,
+    "data_ok": true,
+    "wal_ratio": 0.6906,
+    "wal_wrapped": true,
+    "prefill": 1073741824,
+    "prefill_expected": 1073741824,
+    "prefill_ok": true
+  },
+  "status": "ok",
+  "host_devs": "dm-0 nvme1n1 nvme1n1p3",
+  "harness": "sha:dfad9a68",
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.008,
+      "rtt_s": 0.0028,
+      "at": 1791681613.5070755
+    },
+    "after": {
+      "offset_s": -0.0172,
+      "rtt_s": 0.0027,
+      "at": 1791681935.637414
+    }
+  },
+  "pattern": "pgwal",
+  "wal_prefill": "1G",
+  "runtime_s": 300,
+  "prefill_started": "2026-10-11T10:20:04.125349+09:00",
+  "prefill_ended": "2026-10-11T10:20:06.981578+09:00",
+  "prefill_exit": 0,
+  "wal_file_bytes": {
+    "after_prefill": 1073741824,
+    "before_remove": 1073741824
+  },
+  "data_file_bytes": 3774873600,
+  "wal_wrapped": true,
+  "measured_skipped": false
+}

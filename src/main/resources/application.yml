@@ -32,7 +32,7 @@ seat:
     expiry-interval: 10s
     # 같은 좌석 경합 제어 방식(ADR-003). 기본 = ADR-003 결정 pessimistic-nowait(none = ADR-000 기준선)
     strategy: pessimistic-nowait
-    # 같은 사용자 동시 요청의 매수 제어(ADR-005). 기본 none = 조회 후 비교
-    limit-strategy: none
+    # 같은 사용자 동시 요청의 매수 제어(ADR-005). 기본 = ADR-008 결정 counter-upsert-precheck(none = 조회 후 비교, ADR-000 기준선)
+    limit-strategy: counter-upsert-precheck
     # 임계 구역 지연(ADR-004 실험 장치). 기본 0 = 기준선
     critical-section-delay: 0s

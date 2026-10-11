@@ -1,0 +1,55 @@
+{
+  "kind": "fio",
+  "id": "smoke-fsync",
+  "name": "fio-sync-smoke",
+  "size": "15G",
+  "data_rate": "12m",
+  "fsync_every": 4096,
+  "wal_bs": "8k",
+  "wal_rate": "16m",
+  "tail_s": 20,
+  "pre_s": 5,
+  "image": "seatlab-fio:alpine3.20",
+  "image_id": "sha256:ecd0edf9be58229f6262d9375196038a5e60767c935df5db417aff7bbaf1bd15",
+  "fio_version": "fio-3.36",
+  "server_run_dir": "~/labs/seat-reservation-lab/fio-tmp/smoke-fsync-fio-sync-smoke-20261011094722",
+  "container": "seatlab-fio-fio-sync-smoke",
+  "fio_started": "2026-10-11T09:47:34.566969+09:00",
+  "fio_ended": "2026-10-11T09:48:35.718003+09:00",
+  "script_started": "2026-10-11T09:47:22.063040+09:00",
+  "script_ended": "2026-10-11T09:49:01.483117+09:00",
+  "fio_exit": 0,
+  "fio_bytes": {
+    "wal": 1006641152,
+    "data": 754974720,
+    "total": 1761615872,
+    "wal_expected_min": 956301312,
+    "data_expected_min": 717225984,
+    "wal_ok": true,
+    "data_ok": true,
+    "prefill": 1073741824,
+    "prefill_expected": 1073741824,
+    "prefill_ok": true
+  },
+  "status": "ok",
+  "host_devs": "dm-0 nvme1n1 nvme1n1p3",
+  "harness": "sha:b28d3cc4",
+  "clock_offset": {
+    "before": {
+      "offset_s": 0.0156,
+      "rtt_s": 0.0026,
+      "at": 1791679654.5396986
+    },
+    "after": {
+      "offset_s": 0.0178,
+      "rtt_s": 0.001,
+      "at": 1791679736.4986436
+    }
+  },
+  "pattern": "pgwal",
+  "wal_prefill": "1G",
+  "runtime_s": 60,
+  "prefill_started": "2026-10-11T09:47:27.039007+09:00",
+  "prefill_ended": "2026-10-11T09:47:28.931404+09:00",
+  "prefill_exit": 0
+}

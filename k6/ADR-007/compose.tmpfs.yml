@@ -1,0 +1,14 @@
+# ADR-007 후속 tmpfs 조건(디스크 원인 C5 — docs/plans/2026-10-10/adr-007-disk-cause 명세 §2): compose.yml 위에 얹는 오버레이. run.sh --pg-preset tmpfs가 붙인다.
+# PG 데이터 디렉터리(볼륨 pgdata — WAL 포함)를 tmpfs 볼륨에 둔다. PG 설정(체크포인트·WAL·버퍼)은 default와 같다(run.sh preset_env).
+# 바뀌는 것은 둘뿐: 볼륨 종류(tmpfs, 크기 PG_TMPFS_SIZE 기본 6g)와 DB 컨테이너 메모리 한도(DB_MEM — tmpfs 페이지가 컨테이너 메모리로 잡히므로 tmpfs 크기 + 2g = 8g).
+# 메모리 한도 차이는 교란 변수다(명세 §2 — 결과에 명시). 볼륨은 회차마다 compose down -v로 지워진다(lib.sh compose_down — tmpfs 내용도 그때 사라진다).
+services:
+  db:
+    mem_limit: ${DB_MEM:-8g}
+
+volumes:
+  pgdata:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=${PG_TMPFS_SIZE:-6g}"

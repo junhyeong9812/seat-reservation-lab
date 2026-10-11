@@ -1,12 +1,13 @@
 # ADR-006: 매수 카운터를 한 문장 upsert로 — counter vs advisory-try 재비교
+> 번호 이동(2026-10-11, 3차): counter-upsert-precheck 기본 적용·검증을 새 ADR-008로 넣으며 기존 ADR-008~013을 009~014로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-09): counter 1문장 upsert 재측정을 새 ADR-006으로 넣으며 기존 ADR-006~011을 007~012로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
 - 상태: **결정 (Accepted, 2026-10-09)** — 매수 제어 기본은 advisory-try 유지. counter-upsert의 처리량 벽 원인을 ADR-007에서 찾고, 해결되면 counter-upsert로 전환(§6 전환 규칙)
 - 명세: `docs/plans/2026-10-09/adr-006-counter-upsert/requirement-spec.md`
 - 날짜: 2026-10-09
-- 선행: **ADR-005(1인 매수 제어 10종 — 결정 L2(advisory-try) 기본, L5(counter) 조건부)**, ADR-003(좌석 3b(FOR UPDATE NOWAIT))
-- 후행: **ADR-007(counter-upsert 처리량 벽 진단 — 전환 판정)**, ADR-008(홀드 만료 — 카운터를 내리는 주체)
+- 선행: **ADR-005(1인 매수 제어 10종 — 결정 L2(advisory-try) 기본, L5(counter) 조건부)**, ADR-003(좌석 3b(`for no key update nowait`))
+- 후행: **ADR-007(counter-upsert 처리량 벽 진단 — 전환 판정)**, ADR-009(홀드 만료 — 카운터를 내리는 주체)
 
 ## 1. 문제
 
@@ -26,6 +27,127 @@ ADR-005에서 L5 `counter`(카운터 조건부 UPDATE)는 매수 정합성·가�
 
 - counter-upsert의 동시성: 같은 사용자 동시 요청은 그 행의 락에서 줄을 서고, `ON CONFLICT DO UPDATE`는 최신 행 버전으로 `WHERE`를 다시 본다(READ COMMITTED). 첫 요청 두 개가 동시에 INSERT하면 하나는 기다렸다가 UPDATE 경로로 간다.
 - 좌석에서 지면 같은 트랜잭션 롤백으로 +1이 되돌아간다. 만료 배치의 −1은 ADR-005 구현 그대로.
+
+### 2.1 코드 변화 — ADR-005 `counter` → ADR-006 `counter-upsert`
+
+매수 방식들은 **스스로 실행되지 않는다**. 각 방식은 `UserLimitStrategy` 인터페이스 구현체이고, Spring이 기동할 때 전부 빈(@Component)으로 만든다. 그중 설정값(`seat.hold.limit-strategy`)과 같은 하나를 `ActiveUserLimit`이 고른다. 선점 요청 하나가 지나가는 흐름 안의 정해진 자리에서 그 구현체의 메서드가 불린다(전략 패턴). 그래서 먼저 흐름을 보고, 그다음 방식별로 그 자리에 무엇이 들어가는지 본다.
+
+**(1) 선점 요청 하나의 실행 흐름** — 아래 코드는 실파일에서 순서대로 발췌했다(타이머 세부·주석 일부 생략). 설정은 측정과 같은 좌석 3b `pessimistic-nowait`이다.
+
+```kotlin
+// ① api/SeatHoldController.kt — POST /api/schedules/{scheduleId}/seats/{seatId}/hold
+val result = holdSeatUseCase.hold(HoldSeatCommand(scheduleId = scheduleId, seatId = seatId, userId = userId))
+
+// ② service/impl/HoldSeatService.kt — 트랜잭션 밖
+override fun hold(command: HoldSeatCommand): HoldSeatResult {
+    val limit = userLimit.strategy                                   // ActiveUserLimit이 설정으로 고른 매수 방식 하나
+    if (limit.hasPrepare) meters.timer("seat.hold.limit.prepare").record(Runnable { limit.prepare(command) })  // ⓐ 트랜잭션 밖 준비
+    return limit.around(command) { strategy.hold(command) }         // ⓑ 감싸기(기본은 그냥 block() 실행) → 좌석 전략 호출
+}
+
+// ③ service/impl/hold/DbLockHoldStrategies.kt — 좌석 3b: 여기서 트랜잭션이 열린다
+override fun hold(command: HoldSeatCommand): HoldSeatResult = try {
+    tx.execute { process.hold(command, loadSeat = seats::findForUpdateNoWait) }!!
+} catch (e: PessimisticLockingFailureException) {
+    if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) seatTaken()             // 좌석이 잠겨 있으면 409 SEAT_NOT_AVAILABLE
+    throw e
+}
+
+// ④ service/impl/HoldSeatProcess.kt — 트랜잭션 안(Propagation.MANDATORY)
+var entered = true
+meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })   // ⓒ 사용자 단위 진입 — 좌석 읽기 전
+val seat = try {
+    val load = loadSeat ?: productSeatRepository::findByIdAndScheduleId
+    val loaded = load(command.seatId, command.scheduleId)            // 3b: select … from product_seat … for no key update nowait (Hibernate 실측 SQL — ADR-003)
+        ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+    loaded.assertHoldable()                                          // 좌석 불가가 매수 초과보다 먼저
+    meters.timer("seat.hold.limit.check").record(Runnable { limit.check(command, entered) })    // ⓓ 매수 판정 자리
+    loaded
+} finally { /* span 타이머 */ }
+val hold = seat.hold(command.userId, clock.instant(), properties.ttl) // 홀드 INSERT · 좌석 HELD
+productSeatRepository.flush()
+// ⑤ tx.execute가 끝나며 커밋. ⓒ·ⓓ나 좌석에서 예외가 나면 트랜잭션 전체가 롤백된다(카운터 +1도 함께 되돌아감)
+```
+
+매수 방식이 끼어드는 자리는 ⓐ~ⓓ 넷이다. 구현하지 않은 자리는 인터페이스 기본값이 채운다(`UserLimitStrategy` 발췌 — `type`·주석 생략):
+
+```kotlin
+interface UserLimitStrategy {
+    val hasPrepare: Boolean get() = false                         // ⓐ를 할지
+    fun prepare(command: HoldSeatCommand) {}                      // ⓐ
+    fun <T> around(command: HoldSeatCommand, block: () -> T): T = block()   // ⓑ
+    fun acquire(command: HoldSeatCommand): Boolean = true         // ⓒ
+    fun check(command: HoldSeatCommand, entered: Boolean)         // ⓓ
+    fun onHoldsExpired(expired: List<SeatHold>) {}                // 만료 배치가 부른다
+}
+```
+
+| 자리 | ADR-005 `counter` | ADR-006 `counter-upsert` |
+|------|-------------------|--------------------------|
+| ⓐ 트랜잭션 밖 준비 | **함** — `ensureQuotaRow`(SELECT → 없으면 INSERT, 각각 자동 커밋) | **안 함**(`hasPrepare` 기본 false) |
+| ⓑ 감싸기 | 기본(그냥 실행) | 기본(그냥 실행) |
+| ⓒ 진입 = 매수 판정 | `UPDATE … SET cnt = cnt + 1 WHERE … AND cnt + 1 <= ?` | `INSERT … ON CONFLICT DO UPDATE … WHERE cnt + 1 <= ?` |
+| ⓓ 판정 자리 | 빈 메서드(ⓒ에서 끝남) | 빈 메서드(ⓒ에서 끝남) |
+
+**(2) 방식별로 ⓐ~ⓓ에 들어가는 코드** — `service/impl/limit/UserLimitStrategies.kt`에서 옮겼다. 두 방식은 같은 파일에 나란히 있다. `counter`는 비교용으로 남겼다.
+
+**ADR-005 `counter`(L5)** — ⓐ 트랜잭션 밖 준비 + ⓒ 트랜잭션 안 조건부 UPDATE:
+
+```kotlin
+// CounterUserLimit
+override val hasPrepare = true
+override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+override fun acquire(command: HoldSeatCommand): Boolean {
+    val updated = jdbc.update(
+        "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?",
+        command.scheduleId, command.userId, properties.maxPerUser,
+    )
+    if (updated == 0) limitExceeded()
+    return true
+}
+
+private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand) {
+    val exists = jdbc.queryForList(
+        "SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", command.scheduleId, command.userId,
+    ).isNotEmpty()
+    if (exists) return
+    jdbc.update(
+        "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        command.scheduleId, command.userId,
+    )
+}
+```
+
+**ADR-006 `counter-upsert`** — ⓐ 없음, ⓒ에서 트랜잭션 안 한 문장:
+
+```kotlin
+// CounterUpsertUserLimit — hasPrepare 기본값 false → HoldSeatService가 prepare를 건너뛴다
+override fun acquire(command: HoldSeatCommand): Boolean {
+    if (!upsertQuota(jdbc, command, properties.maxPerUser)) limitExceeded()
+    return true
+}
+
+private fun upsertQuota(jdbc: JdbcTemplate, command: HoldSeatCommand, maxPerUser: Int): Boolean = jdbc.update(
+    """
+    INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
+    ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
+    WHERE user_hold_quota.cnt + 1 <= ?
+    """.trimIndent(),
+    command.scheduleId, command.userId, maxPerUser,
+) == 1
+```
+
+| | ADR-005 `counter` | ADR-006 `counter-upsert` |
+|---|---|---|
+| 쿼터 행이 없을 때 | 트랜잭션 밖에서 `SELECT` → `INSERT … ON CONFLICT DO NOTHING`(자동 커밋)으로 cnt 0 행을 만든다 | upsert의 `INSERT` 경로가 cnt = 1로 바로 만든다 |
+| 쿼터 행이 있을 때 | 트랜잭션 밖 `SELECT` 1회 뒤, 트랜잭션 안 `UPDATE … WHERE cnt + 1 <= ?` | `ON CONFLICT DO UPDATE … WHERE cnt + 1 <= ?`(같은 판정) |
+| 요청당 커넥션 빌림 | 새 사용자 3회(SELECT · INSERT · 본 트랜잭션), 기존 사용자 2회. S4는 요청마다 새 사용자라 3.00 | 1회(본 트랜잭션만) — 측정 1.000 |
+| 통과·거절 | 영향 행 1 / 0 | 같다(영향 행 1 / 0) |
+| 판정 시점 | 트랜잭션 첫 단계(`acquire`) — 좌석보다 먼저 | 같다 |
+| 만료 감소(`onHoldsExpired`) | `UPDATE … SET cnt = cnt - ?` | 같은 함수(`decrementCounters`) 공유 |
+
+- 준비를 트랜잭션 밖에 둔 까닭(ADR-005)은 L4 `quota-nowait`의 '기다리지 않음' 때문이었다. 트랜잭션 안 `INSERT … ON CONFLICT`는 아직 커밋 안 된 같은 키 행을 만나면 기다린다. counter-upsert는 원래 같은 사용자 요청을 행 락에서 줄 세우는 방식이라, 그 대기를 문제로 보지 않고 트랜잭션 안으로 넣었다.
+- 판정 위치는 그대로다. `HoldSeatProcess.hold`의 `limit.acquire(command)`가 좌석을 읽기(`findByIdAndScheduleId` → `assertHoldable`) 전에 불린다. 그래서 매수 초과 사용자는 좌석 락을 잡지 않는다(억울한 좌석 0). 같은 이유로 팔린 좌석을 누른 매수 초과 사용자에게 `HOLD_LIMIT_EXCEEDED`가 간다. 이것은 사용자가 허용한 순서 예외이고, ADR-007 precheck가 이 순서를 고친다.
 
 ## 3. 가설
 
@@ -240,7 +362,7 @@ ADR-005에서 L5 `counter`(카운터 조건부 UPDATE)는 매수 정합성·가�
   2. 설정 축: `max_wal_size`(체크포인트 간격) · `shared_buffers` 128MB vs 512MB. 설정을 바꾸면 캐시·쓰기·체크포인트 시점이 함께 달라진다. 그래서 벽이 밀린 것만으로 원인을 단정하지 않는다.
   3. 누적 vs 시간: 도착률을 낮춰 같은 누적(약 37만 건)에 더 늦게 닿게 한다. 벽이 누적을 따라가는지 시간(체크포인트 주기)을 따라가는지 가른다.
   4. 지속성: 4,0xx~4,325건/s **고정 도착률로 5분 이상** 걸어, 벽이 일시적인지 상한인지 본다.
-- **ADR-008(홀드 만료)**: counter-upsert를 택하면 만료 배치가 카운터를 내리는 주체다. 만료·취소·확정 경로마다 카운터 정합(`v_counter_mismatch`)을 판정기로 계속 본다. **쿼터 행은 만료로 지워지지 않는다** — 회차 종료 뒤 정리(삭제·파티션)와 롤백 잔해(dead tuple) 정리(vacuum) 비용을 함께 본다.
+- **ADR-009(홀드 만료)**: counter-upsert를 택하면 만료 배치가 카운터를 내리는 주체다. 만료·취소·확정 경로마다 카운터 정합(`v_counter_mismatch`)을 판정기로 계속 본다. **쿼터 행은 만료로 지워지지 않는다** — 회차 종료 뒤 정리(삭제·파티션)와 롤백 잔해(dead tuple) 정리(vacuum) 비용을 함께 본다.
 - **측정 경로 상한**: 12단계(6,487건/s)에서 세 방식이 같은 크기로 무너지는 현상이 ADR-003 §6.3의 경로 상한과 같은 것인지 별도 확인이 필요하다(이번 측정에서는 판정하지 않음).
 - **하네스**: 재측정 판정 버그(bash 우선순위)는 수정했다(fbaaf815). 쉘 판정식은 `if`로 묶는다.
 

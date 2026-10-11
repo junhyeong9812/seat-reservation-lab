@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 
 /** ADR-003 Redis 전략 — 선점 관문(SET NX, DB가 원천)과 분산락(Redisson). 활성 전략을 redis-nx로 두어 기동 검사의 Redis ping도 돈다. */
 @Import(RedisTestcontainersConfiguration::class)
-@TestPropertySource(properties = ["seat.hold.strategy=redis-nx"])
+@TestPropertySource(properties = ["seat.hold.strategy=redis-nx", "seat.hold.limit-strategy=none"])   // 매수 none: 매수 방식은 좌석 3b에서만(기동 검사, ADR-008)
 class RedisHoldStrategyTest : IntegrationTest() {
 
     @Autowired lateinit var strategies: List<HoldStrategy>

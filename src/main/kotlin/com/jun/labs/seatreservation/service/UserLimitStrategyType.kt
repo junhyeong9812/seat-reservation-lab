@@ -16,6 +16,8 @@ enum class UserLimitStrategyType {
     COUNTER,
     /** ADR-006 — 카운터를 트랜잭션 안 한 문장 upsert로(트랜잭션 밖 준비 없음) */
     COUNTER_UPSERT,
+    /** ADR-007 — counter-upsert 앞에 잠금 없는 좌석 상태 선조회: 팔린 좌석은 쓰기 없이 거절, 에러 순서는 명세 순서(좌석 먼저) */
+    COUNTER_UPSERT_PRECHECK,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,
 }
