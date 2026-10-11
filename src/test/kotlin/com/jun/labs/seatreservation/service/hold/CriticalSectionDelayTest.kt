@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** ADR-004 실험 장치 — 임계 구역 지연이 설정대로 바인딩되고, 선점 경로 안에서(트랜잭션을 쥔 채) 걸린다. */
-@TestPropertySource(properties = ["seat.hold.critical-section-delay=300ms"])
+@TestPropertySource(properties = ["seat.hold.critical-section-delay=300ms", "seat.hold.limit-strategy=none"])   // 매수 none: ADR-004 장치는 none에서 쟀다(ADR-008 기본값 전환 뒤에도 같은 의미)
 class CriticalSectionDelayTest : IntegrationTest() {
 
     @Autowired lateinit var strategies: List<HoldStrategy>

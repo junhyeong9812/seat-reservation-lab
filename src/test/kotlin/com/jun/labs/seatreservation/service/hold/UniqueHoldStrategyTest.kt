@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 @TestPropertySource(
     properties = [
         "seat.hold.strategy=unique",
+        "seat.hold.limit-strategy=none", // 매수 방식은 좌석 3b에서만(기동 검사) — ADR-008 기본값 전환 뒤에도 none
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-unique",
     ],
 )

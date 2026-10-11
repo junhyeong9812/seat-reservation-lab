@@ -219,6 +219,7 @@ private fun decrementCounters(jdbc: JdbcTemplate, expired: List<SeatHold>) {
             n, key.first, key.second,
         )
         // 카운터 행이 없으면 카운터가 이미 어긋난 것 — 조용히 넘기지 않는다(cnt < 0은 CHECK 제약이 막는다)
+        // 한계: 어긋난 쌍 하나가 이 만료 배치 트랜잭션 전체를 실패시킨다 — 카운터 어긋남의 복구·격리는 ADR-009에서 다룬다
         check(updated == 1) { "카운터 행 없음: 회차 ${key.first} 사용자 ${key.second}" }
     }
 }
