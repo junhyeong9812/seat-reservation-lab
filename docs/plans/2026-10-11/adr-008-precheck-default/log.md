@@ -27,6 +27,7 @@
 | 10-12 01:5x | 측정로그 1행 · NEXT 갱신(N1 완료 → 완료 이력, ADR-009 최우선) · docs 커밋 · 측정 결과 커밋 83125e68 | 사이클 마감 ① |
 | 10-12 02:0x | 사용자 결정: 아카이브 4카드(LOCK TABLE 자동 커밋 · 카운터 어긋남 세 갈래 · .properties 공백 구분자 · 기본값 증명 + 음성 대조) · push + main 대상 PR | 아카이브 위임(Opus) · push 진행. 노출 스캔 원 식별자: seat-reservation-lab · backend-labs-commerce · seatlab · user_hold_quota · seat_hold · product_seat · LoadtestDataService · UserLimitStrategies · decrementCounters · ExpireHoldsService · HoldStrategyStartupCheck · SeatHoldProperties · V6__backfill_user_hold_quota · cfgkeys.py · limit-key.json · limit-config.json · COUNTER_UPSERT_PRECHECK · counter-upsert-precheck · 192.168.55.164 · .164 · nvme1n1 · jun |
 | 10-12 02:1x | 사용자 정정: "우선 의사결정으로 none이 아닌 advisory-try를 하려고 기준을 잡되 제대로 확인하기 전까지 연기해놓은 것" → ADR-008 §1·ADR-007 §8 문구 정정('반영된 적이 없다'(누락처럼 읽힘) → '확인 전까지 적용을 미뤄 둠'). 명세 §0의 같은 문구는 합의 원문이라 두고 이 행으로 정정 | 문서 정정, PR 전 반영 |
+| 10-12 02:3x | push(feat/adr-007-throughput-wall, 사용자 승인) · 사용자 지적 "S2 이렇게만 적지 말고 () 안에 뜻을" → ADR-008 문서·PR 본문 약어 전부 뜻 병기(fc37c6fe) · PR #7 생성(main 대상, 사용자 승인 '이대로 생성') | https://github.com/junhyeong9812/seat-reservation-lab/pull/7 |
 
 ## 리뷰 ledger
 
