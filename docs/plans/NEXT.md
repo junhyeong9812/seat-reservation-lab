@@ -56,7 +56,7 @@
 
 ## 보류·이월
 
-- **study-note 이슈 아카이브 push 대기** — archive/2026-10-09(ADR-005, 5커밋) + archive/2026-10-11(ADR-006 이월 3건 + ADR-007 5건, 7커밋, worktree study-note-wt-archive-1011)이 이어진 미push 배치. main이 archive/2026-10-09 기점보다 1커밋 앞서 ff 불가 — 병합 방식·push는 사용자 확인. 재개 조건: 사용자 확인
+- (완료 2026-10-12) study-note 이슈 아카이브 push — archive/2026-10-11(ADR-006 이월 3 · ADR-007 5 · ADR-008 3)을 origin/main에 ff(1f04dca0..7f7659a3). archive/2026-10-09는 이미 origin/main에 반영돼 있었다. 로컬 study-note main은 origin과 갈라져 있음(1 앞·5 뒤 — 이번에 건드리지 않음).
 
 - **study-note 이슈 아카이브(ADR-003·004 CS 이슈)** — 2026-10-06 사용자 확인 후 작성 완료(브랜치 archive/2026-10-06, 커밋 6) — main ff·push만 사용자 확인 대기. 후보: Kotlin 기본 인자 × CGLIB 프록시 NPE · 기동 실패를 못 잡아 이전 컨테이너를 잼 · 오류를 삼키는 수집기의 무음 실패(빈 파일) · 단방향 @OneToMany @JoinColumn의 추가 FK UPDATE · 환경변수 로그 레벨 소문자화 · 끝 상태 판정기가 만료된 일시 중복을 놓침 · (리뷰 발견) 서로 다른 단위의 지표를 한 칸에 둔 집계 오류. 재개 조건: 사용자 범위 확인
 - ADR-001·ADR-002 카드는 study-note main 병합 완료(이전 배치)
