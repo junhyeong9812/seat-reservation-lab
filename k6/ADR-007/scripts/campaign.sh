@@ -37,6 +37,9 @@
 #     캠페인 시작 때와 달라졌으면 그 회차·단계의 status에 crossed-fstrim을 붙이고 exit 5(비교에서 빼게). 시작 때 전체 계획이 마감 안에 드는지 추정해 넘으면 경고.
 #     마감 뒤 관찰은 --allow-after-fstrim을 줄 때만(그때는 거부·표시 대신 로그 한 줄).
 #   재측정(main이 아닌 세트): status가 ok가 아닌 회차는 전부 다시 잰다(s4-no-successful-stage도 — 리뷰 rv8 A11).
+#   --set fsync-fio   fsync 추가 시험(docs/plans/2026-10-11/adr-007-fsync-fio 명세 §1): fio-disk.sh --pattern pgwal --runtime --fio-runtime(기본 300)초를
+#                     fio-sync-1 → fio-sync-2 두 번 이어서(휴식 없음 · 앞 부하 끝 → 다음 측정 시작 간격을 fsync/gaps.txt·CAMPAIGN.log에). 채우기(1G)는 각 실행 안,
+#                     측정 구간 밖. 결과 = results/<id>/fsync/fio-sync-N/. 마감·fstrim 확인은 위와 같다. 이어서 실행 없음(fsync/가 있으면 거부). DB는 띄우지 않는다.
 set -uo pipefail
 # 스크립트 동결 — 장시간 도는 동안 작업트리를 고쳐도 실행 중인 캠페인이 깨지지 않게(ADR-001 실측).
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -51,6 +54,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
 SHA="" CAMPAIGN="" REPS="" SUITE=main DRY_RUN=0   # ADR-007 명세 §9.2: 전 조건 3회(main) · 후속 disk-cause 2회
 SET=main FIO_SIZE=15G REST_S=1800   # ADR-007 후속(머리말)
 DEADLINE="2026-10-12T10:21:00+09:00" ALLOW_AFTER=0   # ADR-007 후속 마감(머리말 — 리뷰 rv8 A9)
+FIO_RUNTIME=300   # --set fsync-fio(머리말)
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -63,6 +67,7 @@ while (( $# )); do
     --rest-s) REST_S="$2"; shift 2 ;;
     --deadline) DEADLINE="$2"; shift 2 ;;
     --allow-after-fstrim) ALLOW_AFTER=1; shift ;;
+    --fio-runtime) FIO_RUNTIME="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -70,7 +75,8 @@ done
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA
 [[ "$SUITE" == main ]] || { echo "--suite main only (ADR-007)" >&2; exit 2; }
-case "$SET" in main) REPS="${REPS:-3}" ;; disk-cause) REPS="${REPS:-2}" ;; disk-rest) REPS=1 ;; *) echo "--set main|disk-cause|disk-rest" >&2; exit 2 ;; esac
+case "$SET" in main) REPS="${REPS:-3}" ;; disk-cause) REPS="${REPS:-2}" ;; disk-rest|fsync-fio) REPS=1 ;; *) echo "--set main|disk-cause|disk-rest|fsync-fio" >&2; exit 2 ;; esac
+[[ "$FIO_RUNTIME" =~ ^[0-9]+$ ]] && (( FIO_RUNTIME >= 10 && FIO_RUNTIME <= 3600 )) || { echo "--fio-runtime <10..3600 초>" >&2; exit 2; }
 [[ "$REST_S" =~ ^[0-9]+$ ]] || { echo "--rest-s <초>" >&2; exit 2; }
 [[ "$FIO_SIZE" =~ ^[0-9]+[KMG]$ ]] || { echo "--fio-size <정수><K|M|G>" >&2; exit 2; }   # 리뷰 rv8 A12 — fio-disk.sh로 넘기기 전에
 DEADLINE_S="$(date -d "$DEADLINE" +%s 2>/dev/null)" || { echo "--deadline <ISO 시각>" >&2; exit 2; }
@@ -131,6 +137,48 @@ plan_check() {  # 인자: 계획 총초 — 전체가 마감 안에 드는지 �
   if (( now + $1 > DEADLINE_S )); then echo "$(date -Is) WARN deadline: $msg — 마감 전에 다 끝나지 않는다" >> "$LOG"; echo "WARN: $msg — 마감 초과" >&2
   else echo "$(date -Is) PLAN $msg" >> "$LOG"; echo "$msg" >&2; fi
 }
+iso_s() { python3 -c 'import sys, datetime; print(datetime.datetime.fromisoformat(sys.argv[1]).timestamp())' "$1" 2>/dev/null; }
+gap() {  # 인자: 앞 이름 앞 끝(epoch) 이 이름 이 시작(epoch) 설명 — GAPS_FILE·GAP_TAG(세트마다)
+  local g; g=$(python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$2" "$4")
+  echo "$1 → $3 = ${g}s ($5)" >> "$GAPS_FILE"; echo "$(date -Is) $GAP_TAG gap $1 → $3 = ${g}s ($5)" >> "$LOG"
+}
+# ---- fsync 추가 시험(--set fsync-fio, 머리말) — fio 두 번, 조건 목록·순서 순환 없음 ---------------------------------------------------
+if [[ "$SET" == fsync-fio ]]; then
+  FS_ROOT="$ROOT/fsync"
+  FSYNC_ARGS=(--sha "$SHA" --pattern pgwal --runtime "$FIO_RUNTIME")
+  STEPS=("fio-sync-1 fio ${FSYNC_ARGS[*]}" "fio-sync-2 fio ${FSYNC_ARGS[*]}")
+  FS_STEP_S=$(( FIO_RUNTIME + 180 ))   # 측정 + 채우기(1G)·이미지 확인·표본·기준선 5초·꼬리 20초·정리
+  if (( DRY_RUN )); then
+    printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
+    echo "$(date -Is) DRY-RUN set=fsync-fio sha=$SHA steps=${#STEPS[@]} — steps.txt만 썼다" >> "$LOG"
+    cat "$ROOT/steps.txt"
+    echo "계획(fsync-fio): fio --pattern pgwal ${FIO_RUNTIME}초 × 2(이어서)" >&2
+    plan_check $(( FS_STEP_S * 2 ))
+    exit 0
+  fi
+  [[ -e "$FS_ROOT" ]] && { echo "$FS_ROOT 이미 있음 — 이어서 실행하지 않는다(새 --id로)" >&2; exit 2; }
+  mkdir -p "$FS_ROOT"; printf '%s\n' "${STEPS[@]}" > "$ROOT/steps.txt"
+  GAPS_FILE="$FS_ROOT/gaps.txt" GAP_TAG=FSYNC
+  FSTRIM0="$(fstrim_mark)"
+  echo "$(date -Is) FSYNC start sha=$SHA steps=${#STEPS[@]} fstrim_last=${FSTRIM0:-unknown}" >> "$LOG"
+  plan_check $(( FS_STEP_S * 2 ))
+  guard_start "fsync-fio(전체)" $(( FS_STEP_S * 2 ))
+  prev="" prev_end=""
+  for step in "${STEPS[@]}"; do
+    read -r sname _ <<< "$step"
+    guard_start "$sname" "$FS_STEP_S"
+    echo "$(date -Is) FSYNC $sname start" >> "$LOG"
+    bash "$DIR/fio-disk.sh" --id "$CAMPAIGN/fsync" --name "$sname" "${FSYNC_ARGS[@]}" >> "$FS_ROOT/$sname.runner.log" 2>&1; rc=$?
+    echo "$(date -Is) FSYNC $sname exit=$rc status=$(cat "$FS_ROOT/$sname/status" 2>/dev/null || echo none)" >> "$LOG"
+    fs=$(iso_s "$(jq -r '.fio_started // empty' "$FS_ROOT/$sname/meta.json" 2>/dev/null)"); fe=$(iso_s "$(jq -r '.fio_ended // empty' "$FS_ROOT/$sname/meta.json" 2>/dev/null)")
+    [[ -n "$prev" && -n "$prev_end" && -n "$fs" ]] && gap "$prev" "$prev_end" "$sname" "$fs" "앞 측정 끝 → 이 측정 시작 — 꼬리·정리·이미지 확인·표본 시작·채우기·기준선 포함"
+    mark_crossed "$sname" "$FS_ROOT/$sname/status"
+    (( rc == 0 )) || { echo "$(date -Is) ABORT FSYNC $sname" >> "$LOG"; exit 1; }
+    prev="$sname" prev_end="$fe"
+  done
+  echo "$(date -Is) FSYNC done" >> "$LOG"
+  exit 0
+fi
 # ---- ADR-007 후속 휴식 시험(--set disk-rest, 머리말) — 조건 목록·순서 순환을 쓰지 않는 별도 경로 -----------------------------------
 if [[ "$SET" == disk-rest ]]; then
   REST_ROOT="$ROOT/rest"
@@ -159,11 +207,7 @@ if [[ "$SET" == disk-rest ]]; then
   else
     echo "$(date -Is) ABORT REST prestage failed" >> "$LOG"; exit 3
   fi
-  iso_s() { python3 -c 'import sys, datetime; print(datetime.datetime.fromisoformat(sys.argv[1]).timestamp())' "$1" 2>/dev/null; }
-  gap() {  # 인자: 앞 이름 앞 끝(epoch) 이 이름 이 시작(epoch) 설명
-    local g; g=$(python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$2" "$4")
-    echo "$1 → $3 = ${g}s ($5)" >> "$REST_ROOT/gaps.txt"; echo "$(date -Is) REST gap $1 → $3 = ${g}s ($5)" >> "$LOG"
-  }
+  GAPS_FILE="$REST_ROOT/gaps.txt" GAP_TAG=REST
   rest_fail=0 prev="" prev_end=""
   for step in "${STEPS[@]}"; do
     read -r sname skind _ <<< "$step"
