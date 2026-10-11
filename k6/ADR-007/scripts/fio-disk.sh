@@ -33,7 +33,7 @@
 #     data = append와 같은 버퍼 순차 8 KiB · rate --data-rate · fsync --fsync-every 쓰기마다 · size=--size(상한 — data.dat는 쓰는 만큼 자란다; --data-rate × --runtime 이상이어야 한다)
 #   바이트 검증(시간 끝): job마다 쓴 바이트 < rate × runtime × 0.95면 fio-wal-short / fio-data-short. meta.json fio_bytes에 job별 기대값·통과 여부.
 #   상태 사유 추가: fio-prefill-exit-<n> · fio-prefill-short(채운 바이트 < --wal-prefill) — 이 둘이면 측정 fio를 건너뛰고 바로 정리(리뷰 rv10 B2) ·
-#     db-running(seatlab DB 컨테이너가 떠 있으면 시작하지 않음 — 단독 조건, B1) · fio-wal-file-grew(wal.dat 크기가 채운 직후·정리 직전 둘 중 하나라도 --wal-prefill과 다름, B5).
+#     db-running(seatlab DB 컨테이너가 떠 있으면 시작하지 않음 — 단독 조건, B1) · fio-wal-file-grew(wal.dat 크기가 채운 직후·정리 직전 둘 중 하나라도 --wal-prefill과 다름, B5) · fio-wal-file-unverified(채운 직후 크기를 못 읽음 — 측정 건너뜀).
 #   wal job 부족은 실패가 아니라 관찰값(명세 §2 사용자 재합의 — B7): fio_bytes.wal_ok·wal_ratio(쓴 바이트 ÷ rate × runtime)만 남기고 사유를 붙이지 않는다.
 #   meta 추가: wal_file_bytes {after_prefill, before_remove} · data_file_bytes · wal_wrapped(wal 쓴 바이트 > 채운 크기 — 300초면 예상, 60초 스모크면 false).
 set -uo pipefail
@@ -275,6 +275,10 @@ if [[ "$PATTERN" == pgwal ]]; then
     # 채운 바이트(prefill.json — 서버에서 바로 읽는다)와 채운 직후 wal.dat 크기(B5). 모자라면 측정을 건너뛴다(B2)
     pf=$(remote "cat \"\$HOME/$RUN_DIR/prefill.json\"" 2>>"$OUT/errors.log" | python3 -c 'import json,sys; print(sum(j["write"]["io_bytes"] for j in json.load(sys.stdin)["jobs"]))' 2>>"$OUT/errors.log")
     WAL_SZ_PREFILL=$(remote "stat -c %s \"\$HOME/$RUN_DIR/wal.dat\"" 2>>"$OUT/errors.log"); [[ "$WAL_SZ_PREFILL" =~ ^[0-9]+$ ]] || WAL_SZ_PREFILL=null
+    if [[ "$WAL_SZ_PREFILL" == null ]]; then   # 크기를 못 읽으면 덮어쓰기 조건을 확인할 수 없다 — 측정하지 않는다(재점검 rv11)
+      echo "$(date -Is) wal.dat size unreadable after prefill — measured fio skipped" >> "$OUT/errors.log"
+      reasons+=("fio-wal-file-unverified"); PREFILL_FAILED=1
+    fi
     if ! [[ "$pf" =~ ^[0-9]+$ ]] || (( pf < $(to_bytes "$WAL_PREFILL") )); then
       echo "$(date -Is) prefill bytes ${pf:-unreadable} < $(to_bytes "$WAL_PREFILL") — measured fio skipped" >> "$OUT/errors.log"
       reasons+=("fio-prefill-short"); PREFILL_FAILED=1

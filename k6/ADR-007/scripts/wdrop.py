@@ -228,6 +228,17 @@ def dev_bytes_at(samples, dev, t):
     return next((r["disk"][dev]["write_sectors"] * 512 for r in samples if r["t"] >= t and (r.get("disk") or {}).get(dev)), None)
 
 
+def dev_bytes_before(samples, dev, t):
+    """서버 시각 t 이전(같거나) 마지막 표본의 장치 쓰기 누적(바이트) — 채우기 시작처럼 짧은 구간의 앞을 놓치지 않게. 없으면 None"""
+    prev = None
+    for r in samples:
+        if r["t"] > t:
+            break
+        if (r.get("disk") or {}).get(dev):
+            prev = r["disk"][dev]["write_sectors"] * 512
+    return prev
+
+
 def bins10(rel, dur, bin_s=10):
     """[(칸 시작 s, agg)] — 시작 기준 0부터 dur 안에 온전히 든 10초 칸"""
     n = int(dur // bin_s) if dur != float("inf") else int(max((t for t, _, _ in rel), default=0) // bin_s)
@@ -349,7 +360,7 @@ def analyze(rep, dev, win, series_dir):
             res["host_baseline30"] = {k: rnd(v) for k, v in (window(rel, 0.0, min(30.0, dur)) or {}).items()}
             # 채우기 시작부터의 누적(pgwal): 채우기 시작 ~ 측정 시작 사이 장치 쓰기를 더한다(서버 시각 = PC 시각 + 시계 차)
             if meta.get("prefill_started"):
-                b_pf, b_fs = dev_bytes_at(samples, dev, ts(meta["prefill_started"]) + off), dev_bytes_at(samples, dev, k0 + off)
+                b_pf, b_fs = dev_bytes_before(samples, dev, ts(meta["prefill_started"]) + off), dev_bytes_at(samples, dev, k0 + off)   # 채우기 앞 표본 — 채우기(약 2초)가 다음 표본 전에 끝나도 빠지지 않게
                 extra = (b_fs - b_pf) if b_pf is not None and b_fs is not None else None
                 res["prefill_to_start_gb"] = rnd(extra / 1e9) if extra is not None else None
                 for key in ("host_drop", "host_flush_drop"):
@@ -408,8 +419,8 @@ def main():
     res = [analyze(r, args.dev, args.win, Path(args.series_dir) if args.series_dir else None) for r in reps]
     keys = ("wMBps", "w_await_ms", "flush_per_s", "flush_avg_ms", "aqu_sz", "util_pct", "dirty_MB", "writeback_MB", "psi_full_pct")
     print(f"# 쓰기 반감 — `{root.name}` (docker stats 06a 정의 · 호스트 {args.dev or '회차별 disk'} 창 ±{args.win:g}초)\n")
-    print("| 회차 | status | 반감 k6 초 | GB-at-drop | MB/s 직전 → 반감·다음 | 호스트 표본 | 호스트 반감 초 (GB) | " + " | ".join(f"{k} 전→후" for k in keys) + " | flush 반감 초 (GB) · flush/s 직전 → 반감 |")
-    print("|" + "---|" * (8 + len(keys)))
+    print("| 회차 | status | 반감 k6 초 | GB-at-drop | MB/s 직전 → 반감·다음 | 호스트 표본 | 호스트 반감 초 (GB) | " + " | ".join(f"{k} 전→후" for k in keys) + " | flush 반감 초 (GB) · flush/s 직전 → 반감 | 지속 상승 시작 초 (GB) flush avg · w_await |")
+    print("|" + "---|" * (9 + len(keys)))
     for r in res:
         d = r.get("docker_drop")
         hd = r.get("host_drop")
@@ -420,6 +431,8 @@ def main():
         cells += [f"{fmt(pre.get(k))} → {fmt(post.get(k))}" if (pre or post) else "-" for k in keys]
         fd = r.get("host_flush_drop")
         cells.append("-" if not fd else f"{fd['s']} ({fmt(fd.get('gb_since_start'))}) · {fmt(fd['prev_flush_per_s'])} → {fmt(fd['drop_flush_per_s'])}")
+        rise = r.get("host_rise") or {}
+        cells.append(" · ".join("-" if not (rise.get(k) or {}).get("s") is not None else f"{rise[k]['s']} ({fmt(rise[k].get('gb_since_start'))})" for k in ("flush_avg_ms", "w_await_ms")) if rise else "-")
         print("| " + " | ".join(cells) + " |")
     print("\n창 기준: docker 반감이 있으면 그 시각, 없고 호스트 반감만 있으면(fio 등) 호스트 반감 시각. '반감 없음' = '-'.")
     if args.json:
