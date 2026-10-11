@@ -8,7 +8,7 @@
 
 ## 1. 문제
 
-ADR-007 §8은 매수 제어 기본을 counter-upsert-precheck로 정했지만, 코드에는 적용하지 않았다. 확인해 보니 지금 기본값은 ADR-005가 정한 advisory-try도 아닌 **`none`**이었다(`application.yml:36` · `SeatHoldProperties.kt:14`). ADR-005의 결정도 코드에 반영된 적이 없다. 그래서 실제 전환은 **none → counter-upsert-precheck**다.
+ADR-007 §8은 매수 제어 기본을 advisory-try에서 counter-upsert-precheck로 바꾸기로 정했지만, 코드에는 적용하지 않았다. 코드 기본값은 지금도 **`none`**이다(`application.yml:36` · `SeatHoldProperties.kt:14`). ADR-005가 advisory-try를 기준으로 정했지만, 그 적용은 제대로 확인할 때까지 일부러 미뤄 두었기 때문이다(ADR-006·007이 그 확인 과정이었다). 그래서 결정으로는 advisory-try → counter-upsert-precheck이고, 코드에서 실제로 바뀌는 값은 **none → counter-upsert-precheck**다.
 
 전환에는 걸리는 점이 셋 있다.
 

@@ -396,7 +396,7 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 
 확인한 사실(이 결정의 적용 범위):
 
-- **지금 코드 기본값은 advisory-try가 아니라 `none`이다**: `src/main/resources/application.yml:36` `limit-strategy: none` · `src/main/kotlin/com/jun/labs/seatreservation/service/SeatHoldProperties.kt:14` `UserLimitStrategyType.NONE`. ADR-005의 결정(advisory-try 기본)은 코드에 반영된 적이 없다.
+- **지금 코드 기본값은 advisory-try가 아니라 `none`이다**: `src/main/resources/application.yml:36` `limit-strategy: none` · `src/main/kotlin/com/jun/labs/seatreservation/service/SeatHoldProperties.kt:14` `UserLimitStrategyType.NONE`. ADR-005는 advisory-try를 기준으로 정했지만, 코드 적용은 제대로 확인할 때까지 미뤄 두었다(ADR-006·007이 그 확인 과정). 그래서 결정은 advisory-try → precheck, 코드 값은 none → precheck로 바뀐다(정정 2026-10-12 — 처음엔 '반영된 적이 없다'로 적어 누락처럼 읽혔다).
 - 그래서 이 결정의 적용은 **새 후속 ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)에서 한다. **아직 하지 않았다.** 범위(`docs/plans/NEXT.md` N1과 같다):
   - 설정·코드 기본값을 `counter-upsert-precheck`로
   - Flyway 백필: **`seat_hold` 행 전체(만료 전·후 구분 없음) + 확정 예약**으로 `user_hold_quota.cnt`를 채운다 (정정 2026-10-12 — 처음 적은 "유효(만료 전 HELD) 홀드"는 틀렸다. 만료 배치가 실제로 지운 홀드만큼 내리므로 판정기 `v_counter_mismatch`와 같은 정의여야 한다, ADR-008 §3)
