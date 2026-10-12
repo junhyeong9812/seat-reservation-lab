@@ -1,0 +1,29 @@
+# ADR-009 후보 F(A+F 조건): 별도 대조 프로세스 — 같은 이미지, 프로필 loadtest,reconciler(application-reconciler.yml: 포트 8102 · 만료 스케줄러 끔 · 대조 켬).
+# compose.yml 위에 얹는 오버레이. run.sh --cond A+F가 붙이고, compose_down은 늘 이 오버레이까지 지정한다(남지 않게 — compose profiles: 기능은 쓰지 않는다).
+# loadtest 프로필은 actuator(configprops·metrics)를 열려고 함께 켠다 — 부하 시드·판정 엔드포인트는 reconciler 프로필에서 닫힌다(LoadtestController @Profile).
+# 업무 앱의 JSON(A·external-reconciler 등)을 물려받지 않게 SPRING_APPLICATION_JSON을 통째로 다시 쓴다(대조 주기·풀·Flyway 위치만).
+# 매수 방식 키는 두지 않는다(업무 앱과 같은 기본값 — run.sh limit-key가 이 컨테이너도 0개인지 센다).
+services:
+  reconciler:
+    extends:
+      file: compose.yml
+      service: app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest,reconciler
+      DB_URL: jdbc:postgresql://db:5432/seat?ApplicationName=seatlab-reconciler
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{"counter-drift.reconcile.interval":"${RECONCILE_INTERVAL:-60s}"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${RECONCILER_POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
+                   "data":{"redis":{"host":"redis","port":6379}}}}
+    ports: !override
+      - "8102:8102"
+    cpus: ${RECONCILER_CPUS:-1}
+    mem_limit: ${RECONCILER_MEM:-1g}
