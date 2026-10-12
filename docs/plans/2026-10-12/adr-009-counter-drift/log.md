@@ -19,6 +19,16 @@
 | 10-12 12:2x | task 02 구현 회수(Opus): d2153431(V7·V8) · b3157ab5(main 전체) · 63ebe0f4(구현 확인 테스트 6파일 + IndexMigrationTest 1곳) · 231/0/0 · 계약 이름 변경 0(+ 추가 키·지표) · N2: HoldSeatProcess 트랜잭션 안 limit.acquire 전 SalesCloseGate FOR SHARE, SERIALIZABLE은 acquireFirst, Redis NX 진 경로는 잠금 없는 판정 · 순서 바꾼 코드로 4건 실패 확인(테스트 실효) · 해석 3건(holds_seen 0/1 · run.borrows에 기록 INSERT 포함 · 판정기는 회차 행 없는 쌍은 센다) · IV-009-5·6 해소 · blind 커밋 9a3aa01a를 cherry-pick → d11bee68, 전체 테스트 실행 | 진행 |
 | 10-12 12:5x | blind 포함 전체 `./gradlew test` rc=0 · 465/0/0/0(XML 집계 — blind 클래스 전부 실행 확인, 마감 순서 23조합 각 7) · blind 첫 실행 전부 통과 | 리뷰 루프 1 시작 |
 | 10-12 13:xx | 5차 번호 이동(사용자 결정: 새 ADR-010 = 운영 중 전환): 파일 010~015 → 011~016 · 참조 +1(머리 메모 줄·'새 ADR-010'·N1b2 줄 제외) · 정규식이 놓친 'ADR-012·012' 2곳(README·ADR-001) 수동 정정 · 링크 BROKEN 0 · 코드 주석 3곳(ExpireHolds 011·Confirm 012·UserLimitStrategies 012) 별도 커밋 · 대장 IV-009-5·6 해소 표시 | 리뷰 루프 1 진행 중 |
+| 10-12 13:xx | 리뷰 루프 1 회수: codex R1~R4 · Opus F1~F13(P1 0·P2 2·P3 11) → 종합 L1-1~L1-15 · 사용자 결정 3: B 증가 경로도 엄격(행 없음 → 오류, 확정 실패 감수) · 트리거는 마감 회차 건너뜀(DB now() — 앱 Clock과 출처 차이 기록) · C·F 켜면 A 필수(단 counter-trigger는 예외 — 트리거가 마감 회차를 건너뛰어 마감 회차 만료 정지 경로가 없음) | 수정 위임 ∥ codex 종합 감사 |
+| 10-12 18:3x | 루프 1 수정 회수(Opus): e81b4197·dc23f1bc·0b38a3f8·dd747077·21d6da45 · 483/0/0/0 보고 · 메인 확인 필요 2: 트리거 기준 시각 이음새 `seatlab.counter_now`(세션 설정, IntegrationTest connection-init-sql — 운영엔 비어 있음) · blind CounterReconcileTest 설정에 expiry-repair=true(L1-10 따른 설정 맞춤, 단언 무변경) · 새 위험 6(③ 마감 끔 + B → 한도 우회 = 결함, 루프 2로) · 메인 전체 테스트 재실행 + 리뷰 루프 2 시작 | 진행 |
+| 10-12 18:3x | 리뷰 루프 2 첫 시도 무효: scratchpad/rv17이 이전 세션의 읽기 전용 미러로 남아 있어 rm 실패 → packet 생성 실패(무음 — 명령 체인이 실패를 끝까지 전파하지 않음), codex가 '_packet에 packet-diff 없음'으로 판정 보류 → 결과 폐기 · rv18에 새로 생성(존재 확인 후, 각 단계 실패 표시) · Opus 리뷰어에 새 경로로 재지시 | 재시작 |
+| 10-12 19:xx | 리뷰 루프 2 회수(codex 4 · Opus P2 1·P3 9) → L2-0~L2-12(채택 10·기각 1·기록 2) · 메인 판정 오류 인정: 루프 1에서 §10 문구(FOR UPDATE)와 다른 수정을 재합의 없이 채택 | 수정 위임 |
+| 10-12 19:xx | 루프 2 종합 감사(codex): 메인 판정 오류 2(L2-3 기각 근거 부족 → 채택 · L2-1 '비용 없음' 과장 → 측정 대상) + 방향 보강 2(L2-4 확정 경로 포함 · L2-2 회차 행 잠금으로 직렬화) → 구현 워커에 추가 전달 | 수정 진행 |
+| 10-12 19:0x | 루프 2 수정 회수(Opus): 002292e3·772c7787·f35a50af · 492/0/0/0 보고 · 테스트 픽스처 기본 회차 NOW+1일 → 2099-12-31(이음새 제거로 직접 DB 쓰기가 DB now() 판정 — 단언 무변경, 주석) · 새 위험: B 경로 set_config 1문장(왕복 +1) · beforeConfirm 공용 확장점 · 대조 복구 회차 FOR SHARE | 루프 3(codex ∥ Opus, rv19) + 메인 전체 테스트 |
+| 10-12 19:3x | 리뷰 루프 3(상한) 회수: codex 신규 1(N3-1 높음) · Opus 신규 P3 3 → L3-1~L3-4 채택 · N3-1은 두 리뷰어 판정이 갈림(메인: codex 채택 — 경계 동시 선점의 한도 초과 가능) · 루프 상한 도달 → ADR-008 선례대로 수정 + codex 타깃 재점검으로 종료(사용자 보고) | 수정 위임 |
+| 10-12 19:2x | 루프 3 수정 회수(Opus): 0392b17d(L3-1 판정 시각 한 번 채집 — ThreadLocal, hold finally에서 clear) · 5cd9fcce(L3-4 V7 skipped_closed 열·run 필드 / L3-3 주석) · c696b459(테스트: Loop3ImplTest · ReconcileCloseRace 재작성 — FOR SHARE 제거 시 실패 확인 · MutableClock.setForOneRead) · 493/0/0/0 보고 | codex 타깃 재점검 ∥ 메인 전체 테스트 |
+| 10-12 19:4x | 메인 전체 테스트 493/0/0/0 · codex 타깃 재점검(rv20): L3-1 fixed · L3-3 fixed · L3-2 partial(700ms 수면이 FOR SHARE 도달 보장 안 함) · L3-4 partial(drift 지표 action=skipped에 마감 제외 섞임, 하네스·ADR 분리는 이후) · 신규 N(MutableClock 스레드 간 가시성) → 구현 워커에 마감 수정 3건(이후 메인이 diff·테스트로 확인하고 리뷰 종료 — 루프 상한) | 진행 |
+| 10-12 19:3x | 재점검 마감 수정(Opus): 4b4ba691(마감 제외는 excluded{pairs}, drift skipped는 실패만) · 370a5166(MutableClock AtomicReference · 경합 테스트 pg_stat_activity 대기 확인 — FOR SHARE 제거 시 실패 재확인) · 메인 diff 확인 + 전체 테스트 493/0/0/0 → **코드 리뷰 종료**(루프 상한 3 + 타깃 재점검, ADR-008 선례). 남은 기록 항목: L2-10(B 엄격 범위 ADR) · L1-16/L2-11(하네스 WAL·MultiXact) · L3-4 하네스 분리 집계 · L2-9 ADR 정의 | task 05 하네스로 |
 
 ## 리뷰 ledger
 
@@ -36,6 +46,58 @@
 | N1 | 1 | codex | orphan-v2.sql:2 | 채택 — 구현 합격 항목(§11) | open | — |
 | N2 | 1 | codex | HoldSeatService.kt:27 · HoldSeatProcess.kt:45 | 채택 — 구현 합격 항목(§11) | open | — |
 | N3 | 1 | codex | design §5a 판정기 | 채택 — 하네스 미판정 사유(§11) | open | — |
+
+- review packet(코드 루프 1): rv16 — 미러(2269f25e..d11bee68 src diff + spec·contract) · 보안 스캔 0건
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| L1-1 | 1 | opus F1 | V8__counter_trigger.sql:11-13 · UserLimitStrategies.kt:316-320 | 채택 — 사용자: 증가 경로도 엄격(행 없음 → SR001) | fixed | e81b4197..21d6da45 |
+| L1-2 | 1 | codex R1 | V8:15 · QuotaCleanup.kt:130 | 채택 — 사용자: 트리거가 마감 회차(starts_at ≤ now()) 변경은 건너뜀 | fixed | e81b4197..21d6da45 |
+| L1-3 | 1 | codex R2 + opus F6 | HoldSeatService.kt:27-29 · UserLimitStrategies.kt:116-124 | 채택 — prepare가 마감 회차에 행을 만들지 않게(같은 문장 안 조건) · 거절 전후 쿼터 행 전체 비교 테스트 | fixed | e81b4197..21d6da45 |
+| L1-4 | 1 | codex R3 | CounterReconciler.kt:239 · PairRepair.kt:135 | 채택 — skipped 기록마저 실패하면 바퀴 결과를 실패로(run errors·지표), 성공 위장 금지 | fixed | e81b4197..21d6da45 |
+| L1-5 | 1 | codex R4 | application-reconciler.yml:3 | 채택 — F 프로필에서 업무 컨트롤러(선점·확정·부하 시드) 비활성 + 검증 | fixed | e81b4197..21d6da45 |
+| L1-6 | 1 | opus F2 | drift 테스트 | 채택 — 가정 1 동시성 테스트(A·C 각각: 커밋 전 선점 중 복구 → cnt = 실제) | fixed | e81b4197..21d6da45 |
+| L1-7 | 1 | opus F3 | CounterReconciler.kt:97-107,178-187 | 채택 — 회차·bounds 조회 실패도 청크 실패처럼 처리, errors·skipped_chunks 지표 | fixed | e81b4197..21d6da45 |
+| L1-8 | 1 | opus F4 | PairRepair.kt:64-75 | 채택 — 행 없음 + 실제 0이면 INSERT 없이 false-positive | fixed | e81b4197..21d6da45 |
+| L1-9 | 1 | opus F5 | QuotaCleanup.kt:117-118 | 채택 — 회차 행 FOR NO KEY UPDATE(선점 FOR SHARE와는 계속 충돌, FK KEY SHARE는 안 막음) | fixed | e81b4197..21d6da45 |
+| L1-10 | 1 | opus F7 | HoldStrategyStartupCheck.kt:78-90 | 채택 — 사용자: C·F 켜면 A 필수(counter-trigger 예외) | fixed | e81b4197..21d6da45 |
+| L1-11 | 1 | opus F8 | CounterDriftStartupCheckTest.kt:66-80 | 채택 — 기동 실패 원인 메시지 단언(fix verification — blind 파일 수정은 이 단언 강화만) | fixed | e81b4197..21d6da45 |
+| L1-12 | 1 | opus F9 | V7:39 vs CounterReconciler.kt:44,124 | 채택 — 정의는 '기록 INSERT 포함'으로, 코드 주석·ADR에 명시(V7 수정 금지) | fixed | e81b4197..21d6da45 |
+| L1-13 | 1 | opus F10 | CounterDriftScheduling.kt:36 | 채택 — F 프로필 source 선택 테스트 + F 프로필인데 reconcile.enabled=false면 기동 실패 | fixed | e81b4197..21d6da45 |
+| L1-14 | 1 | opus F11 | LoadtestDataService.kt:14-18 · HoldStrategyStartupCheck.kt:109 | 채택 — 카운터 계열 집합 단일 출처 · 트리거 2개 모두 존재 검사 | fixed | e81b4197..21d6da45 |
+| L1-15 | 1 | opus F12 | CounterReconciler.kt:267 | 채택 — 지표 `…reconcile.excluded{unit}`로 이름 변경(계약 밖 지표) | fixed | e81b4197..21d6da45 |
+| L1-16 | 1 | opus F13 | SalesCloseGate.kt:38 | 기록 — 결함 아님(§11 R1 측정으로 판정), 하네스에 MultiXact·WAL 레코드 지표 추가 | deferred(하네스) | — |
+| L1-17 | 1 | 감사 A1 | V8:15-19,29 · ExpireHoldsService.kt:30-43 | 기록 — B 엄격의 결과(열린 회차 행 없음 → 복구까지 틱 롤백). B+C 복구 뒤 정상화 테스트 · 효과 셀에서 B 틱 실패는 결과로 판정 | fixed | e81b4197..21d6da45 |
+| L1-18 | 1 | 감사 A2 | HoldStrategyStartupCheck.kt:76-85 · application-reconciler.yml | 채택 — F 프로세스의 A 검사 제거, 업무 앱 `external-reconciler` 키(true + 비trigger → A 필수) · 명세 측정 조건 C·F = A+C·A+F | fixed | e81b4197..21d6da45 |
+| L1-19 | 1 | 감사 A3 | V8:30-35,46-51 | 채택 — 트리거 마감 건너뜀은 기여 쪽별 판정 | fixed | e81b4197..21d6da45 |
+| L1-20 | 1 | 감사 A4 | HoldSeatService.kt:27-30 · UserLimitStrategies.kt:116-125 | 채택 — prepare 판정은 앱 Clock 파라미터, 경계 잔여 cnt 0 행 무해 테스트 | fixed | e81b4197..21d6da45 |
+
+- review packet(코드 루프 2): rv18 — 미러(2269f25e..21d6da45 src 누적 + 루프 1 수정분 + spec·contract) · 보안 스캔 0건 · 첫 시도(rv17) 무효 기록 참고
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| L2-0 | 2 | main-synthesis | HoldStrategyStartupCheck · V8 마감 건너뜀 | 채택 — counter-trigger + sales-close.enabled=false → 기동 거부(앱은 마감 회차 선점을 받는데 트리거는 증가를 건너뛰어 한도 우회) | fixed | 002292e3..f35a50af |
+| L2-1 | 2 | codex P1 + opus F3 | QuotaCleanup.kt:117-120 | 채택 — 명세 §10대로 FOR UPDATE 복귀(루프 1 L1-9의 FOR NO KEY UPDATE는 재합의 없는 명세 이탈이었다 — 메인 판정 오류). 정리 ①은 홀드 0 회차만이라 확정(홀드 필요)은 그 사이 오지 않음 · 감사: 앱 밖 직접 INSERT의 FK 검사와는 경합 가능 → '비용 없음' 철회, 측정 대상 | fixed | 002292e3..f35a50af |
+| L2-2 | 2 | codex + opus F5 + 감사 | CounterReconciler.kt:128,242-255 · PairRepair · QuotaCleanup.kt:115 | 채택 — 복구 트랜잭션에서 회차 행 FOR SHARE 후 마감 재확인(정리 ① FOR UPDATE와 직렬화), 마감이면 skipped(reason=closed) | fixed | 002292e3..f35a50af |
+| L2-3 | 2 | codex + 감사 | PairRepair.kt:65 · spec §2 | 채택(메인 기각 철회 — 감사: '행 없음 = 0'은 값 표현이고 §2 복구 절차(행 생성·잠금·덮어쓰기)를 면제하지 않음) — A 경로도 행 생성·잠금 후 0 확정 | fixed | 002292e3..f35a50af |
+| L2-4 | 2 | codex + opus F2 | V8:16-19 · IntegrationTest.kt:29-34 | 채택 — 트리거 기준 시각을 앱이 B 트랜잭션마다 앱 Clock으로 SET LOCAL(같은 빌림 안 문장) → 시각 출처 단일화, connection-init-sql 이음새 제거, 직접 DB 쓰기는 now() 폴백 + 폴백 테스트 · 감사: 확정 경로(IDENTITY 즉시 INSERT) 포함, 첫 트리거 전 실행 | fixed | 002292e3..f35a50af |
+| L2-5 | 2 | opus F1 | UserLimitStrategies.kt:330-344 · ExpiryCounters.kt:254-259 | 채택 — B 만료 열린 회차 cnt < n도 시도 목록(kind=below)에 올려 롤백 시 skipped 기록 · §11 B 예외는 '행 없음·작음' 모두(사용자 'B 엄격' 결정의 같은 결과 — 사용자 보고) | fixed | 002292e3..f35a50af |
+| L2-6 | 2 | opus F4 | V7:115 | 채택 — V7은 이번 작업 신규·서버 미적용 → 주석 정정(정의 = 기록 INSERT 포함) | fixed | 002292e3..f35a50af |
+| L2-7 | 2 | opus F6 | ExpireHoldsService.kt:37-48 | 채택 — 커밋 뒤 단계 예외를 롤백으로 처리하지 않게 catch 범위 축소 | fixed | 002292e3..f35a50af |
+| L2-8 | 2 | opus F7 | QuotaCleanup.kt:141-161 | 채택 — 정리 ② 실패도 errors 지표·부분 기록 | fixed | 002292e3..f35a50af |
+| L2-9 | 2 | opus F8 | CounterReconciler.kt:125 · LoadtestDataService.kt:186 | 채택 — 두 정의를 이름으로 구분(코드 주석) + ADR 명시 | fixed | 002292e3..f35a50af |
+| L2-10 | 2 | opus F9 | UserLimitStrategies.kt:346-353 | 기록 — B 엄격 범위 = 트리거 경로(선점 lockQuotaRow는 precheck와 같은 기존 의미), ADR-009 명시 | deferred(문서) | — |
+| L2-11 | 2 | opus F10 | SalesCloseGate.kt:37-41 | 기록 — 하네스에 WAL·MultiXact(pg_stat_slru·wait_event) 지표(L1-16과 합침) | deferred(하네스) | — |
+| L2-12 | 2 | opus 보조 | CounterReconciler.kt:248 | 채택 — probe 호출을 try 안으로 | fixed | 002292e3..f35a50af |
+
+- review packet(코드 루프 3): rv19 — 미러(2269f25e..f35a50af src 누적 + 루프 2 수정분 + 루프 2 항목 요지) · 보안 스캔 0건 · 루프 2 항목 판정: codex fixed 9·partial 2(L2-4·L2-9)·not 2(L2-10·11 문서·하네스 몫) / Opus 해결 9·부분 2(L2-1·L2-4 낡은 주석)
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| L3-1 | 3 | codex N3-1(높음) — Opus는 결함 아님으로 봄 | UserLimitStrategies.kt:330 · HoldSeatProcess.kt:54 | 채택 — 메인 판정: 마감 경계에서 같은 사용자의 동시 선점 둘이 게이트를 통과하고 트리거가 증가를 건너뛰면 한도 판정이 상대를 못 봐 한도 초과가 가능(창은 작지만 실제 홀드). 수정 비용 작음: B 선점은 시각을 한 번 채집해 마감 판정과 set_config에 같은 값 | fixed | 0392b17d..370a5166 |
+| L3-2 | 3 | opus N1 | Loop2ImplTest.kt:203-213 | 채택 — ReconcileCloseRaceImplTest 공허(finally 순서로 대기 단언 항상 참, 이음새가 시계를 먼저 옮겨 FOR SHARE 없이도 통과) → 정리 스레드가 DELETE 뒤 커밋 직전에 시계를 옮기게, FOR SHARE 제거 시 빨강 확인 | fixed | 0392b17d..370a5166 |
+| L3-3 | 3 | opus N2 | QuotaCleanup.kt:118-119 · SalesCloseGate.kt:31 · TriggerLoop1ImplTest.kt:25 · ExpiryRepairTest.kt:98 | 채택 — 낡은 주석 정정(대기 비용 있음·FOR UPDATE·이음새 제거·2099) | fixed | 0392b17d..370a5166 |
+| L3-4 | 3 | opus N3 | CounterReconciler.kt:263-264 · V7:4,15,31 | 채택 — skipped(reason=closed)는 실패가 아니라 마감 제외: V7 주석에 정의 + 바퀴 요약에서 따로 셈(run 필드 또는 지표 태그) · 하네스·ADR에서 분리 집계 | fixed | 0392b17d..370a5166 |
 
 ## 생략한 검증
 
