@@ -178,7 +178,10 @@ class ReconcileCloseRaceImplTest : DriftTestSupport() {
     }
 
     @Test
-    fun `정리 ①이 회차 행을 쥔 동안 복구는 기다렸다가 마감을 읽고 skipped(closed) — 쿼터 행이 되살아나지 않는다`() {
+    fun `정리 ①이 회차 행을 쥔 동안 복구는 FOR SHARE에서 기다렸다가 정리 커밋 뒤의 마감을 읽고 skipped(closed) — 쿼터 행이 되살아나지 않는다`() {
+        // 코드 루프 3 L3-2로 다시 씀: 이음새는 시계를 옮기지 않는다. 정리 스레드가 회차 행 FOR UPDATE → 홀드 0 확인 → 쿼터 행 DELETE를 한 뒤
+        // **커밋 직전에** 시계를 마감 뒤로 옮긴다 — 복구가 회차 행 FOR SHARE로 정리 커밋을 기다리지 않으면 아직 '열림'으로 읽고 쿼터 행 잠금에서
+        // 기다렸다가(지워진 행) 행을 다시 만든다(되살아남) → 이 테스트가 실패한다(FOR SHARE를 지운 코드로 빨강 확인함).
         val startsAt = NOW.plusSeconds(600)
         val x = newSchedule(startsAt).id!!
         confirmed(x, 1L)
@@ -187,32 +190,35 @@ class ReconcileCloseRaceImplTest : DriftTestSupport() {
         val holding = CountDownLatch(1)
         var cleanup: java.util.concurrent.Future<*>? = null
         probe.action = { s, _ ->
-            clock.set(startsAt.plusSeconds(1)) // 탐지 뒤 마감
             cleanup = pool.submit {
                 tx.executeWithoutResult {
-                    // 정리 ①과 같은 문장: 회차 행 FOR UPDATE → 홀드 0 확인 → 회차 쿼터 행 전부 삭제, 잠근 채 잠시 머문다
+                    // 정리 ①과 같은 문장: 회차 행 FOR UPDATE → 홀드 0 확인 → 회차 쿼터 행 전부 삭제
                     jdbcTemplate.queryForList("SELECT starts_at FROM product_schedule WHERE id = ? FOR UPDATE", s)
                     check(jdbcTemplate.queryForObject("SELECT EXISTS (SELECT 1 FROM seat_hold WHERE schedule_id = ?)", Boolean::class.java, s) == false)
                     jdbcTemplate.update("DELETE FROM user_hold_quota WHERE schedule_id = ?", s)
                     holding.countDown()
-                    Thread.sleep(700)
+                    Thread.sleep(700) // 복구가 이 사이에 회차 행(또는 쿼터 행)에서 기다리게
+                    clock.set(startsAt.plusSeconds(1)) // 커밋 직전에 마감
                 }
             }
             holding.await(5, TimeUnit.SECONDS)
         }
-        val t0 = System.nanoTime()
         val run = try {
             reconciler.runOnce("reconcile-app")
         } finally {
             cleanup?.get(10, TimeUnit.SECONDS)
             pool.shutdown()
         }
-        val waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
-        assertEquals(1, run.skipped, "$run")
+        assertEquals(1, run.skippedClosed, "$run")
+        assertEquals(0, run.skipped, "마감 제외는 실패 skipped로 세지 않는다(L3-4)")
         assertEquals(0, run.repaired)
-        assertTrue(waitedMs >= 500, "복구가 정리의 회차 행 잠금을 기다리지 않았다: ${waitedMs}ms")
         assertEquals(null, cntOf(x, 1L), "마감 회차 쿼터 행이 되살아났다")
         assertEquals(listOf(listOf<Any?>(1L, "above", "skipped", "closed", "reconcile-app")), driftLog())
+        assertEquals(
+            listOf(0, 1),
+            jdbcTemplate.queryForList("SELECT skipped, skipped_closed FROM counter_reconcile_run WHERE id = ?", run.id).single().values.map { (it as Number).toInt() },
+            "바퀴 기록도 실패 skipped와 마감 제외를 따로 센다",
+        )
     }
 
     @Test

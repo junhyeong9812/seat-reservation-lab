@@ -22,7 +22,8 @@ import kotlin.test.assertTrue
 
 /**
  * 코드 루프 1 — B(counter-trigger) 사용자 결정 확인(L1-1 증가도 엄격 · L1-2 마감 회차 건너뜀 · L1-19 기여 쪽별 판정 · L1-17 B + C 회복).
- * 설정은 blind `CounterTriggerWithReconcileTest`와 같다(컨텍스트 공유). 트리거 기준 시각 = IntegrationTest의 seatlab.counter_now(= NOW).
+ * 설정은 blind `CounterTriggerWithReconcileTest`와 같다(컨텍스트 공유). 트리거 기준 시각 = 앱이 B 경로 트랜잭션마다 SET LOCAL로 넣는 앱 Clock
+ * (코드 루프 2 L2-4 — 테스트 커넥션 초기화 이음새는 제거됨). 직접 DB 쓰기는 DB now()로 판정하므로 마감 회차는 NOW·벽시계 모두보다 앞(NOW - 60s)으로 만든다.
  */
 @TestPropertySource(
     properties = [

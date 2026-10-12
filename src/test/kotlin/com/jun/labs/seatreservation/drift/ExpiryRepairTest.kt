@@ -95,7 +95,7 @@ abstract class ExpiryDriftScenario(private val type: UserLimitStrategyType) : In
         jdbcTemplate.setCnt(s, negative.userId, 0)
         jdbcTemplate.setCnt(s, silent.userId, 1)
         jdbcTemplate.setCnt(s, above.userId, 2)
-        clock.set(NOW.plus(properties.ttl).plusSeconds(1)) // 홀드 전부 만료 시각 지남(회차 시작 NOW + 1일 전 — 마감 아님)
+        clock.set(NOW.plus(properties.ttl).plusSeconds(1)) // 홀드 전부 만료 시각 지남(회차 시작 IntegrationTest.SCHEDULE_STARTS_AT = 2099-12-31 전 — 마감 아님)
     }
 
     protected fun allExpiringSeats(vararg pairs: DriftPair) = pairs.flatMap { it.expiring }

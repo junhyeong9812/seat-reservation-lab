@@ -17,7 +17,19 @@ class MutableClock(private var now: Instant) : Clock() {
         now = now.plus(duration)
     }
 
-    override fun instant(): Instant = now
+    @Volatile private var afterNextRead: Instant? = null
+
+    /** 다음 한 번의 읽기는 [first], 그 뒤 읽기는 [then] — 두 Clock 읽기 사이에 시계가 경계를 넘는 경우를 만든다(ADR-009 코드 루프 3 L3-1). */
+    fun setForOneRead(first: Instant, then: Instant) {
+        now = first
+        afterNextRead = then
+    }
+
+    override fun instant(): Instant {
+        val read = now
+        afterNextRead?.let { now = it; afterNextRead = null }
+        return read
+    }
 
     override fun getZone(): ZoneId = ZoneOffset.UTC
 
