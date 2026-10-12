@@ -2,9 +2,19 @@ package com.jun.labs.seatreservation.service.impl.hold
 
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.COUNTER
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.COUNTER_TRIGGER
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.COUNTER_UPSERT
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.COUNTER_UPSERT_PRECHECK
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_LOCK
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT
+import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_EARLY
+import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
+import org.springframework.core.env.Environment
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
@@ -15,12 +25,16 @@ import org.springframework.stereotype.Component
  * - Redis 전략은 Redis에 닿아야 한다.
  * - 매수 방식(ADR-005)은 좌석 3b 위에서만 쓴다: 좌석을 먼저 잠그는 전략(advisory·JVM·Redis 락)과 섞이면 락 순서가 좌석 → 사용자로 뒤집히고,
  *   SERIALIZABLE의 `SET TRANSACTION`이 첫 문장이 아니게 된다(설계·측정이 3b 고정 — 명세 §2).
+ * - ADR-009(설계 §7 · 명세 §10 D4): 쿼터 테이블을 쓰는 방식은 그 테이블이 있어야 한다 · 트리거(V8)는 counter-trigger에서만 ·
+ *   후보(A·C·F·정리)와 매수 방식 조합 · 후보를 켜면 V7 기록 테이블 · reconciler 프로필이면 만료 스케줄러 끔.
  */
 @Component
 class HoldStrategyStartupCheck(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val redis: StringRedisTemplate,
+    /** 프로필·만료 스케줄러 키 확인용. 직접 생성(테스트)할 때 없으면 그 두 확인은 기본값(프로필 없음·스케줄러 켬)으로 본다 */
+    private val environment: Environment? = null,
 ) : ApplicationRunner {
 
     override fun run(args: ApplicationArguments) {
@@ -39,5 +53,64 @@ class HoldStrategyStartupCheck(
         if (strategy == HoldStrategyType.REDIS_NX || strategy == HoldStrategyType.REDIS_LOCK) {
             redis.connectionFactory!!.connection.use { check(it.ping() == "PONG") { "Redis 응답 없음" } }
         }
+        checkCounterDrift()
+    }
+
+    private fun exists(table: String): Boolean =
+        jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean::class.java, table) == true
+
+    private fun checkCounterDrift() {
+        val limit = properties.limitStrategy
+        val quotaTable = exists("user_hold_quota")
+        check(limit !in QUOTA_TABLE_STRATEGIES || quotaTable) {
+            "매수 방식 $limit 는 쿼터 테이블(user_hold_quota — V5)이 있어야 한다 — 없다(spring.flyway.target 등으로 앞 버전 스키마를 띄웠으면 limit-strategy=none을 명시하라)"
+        }
+        val trigger = jdbc.queryForObject(
+            "SELECT count(*) FROM pg_trigger WHERE tgname IN ('$HOLD_TRIGGER', '$RESERVATION_TRIGGER') AND NOT tgisinternal", Int::class.java,
+        )!! > 0
+        check(trigger == (limit == COUNTER_TRIGGER)) {
+            "매수 방식 $limit 와 카운터 트리거(V8 — $HOLD_TRIGGER·$RESERVATION_TRIGGER) 존재=$trigger 가 맞지 않는다 " +
+                "— counter-trigger는 spring.flyway.locations에 classpath:db/migration-trigger를 더하고, 다른 방식은 빼야 한다(앱 증감과 트리거가 겹친다)"
+        }
+
+        val drift = properties.counterDrift
+        val a = drift.expiryRepair
+        val c = drift.reconcile.enabled
+        val f = environment?.activeProfiles?.contains(RECONCILER_PROFILE) == true
+        val cleanup = drift.cleanup.mode
+        check(!(a || c || f) || limit in COUNTER_FAMILY) {
+            "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f)는 카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
+        }
+        check(!(a && limit == COUNTER_TRIGGER)) {
+            "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)"
+        }
+        check(cleanup == CleanupMode.NONE || limit in CLEANUP_STRATEGIES) {
+            "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)"
+        }
+        check(cleanup != CleanupMode.SCHEDULE || properties.salesClose.enabled) {
+            "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다"
+        }
+        if (a || c || f || cleanup != CleanupMode.NONE) {
+            val missing = LOG_TABLES.filterNot(::exists)
+            check(missing.isEmpty()) { "카운터 어긋남 후보·정리를 켰는데 기록 테이블(V7)이 없다: $missing" }
+        }
+        if (f) {
+            val expiryScheduler = environment!!.getProperty("seat.hold.expiry-scheduler-enabled", Boolean::class.java, true)
+            check(!expiryScheduler) {
+                "$RECONCILER_PROFILE 프로필(후보 F — 대조 전용 프로세스)은 만료 스케줄러를 꺼야 한다(seat.hold.expiry-scheduler-enabled=false) — 앱과 만료가 겹친다"
+            }
+        }
+    }
+
+    companion object {
+        /** 쿼터 테이블(user_hold_quota)을 읽거나 쓰는 매수 방식 */
+        val QUOTA_TABLE_STRATEGIES = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER, QUOTA_LOCK, QUOTA_NOWAIT, QUOTA_NOWAIT_EARLY)
+        /** cnt를 유지하는 매수 방식(카운터 계열) */
+        val COUNTER_FAMILY = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
+        /** 쿼터 행 정리를 허용하는 방식 — 트랜잭션 안에서 행을 만들거나(upsert) 트리거가 만든다 */
+        val CLEANUP_STRATEGIES = setOf(COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
+        val LOG_TABLES = listOf("counter_drift_log", "counter_reconcile_run", "counter_cleanup_run")
+        const val HOLD_TRIGGER = "seat_hold_quota"
+        const val RESERVATION_TRIGGER = "reservation_quota"
     }
 }

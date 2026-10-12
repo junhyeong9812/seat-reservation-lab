@@ -1,0 +1,11 @@
+# ADR-009 후보 F — 별도 대조 프로세스(같은 jar, 다른 프로필). 대조만 하고 만료 스케줄러를 끈다(기동 검사가 확인한다).
+# 매수 방식 키는 두지 않는다(앱과 같은 기본값·환경 변수를 따른다). DB 접속은 앱과 같은 환경 변수(DB_URL 등).
+server:
+  port: 8102
+
+seat:
+  hold:
+    expiry-scheduler-enabled: false
+    counter-drift:
+      reconcile:
+        enabled: true

@@ -5,6 +5,7 @@ import com.jun.labs.seatreservation.service.HoldSeatResult
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.impl.HoldSeatProcess
+import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import jakarta.annotation.PreDestroy
 import org.redisson.Redisson
 import org.slf4j.LoggerFactory
@@ -28,13 +29,18 @@ class RedisNxHoldStrategy(
     private val redis: StringRedisTemplate,
     private val properties: SeatHoldProperties,
     private val tx: TransactionTemplate,
+    private val salesClose: SalesCloseGate,
 ) : HoldStrategy {
     override val type = HoldStrategyType.REDIS_NX
 
     override fun hold(command: HoldSeatCommand): HoldSeatResult {
         val key = "$KEY_PREFIX${command.seatId}"
         val token = UUID.randomUUID().toString()
-        if (redis.opsForValue().setIfAbsent(key, token, properties.ttl) != true) seatTaken()
+        if (redis.opsForValue().setIfAbsent(key, token, properties.ttl) != true) {
+            // ADR-009 에러 순서 마감 → 좌석: 관문에서 진 요청도 마감된 회차면 SCHEDULE_CLOSED가 먼저(트랜잭션을 열지 않는 경로라 잠금 없는 판정)
+            salesClose.assertOpenUnlocked(command.scheduleId)
+            seatTaken()
+        }
         try {
             return tx.execute { process.hold(command) }!!
         } catch (e: Throwable) {

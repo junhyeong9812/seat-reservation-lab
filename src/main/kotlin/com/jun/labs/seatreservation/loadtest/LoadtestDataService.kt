@@ -8,10 +8,13 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.sql.Timestamp
+import java.time.Clock
 
-/** 카운터를 유지하는 매수 방식(ADR-005 counter · ADR-006 counter-upsert) — 판정기·배경 행 거부 대상 */
+/** 카운터를 유지하는 매수 방식(ADR-005 counter · ADR-006 counter-upsert · ADR-007 precheck · ADR-009 counter-trigger) — 판정기·배경 행 거부 대상 */
 private val COUNTER_STRATEGIES = setOf(
     UserLimitStrategyType.COUNTER, UserLimitStrategyType.COUNTER_UPSERT, UserLimitStrategyType.COUNTER_UPSERT_PRECHECK,
+    UserLimitStrategyType.COUNTER_TRIGGER,
 )
 
 /**
@@ -24,6 +27,8 @@ class LoadtestDataService(
     private val jdbcTemplate: JdbcTemplate,
     private val properties: SeatHoldProperties,
     private val redis: StringRedisTemplate,
+    /** 판정기 v2(ADR-009)의 마감 기준 시각 — 선점의 마감 판정과 같은 출처(앱 Clock) */
+    private val clock: Clock,
 ) {
 
     /**
@@ -162,21 +167,30 @@ class LoadtestDataService(
         val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
         // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
         if (properties.limitStrategy !in COUNTER_STRATEGIES) return base
-        val counterMismatch = jdbcTemplate.queryForObject(
+        // ADR-009 판정기 v2(명세 §10): 마감 회차(starts_at <= 앱 Clock now)는 카운터를 쓰지 않는다 — 그 회차의 쌍은 빼고, 뺀 회차·쌍 수를 함께 낸다.
+        // 마감 회차가 없으면 값은 v1과 같다. 회차 행이 없는 쌍(쿼터 행만 남은 경우)은 마감으로 보지 않는다 — 빼지 않고 센다(조용히 빠지지 않게)
+        val counter = jdbcTemplate.queryForMap(
             """
-            WITH actual AS (
+            WITH closed_s AS (SELECT id FROM product_schedule WHERE starts_at <= ?),
+            actual AS (
                 SELECT schedule_id, user_id, sum(n) AS total FROM (
                     SELECT schedule_id, user_id, count(*) AS n FROM seat_hold GROUP BY 1, 2
                     UNION ALL
                     SELECT schedule_id, user_id, count(*) FROM reservation WHERE status = 'CONFIRMED' GROUP BY 1, 2
                 ) u GROUP BY 1, 2
+            ),
+            pairs AS (
+                SELECT schedule_id, coalesce(q.cnt, 0) AS cnt, coalesce(a.total, 0) AS total
+                FROM user_hold_quota q FULL JOIN actual a USING (schedule_id, user_id)
             )
-            SELECT count(*) FROM user_hold_quota q FULL JOIN actual a USING (schedule_id, user_id)
-            WHERE coalesce(q.cnt, 0) <> coalesce(a.total, 0)
+            SELECT
+              (SELECT count(*) FROM pairs WHERE cnt <> total AND schedule_id NOT IN (SELECT id FROM closed_s)) AS v_counter_mismatch,
+              (SELECT count(*) FROM closed_s)                                                                AS counter_excluded_schedules,
+              (SELECT count(*) FROM pairs WHERE schedule_id IN (SELECT id FROM closed_s))                     AS counter_excluded_pairs
             """.trimIndent(),
-            Long::class.java,
+            Timestamp.from(clock.instant()),
         )
-        return base + ("v_counter_mismatch" to counterMismatch)
+        return base + counter
     }
 
     /**

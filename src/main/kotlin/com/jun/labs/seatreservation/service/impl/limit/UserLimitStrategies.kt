@@ -8,6 +8,7 @@ import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
+import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.jdbc.core.JdbcTemplate
@@ -27,6 +28,8 @@ interface UserLimitStrategy {
     val type: UserLimitStrategyType
     /** 트랜잭션 밖 준비 단계가 있는가 — 없으면 유스케이스가 prepare 호출·타이머를 건너뛴다(ADR-006: 준비 없는 방식의 prepare 타이머 0건) */
     val hasPrepare: Boolean get() = false
+    /** [acquire]가 트랜잭션 첫 문장이어야 하는가(SERIALIZABLE의 `SET TRANSACTION`) — 그러면 판매 마감 판정(ADR-009)을 acquire 뒤에 한다. acquire에 판정이 없는 방식만 true */
+    val acquireFirst: Boolean get() = false
     fun prepare(command: HoldSeatCommand) {}
     fun <T> around(command: HoldSeatCommand, block: () -> T): T = block()
     /** 사용자 단위 진입. false = 같은 사용자의 다른 요청이 진행 중(즉시 실패형) — 거절은 [check]에서 한다(좌석 확인 뒤, 에러 우선순위 보존). */
@@ -193,6 +196,7 @@ class QuotaNoWaitEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldPro
 class CounterUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val counters: ExpiryCounters,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
     override val hasPrepare = true
@@ -207,21 +211,8 @@ class CounterUserLimit(
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
 
-    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
-}
-
-/** 만료 배치가 실제로 지운 홀드만큼 (회차, 사용자)별 카운터를 내린다 — counter·counter-upsert·counter-upsert-precheck 공용. */
-private fun decrementCounters(jdbc: JdbcTemplate, expired: List<SeatHold>) {
-    // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
-    expired.groupingBy { it.scheduleId to it.userId }.eachCount().forEach { (key, n) ->
-        val updated = jdbc.update(
-            "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?",
-            n, key.first, key.second,
-        )
-        // 카운터 행이 없으면 카운터가 이미 어긋난 것 — 조용히 넘기지 않는다(cnt < 0은 CHECK 제약이 막는다)
-        // 한계: 어긋난 쌍 하나가 이 만료 배치 트랜잭션 전체를 실패시킨다 — 카운터 어긋남의 복구·격리는 ADR-009에서 다룬다
-        check(updated == 1) { "카운터 행 없음: 회차 ${key.first} 사용자 ${key.second}" }
-    }
+    // 만료 감소 — 공용(ExpiryCounters: 기본은 ADR-008까지와 같고, 후보 A를 켜면 실패 쌍만 복구)
+    override fun onHoldsExpired(expired: List<SeatHold>) = counters.decrement(expired)
 }
 
 /**
@@ -234,6 +225,7 @@ private fun decrementCounters(jdbc: JdbcTemplate, expired: List<SeatHold>) {
 class CounterUpsertUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val counters: ExpiryCounters,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT
     override fun acquire(command: HoldSeatCommand): Boolean {
@@ -241,7 +233,7 @@ class CounterUpsertUserLimit(
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
-    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+    override fun onHoldsExpired(expired: List<SeatHold>) = counters.decrement(expired)
 }
 
 /** 한 문장 upsert — true = 올렸다(통과), false = 상한(0행). counter-upsert·counter-upsert-precheck 공용. */
@@ -265,26 +257,75 @@ private fun upsertQuota(jdbc: JdbcTemplate, command: HoldSeatCommand, maxPerUser
 class CounterUpsertPrecheckUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val counters: ExpiryCounters,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK
     override fun acquire(command: HoldSeatCommand): Boolean {
-        assertSeatAvailable(command)
+        assertSeatAvailable(jdbc, command)
         if (!upsertQuota(jdbc, command, properties.maxPerUser)) {
-            assertSeatAvailable(command) // 선조회 뒤 팔렸으면 좌석 불가가 먼저
+            assertSeatAvailable(jdbc, command) // 선조회 뒤 팔렸으면 좌석 불가가 먼저
             limitExceeded()
         }
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
-    override fun onHoldsExpired(expired: List<SeatHold>) = decrementCounters(jdbc, expired)
+    override fun onHoldsExpired(expired: List<SeatHold>) = counters.decrement(expired)
+}
 
-    private fun assertSeatAvailable(command: HoldSeatCommand) {
-        val status = jdbc.queryForList(
-            "SELECT status FROM product_seat WHERE id = ? AND schedule_id = ?", String::class.java,
-            command.seatId, command.scheduleId,
-        ).singleOrNull() ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
-        if (status != SeatStatus.AVAILABLE.name) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE)
+/** 잠금 없는 좌석 상태 선조회 — 없는 좌석 404, AVAILABLE이 아니면 409. counter-upsert-precheck·counter-trigger 공용. */
+private fun assertSeatAvailable(jdbc: JdbcTemplate, command: HoldSeatCommand) {
+    val status = jdbc.queryForList(
+        "SELECT status FROM product_seat WHERE id = ? AND schedule_id = ?", String::class.java,
+        command.seatId, command.scheduleId,
+    ).singleOrNull() ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+    if (status != SeatStatus.AVAILABLE.name) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE)
+}
+
+/**
+ * ADR-009 후보 B — cnt는 DB 트리거(V8 `db/migration-trigger`)가 홀드·예약 행 변경과 같은 트랜잭션에서 고친다. 앱은 cnt를 쓰지 않는다(중복 증감 없음).
+ * 한도 판정은 앱에서 한다(명세 §10 D3 — 트리거 거절은 억울한 좌석을 되살린다): 좌석 선조회(precheck와 같다) → 쿼터 행 `FOR UPDATE`
+ * (없으면 cnt 0으로 만들고 잠근다 — 같은 사용자 첫 요청들도 이 행에서 줄을 선다) → `cnt + 1 <= 최대`가 아니면 좌석을 다시 보고 매수 초과.
+ * 행 잠금은 커밋까지 유지되고 그 사이 홀드 INSERT의 트리거가 cnt + 1을 쓰므로, 다음 요청은 늘어난 cnt를 본다. 에러 순서 = precheck(좌석 먼저).
+ * 만료: 트리거가 홀드 DELETE마다 −1(행이 없으면 SR001 — 엄격, 0으로 자르지 않음). **이 방식에서만** 만료가 쿼터 행을 먼저(정렬 순서로) 잠근다 —
+ * 확정(예약 INSERT 트리거로 쿼터 행 먼저)과 같은 잠금 순서가 되어 확정↔만료 교착을 없앤다(설계 §3b — 교착만 해결, 확정 원자성은 ADR-011).
+ */
+@Component
+class CounterTriggerUserLimit(
+    private val properties: SeatHoldProperties,
+    private val jdbc: JdbcTemplate,
+) : UserLimitStrategy {
+    override val type = UserLimitStrategyType.COUNTER_TRIGGER
+    override fun acquire(command: HoldSeatCommand): Boolean {
+        assertSeatAvailable(jdbc, command)
+        val cnt = lockQuotaRow(command)
+        if (cnt + 1 > properties.maxPerUser) {
+            assertSeatAvailable(jdbc, command) // 잠금을 기다린 사이 팔렸으면 좌석 불가가 먼저
+            limitExceeded()
+        }
+        return true
     }
+    override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
+
+    override fun onHoldsExpired(expired: List<SeatHold>) {
+        expired.map { it.scheduleId to it.userId }.distinct().sortedWith(compareBy({ it.first }, { it.second })).forEach { (s, u) ->
+            // 행이 없으면 잠글 것도 없다 — flush 때 트리거가 SR001로 틱을 실패시킨다(엄격 — 대조 C·F가 고친다)
+            jdbc.queryForList("SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE", s, u)
+        }
+    }
+
+    private fun lockQuotaRow(command: HoldSeatCommand): Int {
+        selectForUpdate(command)?.let { return it }
+        jdbc.update(
+            "INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 0) ON CONFLICT DO NOTHING",
+            command.scheduleId, command.userId,
+        )
+        return selectForUpdate(command) ?: error("쿼터 행을 만든 직후 잠그지 못했다: $command")
+    }
+
+    private fun selectForUpdate(command: HoldSeatCommand): Int? = jdbc.queryForList(
+        "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE", Int::class.java,
+        command.scheduleId, command.userId,
+    ).singleOrNull()
 }
 
 /**
@@ -313,6 +354,7 @@ abstract class SerializableUserLimit(
             }
         }
     }
+    override val acquireFirst = true
     override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         return true

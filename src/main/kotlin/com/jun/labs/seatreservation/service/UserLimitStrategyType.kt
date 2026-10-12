@@ -18,6 +18,8 @@ enum class UserLimitStrategyType {
     COUNTER_UPSERT,
     /** ADR-007 — counter-upsert 앞에 잠금 없는 좌석 상태 선조회: 팔린 좌석은 쓰기 없이 거절, 에러 순서는 명세 순서(좌석 먼저) */
     COUNTER_UPSERT_PRECHECK,
+    /** ADR-009 후보 B — cnt는 DB 트리거(V8, db/migration-trigger)가 고치고, 앱은 쿼터 행을 잠가 한도만 판정한다. 에러 순서는 precheck와 같다(좌석 먼저) */
+    COUNTER_TRIGGER,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,
 }
