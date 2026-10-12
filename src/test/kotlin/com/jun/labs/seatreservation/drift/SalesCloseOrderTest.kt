@@ -48,9 +48,12 @@ abstract class SalesCloseOrderTest(private val seatType: HoldStrategyType, priva
 
     private fun close() = clock.set(schedule.startsAt)
 
-    /** 거절이 아무것도 남기지 않았는지 — 홀드 행 수와 0이 아닌 쿼터 행(quota-* · counter의 prepare는 cnt 0 행을 만들 수 있어 0행은 뺀다). */
+    /**
+     * 거절이 아무것도 남기지 않았는지 — 홀드 행 수와 쿼터 행 **전체**(cnt 0 행 포함).
+     * 강화(코드 루프 1 L1-3 fix verification): 처음에는 quota-* · counter의 prepare가 cnt 0 행을 만들 수 있어 0행을 뺐다 — 이제 prepare가 마감 회차에 행을 만들지 않으므로 뺄 이유가 없다.
+     */
     private fun footprint(): kotlin.Pair<Int, List<Map<String, Any?>>> =
-        holdCount() to jdbcTemplate.queryForList("SELECT schedule_id, user_id, cnt FROM user_hold_quota WHERE cnt <> 0 ORDER BY 1, 2")
+        holdCount() to jdbcTemplate.queryForList("SELECT schedule_id, user_id, cnt FROM user_hold_quota ORDER BY 1, 2")
 
     /** 매수가 찬 사용자: 마감 전에 2매를 잡고, 마감 전 3번째는 HOLD_LIMIT_EXCEEDED임을 확인한다(상태가 실제로 '찬' 상태라는 근거). */
     private fun fullUser(userId: Long): Long {

@@ -127,6 +127,8 @@ abstract class ReconcileScenario : IntegrationTest() {
     properties = [
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        // 코드 루프 1 L1-10(사용자 결정): 대조(C)를 켜면 A가 필수(기동 검사). 이 클래스는 만료를 부르지 않아 A는 단언에 영향이 없다
+        "seat.hold.counter-drift.expiry-repair=true",
     ],
 )
 class CounterReconcileAppTest : ReconcileScenario() {
@@ -267,6 +269,8 @@ class CounterReconcileAppTest : ReconcileScenario() {
     properties = [
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        // 코드 루프 1 L1-10(사용자 결정): 대조(C)를 켜면 A가 필수(기동 검사). 이 클래스는 만료를 부르지 않아 A는 단언에 영향이 없다
+        "seat.hold.counter-drift.expiry-repair=true",
     ],
 )
 @Import(CounterReconcileFalsePositiveTest.ProbeConfig::class)

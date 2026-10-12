@@ -63,7 +63,11 @@ class CounterDriftStartupCheckTest {
         return SpringApplicationBuilder(SeatReservationApplication::class.java).run(*args.toTypedArray())
     }
 
-    private fun assertBootFails(props: Map<String, String?>, why: String) {
+    /**
+     * [keyword] 강화(코드 루프 1 L1-11 fix verification): 기동 실패가 **기동 검사의 그 조건** 때문인지 — 원인 사슬의 IllegalStateException 메시지에 키워드가 있어야 한다
+     * (다른 이유로 뜨지 못한 것을 '막았다'로 세지 않게).
+     */
+    private fun assertBootFails(props: Map<String, String?>, why: String, keyword: String) {
         val error = try {
             boot(props).close()
             fail("떴다 — $why: $props")
@@ -76,6 +80,10 @@ class CounterDriftStartupCheckTest {
         assertTrue(
             chain.none { it is BindException },
             "설정 바인딩 실패(기동 검사가 아니다 — 새 설정 값이 아직 없다?) $why: ${chain.map { "${it::class.simpleName}: ${it.message?.take(200)}" }}",
+        )
+        assertTrue(
+            chain.any { it is IllegalStateException && it.message.orEmpty().contains(keyword) },
+            "기동 검사의 '$keyword' 조건으로 막힌 것이 아니다 — $why: ${chain.map { "${it::class.simpleName}: ${it.message?.take(300)}" }}",
         )
     }
 
@@ -90,12 +98,12 @@ class CounterDriftStartupCheckTest {
     @ParameterizedTest
     @ValueSource(strings = ["counter", "counter-upsert", "counter-upsert-precheck", "quota-lock", "quota-nowait", "quota-nowait-early"])
     fun `쿼터 테이블 없음(Flyway target 3 — V5 전) + 쿼터 테이블을 쓰는 방식 — 기동 실패`(limit: String) {
-        assertBootFails(mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to limit), "쿼터 테이블 없이 $limit")
+        assertBootFails(mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to limit), "쿼터 테이블 없이 $limit", keyword = "쿼터 테이블(user_hold_quota")
     }
 
     @Test
     fun `쿼터 테이블 없음 + 매수 방식 미지정(기본 counter-upsert-precheck) — 기동 실패`() {
-        assertBootFails(mapOf("spring.flyway.target" to "3"), "기본 매수 방식인데 쿼터 테이블 없음")
+        assertBootFails(mapOf("spring.flyway.target" to "3"), "기본 매수 방식인데 쿼터 테이블 없음", keyword = "쿼터 테이블(user_hold_quota")
     }
 
     @Test
@@ -103,6 +111,7 @@ class CounterDriftStartupCheckTest {
         assertBootFails(
             mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to "counter-trigger", "spring.flyway.locations" to trigger),
             "쿼터 테이블 없이 counter-trigger",
+            keyword = "쿼터 테이블(user_hold_quota",
         )
     }
 
@@ -124,13 +133,13 @@ class CounterDriftStartupCheckTest {
 
     @Test
     fun `counter-trigger인데 트리거가 없다(위치 미포함) — 기동 실패`() {
-        assertBootFails(mapOf("seat.hold.limit-strategy" to "counter-trigger"), "트리거 없이 counter-trigger")
+        assertBootFails(mapOf("seat.hold.limit-strategy" to "counter-trigger"), "트리거 없이 counter-trigger", keyword = "카운터 트리거")
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["counter-upsert-precheck", "counter-upsert", "none"])
     fun `트리거가 있는데 counter-trigger가 아니다 — 기동 실패(앱 증감과 트리거가 겹치거나 측정 조건이 섞인다)`(limit: String) {
-        assertBootFails(mapOf("seat.hold.limit-strategy" to limit, "spring.flyway.locations" to trigger), "트리거 + $limit")
+        assertBootFails(mapOf("seat.hold.limit-strategy" to limit, "spring.flyway.locations" to trigger), "트리거 + $limit", keyword = "카운터 트리거")
     }
 
     // ---- 후보 × 매수 방식 조합 ----------------------------------------------------------------------------------------
@@ -140,6 +149,7 @@ class CounterDriftStartupCheckTest {
         assertBootFails(
             mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.expiry-repair" to "true"),
             "none에는 고칠 카운터 감소가 없다",
+            keyword = "카운터를 유지하는 매수 방식",
         )
     }
 
@@ -148,6 +158,7 @@ class CounterDriftStartupCheckTest {
         assertBootFails(
             mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.reconcile.enabled" to "true"),
             "none에는 대조할 카운터가 없다",
+            keyword = "카운터를 유지하는 매수 방식",
         )
     }
 
@@ -169,6 +180,7 @@ class CounterDriftStartupCheckTest {
         assertBootFails(
             mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-scheduler-enabled" to "true"),
             "reconciler 프로필에서 만료 스케줄러",
+            keyword = "만료 스케줄러를 꺼야 한다",
         )
     }
 
