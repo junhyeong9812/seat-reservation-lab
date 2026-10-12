@@ -12,10 +12,7 @@ import java.sql.Timestamp
 import java.time.Clock
 
 /** 카운터를 유지하는 매수 방식(ADR-005 counter · ADR-006 counter-upsert · ADR-007 precheck · ADR-009 counter-trigger) — 판정기·배경 행 거부 대상 */
-private val COUNTER_STRATEGIES = setOf(
-    UserLimitStrategyType.COUNTER, UserLimitStrategyType.COUNTER_UPSERT, UserLimitStrategyType.COUNTER_UPSERT_PRECHECK,
-    UserLimitStrategyType.COUNTER_TRIGGER,
-)
+private val COUNTER_STRATEGIES = UserLimitStrategyType.COUNTER_FAMILY
 
 /**
  * 부하 측정 도구(ADR-001) — 도메인이 아니다. 판정은 도메인 로직을 재사용하지 않고 DB 행을 직접 센다:

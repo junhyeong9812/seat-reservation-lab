@@ -32,7 +32,7 @@ class CounterDriftScheduling(
     fun start() {
         val drift = properties.counterDrift
         if (drift.reconcile.enabled) {
-            val source = if (RECONCILER_PROFILE in environment.activeProfiles) DriftSource.RECONCILE_PROC else DriftSource.RECONCILE_APP
+            val source = reconcileSource()
             schedule("counterReconcileScheduler-", drift.reconcile.interval) { reconciler.runOnce(source) }
             log.info("카운터 대조 시작: source={} interval={}", source, drift.reconcile.interval)
         }
@@ -41,6 +41,10 @@ class CounterDriftScheduling(
             log.info("쿼터 행 정리 시작: mode={} interval={}", drift.cleanup.mode, drift.cleanup.interval)
         }
     }
+
+    /** 대조 기록의 출처 — reconciler 프로필(F 별도 프로세스)이면 reconcile-proc, 아니면 reconcile-app(C). */
+    fun reconcileSource(): String =
+        if (RECONCILER_PROFILE in environment.activeProfiles) DriftSource.RECONCILE_PROC else DriftSource.RECONCILE_APP
 
     private fun schedule(prefix: String, interval: Duration, task: () -> Unit) {
         val scheduler = ThreadPoolTaskScheduler().apply {

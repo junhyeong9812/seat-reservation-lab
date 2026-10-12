@@ -27,6 +27,11 @@ data class SeatHoldProperties(
     data class CounterDrift(
         /** 후보 A — 만료 배치에서 감소가 실패한 쌍만 그 자리에서 실제 값으로 복구한다. */
         val expiryRepair: Boolean = false,
+        /**
+         * 업무 앱 쪽 표시: 별도 대조 프로세스(F — reconciler 프로필)가 이 DB를 대조한다. true이고 counter-trigger가 아니면 A가 필수(기동 검사).
+         * F 프로세스 자신의 기동 검사로는 업무 앱의 A를 볼 수 없어서 둔다(코드 루프 1 L1-18). 하네스가 F 조건에서 업무 앱에 켠다.
+         */
+        val externalReconciler: Boolean = false,
         val reconcile: Reconcile = Reconcile(),
         val cleanup: Cleanup = Cleanup(),
     )

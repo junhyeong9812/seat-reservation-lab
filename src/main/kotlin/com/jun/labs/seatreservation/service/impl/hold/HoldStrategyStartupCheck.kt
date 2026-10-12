@@ -65,9 +65,14 @@ class HoldStrategyStartupCheck(
         check(limit !in QUOTA_TABLE_STRATEGIES || quotaTable) {
             "매수 방식 $limit 는 쿼터 테이블(user_hold_quota — V5)이 있어야 한다 — 없다(spring.flyway.target 등으로 앞 버전 스키마를 띄웠으면 limit-strategy=none을 명시하라)"
         }
-        val trigger = jdbc.queryForObject(
-            "SELECT count(*) FROM pg_trigger WHERE tgname IN ('$HOLD_TRIGGER', '$RESERVATION_TRIGGER') AND NOT tgisinternal", Int::class.java,
-        )!! > 0
+        // 트리거 2개(홀드·예약)가 모두 있어야 B다 — 하나만 있으면 카운터가 한쪽 변경만 따라간다(코드 루프 1 L1-14)
+        val triggers = jdbc.queryForObject(
+            "SELECT count(DISTINCT tgname) FROM pg_trigger WHERE tgname IN ('$HOLD_TRIGGER', '$RESERVATION_TRIGGER') AND NOT tgisinternal", Int::class.java,
+        )!!
+        check(triggers == 0 || triggers == 2) {
+            "카운터 트리거(V8 — $HOLD_TRIGGER·$RESERVATION_TRIGGER)가 하나만 있다($triggers) — 둘 다 있거나 둘 다 없어야 한다"
+        }
+        val trigger = triggers == 2
         check(trigger == (limit == COUNTER_TRIGGER)) {
             "매수 방식 $limit 와 카운터 트리거(V8 — $HOLD_TRIGGER·$RESERVATION_TRIGGER) 존재=$trigger 가 맞지 않는다 " +
                 "— counter-trigger는 spring.flyway.locations에 classpath:db/migration-trigger를 더하고, 다른 방식은 빼야 한다(앱 증감과 트리거가 겹친다)"
@@ -77,12 +82,21 @@ class HoldStrategyStartupCheck(
         val a = drift.expiryRepair
         val c = drift.reconcile.enabled
         val f = environment?.activeProfiles?.contains(RECONCILER_PROFILE) == true
+        val external = drift.externalReconciler
         val cleanup = drift.cleanup.mode
-        check(!(a || c || f) || limit in COUNTER_FAMILY) {
-            "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f)는 카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
+        check(!(a || c || f || external) || limit in COUNTER_FAMILY) {
+            "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f · external-reconciler=$external)는 " +
+                "카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
         }
         check(!(a && limit == COUNTER_TRIGGER)) {
             "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)"
+        }
+        // 대조(C·F)를 켜면 A 필수(코드 루프 1 L1-10·L1-18, 사용자 결정): 대조는 마감 회차를 보지 않으므로, 마감 회차의 어긋난 쌍이 만료 감소를 실패시키면
+        // A 없이는 틱이 계속 롤백된다(만료 정지). counter-trigger는 예외 — 트리거가 마감 회차를 건너뛰어 그 정지 경로가 없다.
+        // F 프로세스 자신은 만료를 하지 않으므로 이 검사를 하지 않는다 — 업무 앱이 external-reconciler=true로 같은 검사를 받는다.
+        check(!((c || external) && !f && !a && limit != COUNTER_TRIGGER)) {
+            "대조(C reconcile.enabled=$c · F external-reconciler=$external)를 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다 " +
+                "— 마감 회차 어긋남이 만료를 멈출 수 있다(counter-trigger는 예외) — 현재 $limit"
         }
         check(cleanup == CleanupMode.NONE || limit in CLEANUP_STRATEGIES) {
             "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)"
@@ -99,14 +113,17 @@ class HoldStrategyStartupCheck(
             check(!expiryScheduler) {
                 "$RECONCILER_PROFILE 프로필(후보 F — 대조 전용 프로세스)은 만료 스케줄러를 꺼야 한다(seat.hold.expiry-scheduler-enabled=false) — 앱과 만료가 겹친다"
             }
+            check(c) {
+                "$RECONCILER_PROFILE 프로필(후보 F)인데 대조가 꺼져 있다(seat.hold.counter-drift.reconcile.enabled=false) — 아무것도 하지 않는 프로세스가 뜬다(코드 루프 1 L1-13)"
+            }
         }
     }
 
     companion object {
         /** 쿼터 테이블(user_hold_quota)을 읽거나 쓰는 매수 방식 */
         val QUOTA_TABLE_STRATEGIES = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER, QUOTA_LOCK, QUOTA_NOWAIT, QUOTA_NOWAIT_EARLY)
-        /** cnt를 유지하는 매수 방식(카운터 계열) */
-        val COUNTER_FAMILY = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
+        /** cnt를 유지하는 매수 방식(카운터 계열) — 단일 출처는 [UserLimitStrategyType.COUNTER_FAMILY] */
+        val COUNTER_FAMILY = UserLimitStrategyType.COUNTER_FAMILY
         /** 쿼터 행 정리를 허용하는 방식 — 트랜잭션 안에서 행을 만들거나(upsert) 트리거가 만든다 */
         val CLEANUP_STRATEGIES = setOf(COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
         val LOG_TABLES = listOf("counter_drift_log", "counter_reconcile_run", "counter_cleanup_run")

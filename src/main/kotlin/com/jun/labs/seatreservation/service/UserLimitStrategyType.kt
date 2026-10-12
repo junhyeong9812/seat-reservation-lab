@@ -22,4 +22,10 @@ enum class UserLimitStrategyType {
     COUNTER_TRIGGER,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,
+    ;
+
+    companion object {
+        /** cnt를 유지하는 방식(카운터 계열) — 판정기·배경 행 거부·기동 검사의 단일 출처(ADR-009 코드 루프 1 L1-14) */
+        val COUNTER_FAMILY: Set<UserLimitStrategyType> = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
+    }
 }
