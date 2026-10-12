@@ -12,6 +12,7 @@ import com.jun.labs.seatreservation.service.impl.drift.CounterReconciler
 import com.jun.labs.seatreservation.service.impl.drift.CounterRepairProbe
 import com.jun.labs.seatreservation.service.impl.drift.QuotaCleanup
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
+import com.jun.labs.seatreservation.support.countOf
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -165,6 +166,27 @@ class ReconcileCloseRaceImplTest : DriftTestSupport() {
     @AfterEach
     fun resetProbe() { probe.action = null }
 
+    @Volatile private var sharedWaitSeen = false
+
+    /** 다른 세션이 'FOR SHARE' 문장에서 잠금 대기(wait_event_type = Lock) 중일 때까지 폴링 — 보이면 true, 제한 시간 안에 없으면 false. */
+    private fun awaitForShareWaiter(timeoutMs: Long = 5_000): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            jdbcTemplate.queryForList("SELECT pg_stat_clear_snapshot()")
+            val n = jdbcTemplate.queryForObject(
+                """
+                SELECT count(*) FROM pg_stat_activity
+                WHERE datname = current_database() AND pid <> pg_backend_pid()
+                  AND wait_event_type = 'Lock' AND query ILIKE '%FOR SHARE%'
+                """.trimIndent(),
+                Int::class.java,
+            )!!
+            if (n > 0) return true
+            Thread.sleep(20)
+        }
+        return false
+    }
+
     private var seatNo = 8_000
     private fun confirmed(scheduleId: Long, userId: Long) {
         val seatId = jdbcTemplate.queryForObject(
@@ -197,18 +219,25 @@ class ReconcileCloseRaceImplTest : DriftTestSupport() {
                     check(jdbcTemplate.queryForObject("SELECT EXISTS (SELECT 1 FROM seat_hold WHERE schedule_id = ?)", Boolean::class.java, s) == false)
                     jdbcTemplate.update("DELETE FROM user_hold_quota WHERE schedule_id = ?", s)
                     holding.countDown()
-                    Thread.sleep(700) // 복구가 이 사이에 회차 행(또는 쿼터 행)에서 기다리게
+                    // 복구가 회차 행 FOR SHARE 문장에서 실제로 잠금 대기 중인지 확인한 뒤 진행(수면 대신 동기화). pg_stat_activity는 트랜잭션 안에서
+                    // 한 번 찍힌 값을 재사용하므로 매번 스냅숏을 지운다. FOR SHARE가 없는 코드면 나타나지 않으므로 제한 시간 뒤 그대로 진행한다(→ 테스트 실패로 드러남)
+                    sharedWaitSeen = awaitForShareWaiter()
                     clock.set(startsAt.plusSeconds(1)) // 커밋 직전에 마감
                 }
             }
             holding.await(5, TimeUnit.SECONDS)
         }
+        val drift0 = meters.countOf("seat.hold.counter.drift", "action" to "skipped")
+        val excluded0 = meters.countOf(CounterReconciler.EXCLUDED_METRIC, "unit" to "pairs")
         val run = try {
             reconciler.runOnce("reconcile-app")
         } finally {
-            cleanup?.get(10, TimeUnit.SECONDS)
+            cleanup?.get(15, TimeUnit.SECONDS)
             pool.shutdown()
         }
+        assertTrue(sharedWaitSeen, "복구가 회차 행 FOR SHARE에서 정리 커밋을 기다리지 않았다")
+        assertEquals(0.0, meters.countOf("seat.hold.counter.drift", "action" to "skipped") - drift0, "마감 제외가 drift 실패 지표에 들어갔다")
+        assertEquals(1.0, meters.countOf(CounterReconciler.EXCLUDED_METRIC, "unit" to "pairs") - excluded0, "마감 제외는 excluded{unit=pairs}로(이 바퀴의 마감 회차 쿼터 행 0 + 복구 생략 1)")
         assertEquals(1, run.skippedClosed, "$run")
         assertEquals(0, run.skipped, "마감 제외는 실패 skipped로 세지 않는다(L3-4)")
         assertEquals(0, run.repaired)
