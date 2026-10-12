@@ -107,7 +107,8 @@ class StartupCheckAndJudgeImplTest : IntegrationTest() {
         assertThrows<IllegalStateException> { check(properties.copy(counterDrift = schedule1, salesClose = SeatHoldProperties.SalesClose(false))) }
         check(properties.copy(counterDrift = schedule1)) // precheck + 마감 켬 = 통과
         assertThrows<IllegalStateException> { check(properties, MockEnvironment().apply { setActiveProfiles("reconciler") }) }
-        check(properties, MockEnvironment().apply { setActiveProfiles("reconciler"); setProperty("seat.hold.expiry-scheduler-enabled", "false") })
+        val reconcileOn = properties.copy(counterDrift = properties.counterDrift.copy(reconcile = properties.counterDrift.reconcile.copy(enabled = true)))
+        check(reconcileOn, MockEnvironment().apply { setActiveProfiles("reconciler"); setProperty("seat.hold.expiry-scheduler-enabled", "false") })
         val c = properties.counterDrift.copy(reconcile = properties.counterDrift.reconcile.copy(enabled = true))
         assertThrows<IllegalStateException> { check(properties.copy(limitStrategy = UserLimitStrategyType.QUOTA_LOCK, counterDrift = c)) }
     }
