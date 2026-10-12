@@ -14,6 +14,11 @@
 | 10-12 10:xx | 설계 v2 회수(Opus): v1 청크 대조 오류 발견(162만 쌍 155초 → 두 갈래 15초) · C2a 회차 FOR SHARE/FOR UPDATE 직렬화 실증 · M1 끝 상태는 DELETE 행 수 확인 생략 탓(행 수 확인 넣으면 6경우 모두 정합) · 매트릭스 84회 ≈ 18.7시간 | codex 재점검 |
 | 10-12 10:xx | codex 재점검: 기존 7 중 6 해소·E1 부분 · 신규 N1(행 없음 SQL 열린 회차 필터·예약 갈래 미실측) · N2(마감 판정 순서가 실제 호출 경로·전략별로 미보장) · N3(무관한 열린 회차 하나로 판정기 공허 통과) → 설계 재루프 없이 구현 합격 항목으로(§11) · 사용자 R1 FOR SHARE · R2 두 갈래 · R3 60초 | 설계 선검증 종료 |
 | 10-12 10:xx | 구현 검증 대장 신설 `docs/implementation-verification.md`(IV-009-1~7) · 설계 v2·SQL을 작업 폴더에 보존(design-v2.md·design-sql/ — scratchpad 유실 방지, 2파일 규칙의 편차) · 계약 표면 contract.md(blind 테스트용 이름 발췌) | task 02 ∥ 03 위임 |
+| 10-12 10:xx | 사용자 제기: 기존 데이터가 있을 때의 방식 전환 → 별도 ADR(사용자 결정), 번호 = 009 어긋남 → 010 전환(사용자 결정 — 의존: 전환이 009 대조·복구·트리거 사용) · NEXT N1b2 등재 · 문서 번호 이동(010~015 → 011~016)은 구현 워커 종료 뒤(작업트리 동시 커밋 충돌 회피) · 서버 디스크 읽기 전용 확인: nvme0n1 = Windows 전체 설치(EFI·MSR·NTFS·복구), 펌웨어 부팅 순서 Ubuntu → Windows Boot Manager, Linux에 미마운트 | 기록 |
+| 10-12 12:15 | task 03 blind 테스트 회수(Opus, worktree agent-a73d6e3de90a34655, 브랜치 worktree-agent-a73d6e3de90a34655, 커밋 9a3aa01a — 새 파일 9개, design 미열람): A·C·F·오탐·B·마감·마감 순서(허용 조합 23개)·정리①②·판정기·기동 검사 · 구현 전 컴파일 실패는 계약 이름 미구현뿐 · 스텁 복사본에서 새 동작 단언만 실패(공허성 근거) · 약점: 기동 실패 단언이 원인 무관(양성 대조로 보완) · 계약 밖 이름 4건 → 구현 워커에 전달(패키지 impl.drift·skipped_schedules·hikaricp.connections.acquire·reconciler 프로필 yml) | 구현 회수 대기 |
+| 10-12 12:2x | task 02 구현 회수(Opus): d2153431(V7·V8) · b3157ab5(main 전체) · 63ebe0f4(구현 확인 테스트 6파일 + IndexMigrationTest 1곳) · 231/0/0 · 계약 이름 변경 0(+ 추가 키·지표) · N2: HoldSeatProcess 트랜잭션 안 limit.acquire 전 SalesCloseGate FOR SHARE, SERIALIZABLE은 acquireFirst, Redis NX 진 경로는 잠금 없는 판정 · 순서 바꾼 코드로 4건 실패 확인(테스트 실효) · 해석 3건(holds_seen 0/1 · run.borrows에 기록 INSERT 포함 · 판정기는 회차 행 없는 쌍은 센다) · IV-009-5·6 해소 · blind 커밋 9a3aa01a를 cherry-pick → d11bee68, 전체 테스트 실행 | 진행 |
+| 10-12 12:5x | blind 포함 전체 `./gradlew test` rc=0 · 465/0/0/0(XML 집계 — blind 클래스 전부 실행 확인, 마감 순서 23조합 각 7) · blind 첫 실행 전부 통과 | 리뷰 루프 1 시작 |
+| 10-12 13:xx | 5차 번호 이동(사용자 결정: 새 ADR-010 = 운영 중 전환): 파일 010~015 → 011~016 · 참조 +1(머리 메모 줄·'새 ADR-010'·N1b2 줄 제외) · 정규식이 놓친 'ADR-012·012' 2곳(README·ADR-001) 수동 정정 · 링크 BROKEN 0 · 코드 주석 3곳(ExpireHolds 011·Confirm 012·UserLimitStrategies 012) 별도 커밋 · 대장 IV-009-5·6 해소 표시 | 리뷰 루프 1 진행 중 |
 
 ## 리뷰 ledger
 
