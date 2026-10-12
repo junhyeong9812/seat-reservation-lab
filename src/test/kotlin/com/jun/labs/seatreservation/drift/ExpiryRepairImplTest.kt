@@ -31,7 +31,7 @@ class ExpiryRepairImplTest : DriftTestSupport() {
 
         assertEquals(4, expire.expire())
 
-        assertEquals(null, cntOf(s, 1), "행 없음 + 실제 0(만료 뒤) → 행을 만들지 않는다(없음 = 0, 코드 루프 1 L1-8)")
+        assertEquals(0, cntOf(s, 1), "행 없음 → 명세 §2 절차대로 행을 만들어 실제(0)로(코드 루프 2 L2-3)")
         assertEquals(0, cntOf(s, 2))
         assertEquals(0, cntOf(s, 3), "정상 쌍은 그대로 감소")
         assertEquals(
@@ -71,7 +71,7 @@ class ExpiryRepairImplTest : DriftTestSupport() {
 
         // 다음 틱(실패 원인 제거 후)이 같은 쌍을 다시 복구한다
         assertEquals(2, expire.expire())
-        assertEquals(null, cntOf(s, 1), "실제 0 — 행 없음 = 0(L1-8)")
+        assertEquals(0, cntOf(s, 1), "A는 행을 만들어 실제(0)로(L2-3)")
         assertEquals("repaired", driftLog().last()[2])
     }
 }
