@@ -33,7 +33,8 @@ class IndexMigrationTest : IntegrationTest() {
     }
 
     @Nested
-    @TestPropertySource(properties = ["spring.flyway.target=1"])
+    // ADR-009 기동 검사: target=1 스키마에는 쿼터 테이블이 없어 기본 매수 방식(counter 계열)으로는 뜨지 않는다 — 기준선(none)을 명시한다
+    @TestPropertySource(properties = ["spring.flyway.target=1", "seat.hold.limit-strategy=none"])
     inner class WithoutIndexes : IntegrationTest() {
 
         @Autowired lateinit var jdbc: JdbcTemplate
