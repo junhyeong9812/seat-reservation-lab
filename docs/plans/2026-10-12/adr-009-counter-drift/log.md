@@ -29,6 +29,12 @@
 | 10-12 19:2x | 루프 3 수정 회수(Opus): 0392b17d(L3-1 판정 시각 한 번 채집 — ThreadLocal, hold finally에서 clear) · 5cd9fcce(L3-4 V7 skipped_closed 열·run 필드 / L3-3 주석) · c696b459(테스트: Loop3ImplTest · ReconcileCloseRace 재작성 — FOR SHARE 제거 시 실패 확인 · MutableClock.setForOneRead) · 493/0/0/0 보고 | codex 타깃 재점검 ∥ 메인 전체 테스트 |
 | 10-12 19:4x | 메인 전체 테스트 493/0/0/0 · codex 타깃 재점검(rv20): L3-1 fixed · L3-3 fixed · L3-2 partial(700ms 수면이 FOR SHARE 도달 보장 안 함) · L3-4 partial(drift 지표 action=skipped에 마감 제외 섞임, 하네스·ADR 분리는 이후) · 신규 N(MutableClock 스레드 간 가시성) → 구현 워커에 마감 수정 3건(이후 메인이 diff·테스트로 확인하고 리뷰 종료 — 루프 상한) | 진행 |
 | 10-12 19:3x | 재점검 마감 수정(Opus): 4b4ba691(마감 제외는 excluded{pairs}, drift skipped는 실패만) · 370a5166(MutableClock AtomicReference · 경합 테스트 pg_stat_activity 대기 확인 — FOR SHARE 제거 시 실패 재확인) · 메인 diff 확인 + 전체 테스트 493/0/0/0 → **코드 리뷰 종료**(루프 상한 3 + 타깃 재점검, ADR-008 선례). 남은 기록 항목: L2-10(B 엄격 범위 ADR) · L1-16/L2-11(하네스 WAL·MultiXact) · L3-4 하네스 분리 집계 · L2-9 ADR 정의 | task 05 하네스로 |
+| 10-12 20:4x | task 05 하네스 회수(Opus): 728c236c(k6/ADR-009 20파일) · 매트릭스 84회 ≈ 19.2시간 · 서버 스모크 5/5 ok(control S2 빌림 1.001 · A+F S2 F 8102 첫 바퀴 40초 · B S2 트리거 2 · A+C S3e 주입 60쌍 100% 복구·오탐 0·틱 실패 0·빌림 1.000117 · S3c control+schedule 마감 뒤 선점 79,951 전부 SCHEDULE_CLOSED·확정 140 성공·정리① 홀드 남은 동안 0 → 마지막 12,031행) · 서버 flyway V7 success(읽기 전용) · 서버 정리 · 명세 편차: 주입 시각 +420s → +270s(설계 조건으로 +420s 후보 0) · IV-009-7 C 세션은 문장 표지 근사(앱 풀 공유) · 오프라인 rep_status 39/39 · summarize 41/41 | 하네스 듀얼 1패스 |
+| 10-12 20:5x | 하네스 듀얼 1패스 회수: codex R1~R7 · Opus F1~F3·P3-1~10 → H-1~H-18(채택 17·기록 1) · H-10 B+C 면제 범위는 L2-5 사용자 보고 범위로 판정(새 결정 아님) | 하네스 수정 위임 |
+| 10-12 22:5x | 하네스 수정 회수(Opus): b3351b59(H-1~H-17·H-18 README) · 5e4c68b0(틱 실패 원인 분류 — V8 SR001은 로그에 'counter row missing'만) · 오프라인 rs 50/50 · py 69/69 · 로컬 PG 주입 SQL · 서버 스모크: control S3e ok(틱 실패 70 = 주입 원인뿐, 오래된 HELD 2,120 = 정지 재현) · B+C S3e 1회 effect-unexpected(분류기 결함 — 하네스 결함 1건 실측 발견) → 재실행 ok(60/60, 틱 실패 3 전부 주입 설명) · S3c zero ok · A+C S3e 회귀 ok · 해석 확인 필요 2(H-2 마감 전 성공 창 330초 · H-3 A+C·A+F expiry-repair 최소 1건 미요구) · 본측정 SHA 5e4c68b0 | codex 타깃 재점검 + 사용자 확인 |
+| 10-13 00:xx | 사용자 확인 3: H-2 마감 전 성공 창 330초 승인 · H-3 A+C·A+F expiry-repair 최소 1건 미요구 승인 · 본측정 = 재점검 clean이면 바로 시작 / codex 하네스 타깃 재점검(rv22): fixed 13 · partial 4(H-5·7·10·13) · 신규 N-1~N-5 → N-1 기각(정적 추론 '마감 뒤 확정 성공 불가' — S3c zero 스모크 실측 101건 OK가 반례) · N-2(기대 바퀴 수가 fixedDelay·실행 시간 무시)·N-3(B+C 면제 초 반올림·빈 파서)·N-4(잠금 후 재확인 조건 일부)·N-5(잘림을 결과 사유로) 채택 → clean 아님, 수정 후 시작 | 하네스 수정 위임 |
+| 10-13 00:xx | 사용자 지적: "원래 문서 먼저 쓰고 그에 맞게 테스트하는 거 아니야?" — 맞다(ADR-007 선례 7377fec9: 명세·가설·측정 계획 문서를 측정 전 커밋). ADR-009 ADR 문서를 측정 뒤로 미룬 것은 메인 누락 → 측정 전 고정 문서 ADR-009-counter-drift.md(문제·선택지·가설 H1~H8·측정 계획 84회·판정 기준·한계) + ADR-010 가설 문서 작성 · 본측정은 이 문서 커밋 뒤 시작 · 문서 듀얼 1패스(rv23) | 진행 |
+| 10-13 01:xx | 하네스 마감 수정 회수 285ba256(N-2~N-5, N-1 기각 근거 README) · 메인 오프라인 재실행 py 81/81 · rs 50/50 · 측정 전 문서 듀얼 1패스(codex R1~R4 · Opus F1~F9) → DOC-1~9 반영(사용자 결정: 비용 판정에 p99·벽 시각 추가) · 사용자 질문 '디스크 문제를 메모리에 모아 한 번에 flush로 우회?' → 아님(tmpfs = 측정용 디스크 제거, 그룹 커밋·synchronous_commit은 N1a 미시험 후보) | 문서 커밋 → 본측정 |
 
 ## 리뷰 ledger
 
@@ -98,6 +104,43 @@
 | L3-2 | 3 | opus N1 | Loop2ImplTest.kt:203-213 | 채택 — ReconcileCloseRaceImplTest 공허(finally 순서로 대기 단언 항상 참, 이음새가 시계를 먼저 옮겨 FOR SHARE 없이도 통과) → 정리 스레드가 DELETE 뒤 커밋 직전에 시계를 옮기게, FOR SHARE 제거 시 빨강 확인 | fixed | 0392b17d..370a5166 |
 | L3-3 | 3 | opus N2 | QuotaCleanup.kt:118-119 · SalesCloseGate.kt:31 · TriggerLoop1ImplTest.kt:25 · ExpiryRepairTest.kt:98 | 채택 — 낡은 주석 정정(대기 비용 있음·FOR UPDATE·이음새 제거·2099) | fixed | 0392b17d..370a5166 |
 | L3-4 | 3 | opus N3 | CounterReconciler.kt:263-264 · V7:4,15,31 | 채택 — skipped(reason=closed)는 실패가 아니라 마감 제외: V7 주석에 정의 + 바퀴 요약에서 따로 셈(run 필드 또는 지표 태그) · 하네스·ADR에서 분리 집계 | fixed | 0392b17d..370a5166 |
+
+- review packet(하네스 듀얼 1패스): rv21 — 미러(728c236c tracked + ADR-008 대비 diff + spec·design-v2 + 스모크 산출 요약) · 보안 스캔 0건
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| H-1 | h | opus F1(P1) | run.sh:177 · lib.sh:466-480 | 채택 — control(정지 조건)은 둘째 주입의 D·L1을 조건별 계획에서 빼고 plan.json에 기록 · 캠페인 전 control·B+C S3e 스모크 | fixed | b3351b59·5e4c68b0 |
+| H-2 | h | codex R1(P1) | summarize.py:850 | 채택 — S3c 마감 뒤 선점은 SCHEDULE_CLOSED 요구 + 마감 직전 성공 표본 요구 | fixed | b3351b59·5e4c68b0 |
+| H-3 | h | codex R3(P1) | summarize.py:823 | 채택 — 틱 실행 수 > 0 · 끝 오래된 HELD 0을 합격 조건에 · A 경로 복구 출처 확인 | fixed | b3351b59·5e4c68b0 |
+| H-4 | h | codex R5(P1) | lib.sh:437 · summarize.py:801 | 채택 — drift 기록 잘림이면 회차 실패(또는 전체 수집) | fixed | b3351b59·5e4c68b0 |
+| H-5 | h | codex R2 | summarize.py:859 | 채택 — 마감 뒤 유효 홀드 확정 성공 ≥ 1 요구 | fixed | b3351b59·5e4c68b0 |
+| H-6 | h | codex R4 + opus P3-4 | summarize.py:814,776,785,826 | 채택 — 주입 쌍마다 끝 cnt = 실제 요구, 끝 상태 누락은 effect-check-failed | fixed | b3351b59·5e4c68b0 |
+| H-7 | h | codex R6 + opus P3-5 | lib.sh:466,498-500 | 채택 — 주입 대상 정렬 잠금 후 조건 재확인·영향 행 수 대조 · 틱 실패 SQLSTATE 기록 | fixed | b3351b59·5e4c68b0 |
+| H-8 | h | codex R7 | summarize.py:866 | 채택 — 마감 전 표본 시각 허용 창(starts_at − 5초 ± 오차) | fixed | b3351b59·5e4c68b0 |
+| H-9 | h | opus F2 | summarize.py:875-880 · lib.sh:567-568 | 채택 — schedule 모드: 끝 holds 0 · 틱 실패 증가 0 · rows_deleted > 0 기록 ≥ 1 요구 | fixed | b3351b59·5e4c68b0 |
+| H-10 | h | opus F3 | summarize.py:830-831 | 채택 — B+C 틱 실패 면제는 주입 → 복구 구간 안·주입 원인(SR001·23514 — L2-5에서 사용자 보고한 B 예외 범위)만, 그 밖은 unexpected | fixed | b3351b59·5e4c68b0 |
+| H-11 | h | opus P3-1 | run.sh:656-661 | 채택 — 빌림 지표를 acquire 앞뒤로 두 번 읽어 일치할 때 사용 | fixed | b3351b59·5e4c68b0 |
+| H-12 | h | opus P3-2 | run.sh:526-528 | 채택 — docker logs 파이프 실패·빈 로그 감지 | fixed | b3351b59·5e4c68b0 |
+| H-13 | h | opus P3-3 | run.sh:955 | 채택 — reconcile.errors 증가 > 0 사유 · 구간 안 기대 바퀴 수 대조 | fixed | b3351b59·5e4c68b0 |
+| H-14 | h | opus P3-6 | lib.sh:425-434 | 채택 — 시드 시각 이후 바퀴만 · S2 C·F 비용 한계는 ADR 기록 | fixed | b3351b59·5e4c68b0 |
+| H-15 | h | opus P3-8 | run.sh:475,566 · lib.sh:458 | 채택 — 주입·마감 환경변수를 plan.json에 기록·이어하기 대조 | fixed | b3351b59·5e4c68b0 |
+| H-16 | h | opus P3-9 | campaign.sh:174 | 채택 — reconcile-missing은 재측정 대상에서 빼고 결과 사유로 | fixed | b3351b59·5e4c68b0 |
+| H-17 | h | opus P3-10 | summarize.py:767,783 | 채택 — k0 이후 주입 쌍의 주입 전 repaired도 오탐에 포함 | fixed | b3351b59·5e4c68b0 |
+| H-18 | h | opus P3-7 · +270초 · C 문장 표지 | compose.yml:63 · README | 기록 — control DB_URL ApplicationName 차이, 첫 물결 D·L1은 A가 먼저 고침(C·F 탐지 시간 비교는 L2·H만), by_src는 근사 → README·ADR 명시 | deferred(문서) | — |
+
+- review packet(측정 전 문서 듀얼 1패스): rv23 — ADR-009(측정 전 고정)·ADR-010(가설) + spec + 하네스·코드·스모크 산출 · 보안 스캔 0건
+
+| id | first_seen_loop | source | 근거 | disposition | status | fixed_in_loop |
+|----|-----------------|--------|------|-------------|--------|---------------|
+| DOC-1 | d | opus F1 | ADR-007:292-293 · campaign.sh:57,65 · s4-throughput.js:41-46 | 채택 — 고정 도착률 셀의 처리량은 디스크 벽·도착률에 묶여 둔감 → 사용자 결정(2026-10-13): 처리량 유지 + 선점 p99·디스크 벽 시작 시각(+마감 판정 시간·MultiXact 기록) 추가, H4·H6·H7·§5 반영 | fixed | doc |
+| DOC-2 | d | codex R2 + opus F2 | CounterReconciler.kt:176-186 · summarize.py:739 | 채택 — H5 반증을 DB 쪽 대기 이벤트로, 청크 시간(풀 대기 포함)·처리량은 해석 지표 | fixed | doc |
+| DOC-3 | d | opus F3 | run.sh:235 · lib.sh:564-583 · summarize.py:1003-1066 | 채택 — H8 반증을 ① 끝 홀드 0인데 행 남음 · ② cnt 0 행 남음 · 마감 5초 전 표본으로, 마감 뒤 판정기 불가는 §6 ⑩ | fixed | doc |
+| DOC-4 | d | codex R1 + opus F4 | campaign.sh:61 · spec §5 | 채택 — B 단독 주장은 측정 밖(코드·테스트 추론) §6 ⑨ | fixed | doc |
+| DOC-5 | d | codex R3 + opus F5 | smoke2-BC-s3e-1 · summarize.py:918-945 | 채택 — §5.1에 B+C 첫 회 실패·원인(분류기 결함)·재판정 결과 기록 · 메인 확인: 285ba256 오프라인 py 81/81(실측 재판정 regress-n3 포함) · rs 50/50 | fixed | doc |
+| DOC-6 | d | opus F6 | smoke-AC-s3e-1 effect.json · README:66 | 채택 — H3 탐지 시간은 L2·H로, §6 ⑪(A가 D·L1을 먼저 고침) · 미스모크 셀 §5.1 | fixed | doc |
+| DOC-7 | d | opus F7 | summarize.py:888-904 | 채택 — H2 반증에 D·L1 복구 수·끝 일치·오래된 HELD 추가 | fixed | doc |
+| DOC-8 | d | codex R4 + opus F8 | V8:26-39 · HoldStrategyStartupCheck.kt:76 | 채택 — ADR-010 ④에 'B 그대로는 불가(엄격·기동 검사) → 비엄격 변형·순서 재설계' | fixed | doc |
+| DOC-9 | d | opus F9 | HoldStrategyStartupCheck.kt:92-105 | 채택 — ADR-010 ②에 조합 규칙 확장 필요 | fixed | doc |
 
 ## 생략한 검증
 
