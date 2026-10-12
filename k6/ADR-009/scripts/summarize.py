@@ -747,26 +747,31 @@ def snap_delta(a, b, *path):
 
 
 def tick_failure_causes(app_log_gz):
-    """만료 틱 실패 원인(H-7) — app.log.gz의 스케줄 작업 예외('Unexpected error occurred in scheduled task' 뒤 첫 예외 줄)를 분류해 센다:
-    SR001(B 트리거 엄격 — 행 없음) · 23514(CHECK cnt >= 0) · missing-row(legacy 감소 '카운터 행 없음') · 40P01 · 그 밖은 예외 클래스. 파일 없음 = None."""
+    """만료 틱 실패 원인(H-7) — app.log.gz의 스케줄 작업 예외 블록('Unexpected error occurred in scheduled task' 뒤 다음 로그 줄까지 — Caused by 포함)을 분류해 센다:
+    SR001(B 트리거 엄격 — V8 RAISE 'counter row missing'. 로그에 SQLSTATE 자체는 찍히지 않는다) · 23514(CHECK cnt >= 0 — 'check constraint') ·
+    missing-row(legacy 감소 '카운터 행 없음') · 40P01(deadlock) · 그 밖은 첫 예외 클래스. 파일 없음 = None."""
     if not app_log_gz.exists():
         return None
-    out, pending = {}, 0
+    out, block = {}, None
+    stamp = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+
+    def close(lines):
+        t = "\n".join(lines)
+        first = next((m.group(1) for m in (re.match(r"^\s*([\w.$]+(?:Exception|Error))\b", x) for x in lines) if m), "unknown")
+        k = ("SR001" if ("SR001" in t or "counter row missing" in t) else "23514" if ("23514" in t or "check constraint" in t)
+             else "missing-row" if "카운터 행 없음" in t else "40P01" if ("40P01" in t or "deadlock" in t.lower()) else first.rsplit(".", 1)[-1])
+        out[k] = out.get(k, 0) + 1
+
     with gzip.open(app_log_gz, "rt", errors="replace") as f:
         for line in f:
-            if "Unexpected error occurred in scheduled task" in line:
-                pending = 6
-                continue
-            if pending:
-                pending -= 1
-                m = re.match(r"^\s*([\w.$]+(?:Exception|Error))\b", line)
-                if not m:
-                    continue
-                t = line
-                k = ("SR001" if "SR001" in t else "23514" if ("23514" in t or "check constraint" in t) else "missing-row" if "카운터 행 없음" in t
-                     else "40P01" if ("40P01" in t or "deadlock" in t.lower()) else m.group(1).rsplit(".", 1)[-1])
-                out[k] = out.get(k, 0) + 1
-                pending = 0
+            if stamp.match(line):
+                if block is not None:
+                    close(block)
+                block = [] if "Unexpected error occurred in scheduled task" in line else None
+            elif block is not None:
+                block.append(line)
+    if block is not None:
+        close(block)
     return out
 
 
