@@ -183,6 +183,7 @@ class LoadtestDataService(
             SELECT
               (SELECT count(*) FROM pairs WHERE cnt <> total AND schedule_id NOT IN (SELECT id FROM closed_s)) AS v_counter_mismatch,
               (SELECT count(*) FROM closed_s)                                                                AS counter_excluded_schedules,
+              -- counter_excluded_pairs = 마감 회차의 (쿼터 행 ∪ 실제 값 쌍) 수. 대조 기록 skipped_pairs(마감 회차의 쿼터 행 수)와 정의가 다르다(L2-9 — 이름은 계약)
               (SELECT count(*) FROM pairs WHERE schedule_id IN (SELECT id FROM closed_s))                     AS counter_excluded_pairs
             """.trimIndent(),
             Timestamp.from(clock.instant()),

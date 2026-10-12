@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.service.impl.drift
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
+import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
@@ -123,6 +124,8 @@ class CounterReconciler(
         }
         val open = schedules.filter { it.second }.map { it.first }
         val skippedSchedules = schedules.count { !it.second }
+        // skipped_pairs = 마감 회차의 **쿼터 행** 수(PK 앞부분 count). 판정기 counter_excluded_pairs(마감 회차의 쿼터 행 ∪ 실제 값 쌍)와 정의가 다르다 —
+        // 정리 ①이 쿼터 행을 지운 회차는 여기서 0이지만 판정기에서는 확정 쌍만큼 남는다(코드 루프 2 L2-9, 이름은 계약이라 그대로)
         val skippedPairs = schedules.sumOf { it.third }
 
         val found = LinkedHashMap<Pair<Long, Long>, Observation>()
@@ -245,12 +248,23 @@ class CounterReconciler(
             o.cnt < o.actual -> DriftKind.BELOW
             else -> DriftKind.ABOVE
         }
-        probe.ifAvailable { it.afterDetect(o.scheduleId, o.userId, o.cnt, o.actual) }
         return try {
+            // 이음새 호출도 try 안 — 이음새가 실패해도 그 쌍은 skipped로 남고 바퀴는 계속된다(코드 루프 2 L2-12)
+            probe.ifAvailable { it.afterDetect(o.scheduleId, o.userId, o.cnt, o.actual) }
             val outcome = pass.borrow {
                 tx.execute {
                     jdbc.queryForList("SELECT set_config('lock_timeout', ?, true)", "${lockTimeoutMs}ms")
-                    repair.repairInCurrentTx(source, o.scheduleId, o.userId, kind)
+                    // 복구 트랜잭션 안에서 회차 마감을 다시 본다(코드 루프 2 L2-2 — 기준 = 앱 Clock). 탐지와 복구 사이에 마감되고 정리 ①이 쿼터 행을
+                    // 지웠을 수 있다 — 그 회차는 카운터를 쓰지 않으므로 행을 되살리지 않고 skipped(reason=closed)만 남긴다.
+                    // FOR SHARE: 정리 ①(회차 행 FOR UPDATE)이 진행 중이면 그 커밋을 기다린 뒤 판정한다(lock_timeout 안)
+                    val startsAt = jdbc.queryForList(
+                        "SELECT starts_at FROM product_schedule WHERE id = ? FOR SHARE", Timestamp::class.java, o.scheduleId,
+                    ).singleOrNull()
+                    if (startsAt == null || SalesCloseGate.isClosed(startsAt.toInstant(), clock.instant())) {
+                        DriftOutcome(source, o.scheduleId, o.userId, kind, o.cnt, o.actual, DriftAction.SKIPPED, SKIP_CLOSED).also(recorder::insert)
+                    } else {
+                        repair.repairInCurrentTx(source, o.scheduleId, o.userId, kind)
+                    }
                 }!!
             }
             recorder.count(outcome)
@@ -288,6 +302,8 @@ class CounterReconciler(
         /** 마감 회차 제외 수(unit = schedules | pairs) — 쌍 skipped(복구 실패)와 이름이 겹치지 않게(코드 루프 1 L1-15) */
         const val EXCLUDED_METRIC = "seat.hold.counter.reconcile.excluded"
         const val ERRORS_METRIC = "seat.hold.counter.reconcile.errors"
+        /** 복구 트랜잭션에서 회차가 마감(또는 없음)으로 보인 쌍의 skipped 사유 */
+        const val SKIP_CLOSED = "closed"
         const val SKIPPED_CHUNKS_METRIC = "seat.hold.counter.reconcile.skipped_chunks"
 
         /** 설계 `chunk-v2.sql` — 파라미터: 회차, after, k, 회차(홀드), 회차(예약) */

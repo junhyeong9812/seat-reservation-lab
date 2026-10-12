@@ -30,13 +30,13 @@ CREATE TABLE counter_reconcile_run (
     false_positives   INT         NOT NULL,
     skipped           INT         NOT NULL,   -- 복구 실패로 건너뛴 쌍
     skipped_schedules INT         NOT NULL,   -- 마감 회차 수
-    skipped_pairs     BIGINT      NOT NULL,   -- 마감 회차의 쿼터 행 수
+    skipped_pairs     BIGINT      NOT NULL,   -- 마감 회차의 쿼터 행 수(판정기 counter_excluded_pairs = 쿼터 행 ∪ 실제 쌍과 정의가 다르다)
     skipped_chunks    INT         NOT NULL,   -- 청크 문장 실패로 건너뛴 청크(실패한 청크 1 + 그 회차·갈래의 남은 청크는 세지 않음)
     errors            INT         NOT NULL,
     chunk_ms_total    BIGINT      NOT NULL,
     chunk_ms_max      BIGINT      NOT NULL,
     orphan_ms_total   BIGINT      NOT NULL,
-    borrows           BIGINT      NOT NULL    -- 이 바퀴의 커넥션 빌림 수(이 기록 INSERT는 빼고)
+    borrows           BIGINT      NOT NULL    -- 이 바퀴의 커넥션 빌림 수(이 기록 INSERT 포함 — 지표 reconcile.borrows 증가분·Hikari acquire 증가분과 같다)
 );
 
 -- 쿼터 행 정리 기록. schedule(①) = 회차마다 1행, zero(②) = 실행마다 1행(schedule_id NULL)

@@ -27,21 +27,24 @@ class ExpireHoldsService(
     override fun expire(): Int {
         counters.beginTick()
         try {
-            val count = tx.execute {
-                val now = clock.instant()
-                val expired = productSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual(now)
-                    .flatMap { it.expireHolds(now) }
-                // 매수 카운터(ADR-005 counter 계열)만 실제로 지운 홀드만큼 내린다(B는 트리거가 내리고 앱은 쿼터 행만 먼저 잠근다) — 다른 매수 방식에서는 아무것도 하지 않는다
-                userLimit.strategy.onHoldsExpired(expired)
-                expired.size
-            }!!
+            val count = try {
+                tx.execute {
+                    val now = clock.instant()
+                    val expired = productSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual(now)
+                        .flatMap { it.expireHolds(now) }
+                    // 매수 카운터(ADR-005 counter 계열)만 실제로 지운 홀드만큼 내린다(B는 트리거가 내리고 앱은 쿼터 행만 먼저 잠근다) — 다른 매수 방식에서는 아무것도 하지 않는다
+                    userLimit.strategy.onHoldsExpired(expired)
+                    expired.size
+                }!!
+            } catch (e: Throwable) {
+                // 롤백 처리는 트랜잭션 실패에만 — 커밋 뒤 단계(지표·afterCommit)의 예외를 롤백으로 세지 않는다(코드 루프 2 L2-7)
+                meters.counter(TICK_METRIC, "outcome", "failed").increment()
+                counters.afterRollback(e)
+                throw e
+            }
             meters.counter(TICK_METRIC, "outcome", "ok").increment()
             counters.afterCommit()
             return count
-        } catch (e: Throwable) {
-            meters.counter(TICK_METRIC, "outcome", "failed").increment()
-            counters.afterRollback(e)
-            throw e
         } finally {
             counters.endTick()
         }

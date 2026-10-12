@@ -32,7 +32,7 @@ data class CleanupRun(
     val rowsDeleted: Int,
     /** ①: 홀드가 남아 건너뛴 회차 수 */
     val skippedWithHolds: Int,
-    /** ①: 트랜잭션이 실패한 회차 수(로그·지표 `seat.hold.counter.cleanup.errors`) */
+    /** 실패 수(로그·지표 `seat.hold.counter.cleanup.errors{mode}`) — ①: 트랜잭션이 실패한 회차 · ②: 실패한 청크 */
     val errors: Int,
     /** 이번 실행의 커넥션 빌림 수(기록 INSERT 포함) = 지표 `seat.hold.counter.cleanup.borrows` 증가분 */
     val borrows: Long,
@@ -42,7 +42,7 @@ data class CleanupRun(
 /**
  * 쿼터 행 정리 2방식(명세 §1-3 · §10 · 설계 §6). `seat.hold.counter-drift.cleanup.mode`로 고른다(none이면 아무것도 하지 않는다).
  *
- * ① schedule — 마감 회차(starts_at <= now) 중 쿼터 행이 남은 회차마다 한 트랜잭션: 회차 행 `FOR NO KEY UPDATE`(선점의 마감 판정 `FOR SHARE`와 직렬화 —
+ * ① schedule — 마감 회차(starts_at <= now) 중 쿼터 행이 남은 회차마다 한 트랜잭션: 회차 행 `FOR UPDATE`(선점의 마감 판정 `FOR SHARE`와 직렬화 —
  *   진행 중 선점이 있으면 그 커밋을 기다린다) → 새 문장으로 홀드 존재 확인 → 없으면 **그 회차의 쿼터 행 전부**(확정 쌍 포함 — 판정기·대조가 마감 회차를 빼므로
  *   어긋남이 아니다) 삭제 → 기록. 홀드가 남은 회차는 지우지 않는다(남은 홀드의 만료 감소에 행이 있어야 한다).
  * ② zero — 모든 회차의 cnt = 0 행을 청크마다 한 문장으로 지운다. 진행 중 upsert가 같은 행을 1로 올리는 중이면 DELETE가 그 행을 기다렸다가
@@ -115,9 +115,9 @@ class QuotaCleanup(
     private fun cleanSchedule(scheduleId: Long): CleanupRecord? {
         val t0 = System.nanoTime()
         val startsAt = jdbc.queryForList(
-            // FOR NO KEY UPDATE(코드 루프 1 L1-9): 선점의 마감 판정 FOR SHARE와는 충돌해 직렬화하고, 홀드·예약 INSERT의 FK 검사(FOR KEY SHARE)는
-            // 막지 않는다 — 확정·만료처럼 이 회차에 행을 쓰는 다른 경로가 정리 동안 기다리지 않는다
-            "SELECT starts_at FROM product_schedule WHERE id = ? FOR NO KEY UPDATE", Timestamp::class.java, scheduleId,
+            // FOR UPDATE(명세 §10 — 코드 루프 2 L2-1로 복귀): 선점의 마감 판정 FOR SHARE와 직렬화하고, 홀드·예약 INSERT의 FK 검사(FOR KEY SHARE)도 막는다.
+            // 홀드 0 회차만 지우므로 그 사이 올 확정(홀드 필요)이 없어 대기 비용이 없다
+            "SELECT starts_at FROM product_schedule WHERE id = ? FOR UPDATE", Timestamp::class.java, scheduleId,
         ).singleOrNull()
         val waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
         if (startsAt == null || !SalesCloseGate.isClosed(startsAt.toInstant(), clock.instant())) {
@@ -143,21 +143,32 @@ class QuotaCleanup(
         val schedules = borrow { jdbc.queryForList("SELECT id FROM product_schedule ORDER BY id", Long::class.java) }
         var deleted = 0
         var stmtNanos = 0L
+        var errors = 0
         schedules.forEach { s ->
             var after = Long.MIN_VALUE
             while (true) {
                 val t0 = System.nanoTime()
-                val row = borrow { jdbc.queryForMap(ZERO_SQL, s, after, k, s, after) }
-                stmtNanos += System.nanoTime() - t0
+                val row = try {
+                    borrow { jdbc.queryForMap(ZERO_SQL, s, after, k, s, after) }
+                } catch (e: Exception) {
+                    // 청크 하나의 실패가 다른 회차의 정리를 막지 않게 — 무음 금지(정리 ①과 같게, 코드 루프 2 L2-8): ERROR 로그 + 지표, 이 회차의 남은 청크는 다음 실행에서
+                    errors++
+                    meters.counter(ERRORS_METRIC, "mode", MODE_ZERO).increment()
+                    log.error("정리 ②: 회차 {} 청크 실패(user_id > {}) — 이 회차의 남은 청크는 다음 실행에서 본다: {}", s, after, e.toString())
+                    break
+                } finally {
+                    stmtNanos += System.nanoTime() - t0
+                }
                 deleted += (row["deleted"] as Number).toInt()
                 val scanned = (row["scanned"] as Number).toInt()
                 if (scanned < k) break
                 after = (row["last_user"] as Number).toLong()
             }
         }
+        // 실패가 있어도 그때까지 지운 수를 기록한다(부분 기록)
         val record = CleanupRecord(MODE_ZERO, null, 0, deleted, 0, TimeUnit.NANOSECONDS.toMillis(stmtNanos))
         borrow { insertRecord(record) }
-        return CleanupRun(CleanupMode.ZERO, at, schedules.size, deleted, 0, 0, borrows, listOf(record))
+        return CleanupRun(CleanupMode.ZERO, at, schedules.size, deleted, 0, errors, borrows, listOf(record))
     }
 
     private fun insertRecord(r: CleanupRecord) {
