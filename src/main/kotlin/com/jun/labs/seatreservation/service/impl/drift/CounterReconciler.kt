@@ -271,7 +271,13 @@ class CounterReconciler(
                     }
                 }!!
             }
-            recorder.count(outcome)
+            if (outcome.action == DriftAction.SKIPPED && outcome.reason == SKIP_CLOSED) {
+                // 마감 제외는 실패가 아니다 — drift{action=skipped}(실패)에 넣지 않고 마감 제외 지표(쌍)에 더한다(L3-4 재점검). 기록 1행은 위에서 남겼다
+                meters.counter(EXCLUDED_METRIC, "unit", "pairs").increment()
+                log.info("대조 복구 생략 — 회차 {}가 복구 트랜잭션에서 마감으로 보였다(사용자 {})", o.scheduleId, o.userId)
+            } else {
+                recorder.count(outcome)
+            }
             outcome
         } catch (e: Exception) {
             val skipped = DriftOutcome(source, o.scheduleId, o.userId, kind, o.cnt, o.actual, DriftAction.SKIPPED, skipReason(e))
