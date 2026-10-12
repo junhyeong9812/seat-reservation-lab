@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.sql.Timestamp
 import java.time.Clock
+import java.time.Instant
 
 /**
  * 1인 최대 매수 제어 방식(ADR-005). 좌석 경합 방식(ADR-003 전략)이 연 트랜잭션 안에서 두 자리에 끼어든다:
@@ -319,6 +320,7 @@ class CounterTriggerUserLimit(
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
     private val clock: Clock,
+    private val salesClose: SalesCloseGate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_TRIGGER
 
@@ -327,14 +329,15 @@ class CounterTriggerUserLimit(
      * 판매 마감 판정(SalesCloseGate)과 같은 출처가 된다. 같은 트랜잭션·같은 커넥션의 문장이라 빌림 수는 늘지 않는다.
      * 앱을 거치지 않는 직접 DB 쓰기는 이 설정이 없어 DB now()로 판정한다.
      */
-    private fun setCounterNow() {
-        jdbc.queryForList("SELECT set_config('$COUNTER_NOW_SETTING', ?, true)", clock.instant().toString())
+    private fun setCounterNow(at: Instant = clock.instant()) {
+        jdbc.queryForList("SELECT set_config('$COUNTER_NOW_SETTING', ?, true)", at.toString())
     }
 
     override fun beforeConfirm() = setCounterNow()
 
     override fun acquire(command: HoldSeatCommand): Boolean {
-        setCounterNow()
+        // 선점: 마감 판정이 쓴 시각을 그대로 트리거 기준 시각으로(코드 루프 3 L3-1 — 판정 '열림'이면 트리거도 '열림')
+        setCounterNow(salesClose.decisionInstant() ?: clock.instant())
         assertSeatAvailable(jdbc, command)
         val cnt = lockQuotaRow(command)
         if (cnt + 1 > properties.maxPerUser) {

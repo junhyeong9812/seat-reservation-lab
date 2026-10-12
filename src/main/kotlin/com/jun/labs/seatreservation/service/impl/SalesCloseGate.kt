@@ -28,7 +28,17 @@ class SalesCloseGate(
     fun now(): Instant = clock.instant()
 
     /**
-     * 선점 트랜잭션 안의 판정 — 회차 행을 `FOR SHARE`로 읽는다(명세 §10·§11 R1). 정리 ①(회차 행 `FOR NO KEY UPDATE` 뒤 홀드 0 재확인)과 직렬화된다:
+     * 이 스레드의 선점이 마감 판정([assertOpenLocked])에 쓴 시각 — 한 번 채집한 같은 시각을 뒤 단계(counter-trigger의 트리거 기준 시각)가 쓴다
+     * (코드 루프 3 L3-1: 두 번 읽으면 그 사이 경계를 넘어 '판정은 열림, 트리거는 마감'이 될 수 있다). 선점 처리([HoldSeatProcess.hold])가 끝나면 지운다.
+     */
+    private val decision = ThreadLocal<Instant>()
+
+    fun decisionInstant(): Instant? = decision.get()
+
+    fun clearDecision() = decision.remove()
+
+    /**
+     * 선점 트랜잭션 안의 판정 — 회차 행을 `FOR SHARE`로 읽는다(명세 §10·§11 R1). 정리 ①(회차 행 `FOR UPDATE` 뒤 홀드 0 재확인)과 직렬화된다:
      * 정리가 회차 행을 쥔 동안 온 선점은 기다렸다가 정리 커밋 뒤의 값을 읽고, 진행 중인 선점이 있으면 정리가 그 커밋을 기다린 뒤 홀드를 본다.
      * 같은 트랜잭션의 한 문장이라 커넥션 빌림 수는 그대로다(요청당 1).
      */
@@ -39,7 +49,10 @@ class SalesCloseGate(
             val startsAt = jdbc.queryForList(
                 "SELECT starts_at FROM product_schedule WHERE id = ? FOR SHARE", Timestamp::class.java, scheduleId,
             ).singleOrNull()
-            assertOpen(startsAt)
+            val at = startsAt ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
+            val now = clock.instant() // 이 선점의 판정 시각 — 한 번만 읽는다
+            decision.set(now)
+            if (isClosed(at.toInstant(), now)) throw SeatReservationException(ErrorCode.SCHEDULE_CLOSED)
         } finally {
             sample.stop(meters.timer("seat.hold.sales-close.check", "lock", "share"))
         }
@@ -55,11 +68,6 @@ class SalesCloseGate(
             "SELECT starts_at FROM product_schedule WHERE id = ?", Timestamp::class.java, scheduleId,
         ).singleOrNull() ?: return // 회차 없음은 마감 판정이 아니다 — 그 경로의 원래 판정(좌석)을 그대로 둔다
         if (isClosed(startsAt.toInstant(), clock.instant())) throw SeatReservationException(ErrorCode.SCHEDULE_CLOSED)
-    }
-
-    private fun assertOpen(startsAt: Timestamp?) {
-        val at = startsAt ?: throw SeatReservationException(ErrorCode.SEAT_NOT_FOUND)
-        if (isClosed(at.toInstant(), clock.instant())) throw SeatReservationException(ErrorCode.SCHEDULE_CLOSED)
     }
 
     companion object {

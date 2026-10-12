@@ -51,6 +51,22 @@ class HoldSeatProcess(
         // 예외: SERIALIZABLE은 acquire가 `SET TRANSACTION`(판정 없음)이라 트랜잭션 첫 문장이어야 해서 acquire 뒤에 판정한다(acquireFirst)
         var entered = true
         if (limit.acquireFirst) meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })
+        try {
+            return holdAfterAcquireFirst(command, loadSeat, beforeMutation, afterFlush, limit, entered)
+        } finally {
+            salesClose.clearDecision() // 판정 시각은 이 선점에서만 쓴다(L3-1)
+        }
+    }
+
+    private fun holdAfterAcquireFirst(
+        command: HoldSeatCommand,
+        loadSeat: ((seatId: Long, scheduleId: Long) -> ProductSeat?)?,
+        beforeMutation: (ProductSeat) -> Unit,
+        afterFlush: (ProductSeat) -> Unit,
+        limit: com.jun.labs.seatreservation.service.impl.limit.UserLimitStrategy,
+        enteredFirst: Boolean,
+    ): HoldSeatResult {
+        var entered = enteredFirst
         salesClose.assertOpenLocked(command.scheduleId)
         if (!limit.acquireFirst) meters.timer("seat.hold.limit.acquire").record(Runnable { entered = limit.acquire(command) })
         val spanStart = System.nanoTime()
