@@ -81,6 +81,17 @@ class CounterReconciler(
         var orphanMsTotal = 0L
     }
 
+    /** 바퀴를 끝까지 돌리되 실패를 숨기지 않는다 — run.errors · 지표 `…reconcile.errors{stage}` · ERROR 로그(코드 루프 1 L1-4·L1-7). */
+    private fun Pass.fail(stage: String, skipChunk: Boolean, message: String, e: Throwable) {
+        errors++
+        meters.counter(ERRORS_METRIC, "stage", stage).increment()
+        if (skipChunk) {
+            skippedChunks++
+            meters.counter(SKIPPED_CHUNKS_METRIC).increment()
+        }
+        log.error("대조 실패({}): {} — {}", stage, message, e.toString())
+    }
+
     private fun <T> Pass.borrow(block: () -> T): T {
         borrows++
         meters.counter(BORROWS_METRIC).increment()
@@ -93,17 +104,22 @@ class CounterReconciler(
         val startedAt = clock.instant()
         val now = Timestamp.from(startedAt)
 
-        // 대상 회차 + 제외 기록(마감 회차 수·그 회차들의 쿼터 행 수 — PK 앞부분 count)
-        val schedules = pass.borrow {
-            jdbc.query(
-                """
-                SELECT s.id, s.starts_at > ? AS open,
-                       CASE WHEN s.starts_at <= ? THEN (SELECT count(*) FROM user_hold_quota q WHERE q.schedule_id = s.id) ELSE 0 END AS closed_pairs
-                FROM product_schedule s ORDER BY s.id
-                """.trimIndent(),
-                { rs, _ -> Triple(rs.getLong("id"), rs.getBoolean("open"), rs.getLong("closed_pairs")) },
-                now, now,
-            )
+        // 대상 회차 + 제외 기록(마감 회차 수·그 회차들의 쿼터 행 수 — PK 앞부분 count). 실패하면 이 바퀴는 아무것도 보지 못한 것으로 기록한다
+        val schedules = try {
+            pass.borrow {
+                jdbc.query(
+                    """
+                    SELECT s.id, s.starts_at > ? AS open,
+                           CASE WHEN s.starts_at <= ? THEN (SELECT count(*) FROM user_hold_quota q WHERE q.schedule_id = s.id) ELSE 0 END AS closed_pairs
+                    FROM product_schedule s ORDER BY s.id
+                    """.trimIndent(),
+                    { rs, _ -> Triple(rs.getLong("id"), rs.getBoolean("open"), rs.getLong("closed_pairs")) },
+                    now, now,
+                )
+            }
+        } catch (e: Exception) {
+            pass.fail("schedules", skipChunk = false, "대상 회차 조회 — 이 바퀴는 대조하지 못했다", e)
+            emptyList()
         }
         val open = schedules.filter { it.second }.map { it.first }
         val skippedSchedules = schedules.count { !it.second }
@@ -118,10 +134,12 @@ class CounterReconciler(
             repairOne(pass, source, o, cfg.lockTimeout.toMillis())
         }
 
-        meters.counter(SKIPPED_METRIC, "unit", "schedules").increment(skippedSchedules.toDouble())
-        meters.counter(SKIPPED_METRIC, "unit", "pairs").increment(skippedPairs.toDouble())
+        meters.counter(EXCLUDED_METRIC, "unit", "schedules").increment(skippedSchedules.toDouble())
+        meters.counter(EXCLUDED_METRIC, "unit", "pairs").increment(skippedPairs.toDouble())
         val finishedAt = clock.instant()
-        val borrowsWithRecord = pass.borrows + 1 // 아래 바퀴 기록 INSERT
+        // borrows 정의(코드 루프 1 L1-12): 이 바퀴의 커넥션 빌림 전부 = 아래 바퀴 기록 INSERT **포함**. 지표 `…reconcile.borrows` 증가분·Hikari acquire 증가분과 같다.
+        // (V7 열 주석의 '이 기록 INSERT는 빼고'는 낡은 문구다 — V7은 수정 금지라 이 주석과 ADR-009가 정본)
+        val borrowsWithRecord = pass.borrows + 1
         val run = ReconcileRun(
             id = 0, source = source, startedAt = startedAt, finishedAt = finishedAt,
             schedules = open.size, chunks = pass.chunks, pairsScanned = pass.pairsScanned, orphanChunks = pass.orphanChunks,
@@ -152,9 +170,7 @@ class CounterReconciler(
             val rows = try {
                 pass.borrow { jdbc.queryForList(CHUNK_SQL, scheduleId, after, k, scheduleId, scheduleId) }
             } catch (e: Exception) {
-                pass.errors++
-                pass.skippedChunks++
-                log.error("대조 청크 실패 — 회차 {}의 남은 청크를 건너뛴다(user_id > {}): {}", scheduleId, after, e.toString())
+                pass.fail("chunk", skipChunk = true, "쿼터 청크 — 회차 $scheduleId 의 남은 청크를 건너뛴다(user_id > $after)", e)
                 return
             } finally {
                 val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
@@ -177,13 +193,18 @@ class CounterReconciler(
 
     /** ② 행 없음 쌍 — 홀드·CONFIRMED 예약의 id 범위 청크. 열린 회차 조건은 바퀴 시작 시각 그대로(두 갈래 모두). */
     private fun scanOrphans(pass: Pass, now: Timestamp, m: Int, found: MutableMap<Pair<Long, Long>, Observation>) {
-        val bounds = pass.borrow {
-            jdbc.queryForMap(
-                """
-                SELECT (SELECT min(id) FROM seat_hold) AS h_min, (SELECT max(id) FROM seat_hold) AS h_max,
-                       (SELECT min(id) FROM reservation) AS r_min, (SELECT max(id) FROM reservation) AS r_max
-                """.trimIndent(),
-            )
+        val bounds = try {
+            pass.borrow {
+                jdbc.queryForMap(
+                    """
+                    SELECT (SELECT min(id) FROM seat_hold) AS h_min, (SELECT max(id) FROM seat_hold) AS h_max,
+                           (SELECT min(id) FROM reservation) AS r_min, (SELECT max(id) FROM reservation) AS r_max
+                    """.trimIndent(),
+                )
+            }
+        } catch (e: Exception) {
+            pass.fail("bounds", skipChunk = true, "행 없음 갈래 범위 조회 — 이 바퀴의 행 없음 갈래 전체를 건너뛴다", e)
+            return
         }
         val orphans = LinkedHashMap<Pair<Long, Long>, Observation>()
         for ((sql, lo, hi) in listOf(
@@ -199,9 +220,7 @@ class CounterReconciler(
                 val rows = try {
                     pass.borrow { jdbc.queryForList(sql, a, b, now) }
                 } catch (e: Exception) {
-                    pass.errors++
-                    pass.skippedChunks++
-                    log.error("행 없음 청크 실패 — 이 갈래의 남은 청크를 건너뛴다(id >= {}): {}", a, e.toString())
+                    pass.fail("orphan", skipChunk = true, "행 없음 청크 — 이 갈래의 남은 청크를 건너뛴다(id >= $a)", e)
                     break
                 } finally {
                     meters.timer("seat.hold.counter.reconcile.orphan").record(System.nanoTime() - t0, TimeUnit.NANOSECONDS)
@@ -242,7 +261,9 @@ class CounterReconciler(
                 pass.borrow { tx.executeWithoutResult { recorder.insert(skipped) } }
                 recorder.count(skipped)
             } catch (recordFailure: Exception) {
+                // skipped 기록마저 실패 — 바퀴 결과를 실패로 남긴다(성공 위장 금지): run.errors + 지표 + ERROR 로그
                 recorder.recordFailed(skipped, recordFailure)
+                pass.fail("record", skipChunk = false, "skipped 기록 실패 — 회차 ${o.scheduleId} 사용자 ${o.userId}", recordFailure)
             }
             skipped
         }
@@ -264,7 +285,10 @@ class CounterReconciler(
     companion object {
         private val log = LoggerFactory.getLogger(CounterReconciler::class.java)
         const val BORROWS_METRIC = "seat.hold.counter.reconcile.borrows"
-        const val SKIPPED_METRIC = "seat.hold.counter.reconcile.skipped"
+        /** 마감 회차 제외 수(unit = schedules | pairs) — 쌍 skipped(복구 실패)와 이름이 겹치지 않게(코드 루프 1 L1-15) */
+        const val EXCLUDED_METRIC = "seat.hold.counter.reconcile.excluded"
+        const val ERRORS_METRIC = "seat.hold.counter.reconcile.errors"
+        const val SKIPPED_CHUNKS_METRIC = "seat.hold.counter.reconcile.skipped_chunks"
 
         /** 설계 `chunk-v2.sql` — 파라미터: 회차, after, k, 회차(홀드), 회차(예약) */
         private val CHUNK_SQL = """

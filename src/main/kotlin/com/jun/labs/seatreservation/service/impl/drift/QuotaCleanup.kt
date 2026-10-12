@@ -42,7 +42,7 @@ data class CleanupRun(
 /**
  * 쿼터 행 정리 2방식(명세 §1-3 · §10 · 설계 §6). `seat.hold.counter-drift.cleanup.mode`로 고른다(none이면 아무것도 하지 않는다).
  *
- * ① schedule — 마감 회차(starts_at <= now) 중 쿼터 행이 남은 회차마다 한 트랜잭션: 회차 행 `FOR UPDATE`(선점의 마감 판정 `FOR SHARE`와 직렬화 —
+ * ① schedule — 마감 회차(starts_at <= now) 중 쿼터 행이 남은 회차마다 한 트랜잭션: 회차 행 `FOR NO KEY UPDATE`(선점의 마감 판정 `FOR SHARE`와 직렬화 —
  *   진행 중 선점이 있으면 그 커밋을 기다린다) → 새 문장으로 홀드 존재 확인 → 없으면 **그 회차의 쿼터 행 전부**(확정 쌍 포함 — 판정기·대조가 마감 회차를 빼므로
  *   어긋남이 아니다) 삭제 → 기록. 홀드가 남은 회차는 지우지 않는다(남은 홀드의 만료 감소에 행이 있어야 한다).
  * ② zero — 모든 회차의 cnt = 0 행을 청크마다 한 문장으로 지운다. 진행 중 upsert가 같은 행을 1로 올리는 중이면 DELETE가 그 행을 기다렸다가
@@ -115,7 +115,9 @@ class QuotaCleanup(
     private fun cleanSchedule(scheduleId: Long): CleanupRecord? {
         val t0 = System.nanoTime()
         val startsAt = jdbc.queryForList(
-            "SELECT starts_at FROM product_schedule WHERE id = ? FOR UPDATE", Timestamp::class.java, scheduleId,
+            // FOR NO KEY UPDATE(코드 루프 1 L1-9): 선점의 마감 판정 FOR SHARE와는 충돌해 직렬화하고, 홀드·예약 INSERT의 FK 검사(FOR KEY SHARE)는
+            // 막지 않는다 — 확정·만료처럼 이 회차에 행을 쓰는 다른 경로가 정리 동안 기다리지 않는다
+            "SELECT starts_at FROM product_schedule WHERE id = ? FOR NO KEY UPDATE", Timestamp::class.java, scheduleId,
         ).singleOrNull()
         val waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
         if (startsAt == null || !SalesCloseGate.isClosed(startsAt.toInstant(), clock.instant())) {
