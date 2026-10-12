@@ -1,22 +1,40 @@
 -- ADR-009 후보 B 전용 — spring.flyway.locations에 classpath:db/migration-trigger를 더할 때만 적용된다(V4 migration-unique와 같은 방식). 매수 방식 counter-trigger와 짝(기동 검사).
 -- 카운터 정의(V6·판정기와 같다): cnt = 그 (회차, 사용자)의 seat_hold 행 수 + reservation CONFIRMED 수.
 -- 트리거가 홀드·예약 변경에 따른 cnt의 쓰기 주체다(앱 선점은 판정 — 잠금·상한 확인 — 만 하고 cnt를 바꾸지 않는다. 예외: 어긋남 복구(대조 C·F)는 cnt를 실제 값으로 덮어쓴다).
--- 엄격: 줄일 행이 없으면 예외(SQLSTATE SR001), 음수는 V5 CHECK(23514)가 막는다 — 조용히 0으로 자르지 않는다(무음 금지 — 명세 §10 D3).
+-- 엄격: 늘리거나 줄일 행이 없으면 예외(SQLSTATE SR001), 음수는 V5 CHECK(23514)가 막는다 — 조용히 0으로 자르지 않는다(무음 금지 — 명세 §10 D3).
 -- v2(codex B1): 카운터 기여가 바뀌지 않는 UPDATE는 아무것도 쓰지 않고 바로 반환한다 — 기여 = (CONFIRMED 여부, 회차, 사용자).
 --   v1은 CONFIRMED → CONFIRMED 갱신에 −1·+1을 썼다: 주입으로 cnt가 0이면 −1이 CHECK에 걸려 순증감 0 갱신이 실패했다.
 
+-- 마감 판정(코드 루프 1 L1-2 · L1-19, 사용자 결정): 마감 회차(starts_at <= 기준 시각)의 기여 변화는 카운터에 반영하지 않는다
+-- (명세 §10: 마감 회차는 카운터를 쓰지 않는다 — 판정기·대조도 뺀다). 판정은 기여 쪽별이다: quota_add가 쪽마다 자기 회차를 본다
+-- (UPDATE로 회차·사용자·CONFIRMED 여부가 바뀌면 이전 쪽 −1·새 쪽 +1을 각각 판정 — 열린 쪽에만 엄격한 증감).
+-- 기준 시각 출처: **DB now()(트랜잭션 시작 시각)** 다. 앱의 판매 마감 판정(SalesCloseGate)은 **앱 Clock**이다 — 운영에서는 둘 다 벽시계라
+--   차이는 서버 간 시계 차·트랜잭션 시작 시각 차(수 ms~수 s)뿐이다. 그 사이(마감 경계)의 변경은 앱은 '열림', 트리거는 '마감'으로 볼 수 있다
+--   (또는 반대) — 그 회차는 마감 직후 판정기·대조에서 빠지므로 남는 어긋남은 판정 대상이 아니다.
+-- 테스트 이음새: 세션 설정 seatlab.counter_now가 있으면 그 값을 기준 시각으로 쓴다(테스트의 고정 앱 시계와 맞추려고 — IntegrationTest가
+--   커넥션 초기화 SQL로 넣는다). 운영 설정에서는 비어 있다(now()).
+CREATE FUNCTION counter_now() RETURNS timestamptz
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(nullif(current_setting('seatlab.counter_now', true), '')::timestamptz, now())
+$$;
+
+CREATE FUNCTION counter_schedule_closed(p_schedule BIGINT) RETURNS boolean
+LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (SELECT 1 FROM product_schedule WHERE id = p_schedule AND starts_at <= counter_now())
+$$;
+
+-- 엄격(L1-1, 사용자 결정): 증가·감소 모두 쿼터 행이 있어야 한다 — 없으면 SR001(행을 새로 만들지 않는다). 선점 경로는 앱(counter-trigger의
+-- lockQuotaRow)이 행을 먼저 보장하므로 영향이 없고, 확정·직접 변경은 어긋남(행 없음)이 있을 때만 실패한다. 음수는 V5 CHECK(23514).
 CREATE FUNCTION quota_add(p_schedule BIGINT, p_user BIGINT, p_delta INT) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF p_delta > 0 THEN
-        INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (p_schedule, p_user, p_delta)
-        ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + EXCLUDED.cnt;
-    ELSE
-        UPDATE user_hold_quota SET cnt = cnt + p_delta WHERE schedule_id = p_schedule AND user_id = p_user;
-        IF NOT FOUND THEN
-            RAISE EXCEPTION USING ERRCODE = 'SR001',
-                MESSAGE = format('counter row missing: schedule %s user %s', p_schedule, p_user);
-        END IF;
+    IF counter_schedule_closed(p_schedule) THEN
+        RETURN;
+    END IF;
+    UPDATE user_hold_quota SET cnt = cnt + p_delta WHERE schedule_id = p_schedule AND user_id = p_user;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'SR001',
+            MESSAGE = format('counter row missing: schedule %s user %s', p_schedule, p_user);
     END IF;
 END $$;
 
@@ -31,7 +49,7 @@ BEGIN
         IF (OLD.schedule_id, OLD.user_id) IS NOT DISTINCT FROM (NEW.schedule_id, NEW.user_id) THEN
             RETURN NULL;
         END IF;
-        PERFORM quota_add(NEW.schedule_id, NEW.user_id, 1);   -- 늘리는 쪽 먼저(같은 트랜잭션 — 순서는 결과에 무관, 행 없음 오류만 −1 쪽)
+        PERFORM quota_add(NEW.schedule_id, NEW.user_id, 1);   -- 늘리는 쪽 먼저(같은 트랜잭션 — 순서는 결과에 무관). 쪽마다 마감 판정
         PERFORM quota_add(OLD.schedule_id, OLD.user_id, -1);
     END IF;
     RETURN NULL;

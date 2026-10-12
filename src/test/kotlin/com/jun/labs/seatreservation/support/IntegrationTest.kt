@@ -24,7 +24,14 @@ import java.time.Instant
  * Testcontainers PostgreSQL + 고정 시각. 만료 스케줄러는 끄고 테스트가 UseCase를 직접 호출한다.
  * 모든 테스트가 같은 설정을 쓰므로 Spring 컨텍스트와 컨테이너는 한 번만 뜬다.
  */
-@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=false"])
+// ADR-009 B 트리거(V8)의 마감 판정 기준 시각 = DB now()인데 테스트 앱 시계는 NOW로 고정이다 — 트리거 쪽 기준도 NOW로 맞춘다(V8 테스트 이음새).
+// 트리거가 없는 스키마에서는 쓰이지 않는 세션 설정이다.
+@SpringBootTest(
+    properties = [
+        "seat.hold.expiry-scheduler-enabled=false",
+        "spring.datasource.hikari.connection-init-sql=SET seatlab.counter_now = '2026-09-27T10:00:00Z'",
+    ],
+)
 @Import(TestcontainersConfiguration::class, IntegrationTest.ClockConfig::class)
 abstract class IntegrationTest {
 

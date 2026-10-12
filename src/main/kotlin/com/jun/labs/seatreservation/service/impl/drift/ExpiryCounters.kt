@@ -89,6 +89,17 @@ class ExpiryCounters(
         }
     }
 
+    /**
+     * B(counter-trigger) 만료 선잠금이 열린 회차인데 쿼터 행이 없는 쌍을 봤다 — flush 때 트리거가 SR001로 틱을 롤백한다(엄격, 사용자 결정).
+     * 그 쌍을 이 틱의 시도 목록에 올려 롤백 시 skipped(reason = SR001)로 남긴다(무음 금지). 대조 C·F가 행을 복구하면 다음 틱이 다시 돈다.
+     */
+    fun noteTriggerMissing(scheduleId: Long, userId: Long) {
+        val actual = PairRepair.actualOf(jdbc, scheduleId, userId)
+        tick.get()?.attempted?.add(
+            DriftOutcome(DriftSource.EXPIRY_TRIGGER, scheduleId, userId, DriftKind.MISSING, null, actual, DriftAction.SKIPPED),
+        )
+    }
+
     // ---- 틱 경계(ExpireHoldsService가 트랜잭션 밖에서 부른다) ----------------------------------------------
 
     fun beginTick() = tick.set(Tick())

@@ -29,6 +29,8 @@ data class DriftOutcome(
 /** 기록 출처(`counter_drift_log.source`). */
 object DriftSource {
     const val EXPIRY_REPAIR = "expiry-repair"
+    /** B(counter-trigger) 만료 선잠금이 열린 회차의 쿼터 행 없음을 본 쌍 — 틱이 SR001로 롤백되면 skipped로 남는다 */
+    const val EXPIRY_TRIGGER = "expiry-trigger"
     const val RECONCILE_APP = "reconcile-app"
     const val RECONCILE_PROC = "reconcile-proc"
 }
@@ -61,7 +63,17 @@ class PairRepair(
         pendingDecrement: Int = 0,
     ): DriftOutcome {
         var inserted = false
-        val locked = lock(scheduleId, userId) ?: run {
+        val existing = lock(scheduleId, userId)
+        if (existing == null) {
+            // 행 없음 + 실제 0(이번에 지울 홀드 제외)이면 행 없음 = 0이 곧 맞는 값이다 — 행을 만들지 않는다(코드 루프 1 L1-8).
+            // C·F(감소 예정 0)는 오탐, A(감소 예정 n > 0)는 감소할 행이 없던 어긋남이라 복구로 남긴다(쓸 것이 없을 뿐)
+            val actualNow = actualOf(jdbc, scheduleId, userId, excludeHoldIds)
+            if (actualNow == 0) {
+                val action = if (pendingDecrement == 0) DriftAction.FALSE_POSITIVE else DriftAction.REPAIRED
+                return DriftOutcome(source, scheduleId, userId, kind, null, 0, action).also(recorder::insert)
+            }
+        }
+        val locked = existing ?: run {
             inserted = jdbc.update(
                 "INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 0) ON CONFLICT DO NOTHING",
                 scheduleId, userId,

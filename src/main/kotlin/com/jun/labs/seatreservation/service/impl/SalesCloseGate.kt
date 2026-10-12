@@ -24,8 +24,11 @@ class SalesCloseGate(
 ) {
     val enabled: Boolean get() = properties.salesClose.enabled
 
+    /** 마감 판정 기준 시각(앱 Clock) — 트랜잭션 밖 준비(prepare)의 회차 조건에도 같은 출처를 쓴다. */
+    fun now(): Instant = clock.instant()
+
     /**
-     * 선점 트랜잭션 안의 판정 — 회차 행을 `FOR SHARE`로 읽는다(명세 §10·§11 R1). 정리 ①(회차 행 `FOR UPDATE` 뒤 홀드 0 재확인)과 직렬화된다:
+     * 선점 트랜잭션 안의 판정 — 회차 행을 `FOR SHARE`로 읽는다(명세 §10·§11 R1). 정리 ①(회차 행 `FOR NO KEY UPDATE` 뒤 홀드 0 재확인)과 직렬화된다:
      * 정리가 회차 행을 쥔 동안 온 선점은 기다렸다가 정리 커밋 뒤의 값을 읽고, 진행 중인 선점이 있으면 정리가 그 커밋을 기다린 뒤 홀드를 본다.
      * 같은 트랜잭션의 한 문장이라 커넥션 빌림 수는 그대로다(요청당 1).
      */

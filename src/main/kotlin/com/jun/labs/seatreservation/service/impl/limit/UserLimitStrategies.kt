@@ -8,11 +8,13 @@ import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
+import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
+import java.sql.Timestamp
 
 /**
  * 1인 최대 매수 제어 방식(ADR-005). 좌석 경합 방식(ADR-003 전략)이 연 트랜잭션 안에서 두 자리에 끼어든다:
@@ -112,15 +114,30 @@ class AdvisoryTryEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldPro
  * 같은 키 행을 만나면 그 트랜잭션이 끝날 때까지 기다려 NOWAIT의 의미를 깬다(사용자 첫 요청들).
  * 먼저 일반 SELECT로 있는지 본다 — `INSERT … ON CONFLICT DO NOTHING`은 이미 있는 행이라도 그 행을 **UPDATE 중인** 트랜잭션(counter의 cnt + 1)이
  * 끝날 때까지 기다린다(테스트로 확인). 그러면 같은 사용자의 대기가 트랜잭션 밖·타이머 밖으로 새어 나간다. 일반 SELECT는 기다리지 않는다.
+ * ADR-009(코드 루프 1 L1-3·L1-20): 판매 마감이 켜져 있으면 INSERT **같은 문장 안에서** 회차가 열려 있을 때(starts_at > 앱 Clock)만 행을 만든다 —
+ * 마감·없는 회차의 거절이 쿼터 행(cnt 0)을 남기지 않게. 문장 수·빌림 수는 그대로다. 판정(거절)은 여전히 트랜잭션 안의 마감 판정이 한다.
+ * 남는 틈: 마감 경계에서 이 INSERT(열림)와 트랜잭션 안 판정(마감) 사이에 시각이 넘어가면 마감 회차에 cnt 0 행이 남을 수 있다 — 그 회차는
+ * 판정기·대조에서 빠지고 정리 ①이 지운다(정리를 허용하는 방식이면).
  */
-private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand) {
+private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand, salesClose: SalesCloseGate) {
     val exists = jdbc.queryForList(
         "SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", command.scheduleId, command.userId,
     ).isNotEmpty()
     if (exists) return
+    if (!salesClose.enabled) {
+        jdbc.update(
+            "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            command.scheduleId, command.userId,
+        )
+        return
+    }
     jdbc.update(
-        "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-        command.scheduleId, command.userId,
+        """
+        INSERT INTO user_hold_quota (schedule_id, user_id)
+        SELECT ?, ? WHERE EXISTS (SELECT 1 FROM product_schedule WHERE id = ? AND starts_at > ?)
+        ON CONFLICT DO NOTHING
+        """.trimIndent(),
+        command.scheduleId, command.userId, command.scheduleId, Timestamp.from(salesClose.now()),
     )
 }
 
@@ -130,10 +147,11 @@ class QuotaLockUserLimit(
     private val policy: HoldLimitPolicy,
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val salesClose: SalesCloseGate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.QUOTA_LOCK
     override val hasPrepare = true
-    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command, salesClose)
     override fun acquire(command: HoldSeatCommand): Boolean {
         jdbc.queryForList(
             "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE",
@@ -158,9 +176,10 @@ abstract class QuotaNoWaitUserLimitBase(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val early: Boolean,
+    private val salesClose: SalesCloseGate,
 ) : UserLimitStrategy {
     override val hasPrepare = true
-    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command, salesClose)
     override fun acquire(command: HoldSeatCommand): Boolean {
         val got = jdbc.queryForList(
             "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE SKIP LOCKED",
@@ -176,14 +195,14 @@ abstract class QuotaNoWaitUserLimitBase(
 }
 
 @Component
-class QuotaNoWaitUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
-    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = false) {
+class QuotaNoWaitUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate, salesClose: SalesCloseGate) :
+    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = false, salesClose) {
     override val type = UserLimitStrategyType.QUOTA_NOWAIT
 }
 
 @Component
-class QuotaNoWaitEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate) :
-    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = true) {
+class QuotaNoWaitEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldProperties, jdbc: JdbcTemplate, salesClose: SalesCloseGate) :
+    QuotaNoWaitUserLimitBase(policy, properties, jdbc, early = true, salesClose) {
     override val type = UserLimitStrategyType.QUOTA_NOWAIT_EARLY
 }
 
@@ -197,10 +216,11 @@ class CounterUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
+    private val salesClose: SalesCloseGate,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
     override val hasPrepare = true
-    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command)
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command, salesClose)
     override fun acquire(command: HoldSeatCommand): Boolean {
         val updated = jdbc.update(
             "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?",
@@ -286,13 +306,14 @@ private fun assertSeatAvailable(jdbc: JdbcTemplate, command: HoldSeatCommand) {
  * 한도 판정은 앱에서 한다(명세 §10 D3 — 트리거 거절은 억울한 좌석을 되살린다): 좌석 선조회(precheck와 같다) → 쿼터 행 `FOR UPDATE`
  * (없으면 cnt 0으로 만들고 잠근다 — 같은 사용자 첫 요청들도 이 행에서 줄을 선다) → `cnt + 1 <= 최대`가 아니면 좌석을 다시 보고 매수 초과.
  * 행 잠금은 커밋까지 유지되고 그 사이 홀드 INSERT의 트리거가 cnt + 1을 쓰므로, 다음 요청은 늘어난 cnt를 본다. 에러 순서 = precheck(좌석 먼저).
- * 만료: 트리거가 홀드 DELETE마다 −1(행이 없으면 SR001 — 엄격, 0으로 자르지 않음). **이 방식에서만** 만료가 쿼터 행을 먼저(정렬 순서로) 잠근다 —
+ * 만료: 트리거가 홀드 DELETE마다 −1(행이 없으면 SR001 — 엄격, 0으로 자르지 않음. 마감 회차는 트리거가 건너뛴다 — V8). **이 방식에서만** 만료가 쿼터 행을 먼저(정렬 순서로) 잠근다 —
  * 확정(예약 INSERT 트리거로 쿼터 행 먼저)과 같은 잠금 순서가 되어 확정↔만료 교착을 없앤다(설계 §3b — 교착만 해결, 확정 원자성은 ADR-012).
  */
 @Component
 class CounterTriggerUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
+    private val counters: ExpiryCounters,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_TRIGGER
     override fun acquire(command: HoldSeatCommand): Boolean {
@@ -308,8 +329,17 @@ class CounterTriggerUserLimit(
 
     override fun onHoldsExpired(expired: List<SeatHold>) {
         expired.map { it.scheduleId to it.userId }.distinct().sortedWith(compareBy({ it.first }, { it.second })).forEach { (s, u) ->
-            // 행이 없으면 잠글 것도 없다 — flush 때 트리거가 SR001로 틱을 실패시킨다(엄격 — 대조 C·F가 고친다)
-            jdbc.queryForList("SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? FOR UPDATE", s, u)
+            // 트리거와 같은 기준(V8 counter_schedule_closed — DB 시각)으로 마감 회차는 선잠금도 건너뛴다: 트리거가 감소하지 않으므로 잠글 이유가 없다
+            val row = jdbc.queryForList(
+                """
+                SELECT counter_schedule_closed(?) AS closed,
+                       (SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ? AND NOT counter_schedule_closed(?) FOR UPDATE) AS cnt
+                """.trimIndent(),
+                s, s, u, s,
+            ).single()
+            // 열린 회차인데 행이 없으면 flush 때 트리거가 SR001로 틱을 실패시킨다(엄격 — 대조 C·F가 고친다).
+            // 무음 금지: 그 쌍을 틱 시도 목록에 올려, 틱이 롤백되면 독립 트랜잭션으로 skipped(reason = SQLSTATE)가 남게 한다
+            if (row["closed"] != true && row["cnt"] == null) counters.noteTriggerMissing(s, u)
         }
     }
 
