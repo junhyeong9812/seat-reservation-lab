@@ -12,7 +12,7 @@
 #     매수 방식 키는 B·B+C에서만 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(counter-upsert-precheck)을 대조한다 — limit-key.json의 기대 개수가 조건마다 다르다(B = 1, 나머지 0).
 #   --cleanup none|schedule|zero — counter-drift.cleanup.mode(마감 임박 셀 S3c — 명세 §10 D6). 기본 none
 #   셀(ADR-008 셀 + 둘):
-#       S3e-a20  효과 셀 = S3-a20 + 어긋남 주입(k6 시작 + INJECT_AT초마다 lib.sh inject_drift — injected.json) · 끝 쌍 상태(end-pairs.json) · effect.json(요약기 --effect)
+#       S3e-a20  효과 셀 = S3-a20 + 어긋남 주입(k6 시작 + 회차 계획 INJECT_ROUNDS의 초마다 lib.sh inject_drift — injected.json) · 끝 쌍 상태(end-pairs.json) · effect.json(요약기 --effect)
 #       S3c-a20  마감 임박 셀 = S3-a20 흐름 + k6 바로 전에 회차 starts_at = k6 시작 + 600초(close.json) · 마감 5초 전 표본(pre-close.json) · 끝 정리 상태(close-end.json)
 #   회차 합격(rep_status — 정확히 ok만 정상): ADR-008 사유(조건별 기대값으로) + ADR-009 사유(README 표).
 # 그 앞: ADR-008 측정 실행기 (ADR-007 실행기 복사 — 매수 방식을 주입하지 않고 앱 기본값으로 띄운다 · 기본값 출처 증거 limit-key.json · 회차 합격 판정 summarize.py --accept-check).
@@ -23,7 +23,8 @@
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-009)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
-#   스모크 전용: INJECT_AT="<초> <초>"(환경변수 — 효과 셀 주입 시각, 기본 "270 600") · INJECT_PLAN="D L1 L2 H"(기본 "10 5 5 10") — 캠페인은 기본값만(plan.json에 남는다)
+#   주입·마감 손잡이(환경변수 — plan.json knobs에 남고 이어서 실행 때 대조한다, H-15): INJECT_ROUNDS="<초>:<D>,<L1>,<L2>,<H> …"(조건별 기본 — 아래 inject_rounds_default) ·
+#     INJECT_HELD_MIN_S(250) · INJECT_EXP_MARGIN_S(15) · CLOSE_LEAD_S(1). 캠페인은 기본값만(campaign.sh가 넘기지 않는다)
 #   scripts/run.sh --sha <SHA> --id <matrix-id> --resume [--only-rep k]   # 이어서 (계획은 기존 plan.json)
 #   --only-rep k: 계획의 회차 중 k번째만 잰다 — 캠페인이 회차 단위로 전 조건을 한 바퀴씩 돌릴 때(조건 간 드리프트 분산)
 #
@@ -139,7 +140,6 @@ if (( RESUME )); then
   P_DELAY="$(jq -r '.condition.delay_ms // 0' "$OUT_ROOT/plan.json")"; P_LIMIT="$(jq -r .condition.limit_strategy "$OUT_ROOT/plan.json")"
   P_PG="$(jq -r '.condition.pg_preset // "default"' "$OUT_ROOT/plan.json")"
   P_COND="$(jq -r .condition.cond "$OUT_ROOT/plan.json")"; P_CLEANUP="$(jq -r '.condition.cleanup // "none"' "$OUT_ROOT/plan.json")"
-  P_INJECT_AT="$(jq -r '.inject.at_s | join(" ")' "$OUT_ROOT/plan.json")"; P_INJECT_PLAN="$(jq -r '.inject.plan | [.D, .L1, .L2, .H] | join(" ")' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -151,7 +151,13 @@ if (( RESUME )); then
     esac
   done
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP"
-  INJECT_AT="$P_INJECT_AT" INJECT_PLAN="$P_INJECT_PLAN"
+  # H-15: 주입·마감 손잡이는 계획 값으로 — 환경변수로 다른 값을 주면 거부
+  for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S; do
+    pv="$(jq -r --arg k "$k" '.knobs[$k] // empty' "$OUT_ROOT/plan.json")"
+    [[ -n "$pv" ]] || { echo "resume: plan.json knobs.$k 없음" >&2; exit 2; }
+    if [[ -n "${!k:-}" && "${!k}" != "$pv" ]]; then echo "resume: $k=${!k} ≠ 계획 $pv" >&2; exit 2; fi
+    printf -v "$k" '%s' "$pv"
+  done
   set_cond
   [[ "$LIMIT_STRATEGY" == "$(jq -r .condition.limit_strategy "$OUT_ROOT/plan.json")" ]] || { echo "resume: 계획의 limit_strategy가 조건 $COND의 기대값과 다르다" >&2; exit 2; }
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
@@ -174,8 +180,13 @@ EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat
 export COMPOSE_EXTRA=""
 (( HAS_F )) && export COMPOSE_EXTRA="-f k6/ADR-009/compose.reconciler.yml"
 # 효과 셀 주입 계획(머리말 · lib.sh inject_drift): 시각(k6 시작 기준 초)과 종류별 수. 캠페인은 기본값만(campaign.sh가 환경변수를 넘기지 않는다)
-INJECT_AT="${INJECT_AT:-270 600}" INJECT_PLAN="${INJECT_PLAN:-10 5 5 10}"
-[[ "$INJECT_AT" =~ ^[0-9]+( [0-9]+)*$ && "$INJECT_PLAN" =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] || { echo "INJECT_AT·INJECT_PLAN 형식" >&2; exit 2; }
+# H-1: 회차(라운드)별 종류 수. control은 첫 주입의 D·L1이 만료를 멈춰(정지 경로) 둘째 물결 선점이 생기지 않는다 — 둘째 주입의 '만료될' 후보(D·L1)가 0이라
+#   계획에서 뺀다(L2·H만). 나머지 조건은 만료가 이어지므로 두 라운드 모두 D10·L1 5·L2 5·H10
+inject_rounds_default() { [[ "$COND" == control ]] && echo "270:10,5,5,10 600:0,0,5,10" || echo "270:10,5,5,10 600:10,5,5,10"; }
+INJECT_ROUNDS="${INJECT_ROUNDS:-$(inject_rounds_default)}" INJECT_HELD_MIN_S="${INJECT_HELD_MIN_S:-250}" INJECT_EXP_MARGIN_S="${INJECT_EXP_MARGIN_S:-15}" CLOSE_LEAD_S="${CLOSE_LEAD_S:-1}"
+[[ "$INJECT_ROUNDS" =~ ^[0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+(\ [0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+)*$ && "$INJECT_HELD_MIN_S$INJECT_EXP_MARGIN_S$CLOSE_LEAD_S" =~ ^[0-9]+$ ]] \
+  || { echo "INJECT_ROUNDS(<초>:<D>,<L1>,<L2>,<H> …)·INJECT_HELD_MIN_S·INJECT_EXP_MARGIN_S·CLOSE_LEAD_S 형식" >&2; exit 2; }
+export INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S
 # 조건 키(compose.yml 머리말) — 모든 키를 늘 넘긴다(빈 값 = 키 없음 · compose 경고 없음)
 cond_env() {
   echo "LIMIT_TRIGGER=$([[ "$LIMIT_STRATEGY" == counter-trigger ]] && echo 1) SALES_CLOSE_OFF=$([[ "$COND" == control-noclose ]] && echo 1)" \
@@ -472,7 +483,7 @@ run_rep() {  # 인자: level cell rep
   # reset 인자로 넣지 않는 이유 = 시드~k6 준비 시간(회차마다 다름)이 오차가 된다. k6에는 서버 시계 epoch ms(CLOSE_AT_MS)와 시계 차(ms)를 넘긴다(시나리오 머리말)
   local bg_jobs=()
   if [[ "$base" == S3c ]]; then
-    local cj; cj=$(close_set_starts "$(( 600 + ${CLOSE_LEAD_S:-1} ))" 2>>"$dir/errors.log")
+    local cj; cj=$(close_set_starts "$(( 600 + CLOSE_LEAD_S ))" 2>>"$dir/errors.log")
     if jq -e '.updated == 1 and (.starts_at_epoch | type == "number")' <<< "$cj" > /dev/null 2>&1; then
       echo "$cj" > "$dir/close.json"
       local off_ms; off_ms=$(jq -r '(.offset_s // 0) * 1000 | floor' <<< "${clk_before:-null}" 2>/dev/null); [[ "$off_ms" =~ ^-?[0-9]+$ ]] || off_ms=0
@@ -484,7 +495,7 @@ run_rep() {  # 인자: level cell rep
   fi
   local k6_started; k6_started=$(date -Is)
   local k6_t0; k6_t0=$(date +%s.%N)
-  # ADR-009 효과 셀(S3e — 설계 §9 주입기): k6 시작 기준 INJECT_AT초마다 주입(배경 작업 — injected.jsonl 한 줄씩). 끝나면 injected.json으로 묶는다
+  # ADR-009 효과 셀(S3e — 설계 §9 주입기): k6 시작 기준 INJECT_ROUNDS의 초마다 주입(배경 작업 — injected.jsonl 한 줄씩). 끝나면 injected.json으로 묶는다
   [[ "$base" == S3e ]] && { injector_job "$dir" "$k6_t0" & bg_jobs+=($!); }
   env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" \
     k6 run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
@@ -523,9 +534,13 @@ run_rep() {  # 인자: level cell rep
   host_recover "$dir" "$HOST_COPY" "$HOST_IOSTAT"
   snapshot "$dir" after
 
-  remote "docker logs --since '$started' seatlab-app-1 2>&1" | gzip > "$dir/app.log.gz"
-  remote "docker logs --since '$started' seatlab-db-1 2>&1" | gzip > "$dir/db.log.gz"
-  (( HAS_F )) && remote "docker logs --since '$started' seatlab-reconciler-1 2>&1" | gzip > "$dir/reconciler.log.gz"
+  # H-12: 파이프 실패(ssh·docker logs)와 빈 로그를 드러낸다 — logs-status.txt 한 줄씩, rep_status container-log-missing
+  local c lf
+  for c in app db $( ((HAS_F)) && echo reconciler); do
+    lf="$dir/$c.log.gz"
+    remote "docker logs --since '$started' seatlab-$c-1 2>&1" | gzip > "$lf"
+    echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/logs-status.txt"
+  done
   gzip -f "$dir/k6-stdout.log"
   # ADR-009 효과 지표(effect.json — 요약기 --effect, 주입 셀만). rep_status 전에 만든다(합격 판정이 읽는다)
   [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
@@ -542,15 +557,16 @@ drift_snaps() {  # 인자: 회차폴더 라벨(before|after-k6|end)
   if (( HAS_F )); then r=$(drift_snap reconciler 2>>"$dir/errors.log") || r=null; jq -e . <<< "$r" > /dev/null 2>&1 || r=null; fi
   jq -n --argjson a "$a" --argjson r "$r" --argjson f "$HAS_F" '{app:$a} + (if $f == 1 then {reconciler:$r} else {} end)' > "$dir/drift-$label.json"
 }
-# 효과 셀 주입기(배경): k6 시작(PC epoch) + INJECT_AT초마다 inject_drift 한 번 — 결과 한 줄씩 injected.jsonl(실패도 한 줄 — 무음 금지)
+# 효과 셀 주입기(배경): k6 시작(PC epoch) + 라운드 초마다 inject_drift 한 번(라운드별 종류 수 — H-1) — 결과 한 줄씩 injected.jsonl(실패도 한 줄 — 무음 금지)
 injector_job() {  # 인자: 회차폴더 k6시작epoch
-  local dir="$1" t0="$2" at now excl="" out rc plan
-  read -r -a plan <<< "$INJECT_PLAN"
-  for at in $INJECT_AT; do
+  local dir="$1" t0="$2" r at plan now excl="" out rc
+  for r in $INJECT_ROUNDS; do
+    at="${r%%:*}"; IFS=, read -r -a plan <<< "${r#*:}"
     now=$(date +%s.%N); sleep "$(awk -v a="$at" -v t="$t0" -v n="$now" 'BEGIN { d = t + a - n; print (d > 0 ? d : 0) }')"
     out=$(inject_drift "${plan[0]}" "${plan[1]}" "${plan[2]}" "${plan[3]}" "$excl" 2>&1); rc=$?
     if (( rc == 0 )) && jq -e '.pairs | type == "array"' <<< "$out" > /dev/null 2>&1; then
-      jq -c --argjson s "$at" '{at_s: $s, ok: true} + .' <<< "$out" >> "$dir/injected.jsonl"
+      jq -c --argjson s "$at" --argjson d "${plan[0]}" --argjson l1 "${plan[1]}" --argjson l2 "${plan[2]}" --argjson h "${plan[3]}" \
+        '{at_s: $s, ok: true, planned: {D: $d, L1: $l1, L2: $l2, H: $h}} + .' <<< "$out" >> "$dir/injected.jsonl"
       excl+=$(jq -r '[.pairs[] | "(\(.schedule_id),\(.user_id))"] | join(",")' <<< "$out")","
       excl="${excl#,}"
     else
@@ -558,13 +574,12 @@ injector_job() {  # 인자: 회차폴더 k6시작epoch
     fi
   done
 }
-# injected.jsonl → injected.json {"plan":{at_s,D,L1,L2,H,held_min_s,exp_margin_s}, "rounds":[…]} — 계획 수보다 적게 골랐으면 rep_status inject-short
+# injected.jsonl → injected.json {"plan":{rounds:[{at_s,D,L1,L2,H}], held_min_s, exp_margin_s}, "rounds":[…]} — 라운드별 계획보다 적게 골랐으면 rep_status inject-short
 injected_finish() {
-  local dir="$1" plan
-  read -r -a plan <<< "$INJECT_PLAN"
-  jq -s --arg at "$INJECT_AT" --argjson d "${plan[0]}" --argjson l1 "${plan[1]}" --argjson l2 "${plan[2]}" --argjson h "${plan[3]}" \
-        --argjson hm "${INJECT_HELD_MIN_S:-250}" --argjson em "${INJECT_EXP_MARGIN_S:-15}" \
-    '{plan: {at_s: ($at | split(" ") | map(tonumber)), D: $d, L1: $l1, L2: $l2, H: $h, held_min_s: $hm, exp_margin_s: $em}, rounds: .}' \
+  local dir="$1"
+  jq -s --arg r "$INJECT_ROUNDS" --argjson hm "$INJECT_HELD_MIN_S" --argjson em "$INJECT_EXP_MARGIN_S" \
+    '{plan: {rounds: ($r | split(" ") | map(split(":") as [$a, $k] | ($k | split(",") | map(tonumber)) as $n | {at_s: ($a | tonumber), D: $n[0], L1: $n[1], L2: $n[2], H: $n[3]})),
+             held_min_s: $hm, exp_margin_s: $em}, rounds: .}' \
     "$dir/injected.jsonl" > "$dir/injected.json" 2>>"$dir/errors.log" \
     || jq -n '{plan: null, rounds: []}' > "$dir/injected.json"
 }
@@ -653,12 +668,21 @@ app_counters() {  # 인자: 출력 파일
     lst=$(jq -c '[.contexts[].beans[] | select(.prefix=="seat.hold") | .properties.limitStrategy][0]' <<< "$props")
     lim=$(limit_metrics "$a")
     pool=$(actuator_retry "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
-    acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
+    # H-11: 대조·정리 빌림을 획득(acquire) 앞뒤로 두 번 읽어 같을 때만 쓴다(그 사이 바퀴가 빌리면 차감이 어긋난다) — 3번까지, 끝내 다르면 null(borrow-missing)
+    local rb cb rb2 cb2 try
+    for try in 1 2 3; do
+      rb=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
+      acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
+      rb2=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb2=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
+      [[ "$rb" == "$rb2" && "$cb" == "$cb2" ]] && break
+      echo "$(date -Is) app_counters: 빌림 지표가 획득 조회 사이에 바뀜(reconcile $rb→$rb2 cleanup $cb→$cb2) — 다시 읽음 $try" >> "${out%/*}/errors.log"
+    done
+    [[ "$rb" == "$rb2" ]] || rb=null
+    [[ "$cb" == "$cb2" ]] || cb=null
     tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
     req=$(hold_requests "$a")   # 숫자 · 0(기록 없음 확인) · null(조회 실패) — 위 함수
     local creq; creq=$(confirm_requests "$a")   # ADR-008 D1 — 같은 규칙
     # ADR-009 빌림 식(설계 §4d): 대조(C)·정리가 앱 풀에서 빌린 수 — 요청당 빌림에서 뺀다. 이름이 목록에 없으면 0(아직 기록 없음), 조회 실패는 null
-    local rb cb; rb=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
     arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" --argjson l "${lim:-null}" --argjson cr "${creq:-null}" \
           --argjson rb "${rb:-null}" --argjson cb "${cb:-null}" \
           '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, confirm_requests:$cr, reconcile_borrows:$rb, cleanup_borrows:$cb, limit:$l}]' <<< "$arr")
@@ -946,12 +970,18 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     jq -e --argjson f "$HAS_F" '(.app | type == "object" and (.error | not)) and ($f == 0 or (.reconciler | type == "object" and (.error | not)))' "$dir/$f" > /dev/null 2>&1 || reasons+=("drift-snap-failed")
   done
   jq -e '(.drift_log | type == "array") and (.reconcile_runs | type == "array") and (.cleanup_runs | type == "array")' "$dir/drift-db.json" > /dev/null 2>&1 || reasons+=("drift-db-failed")
+  # H-4: counter_drift_log를 다 받지 못했으면(덤프 상한 50,000행) 효과·오탐 판정을 믿을 수 없다 — 회차 실패
+  if jq -e '(.drift_log_total // 0) > (.drift_log | length)' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("drift-db-truncated"); fi
   # C·F가 실제로 돌았나(reconcile-missing): 시드 뒤 첫 바퀴를 봤고(reconcile-first.json), 긴 셀(S2 밖 — k6가 60초보다 길다)은 k6 구간에도 그 출처의 바퀴가 있어야 한다.
   # 바퀴 기록의 errors·skipped_chunks > 0이면 reconcile-errors(대조 실패를 숨기지 않는다 — 결과 사유)
   if (( HAS_C || HAS_F )); then
     local rsrc; rsrc=$( ((HAS_F)) && echo reconcile-proc || echo reconcile-app)
     jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1 || reasons+=("reconcile-missing")
-    if [[ "$base" != S2 ]] && ! python3 "$SUMMARIZE" --runs-in-window "$dir" "$rsrc" "$k6_started" "$k6_ended" 2>>"$dir/errors.log"; then reasons+=("reconcile-missing"); fi
+    # H-13: k6 구간 안 바퀴 수 ≥ 기대(구간 ÷ 주기 − 1, 최소 1 — summarize.py runs_in_window)
+    if [[ "$base" != S2 ]] && ! python3 "$SUMMARIZE" --runs-in-window "$dir" "$rsrc" "$k6_started" "$k6_ended" "${RECONCILE_INTERVAL%s}" 2>>"$dir/errors.log"; then reasons+=("reconcile-missing"); fi
+    # H-13: 앱(C)·F 지표 reconcile.errors 증가(k6 직전 → 회차 끝) > 0도 reconcile-errors(바퀴 기록이 실패해 DB에 없는 오류까지)
+    if jq -e --slurpfile b "$dir/drift-before.json" --arg k "$( ((HAS_F)) && echo reconciler || echo app)" \
+         '((.[$k].reconcile.errors // 0) - ($b[0][$k].reconcile.errors // 0)) > 0' "$dir/drift-end.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
     if jq -e '[.reconcile_runs[] | (.errors + .skipped_chunks)] | add // 0 | . > 0' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
   fi
   # 정리(S3c)도 실패를 숨기지 않는다: 앱 지표 cleanup.errors 증가(회차 전체 — before → end) > 0이면 cleanup-errors
@@ -960,11 +990,14 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   if jq -e '[(.app.drift_record_failed // 0), (.reconciler.drift_record_failed // 0)] | add > 0' "$dir/drift-end.json" > /dev/null 2>&1; then reasons+=("drift-record-failed"); fi
   # 효과 셀: 주입 결과(injected.json — 계획 수보다 적으면 inject-short, 주입 SQL 실패면 inject-failed)와 효과 지표(effect.json)가 있어야 한다
   if [[ "$base" == S3e ]]; then
-    if ! jq -e '.rounds | type == "array" and length > 0' "$dir/injected.json" > /dev/null 2>&1 || jq -e 'any(.rounds[]; .ok != true)' "$dir/injected.json" > /dev/null 2>&1 \
-       || ! jq -e --argjson n "$(wc -w <<< "$INJECT_AT")" '.rounds | length == $n' "$dir/injected.json" > /dev/null 2>&1; then
+    # H-1: 라운드마다 그 라운드 계획(plan.rounds — 조건별)과 대조. H-7: 종류별 영향 행 수(applied) = 기록한 수(counts)
+    if ! jq -e '(.rounds | type == "array" and length > 0) and (.plan.rounds | type == "array") and (.rounds | length) == (.plan.rounds | length) and all(.rounds[]; .ok == true)' "$dir/injected.json" > /dev/null 2>&1; then
       reasons+=("inject-failed")
-    elif ! jq -e '.plan as $p | all(.rounds[]; .counts.D == $p.D and .counts.L1 == $p.L1 and .counts.L2 == $p.L2 and .counts.H == $p.H)' "$dir/injected.json" > /dev/null 2>&1; then
-      reasons+=("inject-short")
+    else
+      jq -e '[.plan.rounds, .rounds] | transpose | all(.[]; .[0].at_s == .[1].at_s and .[0].D == .[1].counts.D and .[0].L1 == .[1].counts.L1 and .[0].L2 == .[1].counts.L2 and .[0].H == .[1].counts.H)' "$dir/injected.json" > /dev/null 2>&1 \
+        || reasons+=("inject-short")
+      jq -e 'all(.rounds[]; .applied.D == .counts.D and .applied.L == (.counts.L1 + .counts.L2) and .applied.H == .counts.H)' "$dir/injected.json" > /dev/null 2>&1 \
+        || reasons+=("inject-mismatch")
     fi
     jq -e '.kinds | type == "object"' "$dir/effect.json" > /dev/null 2>&1 || reasons+=("effect-check-failed")
     jq -e '(.injected | type == "array") and (.mismatch_total | type == "number")' "$dir/end-pairs.json" > /dev/null 2>&1 || reasons+=("effect-check-failed")
@@ -972,6 +1005,11 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   # 마감 임박 셀: starts_at을 실제로 넣었나(close.json) — 판정(close-leak 등)은 accept-check
   if [[ "$base" == S3c ]] && ! jq -e '.updated == 1' "$dir/close.json" > /dev/null 2>&1; then reasons+=("close-not-applied"); fi
   [[ "$HAS_F" == 1 ]] && { [[ -s "$dir/reconciler.log.gz" ]] && gzip -t "$dir/reconciler.log.gz" 2>/dev/null || reasons+=("corrupt-or-missing-reconciler.log.gz"); }
+  # H-12: 컨테이너 로그 — 파이프가 실패했거나(0/0 아님) 내용이 0바이트면 container-log-missing
+  if ! [[ -s "$dir/logs-status.txt" ]] || grep -qvE '^[a-z]+ pipe=0/0 bytes=[1-9][0-9]*$' "$dir/logs-status.txt" \
+     || [[ "$(wc -l < "$dir/logs-status.txt")" != "$((2 + HAS_F))" ]]; then
+    reasons+=("container-log-missing")
+  fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
   local uniq=() x; for x in "${reasons[@]}"; do [[ " ${uniq[*]} " == *" $x "* ]] || uniq+=("$x"); done; reasons=("${uniq[@]}")
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
@@ -1021,12 +1059,12 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 # 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다 (이어서 실행이면 기존 계획 유지)
 (( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
-  --arg pg "$PG_PRESET" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_at "$INJECT_AT" --arg inj_plan "$INJECT_PLAN" \
+  --arg pg "$PG_PRESET" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
                limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay},
-    inject:{at_s:($inj_at|split(" ")|map(tonumber)), plan:($inj_plan|split(" ")|map(tonumber)|{D:.[0], L1:.[1], L2:.[2], H:.[3]})},
+    knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl},
     created:(now|todate)}' > "$OUT_ROOT/plan.json"
 
 # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — lib.sh limit_config_check): 측정 대상 앱 SHA의 프로필 설정이 매수 방식을 덮지 않는가 ·

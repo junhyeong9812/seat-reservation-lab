@@ -423,14 +423,17 @@ SQL
 
 # 대조 첫 바퀴 기다리기(C·F — reconcile-missing의 근거): counter_reconcile_run에 source 행이 생길 때까지(최대 인자 초). 한 줄 JSON {"source","runs","waited_s"}
 wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
-  local src="$1" max="$2" t0=$SECONDS n=0
+  local src="$1" max="$2" t0=$SECONDS n=0 base
+  # H-14: 부른 시각(= 시드 직후, DB 시계) 뒤에 시작한 바퀴만 센다 — 예열·시드 전 바퀴로 통과하지 않게
+  base=$(db_scalar "SELECT extract(epoch FROM clock_timestamp())" 2>/dev/null | tr -d '[:space:]')
+  [[ "$base" =~ ^[0-9.]+$ ]] || { printf '{"source":"%s","runs":null,"waited_s":0,"error":"baseline"}\n' "$src"; return 1; }
   while (( SECONDS - t0 <= max )); do
-    n=$(db_scalar "SELECT count(*) FROM counter_reconcile_run WHERE source = '$src'" 2>/dev/null | tr -d '[:space:]')
+    n=$(db_scalar "SELECT count(*) FROM counter_reconcile_run WHERE source = '$src' AND started_at >= to_timestamp($base)" 2>/dev/null | tr -d '[:space:]')
     [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )) && break
     sleep 3
   done
   [[ "$n" =~ ^[0-9]+$ ]] || n=null
-  printf '{"source":"%s","runs":%s,"waited_s":%d}\n' "$src" "$n" $((SECONDS - t0))
+  printf '{"source":"%s","runs":%s,"waited_s":%d,"after_epoch":%s}\n' "$src" "$n" $((SECONDS - t0)) "$base"
 }
 
 # V7 기록 테이블 전부(회차마다 DB 볼륨을 새로 만들므로 이 회차의 행뿐이다 — 시드 초기화는 V7을 비우지 않으므로 요약기가 k6 구간으로 다시 거른다).
@@ -453,7 +456,8 @@ SQL
 #   L2 cnt − 1(조용함) — CONFIRMED 1 · 홀드 0인 쌍(1 → 0) → A는 못 본다(대조만)
 #   H  cnt + 1          — 아무 cnt 1 쌍 → 조용함
 #   모두 열린 회차(starts_at > now)의 cnt = 1 쌍, 종류끼리·이전 주입과 겹치지 않는다. 고르는 순서는 결정적(D·L1 = 홀드 id · L2 = 예약 id · H = (회차, 사용자)).
-#   변경은 상대값(cnt ± 1)이라 동시 앱 쓰기와 행 잠금으로 직렬화된다. 출력 한 줄 JSON {"at","at_epoch","counts":{…},"pairs":[{kind,schedule_id,user_id,cnt_before,held_at,expires_at}]}
+#   고른 뒤 (회차, 사용자) 순서로 FOR UPDATE 잠그고 조건을 다시 본다(H-7 — 바뀐 쌍은 dropped_after_lock). 변경은 상대값(cnt ± 1), 종류별 영향 행 수(applied)를 함께 낸다.
+#   출력 한 줄 JSON(+ applied·dropped_after_lock) {"at","at_epoch","counts":{…},"pairs":[{kind,schedule_id,user_id,cnt_before,held_at,expires_at}]}
 inject_drift() {
   local d="$1" l1="$2" l2="$3" h="$4" excl="${5:-}" held="${INJECT_HELD_MIN_S:-250}" margin="${INJECT_EXP_MARGIN_S:-15}"
   [[ "$d$l1$l2$h$held$margin" =~ ^[0-9]+$ ]] || return 2
@@ -495,12 +499,31 @@ WHERE q.cnt = 1
   AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY q.schedule_id, q.user_id LIMIT $h;
-DELETE FROM user_hold_quota q USING inj i WHERE i.kind = 'D' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id;
-UPDATE user_hold_quota q SET cnt = q.cnt - 1 FROM inj i WHERE i.kind IN ('L1', 'L2') AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id;
-UPDATE user_hold_quota q SET cnt = q.cnt + 1 FROM inj i WHERE i.kind = 'H' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id;
+-- H-7: 고른 쌍의 쿼터 행을 앱과 같은 순서((회차, 사용자))로 잠근 뒤 조건을 다시 본다 — 고른 뒤 잠그기 전에 바뀐 쌍(확정·만료·cnt 변경)은 뺀다(dropped_after_lock)
+CREATE TEMP TABLE locked ON COMMIT DROP AS
+SELECT q.schedule_id, q.user_id, q.cnt FROM user_hold_quota q JOIN inj i ON i.schedule_id = q.schedule_id AND i.user_id = q.user_id
+ORDER BY q.schedule_id, q.user_id FOR UPDATE OF q;
+CREATE TEMP TABLE dropped ON COMMIT DROP AS SELECT i.* FROM inj i WHERE NOT (
+  EXISTS (SELECT 1 FROM locked l WHERE l.schedule_id = i.schedule_id AND l.user_id = i.user_id AND l.cnt = 1)
+  AND CASE i.kind
+    WHEN 'L2' THEN NOT EXISTS (SELECT 1 FROM seat_hold x WHERE x.schedule_id = i.schedule_id AND x.user_id = i.user_id)
+               AND (SELECT count(*) FROM reservation r WHERE r.schedule_id = i.schedule_id AND r.user_id = i.user_id AND r.status = 'CONFIRMED') = 1
+    WHEN 'H' THEN true
+    ELSE EXISTS (SELECT 1 FROM seat_hold x WHERE x.schedule_id = i.schedule_id AND x.user_id = i.user_id
+                 AND x.expires_at >= now() + make_interval(secs => $margin))
+  END);
+DELETE FROM inj i USING dropped d WHERE d.schedule_id = i.schedule_id AND d.user_id = i.user_id;
+-- 변경 + 종류별 영향 행 수(기록한 수와 대조 — rep_status inject-mismatch)
+CREATE TEMP TABLE applied ON COMMIT DROP AS
+WITH d AS (DELETE FROM user_hold_quota q USING inj i WHERE i.kind = 'D' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
+     l AS (UPDATE user_hold_quota q SET cnt = q.cnt - 1 FROM inj i WHERE i.kind IN ('L1', 'L2') AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
+     h AS (UPDATE user_hold_quota q SET cnt = q.cnt + 1 FROM inj i WHERE i.kind = 'H' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1)
+SELECT (SELECT count(*) FROM d) AS d, (SELECT count(*) FROM l) AS l, (SELECT count(*) FROM h) AS h;
 SELECT json_build_object('at', clock_timestamp(), 'at_epoch', extract(epoch FROM clock_timestamp()),
   'counts', (SELECT json_build_object('D', count(*) FILTER (WHERE kind = 'D'), 'L1', count(*) FILTER (WHERE kind = 'L1'),
                                       'L2', count(*) FILTER (WHERE kind = 'L2'), 'H', count(*) FILTER (WHERE kind = 'H')) FROM inj),
+  'applied', (SELECT json_build_object('D', d, 'L', l, 'H', h) FROM applied),
+  'dropped_after_lock', (SELECT count(*) FROM dropped),
   'pairs', (SELECT coalesce(json_agg(json_build_object('kind', kind, 'schedule_id', schedule_id, 'user_id', user_id, 'cnt_before', cnt_before,
                                                        'held_at', held_at, 'expires_at', expires_at) ORDER BY kind, schedule_id, user_id), '[]') FROM inj));
 COMMIT;

@@ -1,5 +1,5 @@
 // ADR-009: ADR-008 S3 복사 + 마감 임박 셀(S3c) 응답 기록 — CLOSE_AT_MS(서버 시계 epoch ms = run.sh가 k6 직전에 넣은 회차 starts_at)가 있으면
-//   마감 30초 전부터 보낸 선점마다 hold_code 행(태그 code·t0 = 보낸 시각 ms, PC 시계)을, 확정마다 confirm_code 행을 남긴다(요약기 close-leak·confirm-after-close-failed).
+//   마감 30초 전부터 보낸 선점마다(그 앞은 성공 선점만) hold_code 행(태그 code·t0 = 보낸 시각 ms, PC 시계)을, 확정마다 confirm_code 행을 남긴다(요약기 close-leak·confirm-after-close-failed).
 //   PC→서버 시계 변환은 CLOCK_OFFSET_MS(서버 − PC, run.sh가 k6 직전에 잰 값 — 기록 창을 고르는 데만 쓴다. 판정은 요약기가 clock-offset.json으로 다시 한다).
 //   CLOSE_AT_MS가 없으면(S3-a20·S3e-a20) ADR-008과 같은 요청·기록이다(hold_closed 계수만 공통 lib에서 더해졌다).
 // S3 (Q3·Q7): 입장 → 좌석 선택(핫스팟) → 선점 → (대기) → 확정 또는 이탈. 좌석 10,000석, 입장 TOTAL명.
@@ -7,7 +7,7 @@
 import { sleep } from 'k6';
 import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
-import { confirm, hold, TREND_STATS, writeSummary } from './lib/common.js';
+import { confirm, hold, holdCode, TREND_STATS, writeSummary } from './lib/common.js';
 
 const RATE = Number(__ENV.RATE || 300);                 // 초당 입장
 const TOTAL = Number(__ENV.TOTAL || 200000);            // 전체 입장 (README 20:1)
@@ -62,6 +62,9 @@ export default function () {
     const t0 = Date.now();
     const rec = CLOSE_AT_MS !== null && t0 + CLOCK_OFFSET_MS >= CLOSE_AT_MS - CODE_WINDOW_MS;
     const res = hold(1, seat, userId, { seat: String(seat) }, rec ? { code: true, t0 } : {});
+    // H-2: 마감 임박 셀은 창 밖의 성공 선점도 한 행씩(약 1.2만 행) — '마감 전 성공 표본'(요약기 close-no-hold-before)의 근거.
+    // S3-a20은 약 350초부터 이탈 홀드가 만료되는 약 610초까지 빈 좌석이 없어 마감 직전 30초 창에는 성공이 없다(스모크 실측)
+    if (CLOSE_AT_MS !== null && !rec && res.status === 201) holdCode.add(1, { seat: String(seat), code: 'OK', t0: String(t0) });
     if (res.status === 409) continue;                                    // 409만 다른 좌석으로 재시도
     if (res.status !== 201) { sessionError.add(1); return; }
     holdOkSeat.add(1, { seat: String(seat), exp: res.json('expiresAt') });

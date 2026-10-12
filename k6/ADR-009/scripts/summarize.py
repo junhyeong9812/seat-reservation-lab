@@ -50,6 +50,7 @@ ADR-006 추가 지표
 import csv
 import gzip
 import json
+import re
 import statistics
 import sys
 from datetime import datetime
@@ -688,14 +689,16 @@ def tag_rows(csv_gz, metric_name):
     return out
 
 
-def runs_in_window(rep_dir, source, k6_started, k6_ended):
-    """그 출처(reconcile-app|reconcile-proc)의 대조 바퀴(counter_reconcile_run — 서버 시계)가 k6 구간(PC 시계 + 시계 차)과 겹치면 exit 0."""
+def runs_in_window(rep_dir, source, k6_started, k6_ended, interval_s="60"):
+    """그 출처(reconcile-app|reconcile-proc)의 대조 바퀴(counter_reconcile_run — 서버 시계)가 k6 구간(PC 시계 + 시계 차)과 겹친 수 ≥ 기대면 exit 0.
+    기대(H-13) = max(1, ⌊구간 초 ÷ 주기⌋ − 1) — 주기는 fixed delay(바퀴 끝 → 다음 시작)라 바퀴 시간만큼 늦어지고 경계에서 하나를 잃을 수 있어 1을 뺀다."""
     db = load(Path(rep_dir) / "drift-db.json") or {}
     off, _ = clock_off(rep_dir)
     w0, w1 = ts(k6_started) + (off or 0), ts(k6_ended) + (off or 0)
     n = sum(1 for r in db.get("reconcile_runs") or [] if r.get("source") == source and ts(r["started_at"]) <= w1 and ts(r["finished_at"]) >= w0)
-    print(f"runs-in-window: {source} {n}", file=sys.stderr)
-    return 0 if n > 0 else 1
+    want = max(1, int((w1 - w0) // float(interval_s)) - 1)
+    print(f"runs-in-window: {source} {n} (기대 ≥ {want})", file=sys.stderr)
+    return 0 if n >= want else 1
 
 
 # ---- ADR-009 효과 셀(S3e — 설계 §9 효과 지표 · 명세 §5 결정 기준 ①②) ----------------------------------------------------------
@@ -743,6 +746,30 @@ def snap_delta(a, b, *path):
     return x - y if isinstance(x, (int, float)) and isinstance(y, (int, float)) else None
 
 
+def tick_failure_causes(app_log_gz):
+    """만료 틱 실패 원인(H-7) — app.log.gz의 스케줄 작업 예외('Unexpected error occurred in scheduled task' 뒤 첫 예외 줄)를 분류해 센다:
+    SR001(B 트리거 엄격 — 행 없음) · 23514(CHECK cnt >= 0) · missing-row(legacy 감소 '카운터 행 없음') · 40P01 · 그 밖은 예외 클래스. 파일 없음 = None."""
+    if not app_log_gz.exists():
+        return None
+    out, pending = {}, 0
+    with gzip.open(app_log_gz, "rt", errors="replace") as f:
+        for line in f:
+            if "Unexpected error occurred in scheduled task" in line:
+                pending = 6
+                continue
+            if pending:
+                pending -= 1
+                m = re.match(r"^\s*([\w.$]+(?:Exception|Error))\b", line)
+                if not m:
+                    continue
+                t = line
+                k = ("SR001" if "SR001" in t else "23514" if ("23514" in t or "check constraint" in t) else "missing-row" if "카운터 행 없음" in t
+                     else "40P01" if ("40P01" in t or "deadlock" in t.lower()) else m.group(1).rsplit(".", 1)[-1])
+                out[k] = out.get(k, 0) + 1
+                pending = 0
+    return out
+
+
 def effect(rep_dir, cond):
     """효과 지표(effect.json) — 입력: injected.json(주입) · drift-db.json(V7 기록) · end-pairs.json(끝 쌍 상태) · drift-before/end.json(틱 지표) · consistency.json · k6-window.json.
     쌍마다 탐지(주입 뒤 첫 기록 — 어느 action이든)·복구(첫 repaired) 시각과 걸린 초, 끝 상태(cnt = 실제?). 종류별 요약. 주입 밖 쌍의 repaired = 오탐 복구(결정 기준 ②).
@@ -780,9 +807,13 @@ def effect(rep_dir, cond):
         kinds[k] = {"injected": len(xs), "detected": sum(1 for x in xs if x["detected_s"] is not None), "repaired": sum(1 for x in xs if x["repaired_s"] is not None),
                     "end_matched": sum(1 for x in xs if x["end_matched"]), "repaired_by": sorted({x["repaired_by"] for x in xs if x["repaired_by"]}),
                     "detect_s": _stats([x["detected_s"] for x in xs]), "repair_s": _stats([x["repaired_s"] for x in xs])}
-    false_repairs = [r for r in logs if r["action"] == "repaired" and (r["schedule_id"], r["user_id"]) not in pairs]
+    # 오탐 복구 = 주입 밖 쌍의 repaired + (H-17) 주입 쌍인데 주입 **전**에 repaired(그때는 어긋남이 없었다)
+    false_repairs = [r for r in logs if r["action"] == "repaired"
+                     and ((r["schedule_id"], r["user_id"]) not in pairs or ts(r["at"]) < pairs[(r["schedule_id"], r["user_id"])]["injected_at"])]
     skipped = [r for r in logs if r["action"] == "skipped"]
     inj_mismatch_end = sum(1 for x in per if x["end_matched"] is False)
+    end_missing = sum(1 for x in per if x["end_matched"] is None)   # H-6: 끝 상태가 없는 주입 쌍 — accept effect-check-failed
+    causes = tick_failure_causes(rep_dir / "app.log.gz")
     mismatch_total = end.get("mismatch_total")
     tick_failed, tick_ok = snap_delta(se, sb, "app", "tick", "failed"), snap_delta(se, sb, "app", "tick", "ok")
     w1 = ts(win["k6_ended"]) + (off or 0) if win.get("k6_ended") else None
@@ -794,7 +825,8 @@ def effect(rep_dir, cond):
         "skipped_failure": sum(1 for r in skipped if r.get("reason") != "closed"),
         "skipped_failure_by_reason": {k: sum(1 for r in skipped if r.get("reason") == k) for k in sorted({r.get("reason") or "-" for r in skipped if r.get("reason") != "closed"})},
         "skipped_closed": sum(1 for r in skipped if r.get("reason") == "closed"),
-        "tick_failed": tick_failed, "tick_ok": tick_ok, "stale_held_seats_end": cons.get("v_stale_held_seats"),
+        "tick_failed": tick_failed, "tick_ok": tick_ok, "stale_held_seats_end": cons.get("v_stale_held_seats"), "tick_failure_causes": causes,
+        "end_missing": end_missing,
         "mismatch_open_end": mismatch_total, "injected_mismatch_end": inj_mismatch_end,
         "noninjected_mismatch": (mismatch_total - inj_mismatch_end) if isinstance(mismatch_total, int) else None,
         "reconcile": reconcile_summary(db.get("reconcile_runs"), k0, (w1 + 400) if w1 else None),
@@ -804,6 +836,9 @@ def effect(rep_dir, cond):
     un = []
     rep_n = lambda ks: sum(kinds[k]["repaired"] for k in ks)
     inj_n = lambda ks: sum(kinds[k]["injected"] for k in ks)
+    matched = lambda ks: all(x["end_matched"] for x in per if x["kind"] in ks)
+    stale = cons.get("v_stale_held_seats")
+    src_ok = lambda allowed: all(x["repaired_by"] in (None, *allowed) for x in per)
     if not per:
         un.append("no-injected-pairs")
     elif cond == "control":
@@ -811,27 +846,56 @@ def effect(rep_dir, cond):
             un.append("control: 틱 실패 0 — 주입이 만료 정지 경로에 닿지 않았다")
         if any(x["detected_s"] is not None for x in per):
             un.append("control: 후보가 꺼져 있는데 주입 쌍 기록이 있다")
-    elif cond == "A":
-        if rep_n(("D", "L1")) != inj_n(("D", "L1")):
-            un.append(f"A: D·L1 복구 {rep_n(('D', 'L1'))}/{inj_n(('D', 'L1'))}")
-        if any(x["repaired_by"] not in (None, "expiry-repair") for x in per):
-            un.append("A: expiry-repair 밖의 복구 출처")
-        if tick_failed != 0:
-            un.append(f"A: 틱 실패 {tick_failed}")
-        if rep_n(("L2", "H")) != 0:
-            un.append(f"A: L2·H 복구 {rep_n(('L2', 'H'))} — A는 조용한 어긋남을 못 본다(다른 경로가 고쳤다)")
-    elif cond in RECONCILE_SOURCE:
-        if rep_n(INJECT_KINDS) != inj_n(INJECT_KINDS):
-            un.append(f"{cond}: 복구 {rep_n(INJECT_KINDS)}/{inj_n(INJECT_KINDS)}")
-        if inj_mismatch_end:
-            un.append(f"{cond}: 끝에 주입 쌍 {inj_mismatch_end}개가 cnt ≠ 실제")
-        if any(x["kind"] in ("L2", "H") and x["repaired_by"] not in (None, RECONCILE_SOURCE[cond]) for x in per):
-            un.append(f"{cond}: L2·H 복구 출처가 {RECONCILE_SOURCE[cond]}가 아니다")
+        # H-7: 정지 원인은 주입(행 없음 · CHECK)이어야 한다
+        if causes is None or not causes or any(k not in ("missing-row", "23514") for k in causes):
+            un.append(f"control: 틱 실패 원인 {causes} — 주입 원인(missing-row·23514)만 기대")
+    elif cond in ("A", "A+C", "A+F", "B+C"):
+        recon = RECONCILE_SOURCE.get(cond)
+        # H-3: 만료가 실제로 돌았고(틱 성공 > 0) 끝에 오래된 HELD 0
+        if not (tick_ok or 0) > 0:
+            un.append(f"{cond}: 틱 성공 0 — 만료가 돌지 않았다")
+        if stale != 0:
+            un.append(f"{cond}: 끝 오래된 HELD {stale}")
+        if cond == "A":
+            if rep_n(("D", "L1")) != inj_n(("D", "L1")):
+                un.append(f"A: D·L1 복구 {rep_n(('D', 'L1'))}/{inj_n(('D', 'L1'))}")
+            if not src_ok(("expiry-repair",)):
+                un.append("A: expiry-repair 밖의 복구 출처")
+            if rep_n(("L2", "H")) != 0:
+                un.append(f"A: L2·H 복구 {rep_n(('L2', 'H'))} — A는 조용한 어긋남을 못 본다(다른 경로가 고쳤다)")
+            if not matched(("D", "L1")):
+                un.append("A: 끝에 D·L1 쌍이 cnt ≠ 실제")   # H-6
+        else:
+            if rep_n(INJECT_KINDS) != inj_n(INJECT_KINDS):
+                un.append(f"{cond}: 복구 {rep_n(INJECT_KINDS)}/{inj_n(INJECT_KINDS)}")
+            if not matched(INJECT_KINDS):
+                un.append(f"{cond}: 끝에 주입 쌍 {inj_mismatch_end}개가 cnt ≠ 실제")   # H-6
+            # H-3: 복구 출처 = A 경로(expiry-repair — B+C는 A 없음)와 그 조건의 대조뿐. L2·H는 대조만
+            allowed = (recon,) if cond == "B+C" else ("expiry-repair", recon)
+            if not src_ok(allowed):
+                un.append(f"{cond}: 복구 출처가 {allowed} 밖")
+            if any(x["kind"] in ("L2", "H") and x["repaired_by"] not in (None, recon) for x in per):
+                un.append(f"{cond}: L2·H 복구 출처가 {recon}가 아니다")
         if cond != "B+C" and tick_failed != 0:
-            un.append(f"{cond}: 틱 실패 {tick_failed}")   # B+C 틱 실패는 B의 결과(명세 §11 — 판정 아님, tick_failed로 기록)
+            un.append(f"{cond}: 틱 실패 {tick_failed}")
+        if cond == "B+C" and (tick_failed or 0) > 0:
+            # H-10: B 예외(명세 §11 · L2-5)는 주입 → 복구 구간 안, 주입 원인(SR001·23514)으로 롤백된 틱만. 롤백 틱마다 expiry-trigger skipped 기록이 남는다(ExpiryCounters.afterRollback)
+            trig = [r for r in logs if r["action"] == "skipped" and r["source"] == "expiry-trigger"]
+            win = {(x["schedule_id"], x["user_id"]): (pairs[(x["schedule_id"], x["user_id"])]["injected_at"],
+                                                       pairs[(x["schedule_id"], x["user_id"])]["injected_at"] + (x["repaired_s"] if x["repaired_s"] is not None else 1e9))
+                   for x in per}
+            bad = [r for r in trig if r.get("reason") not in ("SR001", "23514") or (r["schedule_id"], r["user_id"]) not in win
+                   or not (win[(r["schedule_id"], r["user_id"])][0] <= ts(r["at"]) <= win[(r["schedule_id"], r["user_id"])][1] + 1)]
+            ticks = len({round(ts(r["at"])) for r in trig if r not in bad})   # 같은 틱의 기록은 같은 초(독립 트랜잭션 한 번)
+            if bad:
+                un.append(f"B+C: 주입 원인·구간 밖 틱 실패 기록 {len(bad)}")
+            if tick_failed > ticks:
+                un.append(f"B+C: 틱 실패 {tick_failed} 중 주입으로 설명되는 틱 {ticks}")
+            if causes is not None and any(k not in ("SR001", "23514") for k in causes):
+                un.append(f"B+C: 틱 실패 원인 {causes}")
     else:
         un.append(f"효과 셀 대상 조건이 아니다: {cond}")
-    if tick_failed is None:
+    if tick_failed is None or tick_ok is None:
         un.append("틱 지표 없음")
     out["unexpected"] = un
     (rep_dir / "effect.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
@@ -839,6 +903,9 @@ def effect(rep_dir, cond):
 
 
 # ---- ADR-009 마감 임박 셀(S3c — 설계 §9 사유) ----------------------------------------------------------------------------------
+PRE_OK_WINDOW_S = 330
+
+
 def close_check(rep_dir, cleanup, add):
     rep_dir = Path(rep_dir)
     cj, pre, ce, db = (load(rep_dir / f) for f in ("close.json", "pre-close.json", "close-end.json", "drift-db.json"))
@@ -849,22 +916,31 @@ def close_check(rep_dir, cleanup, add):
     sa, margin = cj["starts_at_epoch"], 0.005 + (err or 0)
     holds = tag_rows(rep_dir / "k6-requests.csv.gz", "hold_code")
     post = [r for r in holds or [] if "t0" in r and int(r["t0"]) / 1000 + off > sa + margin]
+    # H-2: 마감 전 성공 표본 창 = starts_at − PRE_OK_WINDOW_S ~ starts_at(시나리오가 S3c의 성공 선점을 모두 남긴다 — 마지막 성공은 보통 둘째 물결 약 300~350초)
+    pre_ok = [r for r in holds or [] if "t0" in r and r.get("code") == "OK" and sa - PRE_OK_WINDOW_S <= int(r["t0"]) / 1000 + off < sa - margin]
     if holds is None:
         add("close-check-failed")
     elif not post:
         add("close-no-hold-after")            # 판정 기회 없음(마감 뒤 보낸 선점 0)
-    elif any(r.get("code") == "OK" for r in post):
-        add("close-leak")
+    else:
+        if any(r.get("code") == "OK" for r in post):
+            add("close-leak")
+        if any(r.get("code") not in ("OK", "SCHEDULE_CLOSED") for r in post):
+            add("close-wrong-code")           # H-2: 마감 뒤 선점은 SCHEDULE_CLOSED여야 한다(마감 → 좌석 → 매수 순서 · 5xx·타임아웃 포함)
+    if holds is not None and not pre_ok:
+        add("close-no-hold-before")           # H-2: 기록 창(마감 전 CODE_WINDOW) 안에 성공 선점 표본이 없다 — 마감 전에 이미 막혔는지 판정할 수 없다
     confs = tag_rows(rep_dir / "k6-requests.csv.gz", "confirm_code")
     cpost = [r for r in confs or [] if "t0" in r and int(r["t0"]) / 1000 + off > sa + margin]
     if confs is None:
         add("close-check-failed")
-    elif not cpost:
-        add("close-no-confirm-after")         # 판정 기회 없음(마감 뒤 보낸 확정 0 — 명세 §2 '확정은 막지 않음'을 부하로 확인하지 못했다)
-    elif any(r.get("code") not in ("OK", "HOLD_EXPIRED") for r in cpost):
+    elif not any(r.get("code") == "OK" for r in cpost):
+        add("close-no-confirm-after")         # H-5: 마감 뒤 유효 홀드의 확정 성공 0 — 명세 §2 '확정은 막지 않음'을 부하로 확인하지 못했다
+    if confs is not None and any(r.get("code") not in ("OK", "HOLD_EXPIRED") for r in cpost):
         add("confirm-after-close-failed")
-    if not isinstance(pre, dict) or not isinstance(pre.get("mismatches"), int) or not isinstance(pre.get("t_epoch"), (int, float)) or pre["t_epoch"] >= sa:
-        add("close-check-failed")             # 표본이 없거나 마감 뒤에 찍혔다
+    # H-8: 표본 시각 허용 창 = starts_at − 5초 ± (2초 + 시계 오차) — 너무 이르면 마감 직전 정합의 증거가 아니다
+    if not isinstance(pre, dict) or not isinstance(pre.get("mismatches"), int) or not isinstance(pre.get("t_epoch"), (int, float)) \
+       or abs(pre["t_epoch"] - (sa - 5)) > 2 + (err or 0):
+        add("close-check-failed")             # 표본이 없거나 허용 창 밖(마감 뒤 포함)에 찍혔다
     elif pre["mismatches"] > 0:
         add("pre-close-mismatch")
     runs = (db or {}).get("cleanup_runs")
@@ -874,10 +950,20 @@ def close_check(rep_dir, cleanup, add):
         add("cleanup1-early")
     if not isinstance(ce, dict):
         add("close-check-failed")
-    elif cleanup == "schedule" and (ce.get("closed_quota_rows_no_holds") or 0) > 0:
-        add("cleanup1-incomplete")
-    elif cleanup == "zero" and (ce.get("zero_rows_actual0") or 0) > 0:
-        add("cleanup2-left")
+    elif cleanup == "schedule":
+        # H-9: 끝 홀드 0(만료가 끝났다) · 마감 회차의 쿼터 행 0 · 실제로 지운 기록(rows_deleted > 0) ≥ 1
+        if (ce.get("closed_quota_rows_no_holds") or 0) > 0 or ce.get("holds") != 0 \
+           or not any((r.get("rows_deleted") or 0) > 0 for r in runs or [] if r.get("mode") == "schedule"):
+            add("cleanup1-incomplete")
+    elif cleanup == "zero":
+        if (ce.get("zero_rows_actual0") or 0) > 0 or not any((r.get("rows_deleted") or 0) > 0 for r in runs or [] if r.get("mode") == "zero"):
+            add("cleanup2-left")
+    # H-9: 마감 임박 셀에는 주입이 없다 — 틱 실패(k6 직전 → 회차 끝) > 0이면 정리·마감이 만료를 막은 것
+    tf = snap_delta(load(rep_dir / "drift-end.json") or {}, load(rep_dir / "drift-before.json") or {}, "app", "tick", "failed")
+    if tf is None:
+        add("close-check-failed")
+    elif tf > 0:
+        add("close-tick-failed")
 
 
 # ADR-008 회차 합격(명세 §5 판정) — rep_status가 회차마다 부른다(사유가 하나라도 있으면 그 회차는 ok가 아니다).
@@ -957,6 +1043,8 @@ def accept_check(rep_dir, cell, cond="control", cleanup="none"):
             return
         if eff["unexpected"]:
             add("effect-unexpected")
+        if eff.get("end_missing") != 0:
+            add("effect-check-failed")   # H-6: 주입 쌍의 끝 상태가 빠졌다
         if eff.get("false_repairs"):
             add("false-repair")
 
@@ -1563,6 +1651,6 @@ if __name__ == "__main__":
         except Exception as e:   # 효과 지표를 못 만들면 effect.json이 없다 → rep_status effect-check-failed
             sys.exit(f"effect: {type(e).__name__}: {e}")
         sys.exit(0)
-    if len(sys.argv) == 6 and sys.argv[1] == "--runs-in-window":
+    if len(sys.argv) in (6, 7) and sys.argv[1] == "--runs-in-window":
         sys.exit(runs_in_window(*sys.argv[2:]))
     main(sys.argv[1])

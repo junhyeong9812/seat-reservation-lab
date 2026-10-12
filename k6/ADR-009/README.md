@@ -45,7 +45,7 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 | `S4c4200` | S4 고정 도착률 4,200/s(디스크 · `--pg-preset tmpfs`) | — |
 | `S2` | 사용자 100명 × 좌석 10개 동시 | — |
 | `S3-a20` | 입장→선점→확정, 이탈 20% | — |
-| `S3e-a20` | S3-a20 + 어긋남 주입 | k6 시작 + `INJECT_AT`(기본 270·600초)마다 한 트랜잭션 주입 → `injected.json` · 끝 쌍 상태 `end-pairs.json` · `effect.json` |
+| `S3e-a20` | S3-a20 + 어긋남 주입 | 라운드 계획 `INJECT_ROUNDS`(기본 270·600초 — control은 둘째 라운드 L2·H만)마다 한 트랜잭션 주입 → `injected.json` · 끝 쌍 상태 `end-pairs.json` · `effect.json` |
 | `S3c-a20` | S3-a20 흐름 | k6 바로 전에 회차 1 `starts_at` = 지금 + 601초(`close.json`) · 마감 5초 전 표본 `pre-close.json` · 끝 정리 상태 `close-end.json` |
 
 ### 주입(설계 §9 — `lib.sh inject_drift`)
@@ -59,7 +59,11 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 
 - **주입 시각은 270·600초**다. 설계 §9 v1의 '+420초'에서는 '만료될 홀드' 후보가 0이다: S3-a20은 첫 약 40초에 좌석 10,000석이 다 잡히고,
   다음 선점은 이탈 홀드가 만료되는 약 300~350초에야 생긴다. 그래서 +420초에 나이 250~285초인 홀드가 없다(첫 물결은 +250~325초, 둘째 물결은 +560~635초에 후보가 있다).
+- **control의 둘째 라운드(+600초)는 D·L1을 뺀다(H-1)**: 첫 라운드의 D·L1이 만료를 멈춰 둘째 물결 선점이 생기지 않으므로 '만료될' 후보가 0이다. 라운드별 계획은 plan.json `knobs.INJECT_ROUNDS`·injected.json `plan.rounds`.
+- 고른 쌍은 (회차, 사용자) 순서로 `FOR UPDATE` 잠근 뒤 조건을 다시 보고(바뀐 쌍은 `dropped_after_lock`), 종류별 영향 행 수(`applied`)를 기록 수와 대조한다(H-7 — `inject-mismatch`).
+- 주입·마감 손잡이(`INJECT_ROUNDS`·`INJECT_HELD_MIN_S`·`INJECT_EXP_MARGIN_S`·`CLOSE_LEAD_S`)는 plan.json `knobs`에 남고, 이어서 실행 때 다른 값이면 거부한다(H-15).
 - 주입 쌍은 `injected.json`(종류·회차·사용자·주입 시각 — DB `clock_timestamp()`).
+- 해석 주의(H-18): 첫 라운드의 D·L1은 보통 A(expiry-repair)가 대조보다 먼저 고친다 — C·F의 탐지 시간 비교는 L2·H로 한다. control의 DB_URL에는 ADR-008과 달리 `ApplicationName=seatlab-app`이 붙는다. `by_src`는 표본 순간 문장 기준 근사다.
 
 ### 효과 지표(`effect.json` — `summarize.py --effect`)
 
@@ -70,32 +74,36 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 - 대조: `counter_reconcile_run` 출처별 바퀴 수·바퀴 초 p50/max·청크 최대 ms·빌림·오류.
 - 조건별 기대(`unexpected`가 비어야 한다):
   - control: 틱 실패 > 0(주입이 정지 경로에 닿았다) · 주입 쌍 기록 0
-  - A: D·L1 전부 `expiry-repair`가 복구 · 틱 실패 0 · L2·H 복구 0(A는 못 본다)
-  - A+C·A+F: 60쌍 전부 복구 · 끝 일치 · L2·H 복구 출처 = reconcile-app / reconcile-proc · 틱 실패 0
-  - B+C: 60쌍 전부 복구 · 끝 일치 · 틱 실패는 기록만(명세 §11 B 예외)
+  - control: + 틱 실패 원인(app.log 스케줄 예외)이 주입 원인(missing-row·23514)뿐
+  - A: D·L1 전부 `expiry-repair`가 복구 · 끝 D·L1 일치 · 틱 실패 0 · L2·H 복구 0(A는 못 본다)
+  - A+C·A+F: 60쌍 전부 복구 · 주입 쌍마다 끝 cnt = 실제 · 복구 출처 ⊆ {expiry-repair, 그 대조} · L2·H는 대조만 · 틱 실패 0
+  - B+C: 60쌍 전부 복구 · 끝 일치 · 틱 실패는 주입 → 복구 구간 안, 원인 SR001·23514인 틱만 허용(H-10 — 롤백 틱마다 남는 expiry-trigger skipped 기록으로 센다), 그 밖은 unexpected
+  - A·A+C·A+F·B+C 공통(H-3): 틱 성공 > 0 · 끝 오래된 HELD 0. 주입 쌍의 끝 상태가 빠지면 effect-check-failed(H-6)
+  - 오탐 복구에는 주입 쌍이 주입 **전에** repaired된 것도 넣는다(H-17)
 - **control·A의 남은 어긋남과 만료 정지는 결과이지 하네스 실패가 아니다** — 효과 셀의 `counter-mismatch`는 판정기 값이 아니라 **주입 밖 쌍**의 끝 어긋남으로 판정한다.
 
 ## 회차 합격(정확히 `ok`만 정상) — ADR-008 사유 + 아래
 
 | 사유 | 조건 | 셀 |
 |------|------|----|
-| `borrow-not-one`·`borrow-missing` | 빌림 = (Δ획득 − Δ`reconcile.borrows` − Δ`cleanup.borrows`) ÷ (Δ선점 + Δ확정)이 [0.98, 1.02] 밖 · 계산 불가(설계 §4d). F는 별도 풀이라 앱 수치 밖(F 빌림은 기록만). redis-nx '진 것' 경로는 측정 범위 밖 | 전부 |
+| `borrow-not-one`·`borrow-missing` | 빌림 = (Δ획득 − Δ`reconcile.borrows` − Δ`cleanup.borrows`) ÷ (Δ선점 + Δ확정)이 [0.98, 1.02] 밖 · 계산 불가(설계 §4d). F는 별도 풀이라 앱 수치 밖(F 빌림은 기록만). 대조·정리 빌림은 획득 앞뒤로 두 번 읽어 같을 때만 쓴다(H-11). redis-nx '진 것' 경로는 측정 범위 밖 | 전부 |
 | `limit-key-present`·`limit-key-missing`·`limit-key-check-failed` | 앱 환경 매수 방식 키 등장 수 ≠ 조건 기대(B·B+C = 1, 그 밖 0) · F 컨테이너 > 0 · 파일 없음/컨테이너 수 다름 | 전부 |
 | `cond-config-mismatch`·`reconciler-config-mismatch` | configprops가 조건 기대와 다름 | 전부 |
 | `trigger-mismatch`·`trigger-check-failed` | `pg_trigger` 두 이름 ⇔ B·B+C | 전부 |
 | `counter-judge-vacuous`·`counter-excluded-missing` | 판정기 제외 회차 ≥ 시드 회차 수(부하 대상 회차가 전부 판정에서 빠짐 — 명세 §11 N3) · 항목 없음 | S3c 밖 |
 | `schedule-closed-seen` | 선점 409 본문 `SCHEDULE_CLOSED` > 0(k6 `hold_closed`) — 시드 회차 2026-12-31 19:00+09 시한폭탄 | S3c 밖 |
-| `reconcile-missing`·`reconcile-errors` | C·F인데 시드 뒤 첫 바퀴가 없음 또는 (S2 밖) k6 구간에 그 출처 바퀴 없음 · 바퀴 기록 errors·skipped_chunks > 0 | C·F |
-| `drift-snap-failed`·`drift-db-failed`·`drift-record-failed`·`cleanup-errors` | 지표 스냅숏·V7 덤프 실패 · `drift.record_failed` > 0 · 정리 errors > 0 | 전부 |
-| `inject-failed`·`inject-short`·`effect-check-failed`·`effect-unexpected`·`false-repair` | 주입 실패 · 계획보다 적게 고름(조용한 절단 금지) · effect.json 없음 · 조건별 기대와 다름 · 주입 밖 repaired > 0 | S3e |
-| `close-leak` | 마감 뒤 보낸 선점(PC 시각 + 시계 차 > starts_at + 오차)이 201 | S3c |
-| `confirm-after-close-failed` | 마감 뒤 확정이 `OK`·`HOLD_EXPIRED` 밖 | S3c |
-| `cleanup1-early`·`cleanup1-incomplete`·`cleanup2-left` | 정리 기록 holds_seen > 0인데 지움 · (schedule) 끝에 홀드 0 마감 회차 쿼터 행 > 0 · (zero) 끝에 cnt 0·실제 0 행 > 0 | S3c |
+| `reconcile-missing`·`reconcile-errors` | C·F인데 시드 **뒤에 시작한** 첫 바퀴가 없음(H-14) 또는 (S2 밖) k6 구간 바퀴 수 < max(1, ⌊구간 ÷ 주기⌋ − 1)(H-13) · 바퀴 기록 errors·skipped_chunks > 0 또는 지표 reconcile.errors 증가 > 0(H-13). reconcile-missing도 결과 사유(재측정 안 함 — H-16) | C·F |
+| `drift-snap-failed`·`drift-db-failed`·`drift-db-truncated`·`drift-record-failed`·`cleanup-errors`·`container-log-missing` | 지표 스냅숏·V7 덤프 실패 · counter_drift_log 덤프 상한(5만 행)에 잘림(H-4) · `drift.record_failed` > 0 · 정리 errors > 0 · docker logs 파이프 실패·빈 로그(H-12) | 전부 |
+| `inject-failed`·`inject-short`·`inject-mismatch`·`effect-check-failed`·`effect-unexpected`·`false-repair` | 주입 실패 · 라운드 계획보다 적게 고름(조용한 절단 금지) · 영향 행 수 ≠ 기록 수 · effect.json 없음 · 조건별 기대와 다름 · 주입 밖 repaired > 0 | S3e |
+| `close-leak`·`close-wrong-code`·`close-no-hold-before` | 마감 뒤 보낸 선점(PC 시각 + 시계 차 > starts_at + 오차)이 201 · `SCHEDULE_CLOSED` 밖 코드(H-2) · 마감 전 330초 안 성공 선점 표본 0(H-2 — 시나리오가 S3c 성공 선점을 모두 남긴다. 약 350~610초에는 빈 좌석이 없어 마감 직전 30초에는 성공이 없다) | S3c |
+| `confirm-after-close-failed` · `close-tick-failed` | 마감 뒤 확정이 `OK`·`HOLD_EXPIRED` 밖 · 틱 실패 증가 > 0(H-9 — 주입 없는 셀) | S3c |
+| `cleanup1-early`·`cleanup1-incomplete`·`cleanup2-left` | 정리 기록 holds_seen > 0인데 지움 · (schedule, H-9) 끝 홀드 ≠ 0 · 홀드 0 마감 회차 쿼터 행 > 0 · rows_deleted > 0 기록 없음 · (zero) 끝 cnt 0·실제 0 행 > 0 · 지운 기록 없음 | S3c |
 | `pre-close-mismatch` | 마감 5초 전 표본(회차 1 — 판정기 v2와 같은 정의, 한 문장) 어긋남 > 0 | S3c |
-| `close-no-hold-after`·`close-no-confirm-after`·`close-check-failed`·`close-not-applied` | 판정 기회 없음(마감 뒤 선점·확정 0) · 입력 없음·표본이 마감 뒤 · starts_at을 못 넣음 | S3c |
+| `close-no-hold-after`·`close-no-confirm-after`·`close-check-failed`·`close-not-applied` | 판정 기회 없음(마감 뒤 선점 0 · 마감 뒤 확정 성공 0 — H-5) · 입력 없음·표본이 starts_at − 5초 ± (2초 + 시계 오차) 밖(H-8) · starts_at을 못 넣음 | S3c |
 
 - V7 기록 테이블은 시드 초기화가 비우지 않는다. 회차마다 DB 볼륨을 새로 만들므로 그 회차의 행뿐이고, 요약기는 k6 구간(서버 시계 = PC + 시계 차)으로 다시 거른다.
 - 제외 쌍의 두 정의(L2-9): 판정기 `counter_excluded_pairs` = 마감 회차의 (쿼터 행 ∪ 실제 값 쌍) · 대조 바퀴 `skipped_pairs` = 마감 회차의 쿼터 행 수. 표에서 이름을 나눠 적는다.
+- S2는 k6 구간이 몇 초라 C·F 바퀴가 구간에 거의 겹치지 않는다(H-14 — S2의 C·F 비용 비교 한계, ADR 기록).
 - `reconcile.excluded{unit=pairs}` 지표는 바퀴마다 skipped_pairs를 더하고 마감 제외 skipped도 1씩 더하는 누적 계수다 — 마감 제외 쌍 수는 DB 기록으로 센다.
 
 ## 비용 지표(L1-16·L2-11 · IV-009-7)
