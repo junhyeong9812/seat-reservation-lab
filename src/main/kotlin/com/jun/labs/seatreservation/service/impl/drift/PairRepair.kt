@@ -64,13 +64,11 @@ class PairRepair(
     ): DriftOutcome {
         var inserted = false
         val existing = lock(scheduleId, userId)
-        if (existing == null) {
-            // 행 없음 + 실제 0(이번에 지울 홀드 제외)이면 행 없음 = 0이 곧 맞는 값이다 — 행을 만들지 않는다(코드 루프 1 L1-8).
-            // C·F(감소 예정 0)는 오탐, A(감소 예정 n > 0)는 감소할 행이 없던 어긋남이라 복구로 남긴다(쓸 것이 없을 뿐)
-            val actualNow = actualOf(jdbc, scheduleId, userId, excludeHoldIds)
-            if (actualNow == 0) {
-                val action = if (pendingDecrement == 0) DriftAction.FALSE_POSITIVE else DriftAction.REPAIRED
-                return DriftOutcome(source, scheduleId, userId, kind, null, 0, action).also(recorder::insert)
+        if (existing == null && pendingDecrement == 0) {
+            // C·F: 행 없음 + 실제 0이면 행 없음 = 0이 곧 맞는 값 — 탐지 뒤 홀드·예약이 사라진 오탐이다. 행을 만들지 않는다(코드 루프 1 L1-8).
+            // A(감소 예정 n > 0)는 명세 §2 절차대로 행을 만들고 잠근 뒤 실제 값으로 확정한다(코드 루프 2 L2-3) — 아래 일반 경로
+            if (actualOf(jdbc, scheduleId, userId, excludeHoldIds) == 0) {
+                return DriftOutcome(source, scheduleId, userId, kind, null, 0, DriftAction.FALSE_POSITIVE).also(recorder::insert)
             }
         }
         val locked = existing ?: run {

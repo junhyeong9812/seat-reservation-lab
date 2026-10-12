@@ -78,6 +78,11 @@ class HoldStrategyStartupCheck(
                 "— counter-trigger는 spring.flyway.locations에 classpath:db/migration-trigger를 더하고, 다른 방식은 빼야 한다(앱 증감과 트리거가 겹친다)"
         }
 
+        // 코드 루프 2 L2-0: B는 판매 마감을 끌 수 없다 — 앱이 마감 회차 선점을 받는데 트리거는 그 회차 증가를 건너뛰어 한도 판정이 우회된다
+        check(!(limit == COUNTER_TRIGGER && !properties.salesClose.enabled)) {
+            "매수 방식 counter-trigger는 판매 마감(sales-close.enabled=true)을 꺼서는 안 된다 — 트리거가 마감 회차의 증가를 건너뛰어 한도 판정이 우회된다"
+        }
+
         val drift = properties.counterDrift
         val a = drift.expiryRepair
         val c = drift.reconcile.enabled

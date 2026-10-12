@@ -15,6 +15,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.sql.Timestamp
+import java.time.Clock
 
 /**
  * 1인 최대 매수 제어 방식(ADR-005). 좌석 경합 방식(ADR-003 전략)이 연 트랜잭션 안에서 두 자리에 끼어든다:
@@ -40,6 +41,9 @@ interface UserLimitStrategy {
 
     /** 만료 배치가 실제로 지운 홀드 — 카운터 방식만 쓴다(같은 트랜잭션). */
     fun onHoldsExpired(expired: List<SeatHold>) {}
+
+    /** 확정 트랜잭션 시작 직후(공용 확정 경로) — counter-trigger만 트리거 기준 시각을 넣는다. 다른 방식은 아무 문장도 보내지 않는다. */
+    fun beforeConfirm() {}
 }
 
 internal fun limitExceeded(): Nothing = throw SeatReservationException(ErrorCode.HOLD_LIMIT_EXCEEDED)
@@ -314,9 +318,23 @@ class CounterTriggerUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
+    private val clock: Clock,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_TRIGGER
+
+    /**
+     * 트리거(V8)의 마감 기준 시각을 이 트랜잭션에 한해 앱 Clock으로 넣는다(`set_config(…, true)` = SET LOCAL — 코드 루프 2 L2-4).
+     * 판매 마감 판정(SalesCloseGate)과 같은 출처가 된다. 같은 트랜잭션·같은 커넥션의 문장이라 빌림 수는 늘지 않는다.
+     * 앱을 거치지 않는 직접 DB 쓰기는 이 설정이 없어 DB now()로 판정한다.
+     */
+    private fun setCounterNow() {
+        jdbc.queryForList("SELECT set_config('$COUNTER_NOW_SETTING', ?, true)", clock.instant().toString())
+    }
+
+    override fun beforeConfirm() = setCounterNow()
+
     override fun acquire(command: HoldSeatCommand): Boolean {
+        setCounterNow()
         assertSeatAvailable(jdbc, command)
         val cnt = lockQuotaRow(command)
         if (cnt + 1 > properties.maxPerUser) {
@@ -328,8 +346,11 @@ class CounterTriggerUserLimit(
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
 
     override fun onHoldsExpired(expired: List<SeatHold>) {
-        expired.map { it.scheduleId to it.userId }.distinct().sortedWith(compareBy({ it.first }, { it.second })).forEach { (s, u) ->
-            // 트리거와 같은 기준(V8 counter_schedule_closed — DB 시각)으로 마감 회차는 선잠금도 건너뛴다: 트리거가 감소하지 않으므로 잠글 이유가 없다
+        if (expired.isEmpty()) return
+        setCounterNow()
+        val byPair = expired.groupingBy { it.scheduleId to it.userId }.eachCount()
+        byPair.keys.sortedWith(compareBy({ it.first }, { it.second })).forEach { (s, u) ->
+            // 트리거와 같은 기준(V8 counter_schedule_closed — 위에서 넣은 앱 Clock 시각)으로 마감 회차는 선잠금도 건너뛴다: 트리거가 감소하지 않으므로 잠글 이유가 없다
             val row = jdbc.queryForList(
                 """
                 SELECT counter_schedule_closed(?) AS closed,
@@ -337,9 +358,14 @@ class CounterTriggerUserLimit(
                 """.trimIndent(),
                 s, s, u, s,
             ).single()
-            // 열린 회차인데 행이 없으면 flush 때 트리거가 SR001로 틱을 실패시킨다(엄격 — 대조 C·F가 고친다).
-            // 무음 금지: 그 쌍을 틱 시도 목록에 올려, 틱이 롤백되면 독립 트랜잭션으로 skipped(reason = SQLSTATE)가 남게 한다
-            if (row["closed"] != true && row["cnt"] == null) counters.noteTriggerMissing(s, u)
+            // 열린 회차인데 행이 없거나(SR001) cnt < 지울 홀드 수(CHECK 23514)면 flush 때 트리거가 틱을 실패시킨다(엄격 — 대조 C·F가 고친다).
+            // 무음 금지: 그 쌍을 틱 시도 목록에 올려, 틱이 롤백되면 독립 트랜잭션으로 skipped(reason = SQLSTATE)가 남게 한다(L1-17 · L2-5)
+            if (row["closed"] != true) {
+                val cnt = (row["cnt"] as Number?)?.toInt()
+                val n = byPair.getValue(s to u)
+                if (cnt == null) counters.noteTriggerAttempt(s, u, null)
+                else if (cnt < n) counters.noteTriggerAttempt(s, u, cnt)
+            }
         }
     }
 
@@ -410,6 +436,9 @@ class SerializableRetryUserLimit(policy: HoldLimitPolicy, properties: SeatHoldPr
     SerializableUserLimit(policy, properties, jdbc, meters, retries = 3) {
     override val type = UserLimitStrategyType.SERIALIZABLE_RETRY
 }
+
+/** V8 트리거의 마감 기준 시각 세션 설정(counter_now()) — counter-trigger의 B 경로 트랜잭션이 앱 Clock으로 넣는다. */
+const val COUNTER_NOW_SETTING = "seatlab.counter_now"
 
 /** 기동 설정으로 고른 매수 방식 하나. */
 @Component

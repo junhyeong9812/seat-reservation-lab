@@ -24,14 +24,7 @@ import java.time.Instant
  * Testcontainers PostgreSQL + 고정 시각. 만료 스케줄러는 끄고 테스트가 UseCase를 직접 호출한다.
  * 모든 테스트가 같은 설정을 쓰므로 Spring 컨텍스트와 컨테이너는 한 번만 뜬다.
  */
-// ADR-009 B 트리거(V8)의 마감 판정 기준 시각 = DB now()인데 테스트 앱 시계는 NOW로 고정이다 — 트리거 쪽 기준도 NOW로 맞춘다(V8 테스트 이음새).
-// 트리거가 없는 스키마에서는 쓰이지 않는 세션 설정이다.
-@SpringBootTest(
-    properties = [
-        "seat.hold.expiry-scheduler-enabled=false",
-        "spring.datasource.hikari.connection-init-sql=SET seatlab.counter_now = '2026-09-27T10:00:00Z'",
-    ],
-)
+@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=false"])
 @Import(TestcontainersConfiguration::class, IntegrationTest.ClockConfig::class)
 abstract class IntegrationTest {
 
@@ -59,7 +52,7 @@ abstract class IntegrationTest {
 
         val product = productRepository.save(Product(name = "테스트 공연"))
         schedule = productScheduleRepository.save(
-            ProductSchedule(productId = product.id!!, startsAt = NOW.plusSeconds(86_400)),
+            ProductSchedule(productId = product.id!!, startsAt = SCHEDULE_STARTS_AT),
         )
     }
 
@@ -107,5 +100,12 @@ abstract class IntegrationTest {
 
     companion object {
         val NOW: Instant = Instant.parse("2026-09-27T10:00:00Z")
+
+        /**
+         * 기본 회차 시작 시각 — 고정 앱 시계(NOW)와 DB 벽시계 **둘 다**보다 먼 미래여야 한다(처음엔 NOW + 1일).
+         * ADR-009 B 트리거(V8)는 앱을 거치지 않은 직접 DB 쓰기의 마감을 DB now()로 판정한다(코드 루프 2 L2-4) — NOW + 1일은 이미 지난 벽시계에서는
+         * '마감'이라 직접 쓰기 테스트가 카운터에 반영되지 않는다. 마감 경계 테스트는 이 값을 기준으로 시계를 옮기므로(상대값) 의미는 같다.
+         */
+        val SCHEDULE_STARTS_AT: Instant = Instant.parse("2099-12-31T10:00:00Z")
     }
 }

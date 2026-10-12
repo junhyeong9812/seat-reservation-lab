@@ -90,13 +90,15 @@ class ExpiryCounters(
     }
 
     /**
-     * B(counter-trigger) 만료 선잠금이 열린 회차인데 쿼터 행이 없는 쌍을 봤다 — flush 때 트리거가 SR001로 틱을 롤백한다(엄격, 사용자 결정).
-     * 그 쌍을 이 틱의 시도 목록에 올려 롤백 시 skipped(reason = SR001)로 남긴다(무음 금지). 대조 C·F가 행을 복구하면 다음 틱이 다시 돈다.
+     * B(counter-trigger) 만료 선잠금이 열린 회차에서 쿼터 행 없음([observedCnt] = null → missing) 또는 cnt < 지울 홀드 수(below)를 봤다 —
+     * flush 때 트리거가 SR001·23514로 틱을 롤백한다(엄격, 사용자 결정). 그 쌍을 이 틱의 시도 목록에 올려 롤백 시 skipped(reason = SQLSTATE)로
+     * 남긴다(무음 금지 — L1-17 · L2-5). 대조 C·F가 복구하면 다음 틱이 다시 돈다.
      */
-    fun noteTriggerMissing(scheduleId: Long, userId: Long) {
+    fun noteTriggerAttempt(scheduleId: Long, userId: Long, observedCnt: Int?) {
         val actual = PairRepair.actualOf(jdbc, scheduleId, userId)
+        val kind = if (observedCnt == null) DriftKind.MISSING else DriftKind.BELOW
         tick.get()?.attempted?.add(
-            DriftOutcome(DriftSource.EXPIRY_TRIGGER, scheduleId, userId, DriftKind.MISSING, null, actual, DriftAction.SKIPPED),
+            DriftOutcome(DriftSource.EXPIRY_TRIGGER, scheduleId, userId, kind, observedCnt, actual, DriftAction.SKIPPED),
         )
     }
 

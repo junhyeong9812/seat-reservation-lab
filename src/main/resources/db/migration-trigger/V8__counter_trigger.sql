@@ -8,11 +8,11 @@
 -- 마감 판정(코드 루프 1 L1-2 · L1-19, 사용자 결정): 마감 회차(starts_at <= 기준 시각)의 기여 변화는 카운터에 반영하지 않는다
 -- (명세 §10: 마감 회차는 카운터를 쓰지 않는다 — 판정기·대조도 뺀다). 판정은 기여 쪽별이다: quota_add가 쪽마다 자기 회차를 본다
 -- (UPDATE로 회차·사용자·CONFIRMED 여부가 바뀌면 이전 쪽 −1·새 쪽 +1을 각각 판정 — 열린 쪽에만 엄격한 증감).
--- 기준 시각 출처: **DB now()(트랜잭션 시작 시각)** 다. 앱의 판매 마감 판정(SalesCloseGate)은 **앱 Clock**이다 — 운영에서는 둘 다 벽시계라
---   차이는 서버 간 시계 차·트랜잭션 시작 시각 차(수 ms~수 s)뿐이다. 그 사이(마감 경계)의 변경은 앱은 '열림', 트리거는 '마감'으로 볼 수 있다
---   (또는 반대) — 그 회차는 마감 직후 판정기·대조에서 빠지므로 남는 어긋남은 판정 대상이 아니다.
--- 테스트 이음새: 세션 설정 seatlab.counter_now가 있으면 그 값을 기준 시각으로 쓴다(테스트의 고정 앱 시계와 맞추려고 — IntegrationTest가
---   커넥션 초기화 SQL로 넣는다). 운영 설정에서는 비어 있다(now()).
+-- 기준 시각 출처(코드 루프 2 L2-4): 세션 설정 seatlab.counter_now가 있으면 그 값, 없으면 DB now()(트랜잭션 시작 시각).
+--   앱의 counter-trigger 경로(선점·확정·만료)는 트랜잭션 시작 때 set_config('seatlab.counter_now', <앱 Clock>, true)(= SET LOCAL)를 넣는다 —
+--   판매 마감 판정(SalesCloseGate, 앱 Clock)과 같은 출처가 되어 마감 경계에서 앱과 트리거의 판정이 갈리지 않는다.
+--   앱을 거치지 않는 직접 DB 쓰기(운영 수작업·주입)는 설정이 없어 now()로 판정한다 — 앱 서버와 DB 서버의 시계 차만큼 경계가 어긋날 수 있다
+--   (그 회차는 마감 직후 판정기·대조에서 빠지므로 남는 어긋남은 판정 대상이 아니다).
 CREATE FUNCTION counter_now() RETURNS timestamptz
 LANGUAGE sql STABLE AS $$
     SELECT coalesce(nullif(current_setting('seatlab.counter_now', true), '')::timestamptz, now())

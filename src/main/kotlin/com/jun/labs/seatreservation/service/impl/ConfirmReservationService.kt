@@ -9,6 +9,7 @@ import com.jun.labs.seatreservation.domain.repository.ReservationRepository
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.ConfirmReservationResult
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
+import com.jun.labs.seatreservation.service.impl.limit.ActiveUserLimit
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -23,10 +24,13 @@ class ConfirmReservationService(
     private val productSeatRepository: ProductSeatRepository,
     private val reservationRepository: ReservationRepository,
     private val clock: Clock,
+    private val userLimit: ActiveUserLimit,
 ) : ConfirmReservationUseCase {
 
     @Transactional
     override fun confirm(command: ConfirmReservationCommand): ConfirmReservationResult {
+        // ADR-009 L2-4: counter-trigger만 트리거 기준 시각(앱 Clock)을 이 트랜잭션에 넣는다 — 다른 매수 방식은 아무 문장도 보내지 않는다
+        userLimit.strategy.beforeConfirm()
         val now = clock.instant()
         val seat = productSeatRepository.findByHoldsId(command.holdId)
             ?: throw SeatReservationException(ErrorCode.HOLD_NOT_FOUND)
