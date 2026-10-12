@@ -689,16 +689,39 @@ def tag_rows(csv_gz, metric_name):
     return out
 
 
+def reconcile_gaps(runs, source, w0, w1, interval_s, slack_s=10.0):
+    """N-2: 대조 바퀴 결손 — 스케줄은 fixedDelay(바퀴가 끝난 뒤 주기)라 다음 바퀴 시작 ≈ 이번 시작 + 바퀴 실행 시간 + 주기.
+    구간 [w0, w1](서버 epoch)에 걸친 바퀴 시작 간격이 (주기 + 앞 바퀴 실행 시간 + 여유)를 넘으면 결손. 끝단: 구간 끝까지 마지막 바퀴 이후 같은 한도,
+    앞단: 구간 시작 전 바퀴가 없으면 첫 바퀴가 구간 시작 + 주기 + 여유 안에 와야 한다. 반환 (구간에 걸친 바퀴 수, 결손 목록)."""
+    rs = sorted(((ts(r["started_at"]), ts(r["finished_at"])) for r in runs or [] if r.get("source") == source), key=lambda x: x[0])
+    rs = [x for x in rs if x[0] <= w1]
+    gaps = []
+    before = [x for x in rs if x[0] <= w0]
+    seq = ([before[-1]] if before else []) + [x for x in rs if x[0] > w0]
+    if not seq:
+        return 0, [{"from": w0, "to": w1, "limit": interval_s + slack_s, "edge": "none"}]
+    if not before and seq[0][0] - w0 > interval_s + slack_s:
+        gaps.append({"from": w0, "to": seq[0][0], "limit": interval_s + slack_s, "edge": "start"})
+    for (s0, f0), (s1, _) in zip(seq, seq[1:]):
+        lim = interval_s + (f0 - s0) + slack_s
+        if s1 - s0 > lim:
+            gaps.append({"from": s0, "to": s1, "limit": round(lim, 3)})
+    s0, f0 = seq[-1]
+    lim = interval_s + (max(f0, s0) - s0 if f0 <= w1 else w1 - s0) + slack_s
+    if w1 - s0 > lim:
+        gaps.append({"from": s0, "to": w1, "limit": round(lim, 3), "edge": "end"})
+    n = sum(1 for s0, f0 in rs if s0 <= w1 and f0 >= w0)
+    return n, gaps
+
+
 def runs_in_window(rep_dir, source, k6_started, k6_ended, interval_s="60"):
-    """그 출처(reconcile-app|reconcile-proc)의 대조 바퀴(counter_reconcile_run — 서버 시계)가 k6 구간(PC 시계 + 시계 차)과 겹친 수 ≥ 기대면 exit 0.
-    기대(H-13) = max(1, ⌊구간 초 ÷ 주기⌋ − 1) — 주기는 fixed delay(바퀴 끝 → 다음 시작)라 바퀴 시간만큼 늦어지고 경계에서 하나를 잃을 수 있어 1을 뺀다."""
+    """그 출처(reconcile-app|reconcile-proc)의 대조 바퀴(counter_reconcile_run — 서버 시계)가 k6 구간(PC 시계 + 시계 차)에 결손 없이 이어졌으면 exit 0(N-2 — reconcile_gaps)."""
     db = load(Path(rep_dir) / "drift-db.json") or {}
     off, _ = clock_off(rep_dir)
     w0, w1 = ts(k6_started) + (off or 0), ts(k6_ended) + (off or 0)
-    n = sum(1 for r in db.get("reconcile_runs") or [] if r.get("source") == source and ts(r["started_at"]) <= w1 and ts(r["finished_at"]) >= w0)
-    want = max(1, int((w1 - w0) // float(interval_s)) - 1)
-    print(f"runs-in-window: {source} {n} (기대 ≥ {want})", file=sys.stderr)
-    return 0 if n >= want else 1
+    n, gaps = reconcile_gaps(db.get("reconcile_runs"), source, w0, w1, float(interval_s))
+    print(f"runs-in-window: {source} 바퀴 {n} · 결손 {len(gaps)} {gaps[:3]}", file=sys.stderr)
+    return 0 if n > 0 and not gaps else 1
 
 
 # ---- ADR-009 효과 셀(S3e — 설계 §9 효과 지표 · 명세 §5 결정 기준 ①②) ----------------------------------------------------------
@@ -746,14 +769,15 @@ def snap_delta(a, b, *path):
     return x - y if isinstance(x, (int, float)) and isinstance(y, (int, float)) else None
 
 
-def tick_failure_causes(app_log_gz):
+def tick_failure_causes(app_log_gz, with_events=False):
     """만료 틱 실패 원인(H-7) — app.log.gz의 스케줄 작업 예외 블록('Unexpected error occurred in scheduled task' 뒤 다음 로그 줄까지 — Caused by 포함)을 분류해 센다:
     SR001(B 트리거 엄격 — V8 RAISE 'counter row missing'. 로그에 SQLSTATE 자체는 찍히지 않는다) · 23514(CHECK cnt >= 0 — 'check constraint') ·
     missing-row(legacy 감소 '카운터 행 없음') · 40P01(deadlock) · 그 밖은 첫 예외 클래스. 파일 없음 = None."""
     if not app_log_gz.exists():
         return None
-    out, block = {}, None
+    out, block, events = {}, None, []
     stamp = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+    block_t = [None]
 
     def close(lines):
         t = "\n".join(lines)
@@ -761,6 +785,7 @@ def tick_failure_causes(app_log_gz):
         k = ("SR001" if ("SR001" in t or "counter row missing" in t) else "23514" if ("23514" in t or "check constraint" in t)
              else "missing-row" if "카운터 행 없음" in t else "40P01" if ("40P01" in t or "deadlock" in t.lower()) else first.rsplit(".", 1)[-1])
         out[k] = out.get(k, 0) + 1
+        events.append({"t": block_t[0], "cause": k})
 
     with gzip.open(app_log_gz, "rt", errors="replace") as f:
         for line in f:
@@ -768,10 +793,17 @@ def tick_failure_causes(app_log_gz):
                 if block is not None:
                     close(block)
                 block = [] if "Unexpected error occurred in scheduled task" in line else None
+                if block is not None:
+                    try:
+                        block_t[0] = ts(line.split()[0])   # 로그 시각(앱 컨테이너 UTC — 서버 시계)
+                    except ValueError:
+                        block_t[0] = None
             elif block is not None:
                 block.append(line)
     if block is not None:
         close(block)
+    if with_events:
+        return out, events
     return out
 
 
@@ -818,7 +850,7 @@ def effect(rep_dir, cond):
     skipped = [r for r in logs if r["action"] == "skipped"]
     inj_mismatch_end = sum(1 for x in per if x["end_matched"] is False)
     end_missing = sum(1 for x in per if x["end_matched"] is None)   # H-6: 끝 상태가 없는 주입 쌍 — accept effect-check-failed
-    causes = tick_failure_causes(rep_dir / "app.log.gz")
+    causes, fail_events = tick_failure_causes(rep_dir / "app.log.gz", with_events=True) if (rep_dir / "app.log.gz").exists() else (None, None)
     mismatch_total = end.get("mismatch_total")
     tick_failed, tick_ok = snap_delta(se, sb, "app", "tick", "failed"), snap_delta(se, sb, "app", "tick", "ok")
     w1 = ts(win["k6_ended"]) + (off or 0) if win.get("k6_ended") else None
@@ -884,20 +916,31 @@ def effect(rep_dir, cond):
         if cond != "B+C" and tick_failed != 0:
             un.append(f"{cond}: 틱 실패 {tick_failed}")
         if cond == "B+C" and (tick_failed or 0) > 0:
-            # H-10: B 예외(명세 §11 · L2-5)는 주입 → 복구 구간 안, 주입 원인(SR001·23514)으로 롤백된 틱만. 롤백 틱마다 expiry-trigger skipped 기록이 남는다(ExpiryCounters.afterRollback)
+            # H-10·N-3: B 예외(명세 §11 · L2-5)는 일대일로만 — 실패 틱마다 로그 예외(시각)가 있고, 그 시각 ±1초 안에 주입 쌍의 expiry-trigger skipped
+            # (reason SR001·23514 — ExpiryCounters.afterRollback이 롤백 직후 독립 트랜잭션으로 쓴다)가 그 쌍의 주입 → 복구 구간 안에 있어야 한다.
+            # 로그를 못 읽었거나(파서 결과 없음) 회차 끝 스냅숏까지의 로그 예외 수 ≠ 틱 실패 수면 effect-check-failed, 설명 안 되는 틱이 하나라도 있으면 unexpected
+            t_end = ts(se["app"]["t"]) if isinstance(se.get("app"), dict) and se["app"].get("t") else None
+            evs = [e for e in fail_events or [] if e["t"] is not None and (k0 is None or e["t"] >= k0 - 1) and (t_end is None or e["t"] <= t_end)]
             trig = [r for r in logs if r["action"] == "skipped" and r["source"] == "expiry-trigger"]
             win = {(x["schedule_id"], x["user_id"]): (pairs[(x["schedule_id"], x["user_id"])]["injected_at"],
                                                        pairs[(x["schedule_id"], x["user_id"])]["injected_at"] + (x["repaired_s"] if x["repaired_s"] is not None else 1e9))
                    for x in per}
-            bad = [r for r in trig if r.get("reason") not in ("SR001", "23514") or (r["schedule_id"], r["user_id"]) not in win
-                   or not (win[(r["schedule_id"], r["user_id"])][0] <= ts(r["at"]) <= win[(r["schedule_id"], r["user_id"])][1] + 1)]
-            ticks = len({round(ts(r["at"])) for r in trig if r not in bad})   # 같은 틱의 기록은 같은 초(독립 트랜잭션 한 번)
+            ok_row = lambda r: (r.get("reason") in ("SR001", "23514") and (r["schedule_id"], r["user_id"]) in win
+                                and win[(r["schedule_id"], r["user_id"])][0] <= ts(r["at"]) <= win[(r["schedule_id"], r["user_id"])][1] + 1)
+            bad = [r for r in trig if not ok_row(r)]
             if bad:
                 un.append(f"B+C: 주입 원인·구간 밖 틱 실패 기록 {len(bad)}")
-            if tick_failed > ticks:
-                un.append(f"B+C: 틱 실패 {tick_failed} 중 주입으로 설명되는 틱 {ticks}")
-            if causes is not None and any(k not in ("SR001", "23514") for k in causes):
-                un.append(f"B+C: 틱 실패 원인 {causes}")
+            if not evs:
+                out["tick_log_unreadable"] = True   # accept → effect-check-failed
+            elif len(evs) != tick_failed:
+                out["tick_log_unreadable"] = True
+                out["tick_log_events"] = len(evs)
+            else:
+                unexplained = [e for e in evs if e["cause"] not in ("SR001", "23514")
+                               or not any(ok_row(r) and abs(ts(r["at"]) - e["t"]) <= 1 for r in trig)]
+                if unexplained:
+                    un.append(f"B+C: 설명되지 않는 실패 틱 {len(unexplained)}/{len(evs)}")
+                out["tick_explained"] = len(evs) - len(unexplained)
     else:
         un.append(f"효과 셀 대상 조건이 아니다: {cond}")
     if tick_failed is None or tick_ok is None:
@@ -1048,8 +1091,8 @@ def accept_check(rep_dir, cell, cond="control", cleanup="none"):
             return
         if eff["unexpected"]:
             add("effect-unexpected")
-        if eff.get("end_missing") != 0:
-            add("effect-check-failed")   # H-6: 주입 쌍의 끝 상태가 빠졌다
+        if eff.get("end_missing") != 0 or eff.get("tick_log_unreadable"):
+            add("effect-check-failed")   # H-6: 주입 쌍의 끝 상태가 빠졌다 · N-3: B+C 틱 실패 로그를 못 읽었다(틱 수와 대조 불가)
         if eff.get("false_repairs"):
             add("false-repair")
 

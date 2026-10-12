@@ -437,16 +437,32 @@ wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
 }
 
 # V7 기록 테이블 전부(회차마다 DB 볼륨을 새로 만들므로 이 회차의 행뿐이다 — 시드 초기화는 V7을 비우지 않으므로 요약기가 k6 구간으로 다시 거른다).
-# counter_drift_log는 50,000행까지(총 수 함께 — 잘렸으면 drift_log_truncated). 시각은 DB(서버) 시계
+# counter_drift_log는 페이지로 전부(N-5 — 총 수 함께). 시각은 DB(서버) 시계
 drift_db_dump() {
-  db_json <<'SQL'
+  # N-5: counter_drift_log는 id 순 페이지(DRIFT_PAGE, 기본 20,000행)로 끝까지 모은다 — 총수(먼저 셈)보다 적게 모이면 호출자(rep_status)가 drift-db-incomplete(수집 실패)
+  local head page last=0 n tmp; tmp=$(mktemp)
+  head=$(db_json <<'SQL'
 SELECT json_build_object(
   'db_now', clock_timestamp(),
   'drift_log_total', (SELECT count(*) FROM counter_drift_log),
-  'drift_log', (SELECT coalesce(json_agg(d ORDER BY d.id), '[]') FROM (SELECT * FROM counter_drift_log ORDER BY id LIMIT 50000) d),
   'reconcile_runs', (SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM counter_reconcile_run r),
   'cleanup_runs', (SELECT coalesce(json_agg(c ORDER BY c.id), '[]') FROM counter_cleanup_run c));
 SQL
+) || { rm -f "$tmp"; return 1; }
+  echo '[]' > "$tmp"
+  local pages=0
+  while :; do
+    page=$(db_json <<SQL
+SELECT coalesce(json_agg(d ORDER BY d.id), '[]') FROM (SELECT * FROM counter_drift_log WHERE id > $last ORDER BY id LIMIT ${DRIFT_PAGE:-20000}) d;
+SQL
+) || { rm -f "$tmp"; return 1; }
+    n=$(jq 'length' <<< "$page") || { rm -f "$tmp"; return 1; }
+    pages=$((pages + 1))
+    (( n > 0 )) && { jq -c --argjson p "$page" '. + $p' "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp"; last=$(jq '.[-1].id' <<< "$page"); }
+    (( n < ${DRIFT_PAGE:-20000} )) && break
+  done
+  jq -c --slurpfile l "$tmp" --argjson pages "$pages" '. + {drift_log: $l[0], drift_log_pages: $pages}' <<< "$head"
+  rm -f "$tmp"
 }
 
 # 어긋남 주입(설계 §9 주입기 — 부하 중 DB 직접 조작, 한 트랜잭션). 인자: D L1 L2 H 제외쌍("(s,u),(s,u)" 또는 빈 값)
@@ -510,8 +526,10 @@ CREATE TEMP TABLE dropped ON COMMIT DROP AS SELECT i.* FROM inj i WHERE NOT (
                AND (SELECT count(*) FROM reservation r WHERE r.schedule_id = i.schedule_id AND r.user_id = i.user_id AND r.status = 'CONFIRMED') = 1
     WHEN 'H' THEN true
     ELSE EXISTS (SELECT 1 FROM seat_hold x WHERE x.schedule_id = i.schedule_id AND x.user_id = i.user_id
-                 AND x.expires_at >= now() + make_interval(secs => $margin))
-  END);
+                 AND x.held_at <= now() - make_interval(secs => $held) AND x.expires_at >= now() + make_interval(secs => $margin))
+  END
+  -- N-4: 최초 선정 조건 전체 — 열린 회차(모든 종류) · D·L1은 '만료될' 홀드(held_at 최소 나이 · 만료 여유)
+  AND EXISTS (SELECT 1 FROM product_schedule s WHERE s.id = i.schedule_id AND s.starts_at > now()));
 DELETE FROM inj i USING dropped d WHERE d.schedule_id = i.schedule_id AND d.user_id = i.user_id;
 -- 변경 + 종류별 영향 행 수(기록한 수와 대조 — rep_status inject-mismatch)
 CREATE TEMP TABLE applied ON COMMIT DROP AS

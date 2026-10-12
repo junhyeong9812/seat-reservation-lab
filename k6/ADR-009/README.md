@@ -46,7 +46,7 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 | `S2` | 사용자 100명 × 좌석 10개 동시 | — |
 | `S3-a20` | 입장→선점→확정, 이탈 20% | — |
 | `S3e-a20` | S3-a20 + 어긋남 주입 | 라운드 계획 `INJECT_ROUNDS`(기본 270·600초 — control은 둘째 라운드 L2·H만)마다 한 트랜잭션 주입 → `injected.json` · 끝 쌍 상태 `end-pairs.json` · `effect.json` |
-| `S3c-a20` | S3-a20 흐름 | k6 바로 전에 회차 1 `starts_at` = 지금 + 601초(`close.json`) · 마감 5초 전 표본 `pre-close.json` · 끝 정리 상태 `close-end.json` |
+| `S3c-a20` | S3-a20 흐름 | k6 바로 전에 회차 1 `starts_at` = 지금 + 601초(`close.json`) · 마감 5초 전 표본 `pre-close.json` · 끝 정리 상태 `close-end.json`. 마감 뒤 확정 성공은 실제로 생긴다 — 실측: 스모크 S3c zero(b3351b59) 마감 뒤 보낸 확정 101건 전부 OK · S3c schedule(728c236c 작업트리) 140건 전부 OK — N-1(마감 뒤 확정 성공이 생길 수 없다는 정적 추론) 기각 근거 |
 
 ### 주입(설계 §9 — `lib.sh inject_drift`)
 
@@ -77,7 +77,7 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
   - control: + 틱 실패 원인(app.log 스케줄 예외)이 주입 원인(missing-row·23514)뿐
   - A: D·L1 전부 `expiry-repair`가 복구 · 끝 D·L1 일치 · 틱 실패 0 · L2·H 복구 0(A는 못 본다)
   - A+C·A+F: 60쌍 전부 복구 · 주입 쌍마다 끝 cnt = 실제 · 복구 출처 ⊆ {expiry-repair, 그 대조} · L2·H는 대조만 · 틱 실패 0
-  - B+C: 60쌍 전부 복구 · 끝 일치 · 틱 실패는 주입 → 복구 구간 안, 원인 SR001·23514인 틱만 허용(H-10 — 롤백 틱마다 남는 expiry-trigger skipped 기록으로 센다), 그 밖은 unexpected
+  - B+C: 60쌍 전부 복구 · 끝 일치 · 틱 실패는 일대일로만 허용(H-10·N-3): 실패 틱마다 app.log 스케줄 예외(시각)가 있고 그 ±1초 안에 주입 쌍의 expiry-trigger skipped(SR001·23514, 주입 → 복구 구간 안)가 있어야 한다. 설명 안 되는 틱 → unexpected, 로그 예외 수 ≠ 틱 실패 수 또는 로그를 못 읽음 → effect-check-failed
   - A·A+C·A+F·B+C 공통(H-3): 틱 성공 > 0 · 끝 오래된 HELD 0. 주입 쌍의 끝 상태가 빠지면 effect-check-failed(H-6)
   - 오탐 복구에는 주입 쌍이 주입 **전에** repaired된 것도 넣는다(H-17)
 - **control·A의 남은 어긋남과 만료 정지는 결과이지 하네스 실패가 아니다** — 효과 셀의 `counter-mismatch`는 판정기 값이 아니라 **주입 밖 쌍**의 끝 어긋남으로 판정한다.
@@ -92,8 +92,8 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 | `trigger-mismatch`·`trigger-check-failed` | `pg_trigger` 두 이름 ⇔ B·B+C | 전부 |
 | `counter-judge-vacuous`·`counter-excluded-missing` | 판정기 제외 회차 ≥ 시드 회차 수(부하 대상 회차가 전부 판정에서 빠짐 — 명세 §11 N3) · 항목 없음 | S3c 밖 |
 | `schedule-closed-seen` | 선점 409 본문 `SCHEDULE_CLOSED` > 0(k6 `hold_closed`) — 시드 회차 2026-12-31 19:00+09 시한폭탄 | S3c 밖 |
-| `reconcile-missing`·`reconcile-errors` | C·F인데 시드 **뒤에 시작한** 첫 바퀴가 없음(H-14) 또는 (S2 밖) k6 구간 바퀴 수 < max(1, ⌊구간 ÷ 주기⌋ − 1)(H-13) · 바퀴 기록 errors·skipped_chunks > 0 또는 지표 reconcile.errors 증가 > 0(H-13). reconcile-missing도 결과 사유(재측정 안 함 — H-16) | C·F |
-| `drift-snap-failed`·`drift-db-failed`·`drift-db-truncated`·`drift-record-failed`·`cleanup-errors`·`container-log-missing` | 지표 스냅숏·V7 덤프 실패 · counter_drift_log 덤프 상한(5만 행)에 잘림(H-4) · `drift.record_failed` > 0 · 정리 errors > 0 · docker logs 파이프 실패·빈 로그(H-12) | 전부 |
+| `reconcile-missing`·`reconcile-errors` | C·F인데 시드 **뒤에 시작한** 첫 바퀴가 없음(H-14) 또는 (S2 밖) k6 구간에서 바퀴 결손 — 시작 간격 > 주기 + 앞 바퀴 실행 시간 + 10초(fixedDelay — N-2, 앞·끝단 포함) · 바퀴 기록 errors·skipped_chunks > 0 또는 지표 reconcile.errors 증가 > 0(H-13). reconcile-missing도 결과 사유(재측정 안 함 — H-16) | C·F |
+| `drift-snap-failed`·`drift-db-failed`·`drift-db-incomplete`·`drift-record-failed`·`cleanup-errors`·`container-log-missing` | 지표 스냅숏·V7 덤프 실패 · counter_drift_log를 페이지로 모았는데 총수보다 적음(H-4·N-5 — 수집 실패, 재측정 대상) · `drift.record_failed` > 0 · 정리 errors > 0 · docker logs 파이프 실패·빈 로그(H-12) | 전부 |
 | `inject-failed`·`inject-short`·`inject-mismatch`·`effect-check-failed`·`effect-unexpected`·`false-repair` | 주입 실패 · 라운드 계획보다 적게 고름(조용한 절단 금지) · 영향 행 수 ≠ 기록 수 · effect.json 없음 · 조건별 기대와 다름 · 주입 밖 repaired > 0 | S3e |
 | `close-leak`·`close-wrong-code`·`close-no-hold-before` | 마감 뒤 보낸 선점(PC 시각 + 시계 차 > starts_at + 오차)이 201 · `SCHEDULE_CLOSED` 밖 코드(H-2) · 마감 전 330초 안 성공 선점 표본 0(H-2 — 시나리오가 S3c 성공 선점을 모두 남긴다. 약 350~610초에는 빈 좌석이 없어 마감 직전 30초에는 성공이 없다) | S3c |
 | `confirm-after-close-failed` · `close-tick-failed` | 마감 뒤 확정이 `OK`·`HOLD_EXPIRED` 밖 · 틱 실패 증가 > 0(H-9 — 주입 없는 셀) | S3c |

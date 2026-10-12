@@ -970,8 +970,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     jq -e --argjson f "$HAS_F" '(.app | type == "object" and (.error | not)) and ($f == 0 or (.reconciler | type == "object" and (.error | not)))' "$dir/$f" > /dev/null 2>&1 || reasons+=("drift-snap-failed")
   done
   jq -e '(.drift_log | type == "array") and (.reconcile_runs | type == "array") and (.cleanup_runs | type == "array")' "$dir/drift-db.json" > /dev/null 2>&1 || reasons+=("drift-db-failed")
-  # H-4: counter_drift_log를 다 받지 못했으면(덤프 상한 50,000행) 효과·오탐 판정을 믿을 수 없다 — 회차 실패
-  if jq -e '(.drift_log_total // 0) > (.drift_log | length)' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("drift-db-truncated"); fi
+  # H-4·N-5: counter_drift_log를 페이지로 다 모았는데도 총수(먼저 셈)보다 적으면 수집 실패 — 효과·오탐 판정을 믿을 수 없다(재측정 대상, 결과 사유 아님)
+  if jq -e '(.drift_log_total // 0) > (.drift_log | length)' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("drift-db-incomplete"); fi
   # C·F가 실제로 돌았나(reconcile-missing): 시드 뒤 첫 바퀴를 봤고(reconcile-first.json), 긴 셀(S2 밖 — k6가 60초보다 길다)은 k6 구간에도 그 출처의 바퀴가 있어야 한다.
   # 바퀴 기록의 errors·skipped_chunks > 0이면 reconcile-errors(대조 실패를 숨기지 않는다 — 결과 사유)
   if (( HAS_C || HAS_F )); then
