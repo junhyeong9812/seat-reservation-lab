@@ -34,7 +34,10 @@ data class ReconcileRun(
     val found: Int,
     val repaired: Int,
     val falsePositives: Int,
+    /** 복구 실패로 건너뛴 쌍(다음 바퀴가 다시 본다) — 마감 제외는 [skippedClosed]로 따로 센다 */
     val skipped: Int,
+    /** 탐지 뒤 복구 트랜잭션에서 회차 마감을 확인해 쓰지 않은 쌍(skipped reason=closed — 실패가 아니라 마감 제외, 코드 루프 3 L3-4) */
+    val skippedClosed: Int,
     val skippedSchedules: Int,
     val skippedPairs: Long,
     val skippedChunks: Int,
@@ -149,7 +152,8 @@ class CounterReconciler(
             found = found.size,
             repaired = outcomes.count { it.action == DriftAction.REPAIRED },
             falsePositives = outcomes.count { it.action == DriftAction.FALSE_POSITIVE },
-            skipped = outcomes.count { it.action == DriftAction.SKIPPED },
+            skipped = outcomes.count { it.action == DriftAction.SKIPPED && it.reason != SKIP_CLOSED },
+            skippedClosed = outcomes.count { it.action == DriftAction.SKIPPED && it.reason == SKIP_CLOSED },
             skippedSchedules = skippedSchedules, skippedPairs = skippedPairs, skippedChunks = pass.skippedChunks, errors = pass.errors,
             chunkMsTotal = pass.chunkMsTotal, chunkMsMax = pass.chunkMsMax, orphanMsTotal = pass.orphanMsTotal,
             borrows = borrowsWithRecord, outcomes = outcomes,
@@ -157,8 +161,8 @@ class CounterReconciler(
         val id = pass.borrow { insertRun(run) }
         if (run.found > 0 || run.errors > 0) {
             log.warn(
-                "대조 바퀴({}): 회차 {} · 쌍 {} · 발견 {} · 복구 {} · 오탐 {} · skipped {} · 오류 {} · 제외 회차 {}/쌍 {}",
-                source, run.schedules, run.pairsScanned, run.found, run.repaired, run.falsePositives, run.skipped, run.errors,
+                "대조 바퀴({}): 회차 {} · 쌍 {} · 발견 {} · 복구 {} · 오탐 {} · skipped {} · 마감 제외 {} · 오류 {} · 제외 회차 {}/쌍 {}",
+                source, run.schedules, run.pairsScanned, run.found, run.repaired, run.falsePositives, run.skipped, run.skippedClosed, run.errors,
                 skippedSchedules, skippedPairs,
             )
         }
@@ -286,13 +290,13 @@ class CounterReconciler(
     private fun insertRun(r: ReconcileRun): Long = jdbc.queryForObject(
         """
         INSERT INTO counter_reconcile_run (source, started_at, finished_at, schedules, chunks, pairs_scanned, orphan_chunks, found,
-            repaired, false_positives, skipped, skipped_schedules, skipped_pairs, skipped_chunks, errors, chunk_ms_total, chunk_ms_max,
+            repaired, false_positives, skipped, skipped_closed, skipped_schedules, skipped_pairs, skipped_chunks, errors, chunk_ms_total, chunk_ms_max,
             orphan_ms_total, borrows)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         """.trimIndent(),
         Long::class.java,
         r.source, Timestamp.from(r.startedAt), Timestamp.from(r.finishedAt), r.schedules, r.chunks, r.pairsScanned, r.orphanChunks, r.found,
-        r.repaired, r.falsePositives, r.skipped, r.skippedSchedules, r.skippedPairs, r.skippedChunks, r.errors, r.chunkMsTotal, r.chunkMsMax,
+        r.repaired, r.falsePositives, r.skipped, r.skippedClosed, r.skippedSchedules, r.skippedPairs, r.skippedChunks, r.errors, r.chunkMsTotal, r.chunkMsMax,
         r.orphanMsTotal, r.borrows,
     )!!
 

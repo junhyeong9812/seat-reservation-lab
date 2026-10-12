@@ -116,7 +116,8 @@ class QuotaCleanup(
         val t0 = System.nanoTime()
         val startsAt = jdbc.queryForList(
             // FOR UPDATE(명세 §10 — 코드 루프 2 L2-1로 복귀): 선점의 마감 판정 FOR SHARE와 직렬화하고, 홀드·예약 INSERT의 FK 검사(FOR KEY SHARE)도 막는다.
-            // 홀드 0 회차만 지우므로 그 사이 올 확정(홀드 필요)이 없어 대기 비용이 없다
+            // 대기 비용이 있다: 이 잠금은 커밋까지 유지되므로 홀드가 남아 지우지 않는 회차에서도 EXISTS 확인·기록 동안 그 회차의 확정(예약 INSERT FK)·
+            // 마감 판정이 기다린다(코드 루프 3 L3-3 정정 — 측정 IV-009-4)
             "SELECT starts_at FROM product_schedule WHERE id = ? FOR UPDATE", Timestamp::class.java, scheduleId,
         ).singleOrNull()
         val waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
