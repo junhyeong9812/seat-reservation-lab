@@ -1,13 +1,16 @@
 # ADR-009 측정 환경(ADR-008 compose 복사 + 조건 축 --cond): 앱 + PostgreSQL + Redis. 자원·설정은 전부 환경변수로 주입하고, 결과 폴더에 그 값을 함께 남긴다.
 # 실행: docker compose -p seatlab -f k6/ADR-009/compose.yml up -d --build  (repo 루트에서) — run.sh가 부른다.
 # 좌석 전략 기본 = pessimistic-nowait(ADR-003 결정 3b, 앱 기본값과 같다).
-# 조건 키는 **조건이 켤 때만** SPRING_APPLICATION_JSON에 들어간다(compose `${VAR:+…}` — 변수가 비면 키 자체가 없다). 그래서 control은 ADR-008과 같은 JSON이다.
+# 조건 키는 compose `${VAR:+…}`로 넣는다 — 변수가 비면 키 자체가 없다.
+# ADR-009 결정(명세 §12)으로 앱 기본값이 A·C·정리 ① 켬이 됐다 — 그래서 기본값 전환 전 조건(control·control-noclose·A·A+C·A+F·B·B+C)은
+#   세 키(A·C·정리)를 **늘 명시**한다(켬이든 끔이든 — 전환 전과 같은 실효 값). 조건 default만 세 키를 하나도 넣지 않고 앱 기본값으로 뜬다(ADR-008 기본값 조건과 같은 방식).
 #   LIMIT_TRIGGER=1        → "limit-strategy":"counter-trigger"(B·B+C만 — 그 밖은 ADR-008처럼 키 없음, 앱 기본값 counter-upsert-precheck)
-#   SALES_CLOSE_OFF=1      → "sales-close.enabled":false(control-noclose)
-#   DRIFT_A=1              → "counter-drift.expiry-repair":true(A·A+C·A+F)
+#   SALES_CLOSE_OFF=1      → "sales-close.enabled":false(control-noclose — 마감 기본값은 바뀌지 않았다: 켬)
+#   DRIFT_A=true|false     → "counter-drift.expiry-repair"(A·A+C·A+F = true, 나머지 전환 전 조건 = false, default = 비움)
 #   DRIFT_EXTERNAL=1       → "counter-drift.external-reconciler":true(A+F — 대조는 compose.reconciler.yml의 별도 컨테이너가 한다)
-#   DRIFT_C=<주기>         → "counter-drift.reconcile.enabled":true + interval(A+C·B+C)
-#   DRIFT_CLEANUP=<모드>   → "counter-drift.cleanup.mode"(schedule|zero — 마감 임박 셀)
+#   DRIFT_C_ENABLED=true|false → "counter-drift.reconcile.enabled"(A+C·B+C = true, 나머지 전환 전 조건 = false, default = 비움)
+#   DRIFT_C=<주기>         → "counter-drift.reconcile.interval"(대조를 켜는 조건만)
+#   DRIFT_CLEANUP=<모드>   → "counter-drift.cleanup.mode"(none|schedule|zero — 전환 전 조건은 늘 넣는다(--cleanup, 기본 none), default = 비움)
 #   점(.)이 든 키는 Spring이 그대로 이어 붙인다(seat.hold + counter-drift.expiry-repair) — 적용 값은 회차마다 configprops로 대조한다(run.sh cond-config-mismatch).
 # DB 세션 구분(IV-009-7): 앱 커넥션 ApplicationName=seatlab-app, F 컨테이너 seatlab-reconciler(compose.reconciler.yml). C는 앱 풀을 같이 쓰므로(명세 §10 D8)
 #   application_name으로는 가를 수 없다 — 대기 표본(lib.sh db_sampler by_src)이 문장 표지로 가른다.
@@ -63,7 +66,7 @@ services:
       DB_USERNAME: seat
       DB_PASSWORD: seat
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{${LIMIT_TRIGGER:+"limit-strategy":"counter-trigger",}${SALES_CLOSE_OFF:+"sales-close.enabled":false,}${DRIFT_A:+"counter-drift.expiry-repair":true,}${DRIFT_EXTERNAL:+"counter-drift.external-reconciler":true,}${DRIFT_C:+"counter-drift.reconcile.enabled":true,"counter-drift.reconcile.interval":"${DRIFT_C}",}${DRIFT_CLEANUP:+"counter-drift.cleanup.mode":"${DRIFT_CLEANUP}",}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
+        {"seat":{"hold":{${LIMIT_TRIGGER:+"limit-strategy":"counter-trigger",}${SALES_CLOSE_OFF:+"sales-close.enabled":false,}${DRIFT_A:+"counter-drift.expiry-repair":${DRIFT_A},}${DRIFT_EXTERNAL:+"counter-drift.external-reconciler":true,}${DRIFT_C_ENABLED:+"counter-drift.reconcile.enabled":${DRIFT_C_ENABLED},}${DRIFT_C:+"counter-drift.reconcile.interval":"${DRIFT_C}",}${DRIFT_CLEANUP:+"counter-drift.cleanup.mode":"${DRIFT_CLEANUP}",}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}

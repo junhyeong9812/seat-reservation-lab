@@ -22,21 +22,27 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 
 ## 조건 축(`--cond`) · 정리 축(`--cleanup`)
 
-| 조건 | 업무 앱에 넣는 키(그 밖은 키 없음 = 앱 기본값) | 그 밖 |
+ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 · 정리 ① schedule이 됐다. 그래서 `default` 밖의 조건은 세 키
+(`counter-drift.expiry-repair` · `counter-drift.reconcile.enabled` · `counter-drift.cleanup.mode`)를 **늘 명시**한다 — 아래 표에 없는 쪽은 끔(`false` · `false` · `--cleanup` 값, 기본 `none`)으로 넣어
+전환 전과 같은 실효 설정으로 뜬다(렌더 대조: 전환 전·후 조건별 실효 값 동일).
+
+| 조건 | 업무 앱에 넣는 키(세 키 밖은 키 없음 = 앱 기본값) | 그 밖 |
 |------|------|------|
-| `control` | — (후보 끔 · 판매 마감 켬 — ADR-008 대조군과 같은 JSON) | |
+| `control` | 세 키 끔 (후보 끔 · 판매 마감 켬 — ADR-008 대조군과 같은 실효 설정) | |
 | `control-noclose` | `sales-close.enabled=false` | 마감 판정 비용 분리(명세 §10 D2) |
 | `A` | `counter-drift.expiry-repair=true` | |
 | `A+C` | A + `counter-drift.reconcile.enabled=true` · `interval=60s` | 앱 풀 공유 |
 | `A+F` | A + `counter-drift.external-reconciler=true` | `compose.reconciler.yml`(대조 60s) |
 | `B` | `limit-strategy=counter-trigger` | `spring.flyway.locations += classpath:db/migration-trigger`(V8) |
 | `B+C` | B + reconcile 60s(A 없이 — 명세 §11) | 효과 셀만 |
+| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C |
 
-- `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c).
+- `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c). `default` 밖에서는 `none`도 키로 넣는다.
 - 매수 방식 키는 **B·B+C에서만** 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(`counter-upsert-precheck`)을 configprops로 대조한다.
   `limit-key.json`의 기대 개수가 조건마다 다르다(앱 환경 등장 수 B = 1 · 나머지 0 · F 컨테이너 늘 0).
 - 적용 확인(회차마다): configprops `seat.hold.counterDrift`·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch`) ·
   `pg_trigger` 두 이름 ⇔ B(`trigger-mismatch`).
+  F 컨테이너는 `application-reconciler.yml`이 A·정리를 끈다(대조 전용 — `reconciler-config-mismatch`가 A 끔·정리 NONE도 본다).
 
 ## 셀
 

@@ -3,6 +3,7 @@
 # loadtest 프로필은 actuator(configprops·metrics)를 열려고 함께 켠다 — 부하 시드·판정 엔드포인트는 reconciler 프로필에서 닫힌다(LoadtestController @Profile).
 # 업무 앱의 JSON(A·external-reconciler 등)을 물려받지 않게 SPRING_APPLICATION_JSON을 통째로 다시 쓴다(대조 주기·풀·Flyway 위치만).
 # 매수 방식 키는 두지 않는다(업무 앱과 같은 기본값 — run.sh limit-key가 이 컨테이너도 0개인지 센다).
+# A·정리는 application-reconciler.yml이 끈다(ADR-009 기본값 전환 뒤에도 대조 전용 — run.sh reconciler-config-mismatch가 configprops로 확인한다).
 services:
   reconciler:
     extends:

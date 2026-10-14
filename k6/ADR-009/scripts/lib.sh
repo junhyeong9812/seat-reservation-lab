@@ -345,21 +345,23 @@ REMOTE
 #   env  = 환경변수 줄 전체(이름=값 — JAVA_TOOL_OPTIONS·SPRING_APPLICATION_JSON·SPRING_CONFIG_* 포함)에서의 등장 수
 #   cmd  = .Path · .Args · .Config.Entrypoint · .Config.Cmd 에서의 등장 수(--seat.hold.limit-strategy= 같은 명령줄 인자)
 #   spring_config = 이름이 SPRING_CONFIG_로 시작하는 환경변수 수(외부 설정 파일 위치 — 그 파일의 내용은 볼 수 없으므로 있는 것 자체를 드러낸다)
-# 인자: 컨테이너 이름 → 한 줄 JSON {"container","env","cmd","spring_config","present"} (조회 실패면 1 — run.sh가 limit-key-check-failed로 드러낸다)
+#   drift · drift_cmd = (ADR-009 기본값 조건 증거 — task 07a) 같은 줄들에서 counter[._-]?drift · sales[._-]?close 등장 수(환경 · 명령줄). 값은 역시 세지 않는다
+# 인자: 컨테이너 이름 → 한 줄 JSON {"container","env","cmd","spring_config","drift","drift_cmd","present"} (조회 실패면 1 — run.sh가 limit-key-check-failed로 드러낸다)
 limit_key_check() {
-  local c="$1" out e m sc
+  local c="$1" out e m sc d dm
   out=$(remote "bash -s -- '$c'" <<'SH'
 c="$1"
 docker inspect "$c" > /dev/null 2>&1 || exit 3
 docker inspect "$c" --format '{{range .Config.Env}}E {{.}}{{println}}{{end}}{{range .Config.Entrypoint}}C {{.}}{{println}}{{end}}{{range .Config.Cmd}}C {{.}}{{println}}{{end}}C {{.Path}}{{println}}{{range .Args}}C {{.}}{{println}}{{end}}' \
-  | awk '{ l = tolower(substr($0, 3)); n = gsub(/limit[._-]?strategy/, "", l)
-           if (substr($0, 1, 2) == "E ") { e += n; if (substr($0, 3, 14) == "SPRING_CONFIG_") s++ } else m += n }
-         END { printf "%d %d %d\n", e, m, s }'
+  | awk '{ l = tolower(substr($0, 3)); n = gsub(/limit[._-]?strategy/, "", l); k = gsub(/counter[._-]?drift|sales[._-]?close/, "", l)
+           if (substr($0, 1, 2) == "E ") { e += n; d += k; if (substr($0, 3, 14) == "SPRING_CONFIG_") s++ } else { m += n; dm += k } }
+         END { printf "%d %d %d %d %d\n", e, m, s, d, dm }'
 SH
 ) || return 1
-  read -r e m sc <<< "$out"
-  [[ "$e" =~ ^[0-9]+$ && "$m" =~ ^[0-9]+$ && "$sc" =~ ^[0-9]+$ ]] || return 1
-  jq -nc --arg c "$c" --argjson e "$e" --argjson m "$m" --argjson s "$sc" '{container:$c, env:$e, cmd:$m, spring_config:$s, present:(($e + $m) > 0)}'
+  read -r e m sc d dm <<< "$out"
+  [[ "$e" =~ ^[0-9]+$ && "$m" =~ ^[0-9]+$ && "$sc" =~ ^[0-9]+$ && "$d" =~ ^[0-9]+$ && "$dm" =~ ^[0-9]+$ ]] || return 1
+  jq -nc --arg c "$c" --argjson e "$e" --argjson m "$m" --argjson s "$sc" --argjson d "$d" --argjson dm "$dm" \
+    '{container:$c, env:$e, cmd:$m, spring_config:$s, drift:$d, drift_cmd:$dm, present:(($e + $m) > 0)}'
 }
 
 # ---- ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — 회차 전에 한 번, 측정 대상 앱 SHA 기준) -------------------------------------------------

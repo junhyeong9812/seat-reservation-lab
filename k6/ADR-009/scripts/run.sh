@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # ADR-009 측정 실행기 (ADR-008 실행기 복사 + 조건 축 --cond · 정리 축 --cleanup · 셀 S3e(효과 — 어긋남 주입)·S3c(마감 임박) · 카운터 어긋남 수집·판정).
 #   명세: docs/plans/2026-10-12/adr-009-counter-drift/requirement-spec.md §5·§10·§11 · 설계 design-v2.md §9·§10.
-#   --cond control|control-noclose|A|A+C|A+F|B|B+C — 앱에 넣는 키(compose.yml 머리말 — 조건이 켤 때만 키가 생긴다):
-#       control         후보 모두 끔 · 판매 마감 켬(앱 기본값 그대로 — ADR-008 대조군과 같은 JSON)
+#   --cond control|control-noclose|A|A+C|A+F|B|B+C|default — 앱에 넣는 키(compose.yml 머리말):
+#     ADR-009 결정(명세 §12)으로 앱 기본값이 A·C·정리 ① 켬이 됐다 — default 밖의 조건은 A·C·정리 세 키를 늘 명시한다(켬이든 끔이든 — 전환 전과 같은 실효 값).
+#       control         후보 모두 끔(세 키 끔 명시) · 판매 마감 켬(ADR-008 대조군과 같은 실효 설정)
 #       control-noclose control + sales-close.enabled=false(마감 판정 비용 분리 — 명세 §10 D2)
 #       A               counter-drift.expiry-repair=true
 #       A+C             A + reconcile.enabled=true · interval 60s(명세 §11 R3 — 앱 안 대조, 앱 풀 공유)
 #       A+F             업무 앱 A + external-reconciler=true · 별도 컨테이너 reconciler(compose.reconciler.yml — 프로필 loadtest,reconciler · 포트 8102 · 대조 60s)
 #       B               limit-strategy=counter-trigger + spring.flyway.locations에 classpath:db/migration-trigger(V8)
 #       B+C             B + reconcile(60s) — A 없이(명세 §11: 트리거가 마감 회차를 건너뛴다)
+#       default         ADR-009 기본값(task 07a): 조건 키를 하나도 넣지 않는다 — 앱 기본값 A 켬 · C 켬(60s) · 정리 ① schedule · 마감 켬 · counter-upsert-precheck.
+#                       --cleanup은 받지 않는다(정리 방식도 앱 기본값 — 기대값·plan.json의 cleanup은 schedule). 키가 없다는 증거 = limit-key.json의 drift 개수 0
 #     매수 방식 키는 B·B+C에서만 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(counter-upsert-precheck)을 대조한다 — limit-key.json의 기대 개수가 조건마다 다르다(B = 1, 나머지 0).
-#   --cleanup none|schedule|zero — counter-drift.cleanup.mode(마감 임박 셀 S3c — 명세 §10 D6). 기본 none
+#   --cleanup none|schedule|zero — counter-drift.cleanup.mode(마감 임박 셀 S3c — 명세 §10 D6). 기본 none(default 조건 밖에서는 none도 키로 넣는다)
 #   셀(ADR-008 셀 + 둘):
 #       S3e-a20  효과 셀 = S3-a20 + 어긋남 주입(k6 시작 + 회차 계획 INJECT_ROUNDS의 초마다 lib.sh inject_drift — injected.json) · 끝 쌍 상태(end-pairs.json) · effect.json(요약기 --effect)
 #       S3c-a20  마감 임박 셀 = S3-a20 흐름 + k6 바로 전에 회차 starts_at = k6 시작 + 600초(close.json) · 마감 5초 전 표본(pre-close.json) · 끝 정리 상태(close-end.json)
@@ -77,10 +80,11 @@ STRATEGIES="none jvm-lock jvm-lock-in-tx conditional-update pessimistic pessimis
 [[ " $STRATEGIES " == *" $STRATEGY "* ]] || { echo "--strategy one of: $STRATEGIES" >&2; exit 2; }
 [[ "$DELAY_MS" =~ ^[0-9]+$ ]] || { echo "--delay-ms <정수 ms>" >&2; exit 2; }
 # ADR-009 조건(머리말). 이어서 실행(--resume)이면 아래에서 계획 값으로 다시 정한다 — 여기서는 명령줄 값만 검사
-CONDS="control control-noclose A A+C A+F B B+C"
+CONDS="control control-noclose A A+C A+F B B+C default"
 (( RESUME )) && [[ -z "$COND" ]] && COND=control   # 이어서 실행은 계획에서 복원(아래)
 [[ " $CONDS " == *" $COND "* ]] || { echo "--cond one of: $CONDS" >&2; exit 2; }
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
+[[ "$COND" == default && " $COND_CLI " == *" cleanup "* ]] && { echo "--cond default는 --cleanup을 받지 않는다(정리 방식도 앱 기본값 schedule — 키를 넣지 않는다)" >&2; exit 2; }
 # 시드 회차 starts_at 2026-12-31 19:00+09(LoadtestDataService) 시한폭탄(명세 §0 · 설계 §5a): 그 1시간 전부터는 회차를 시작하지 않는다(모든 선점이 SCHEDULE_CLOSED가 된다)
 if (( $(date -u +%s) >= $(date -u -d '2026-12-31T09:00:00Z' +%s) )); then echo "seed-time-bomb: 시드 회차 starts_at(2026-12-31T10:00Z) 1시간 전 — 하네스 시드 시각부터 바꿔야 한다" >&2; exit 2; fi
 # ADR-007 DB 설정 축(명세 §9.2): 세 조건은 서로 독립 — 기본(PostgreSQL 16 기본값) · 체크포인트 없음(간격 1h·WAL 상한 16GB — 회차당 WAL 약 0.75GB라
@@ -106,9 +110,11 @@ set_cond() {
   case "$COND" in B|B+C) LIMIT_STRATEGY=counter-trigger ;; *) LIMIT_STRATEGY=counter-upsert-precheck ;; esac
   APPLIED_LIMIT="$LIMIT_STRATEGY"
   case "$COND" in B|B+C) LIMIT_KEYS_EXPECTED=1 ;; *) LIMIT_KEYS_EXPECTED=0 ;; esac   # 앱 컨테이너 환경의 매수 방식 키 등장 수(limit-key.json env) — B·B+C만 1
-  HAS_C=0 HAS_F=0 HAS_A=0
-  case "$COND" in A|A+C|A+F) HAS_A=1 ;; esac
-  case "$COND" in A+C|B+C) HAS_C=1 ;; esac
+  HAS_C=0 HAS_F=0 HAS_A=0 IS_DEFAULT=0
+  case "$COND" in A|A+C|A+F|default) HAS_A=1 ;; esac
+  case "$COND" in A+C|B+C|default) HAS_C=1 ;; esac
+  # default: 키 없이 앱 기본값(A·C 켬 · 정리 ① schedule) — 기대값(cfg_want·정리 오류 판정·plan.json)이 실효 값 schedule을 보도록
+  [[ "$COND" == default ]] && { IS_DEFAULT=1; CLEANUP=schedule; }
   [[ "$COND" == A+F ]] && HAS_F=1
   RECONCILE_INTERVAL=60s   # 명세 §11 R3 — 비용·효과 셀 모두 60초
 }
@@ -187,11 +193,17 @@ INJECT_ROUNDS="${INJECT_ROUNDS:-$(inject_rounds_default)}" INJECT_HELD_MIN_S="${
 [[ "$INJECT_ROUNDS" =~ ^[0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+(\ [0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+)*$ && "$INJECT_HELD_MIN_S$INJECT_EXP_MARGIN_S$CLOSE_LEAD_S" =~ ^[0-9]+$ ]] \
   || { echo "INJECT_ROUNDS(<초>:<D>,<L1>,<L2>,<H> …)·INJECT_HELD_MIN_S·INJECT_EXP_MARGIN_S·CLOSE_LEAD_S 형식" >&2; exit 2; }
 export INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S
-# 조건 키(compose.yml 머리말) — 모든 키를 늘 넘긴다(빈 값 = 키 없음 · compose 경고 없음)
+# 조건 키(compose.yml 머리말) — 모든 변수를 늘 넘긴다(빈 값 = 키 없음 · compose 경고 없음).
+# default 밖의 조건은 A·C·정리를 늘 명시한다(ADR-009 기본값 전환 뒤에도 전환 전과 같은 실효 값). default는 셋 다 비운다(키 없음 = 앱 기본값)
 cond_env() {
+  local a c ci cl
+  if (( IS_DEFAULT )); then a="" c="" ci="" cl=""
+  else
+    a=$( ((HAS_A)) && echo true || echo false) c=$( ((HAS_C)) && echo true || echo false) ci=$( ((HAS_C)) && echo "$RECONCILE_INTERVAL") cl="$CLEANUP"
+  fi
   echo "LIMIT_TRIGGER=$([[ "$LIMIT_STRATEGY" == counter-trigger ]] && echo 1) SALES_CLOSE_OFF=$([[ "$COND" == control-noclose ]] && echo 1)" \
-       "DRIFT_A=$( ((HAS_A)) && echo 1) DRIFT_EXTERNAL=$( ((HAS_F)) && echo 1) DRIFT_C=$( ((HAS_C)) && echo "$RECONCILE_INTERVAL")" \
-       "DRIFT_CLEANUP=$([[ "$CLEANUP" != none ]] && echo "$CLEANUP") RECONCILE_INTERVAL=$RECONCILE_INTERVAL"
+       "DRIFT_A=$a DRIFT_EXTERNAL=$( ((HAS_F)) && echo 1) DRIFT_C_ENABLED=$c DRIFT_C=$ci" \
+       "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL"
 }
 # ADR-007 후속 tmpfs preset: DB 볼륨을 tmpfs로(오버레이). compose_down은 오버레이 없이도 같은 볼륨(pgdata)을 지운다(down -v)
 [[ "$PG_PRESET" == tmpfs ]] && export COMPOSE_EXTRA="${COMPOSE_EXTRA:-} -f k6/ADR-009/compose.tmpfs.yml"
@@ -807,6 +819,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   else
     reasons+=("limit-key-check-failed")
   fi
+  # ADR-009 기본값 조건(default): 앱 컨테이너 환경·명령줄에 후보·정리·마감 키(counter-drift · sales-close — relaxed 이름 포함)가 하나도 없어야 한다 — 있으면 drift-key-present,
+  #   개수 필드가 없으면 limit-key-check-failed(같은 증거 파일). 다른 조건은 개수만 남긴다(전환 전 조건은 세 키를 명시하므로 0이 아니다)
+  if (( IS_DEFAULT )); then
+    if ! jq -e '(.[0].drift | type) == "number" and (.[0].drift_cmd | type) == "number"' "$dir/limit-key.json" > /dev/null 2>&1; then reasons+=("limit-key-check-failed")
+    elif jq -e '.[0].drift + .[0].drift_cmd > 0' "$dir/limit-key.json" > /dev/null; then reasons+=("drift-key-present"); fi
+  fi
   # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4): limit-set-by-profile · limit-default-not-precheck · spring-config-override, 확인 실패면 limit-config-check-failed
   if jq -e '.reasons | type == "array"' "$dir/limit-config.json" > /dev/null 2>&1; then
     local lcr; for lcr in $(jq -r '.reasons[]' "$dir/limit-config.json"); do reasons+=("$lcr"); done
@@ -954,8 +972,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
          interval: (if $p.counterDrift.reconcile.enabled then $p.counterDrift.reconcile.interval else null end), cleanup: $p.counterDrift.cleanup.mode, salesClose: $p.salesClose.enabled}' "$dir/app-config.json" 2>/dev/null)"
     [[ -n "$cfg_got" && "$cfg_got" == "$cfg_want" ]] || { reasons+=("cond-config-mismatch"); echo "$(date -Is) cond-config want=$cfg_want got=${cfg_got:-없음}" >> "$dir/errors.log"; }
   fi
-  # F: 대조 컨테이너 설정(대조 켬 · 주기 60s) — 못 읽었으면 같은 사유
-  if (( HAS_F )) && ! jq -e '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false' "$dir/reconciler-config.json" > /dev/null 2>&1; then
+  # F: 대조 컨테이너 설정(대조 켬 · 주기 60s · A 끔 · 정리 끔 — ADR-009 기본값 전환 뒤에는 application-reconciler.yml이 A·정리를 끈다) — 못 읽었으면 같은 사유
+  if (( HAS_F )) && ! jq -e '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false and .counterDrift.cleanup.mode == "NONE"' "$dir/reconciler-config.json" > /dev/null 2>&1; then
     reasons+=("reconciler-config-mismatch")
   fi
   # 트리거(V8) ⇔ B: pg_trigger 두 이름(seat_hold_quota·reservation_quota)이 B·B+C면 둘 다, 그 밖은 없어야 한다

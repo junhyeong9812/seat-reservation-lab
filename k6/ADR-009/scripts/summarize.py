@@ -726,7 +726,7 @@ def runs_in_window(rep_dir, source, k6_started, k6_ended, interval_s="60"):
 
 # ---- ADR-009 효과 셀(S3e — 설계 §9 효과 지표 · 명세 §5 결정 기준 ①②) ----------------------------------------------------------
 INJECT_KINDS = ("D", "L1", "L2", "H")
-RECONCILE_SOURCE = {"A+C": "reconcile-app", "B+C": "reconcile-app", "A+F": "reconcile-proc"}
+RECONCILE_SOURCE = {"A+C": "reconcile-app", "B+C": "reconcile-app", "A+F": "reconcile-proc", "default": "reconcile-app"}   # default = 앱 기본값 A + C(task 07a) — 기대는 A+C와 같다
 
 
 def _stats(xs):
@@ -886,7 +886,7 @@ def effect(rep_dir, cond):
         # H-7: 정지 원인은 주입(행 없음 · CHECK)이어야 한다
         if causes is None or not causes or any(k not in ("missing-row", "23514") for k in causes):
             un.append(f"control: 틱 실패 원인 {causes} — 주입 원인(missing-row·23514)만 기대")
-    elif cond in ("A", "A+C", "A+F", "B+C"):
+    elif cond in ("A", "A+C", "A+F", "B+C", "default"):
         recon = RECONCILE_SOURCE.get(cond)
         # H-3: 만료가 실제로 돌았고(틱 성공 > 0) 끝에 오래된 HELD 0
         if not (tick_ok or 0) > 0:
