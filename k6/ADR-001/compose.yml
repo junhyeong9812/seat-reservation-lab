@@ -36,8 +36,9 @@ services:
       DB_PASSWORD: seat
       # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
       # 매수 방식은 none 고정(ADR-008 — 앱 기본값이 counter-upsert-precheck로 바뀌었다. 이 하네스는 매수 축이 없던 측정이라 이전 기본값 none을 명시)
+      # ADR-009 후보·정리는 끔 고정(ADR-009 결정으로 앱 기본값이 A·C·정리 ① 켬으로 바뀌었다 — 이 하네스는 그 축이 없던 측정이라 이전 기본값 끔을 명시. 카운터 계열이 아닌 매수 방식은 켠 채로는 기동 검사가 거부한다)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","limit-strategy":"none"}},
+        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","limit-strategy":"none","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false},"cleanup":{"mode":"none"}}}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}}}}
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
     ports:
