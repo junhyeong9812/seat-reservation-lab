@@ -41,6 +41,8 @@
 | 10-14 02:xx | 분석 회수(Opus): compare.py 52b859c6 · COMPARISON.md(원시 6건 교차 일치) · 메인 판정: H1·H2·H3·H5(근사)·H6·H7·H8 성립, H4 tmpfs 성립·디스크 일부 반증(C 바퀴 80~110초 > 주기 — 앱 풀 공유) · 디스크 잡음 ±25%(A vs control p99 +24%)로 디스크 비용 판정 불가 · A+F 디스크 에러율 0.021(원인 미확인) · control-s4c-disk rep1 이상치(3,853 RPS) / 사용자 결정 5: 기본값 A+C 켬 · B 선택지 유지 · 정리 ① 기본 · 허용선 tmpfs 10% · 적용은 ADR-009 안 task 07a → 명세 §12 · 사용자 지적 '한글로 설명' — 결과·질문을 영어로 써서 다시 한국어로 | 기본값 적용 위임 |
 | 10-14 13:2x | task 07a 기본값 적용 회수(Opus): 8e4c92e3(기본값 A·C 켬·정리 schedule, reconciler 프로필 A·정리 끔, 기존 테스트 끔 고정 — IntegrationTest 전역) · 9b0ca984(ADR-001~008 compose 끔 고정) · a601bba5(기본값 테스트 14) · 46f5b04d(ADR-009 하네스 default 조건·drift 키 흔적) · 정책: 명시적 고정(자동 비활성화 기각 — configprops와 실효 불일치·fail-fast 의미 역전) · 렌더 대조 58변형 실효 차이 0 · 507/0/0 · 스모크 default S2·S3e(60쌍 복구, 출처 expiry-repair 15·reconcile-app 45)·control S2 회귀 모두 ok · 서버 정리 | 메인 전체 테스트 ∥ 듀얼 1패스(rv24) |
 | 10-14 14:xx | 메인 전체 테스트 507/0/0 · 기본값 적용 듀얼 1패스(rv24): codex 지적 0 · Opus P2 2(F1 external + C 중복 대조 기동 검사 없음 · F2 여러 인스턴스 대조·정리 N배) · P3 6 → F1·F3·F4·F5·F6·F8 코드 수정 위임, F2·F7은 ADR 운영 제약·NEXT(F2 단일 실행 장치 구현은 범위 밖 — 사용자 보고) · ADR-009 §7 결과·§8 결정 작성 | 수정 진행 |
+| 10-14 14:5x | 기본값 리뷰 수정 회수(2fd9695e·8ed82d72·cc56ef65) · 메인 전체 테스트 508/0/0 · codex 타깃 재점검 신규 0 → **기본값 적용 코드 리뷰 종료** · ADR-009 §7·§8 결과 문서 듀얼 1패스: codex 5 · Opus 10 → RD-1~RD-11 · **메인 판정 정정**: '비용 없음'·H4·H5·H7 판정이 결과보다 낙관적이었음(사용자 보고) · tmpfs 대조 조건 짧은 벽은 대조 바퀴와 시각 불일치(메인 원시 확인) → 사용자 '튐 원인부터 확인' → 원인 분석 위임(Opus, 읽기 전용) | 분석 대기 |
+| 10-14 15:xx | 원인 분석 회수(Opus): 짧은 벽 = 모든 조건의 주기적 앱 멈춤(SerialGC 추정, GC 로그 없음 — 미확정) 중 3건이 약 300ms, 대조 바퀴와 무관 · **하네스 교란 발견**: 대조 조건만 k6 전 30초 추가 대기 → control·A·B만 tmpfs 램프 붕괴(k6 26~36초, p99 최대 4.2초) · 'A+C p99 −42%·S2 WAL −33%'는 교란 · 메인 원시 확인(A rep1 p99>200ms 11초·control rep2 9초·A+C rep1 0초, reconcile-first waited_s=30) · 사용자 결정 '교란 고치고 비용 셀 재측정' → 명세 §13 · 사용자 지적 '결과가 영어라 한국어로' — 다시 한국어로 | 하네스 수정 위임 |
 
 ## 리뷰 ledger
 
@@ -147,6 +149,22 @@
 | DOC-7 | d | opus F7 | summarize.py:888-904 | 채택 — H2 반증에 D·L1 복구 수·끝 일치·오래된 HELD 추가 | fixed | doc |
 | DOC-8 | d | codex R4 + opus F8 | V8:26-39 · HoldStrategyStartupCheck.kt:76 | 채택 — ADR-010 ④에 'B 그대로는 불가(엄격·기동 검사) → 비엄격 변형·순서 재설계' | fixed | doc |
 | DOC-9 | d | opus F9 | HoldStrategyStartupCheck.kt:92-105 | 채택 — ADR-010 ②에 조합 규칙 확장 필요 | fixed | doc |
+
+- review packet(결과 문서·기본값 수정 재점검): rv25 — ADR-009 §7·§8 + 결과 파일(COMPARISON·comparison·wall·wdrop) + 기본값 리뷰 수정분
+
+| id | first_seen_loop | source | 근거 | disposition | status | fixed_in_loop |
+|----|-----------------|--------|------|-------------|--------|---------------|
+| RD-1 | r | opus R1 | wall.json tmpfs A+C 2/3·A+F 1/3 | 채택 — tmpfs '비용 없음' 정정: 대조 조건에서만 짧은 벽(1초 p99 > 200ms) · 메인 확인: 대조 바퀴와 시각 불일치(최근접 6초) → 원인 조사 위임(사용자 '튐 원인부터 확인') | open | — |
+| RD-2 | r | codex R1 + opus R2 | COMPARISON 디스크 13·15·16·23행 | 채택 — H4 디스크에 F 반증(p99 +55%·벽 −48초·에러율, 범위 비겹침)·A+C 에러율, 잡음은 지표별 근거 | open | — |
+| RD-3 | r | opus R3 + codex R3 | §3·§5 측정 전 고정 · §4 noclose 디스크만 | 채택 — 디스크 참고 전환은 측정 뒤 사용자 결정임을 명시, H7 '반증 관측 없음(해상도 밖)', 마감 통과 근거 = 디스크 참고 + 판정 시간, H6 S2 +18%는 잡음 범위 | open | — |
+| RD-4 | r | codex R2 + opus R4 | DB 대기 C 0.015 vs F 0.037 | 채택 — H5 tmpfs 성립(바퀴 수 같음)·디스크 판정 불가(바퀴 수 7 vs 4 섞임) | open | — |
+| RD-5 | r | opus R5 | F CPU 0.4% · 바퀴 7 vs 4 · 빌림 5,886 vs 3,131 | 채택 — F 기각 근거 재작성(풀 억제 없는 대조 → DB 부하), 전용 풀 처방의 맞교환 명시 | open | — |
+| RD-6 | r | codex R5 + opus R6 | S3e 바퀴 0.03~0.10초 · S4c 디스크 C 110초 | 채택 — H3 범위 '가벼운 부하', '누락 없음'은 추론, 디스크 최악 탐지 ≈ 170초+ | open | — |
+| RD-7 | r | opus R7 | tmpfs A+C p99 −42% · S2 WAL −33% | 채택 — 설명 안 된 교란으로 명시, 근거에서 제외 · 원인 조사에 포함 | open | — |
+| RD-8 | r | opus R8 | S3-a20 WAL +5.3% | 채택 — H6 근거 지표 정정 | open | — |
+| RD-9 | r | opus R9 | §8 B 확정 실패 | 채택 — 추론 표시 | open | — |
+| RD-10 | r | opus R10 | spec §5 ③ | 채택 — S2·S3 참고 1줄 | open | — |
+| RD-11 | r | codex R4 | COMPARISON 183·187-190 | 채택 — H8 ② 행별 보존은 미검증 | open | — |
 
 ## 생략한 검증
 
