@@ -38,6 +38,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C |
 
 - `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c). `default` 밖에서는 `none`도 키로 넣는다.
+- 한계: `default` 조건의 키 없음 확인(`drift`·`drift_cmd`)은 앱 컨테이너 **환경변수·명령줄만** 본다 — 프로필 yml(`application-*.yml`)이 세 키를 바꾸는 경우는 configprops 대조(`cond-config-mismatch` — 기대 = A 켬 · C 켬 · SCHEDULE)가 잡는다.
 - 매수 방식 키는 **B·B+C에서만** 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(`counter-upsert-precheck`)을 configprops로 대조한다.
   `limit-key.json`의 기대 개수가 조건마다 다르다(앱 환경 등장 수 B = 1 · 나머지 0 · F 컨테이너 늘 0).
 - 적용 확인(회차마다): configprops `seat.hold.counterDrift`·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch`) ·
