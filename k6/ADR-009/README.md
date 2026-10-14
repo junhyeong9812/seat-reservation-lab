@@ -89,6 +89,18 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
   - 오탐 복구에는 주입 쌍이 주입 **전에** repaired된 것도 넣는다(H-17)
 - **control·A의 남은 어긋남과 만료 정지는 결과이지 하네스 실패가 아니다** — 효과 셀의 `counter-mismatch`는 판정기 값이 아니라 **주입 밖 쌍**의 끝 어긋남으로 판정한다.
 
+## 시작 상태 — k6 전 대기(명세 §13 교란 수정)
+
+- **교란**: 옛 하네스는 대조 조건(A+C·A+F)만 시드 뒤 첫 대조 바퀴를 기다렸다(`wait_reconcile_run` — 실측 30~43초). 시드 끝 → k6 시작이 대조 없는 조건 16~18초 · 대조 조건 43~58초로 달라
+  k6 시작이 DB autovacuum과 다르게 겹쳤고, tmpfs의 control·A·B에만 k6 26~36초 '램프 붕괴'(p99 최대 약 4.2초)가 났다(캠페인 20261013-adr009-285ba256 실측).
+- **선택 = 고정 대기(fixed-after-seed)**: 모든 조건이 시드 끝(= `/internal/reset` 반환 — DB 준비) 뒤 `PRE_K6_HOLD_S`(60초)까지 기다리고(대조 조건은 첫 바퀴를 본 뒤 남은 만큼),
+  준비 단계를 거친 뒤 시드 끝 → k6 시작이 `PRE_K6_TARGET_S`(77초 = 60 + 준비 약 16~17초 실측)가 되게 남은 만큼 더 기다린다. 허용 `PRE_K6_TOL_S` ±5초 — 밖이면 `pre-k6-mismatch`.
+  실제 값은 회차마다 `pre-k6.json`·meta.json `pre_k6`(시드 끝·k6 시작 epoch · 차 · 대조 대기 · 잔 시간). 세 값은 plan.json `knobs`·`start_state`(이어서 실행 때 대조).
+- **ANALYZE는 더하지 않았다**: 시드 직후 ANALYZE는 원래 있다(`/internal/reset` → `LoadtestDataService.analyze` — product·product_schedule·product_seat·seat_hold·reservation, 모든 조건 공통).
+  교란 원인은 시작 상태(통계)가 아니라 시점 차라서, 시드 직후 VACUUM 같은 상태 변경도 넣지 않고 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 둔 채 시점만 맞춘다.
+- **GC 로그**: `JAVA_TOOL_OPTIONS`에 `-Xlog:gc*,safepoint:file=/tmp/gc.log:time,uptime,level,tags`(앱 · F 컨테이너가 물려받는다) — 회차 끝 `gc.log.gz`·`reconciler-gc.log.gz`,
+  요약 `gc.json`(수집기 · 정지 수·합·최대 · safepoint 최대 · k6 구간 값 · 50ms 넘는 정지). 수집기는 고르지 않는다(JVM 기본 선택 그대로 — 기록만). 없으면 `gc-log-missing`.
+
 ## 회차 합격(정확히 `ok`만 정상) — ADR-008 사유 + 아래
 
 | 사유 | 조건 | 셀 |
@@ -100,6 +112,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `counter-judge-vacuous`·`counter-excluded-missing` | 판정기 제외 회차 ≥ 시드 회차 수(부하 대상 회차가 전부 판정에서 빠짐 — 명세 §11 N3) · 항목 없음 | S3c 밖 |
 | `schedule-closed-seen` | 선점 409 본문 `SCHEDULE_CLOSED` > 0(k6 `hold_closed`) — 시드 회차 2026-12-31 19:00+09 시한폭탄 | S3c 밖 |
 | `reconcile-missing`·`reconcile-errors` | C·F인데 시드 **뒤에 시작한** 첫 바퀴가 없음(H-14) 또는 (S2 밖) k6 구간에서 바퀴 결손 — 시작 간격 > 주기 + 앞 바퀴 실행 시간 + 10초(fixedDelay — N-2, 앞·끝단 포함) · 바퀴 기록 errors·skipped_chunks > 0 또는 지표 reconcile.errors 증가 > 0(H-13). reconcile-missing도 결과 사유(재측정 안 함 — H-16) | C·F |
+| `pre-k6-mismatch`·`gc-log-missing` | 시드 끝 → k6 시작이 목표 ± 허용 밖(명세 §13 — 조건별 시작 시점 교란) · GC 로그 수집 실패·0바이트·수집기 줄 없음 | 전부 |
 | `drift-snap-failed`·`drift-db-failed`·`drift-db-incomplete`·`drift-record-failed`·`cleanup-errors`·`container-log-missing` | 지표 스냅숏·V7 덤프 실패 · counter_drift_log를 페이지로 모았는데 총수보다 적음(H-4·N-5 — 수집 실패, 재측정 대상) · `drift.record_failed` > 0 · 정리 errors > 0 · docker logs 파이프 실패·빈 로그(H-12) | 전부 |
 | `inject-failed`·`inject-short`·`inject-mismatch`·`effect-check-failed`·`effect-unexpected`·`false-repair` | 주입 실패 · 라운드 계획보다 적게 고름(조용한 절단 금지) · 영향 행 수 ≠ 기록 수 · effect.json 없음 · 조건별 기대와 다름 · 주입 밖 repaired > 0 | S3e |
 | `close-leak`·`close-wrong-code`·`close-no-hold-before` | 마감 뒤 보낸 선점(PC 시각 + 시계 차 > starts_at + 오차)이 201 · `SCHEDULE_CLOSED` 밖 코드(H-2) · 마감 전 330초 안 성공 선점 표본 0(H-2 — 시나리오가 S3c 성공 선점을 모두 남긴다. 약 350~610초에는 빈 좌석이 없어 마감 직전 30초에는 성공이 없다) | S3c |
@@ -123,6 +136,10 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 
 ## 캠페인(설계 §10 · 명세 §11 측정 조건 갱신)
 
+- **`--set cost-remeasure`(명세 §13)**: {control, A, A+C, A+F} × {S4c4200 디스크 · S4c4200 tmpfs · S2 · S3-a20} × 3 = 48회(예상 약 9.3시간 — 시작 대기 반영).
+  순서는 회차 우선 + 균형 회전(묶음 4개·묶음 안 조건 4개를 회차마다 1칸씩). 판정은 이 캠페인 회차끼리만(옛 캠페인과 섞지 않는다). `--set main`(기본)의 conditions.txt·order.txt는 명세 §13 전과 바이트가 같다(dry-run 확인) —
+  그 예상분 열은 옛 대기 기준이라, 시작 대기를 반영한 보정 예상은 dry-run 끝 줄에 따로 낸다.
+
 - 비용 {control, A, B, A+C, A+F} × {S4c4200 디스크 · S4c4200 tmpfs · S2 · S3-a20} × 3 = 60 · 마감 끔 control-noclose × S4c4200 디스크 × 3 = 3 ·
   효과 {control, A, A+C, A+F, B+C} × S3e-a20 × 3 = 15 · 마감 임박 S3c-a20 × {schedule, zero} × 3 = 6 → **84회, 예상 약 19.2시간**(재측정 제외 — `--dry-run`이 셈).
 - 순서: 회차 우선 + 균형 회전(campaign.sh 머리말). 재측정은 ADR-008 규칙 + ADR-009 결과 사유(ACCEPT_RE)·효과 셀은 effect.json 위반으로.
@@ -131,6 +148,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 ```bash
 k6/ADR-009/scripts/campaign.sh --sha <SHA> --id <id> --dry-run          # 계획만(84행 · 예상 시간)
 k6/ADR-009/scripts/campaign.sh --sha <SHA> [--id <id>]                  # 확정 측정(하네스 = 커밋된 SHA)
+k6/ADR-009/scripts/campaign.sh --set cost-remeasure --sha <SHA> [--id <id>] [--dry-run]   # 명세 §13 비용 셀 재측정 48회
 k6/ADR-009/scripts/run.sh --sha <SHA> --cond A+F --cells S2 --reps 1 --id <id>   # 조건 하나(스모크 — 커밋 전이면 --worktree)
 python3 k6/ADR-009/scripts/summarize.py k6/ADR-009/results/<id>/<조건>
 ```

@@ -5,6 +5,8 @@
 #
 #   scripts/campaign.sh --sha <SHA> [--id <campaign-id>]
 #   scripts/campaign.sh --sha <SHA> --id <id> --dry-run     # 조건·순서 계획(conditions.txt·order.txt) + 예상 시간만 — 측정 없음(84행)
+#   scripts/campaign.sh --set cost-remeasure --sha <SHA> [--id <id>] [--dry-run]   # 명세 §13 비용 셀 재측정 48회(아래 'cost-remeasure')
+#   --set main(기본 — 아래 84회 계획, 명세 §13 전 본측정과 같은 conditions.txt·order.txt) | cost-remeasure
 #
 # 계획(설계 §10, 명세 §11 측정 조건 갱신 — C·F = A+C·A+F, B+C는 효과 셀만) — 조건 이름 = <조건>-<셀 묶음>, 각 3회:
 #   비용  {control, A, B, A+C, A+F} × {s4c-disk(S4c4200 디스크) · s4c-tmpfs(S4c4200 tmpfs) · s2(S2) · s3a20(S3-a20)}  = 60
@@ -19,6 +21,9 @@
 # 중단되면 같은 --id로 다시 부르면 된다(각 조건 run.sh --resume, 끝난 회차는 건너뛴다).
 # 재측정(최대 2바퀴): 정확히 ok가 아닌 회차 — 단 **결과 사유**(ACCEPT_RE — 측정 결과이지 하네스 실패가 아니다)가 있거나 판정기 위반(매수 초과 · 카운터 불일치 — 효과 셀은
 #   주입 밖 쌍 어긋남·오탐 복구)이 찍힌 회차는 다른 사유가 무엇이든 다시 재지 않는다(다시 재서 ok가 나오면 실패가 가려진다). 남으면 exit 1.
+# cost-remeasure(명세 §13 — 교란 수정 뒤 비용 셀만): {control, A, A+C, A+F} × {s4c-disk · s4c-tmpfs · s2 · s3a20} × 3 = 48.
+#   순서 = 회차 우선 + 균형 회전: 묶음 4개를 회차 k마다 (k−1)칸, 묶음 안 조건 4개를 회차 k마다 (k−1)칸 회전(4개 × 3회차 — 같은 묶음·조건이 회차마다 다른 자리).
+#   판정은 이 캠페인 회차끼리만(옛 캠페인과 섞지 않는다 — 명세 §13). 기본 id = <날짜>-adr009-remeasure-<SHA>
 # 시한: 시드 회차 starts_at 2026-12-31 19:00+09 — run.sh가 그 1시간 전부터 회차를 거부한다(seed-time-bomb). 캠페인은 약 19.5시간.
 set -uo pipefail
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -30,22 +35,24 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
   exec bash "$frozen/scripts/campaign.sh" "$@"
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
-SHA="" CAMPAIGN="" DRY_RUN=0
+SHA="" CAMPAIGN="" DRY_RUN=0 SET=main
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
     --id) CAMPAIGN="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --set) SET="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
+[[ "$SET" == main || "$SET" == cost-remeasure ]] || { echo "--set main|cost-remeasure" >&2; exit 2; }
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 if (( ! DRY_RUN )) && { ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-009 ':(exclude)k6/ADR-009/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-009 ':(exclude)k6/ADR-009/results')" ]]; }; then
   echo "k6/ADR-009 differs from $SHA — commit first" >&2; exit 2
 fi
-CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr009-$SHA}"
+CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr009-$([[ $SET == cost-remeasure ]] && echo remeasure-)$SHA}"
 ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
@@ -60,6 +67,12 @@ BLOCK_s2="control A B A+C A+F"
 BLOCK_s3a20="control A B A+C A+F"
 BLOCK_s3e="control A A+C A+F B+C"
 BLOCK_s3c="schedule zero"
+EXPECT_TOTAL=84 BLOCK_STEP=2 COND_STEP_DIV=3   # main: 묶음 2(k−1)칸 · 조건 ⌈n/3⌉(k−1)칸(머리말)
+if [[ "$SET" == cost-remeasure ]]; then
+  BLOCKS="s4c-disk s4c-tmpfs s2 s3a20"
+  BLOCK_s4c_disk="control A A+C A+F" BLOCK_s4c_tmpfs="control A A+C A+F" BLOCK_s2="control A A+C A+F" BLOCK_s3a20="control A A+C A+F"
+  EXPECT_TOTAL=48 BLOCK_STEP=1 COND_STEP_DIV=4   # 묶음 (k−1)칸 · 조건 ⌈4/4⌉(k−1) = (k−1)칸
+fi
 args_of() {  # 인자: 묶음 조건 → run.sh 인자
   case "$1" in
     s4c-disk)  echo "--cond $2 --cells 'S4c4200' --pg-preset default" ;;
@@ -72,9 +85,12 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
 }
 name_of() { [[ "$1" == s3c ]] && echo "close-$2-s3c" || echo "$2-$1"; }
 # 1회 예상 분(설계 §10 실측 출처: S2 1.3 · S3-a20 21.8 · S4c4200 9.6 — S3e·S3c는 S3-a20과 같은 길이) + C·F 첫 대조 바퀴 대기(최대 2분, 평균 1분으로 셈)
+# 명세 §13 뒤 하네스는 모든 조건이 시드 끝 → k6 시작 77초(PRE_K6_TARGET_S)를 거친다 — 옛 대기(대조 없음 약 17초 · 대조 약 45초)보다 1회당 약 1분·0.5분 길다.
+#   main의 order.txt(예상분 열)는 바꾸지 않는다(명세 §13 전 계획과 바이트가 같아야 한다) — 보정 예상은 dry-run 끝 줄에 따로. cost-remeasure는 보정 값(모든 조건 + 1분)
 minutes_of() {
   local m; case "$1" in s4c-*) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
-  case "$2" in A+C|A+F|B+C) m=$(awk -v m="$m" 'BEGIN { print m + 1 }') ;; esac
+  if [[ "$SET" == cost-remeasure ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1 }')
+  else case "$2" in A+C|A+F|B+C) m=$(awk -v m="$m" 'BEGIN { print m + 1 }') ;; esac; fi
   echo "$m"
 }
 block_conds() { local v="BLOCK_${1//-/_}"; echo "${!v}"; }
@@ -92,14 +108,15 @@ rotate() {  # 인자: 칸수 원소... → 왼쪽으로 칸수만큼 회전한 �
 }
 ORDER_NEW="$(mktemp)"
 {
-  echo "# ADR-009 조건 순서 — 회차 우선 · 묶음($BLOCKS) 회차마다 2칸 회전 · 묶음 안 조건 ⌈n/3⌉칸 회전 (campaign.sh 머리말)"
+  if [[ "$SET" == main ]]; then echo "# ADR-009 조건 순서 — 회차 우선 · 묶음($BLOCKS) 회차마다 2칸 회전 · 묶음 안 조건 ⌈n/3⌉칸 회전 (campaign.sh 머리말)"
+  else echo "# ADR-009 cost-remeasure 조건 순서(명세 §13) — 회차 우선 · 묶음($BLOCKS) 회차마다 1칸 회전 · 묶음 안 조건 1칸 회전 (campaign.sh 머리말)"; fi
   echo "# 회차 회차안순번 전체순번 조건 예상분"
   seq_all=0
   for rep in $(seq 1 "$REPS"); do
     pos=0
-    for b in $(rotate $(( 2 * (rep - 1) )) $BLOCKS); do
+    for b in $(rotate $(( BLOCK_STEP * (rep - 1) )) $BLOCKS); do
       read -r -a cs <<< "$(block_conds "$b")"
-      for c in $(rotate $(( (${#cs[@]} + 2) / 3 * (rep - 1) )) "${cs[@]}"); do
+      for c in $(rotate $(( (${#cs[@]} + COND_STEP_DIV - 1) / COND_STEP_DIV * (rep - 1) )) "${cs[@]}"); do
         pos=$((pos + 1)); seq_all=$((seq_all + 1))
         echo "$rep $pos $seq_all $(name_of "$b" "$c") $(minutes_of "$b" "$c")"
       done
@@ -110,7 +127,7 @@ ORDER_NEW="$(mktemp)"
 total=$(grep -vc '^#' "$ORDER_NEW")
 expect=$(( $(wc -l < "$ROOT/conditions.txt") * REPS ))
 bad=""
-(( total == expect && total == 84 )) || bad+=" 행수 $total≠$expect(84)"
+(( total == expect && total == EXPECT_TOTAL )) || bad+=" 행수 $total≠$expect($EXPECT_TOTAL)"
 while read -r name _; do
   [[ "$(awk -v c="$name" '$4 == c {print $1}' "$ORDER_NEW" | sort -n | tr '\n' ' ')" == "$(seq 1 "$REPS" | tr '\n' ' ')" ]] || bad+=" $name 회차 어긋남"
 done < "$ROOT/conditions.txt"
@@ -126,9 +143,11 @@ if (( DRY_RUN )); then
   for rep in $(seq 1 "$REPS"); do echo "$(date -Is) ORDER rep$rep: $(awk -v r="$rep" '$1 == r {printf "%s ", $4}' "$ROOT/order.txt")" >> "$LOG"; done
   cat "$ROOT/order.txt"
   echo "계획: 조건 $(wc -l < "$ROOT/conditions.txt")개 · ${total}회 호출 · 예상 ${EST_MIN}분($(awk -v m="$EST_MIN" 'BEGIN { printf "%.1f", m / 60 }')시간 — 재측정 제외)" >&2
-  for g in "s4c-disk" "s4c-tmpfs" "s2" "s3a20" "s3e" "s3c"; do
+  for g in $BLOCKS; do
     echo "  $g: $(grep -v '^#' "$ROOT/order.txt" | awk -v g="$g" '$4 ~ ("-" g "$") { n++; s += $5 } END { printf "%d회 %.1f분", n, s }')" >&2
   done
+  # main: 명세 §13 시작 대기(모든 조건 77초)로 보정한 예상 — 대조 없는 조건 + 1분, 대조 조건 + 0.5분(order.txt는 그대로)
+  [[ "$SET" == main ]] && echo "  보정 예상(명세 §13 시작 대기 반영): $(grep -v '^#' "$ROOT/order.txt" | awk '{ s += $5 + ($4 ~ /^(A\+C|A\+F|B\+C)-/ ? 0.5 : 1) } END { printf "%.1f분(%.1f시간)", s, s / 60 }')" >&2
   exit 0
 fi
 

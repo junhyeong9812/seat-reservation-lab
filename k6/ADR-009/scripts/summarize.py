@@ -769,6 +769,57 @@ def snap_delta(a, b, *path):
     return x - y if isinstance(x, (int, float)) and isinstance(y, (int, float)) else None
 
 
+GC_TIME = re.compile(r"^\[(\d{4}-\d{2}-\d{2}T[\d:.]+)([+-]\d{2})(\d{2})\]")
+GC_PAUSE = re.compile(r"\bPause (.+?) (\d+)M->(\d+)M\((\d+)M\) ([\d.]+)ms")
+GC_SAFEPOINT = re.compile(r"Safepoint \"([^\"]+)\".*Total: (\d+) ns")
+
+
+def gc_summary(gc_gz, window=None):
+    """명세 §13: JVM GC 로그(-Xlog:gc*,safepoint — time 꾸밈) 요약 — 수집기(Using …) · 일시 정지(Pause …) 수·합·최대 · safepoint 최대 ·
+    k6 구간(window = 서버 epoch (시작, 끝) — 앱 컨테이너 시계 = 서버 시계) 안 같은 값 · 50ms 넘는 정지 목록(시각 · 종류 · ms). 파일 없음·빈 파일 = None."""
+    if not gc_gz.exists():
+        return None
+    out = {"collector": None, "pauses": 0, "pause_ms_total": 0.0, "pause_ms_max": 0.0, "safepoint_ms_max": 0.0, "lines": 0,
+           "k6": {"pauses": 0, "pause_ms_total": 0.0, "pause_ms_max": 0.0, "safepoint_ms_max": 0.0} if window else None, "long_pauses": []}
+    with gzip.open(gc_gz, "rt", errors="replace") as f:
+        for line in f:
+            out["lines"] += 1
+            m = GC_TIME.match(line)
+            t = datetime.fromisoformat(f"{m.group(1)}{m.group(2)}:{m.group(3)}").timestamp() if m else None
+            in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
+            if out["collector"] is None and "Using " in line and "[gc" in line:
+                out["collector"] = line.split("Using ", 1)[1].strip()
+            pm = GC_PAUSE.search(line)
+            if pm:
+                ms = float(pm.group(5))
+                out["pauses"] += 1; out["pause_ms_total"] += ms; out["pause_ms_max"] = max(out["pause_ms_max"], ms)
+                if in_k6:
+                    k = out["k6"]; k["pauses"] += 1; k["pause_ms_total"] += ms; k["pause_ms_max"] = max(k["pause_ms_max"], ms)
+                if ms > 50 and len(out["long_pauses"]) < 200:
+                    out["long_pauses"].append({"t": t, "kind": pm.group(1), "ms": ms, "heap_mb": [int(pm.group(2)), int(pm.group(3)), int(pm.group(4))]})
+                continue
+            sm = GC_SAFEPOINT.search(line)
+            if sm:
+                ms = int(sm.group(2)) / 1e6
+                out["safepoint_ms_max"] = max(out["safepoint_ms_max"], ms)
+                if in_k6:
+                    out["k6"]["safepoint_ms_max"] = max(out["k6"]["safepoint_ms_max"], ms)
+    return out if out["lines"] else None
+
+
+def gc_report(rep_dir):
+    """gc.json = {app: gc_summary(gc.log.gz), reconciler: …(F면)} — k6 구간은 k6-window.json + clock-offset.json(서버 시계로 옮김)."""
+    rep_dir = Path(rep_dir)
+    win = load(rep_dir / "k6-window.json") or {}
+    off, _ = clock_off(rep_dir)
+    w = (ts(win["k6_started"]) + (off or 0), ts(win["k6_ended"]) + (off or 0)) if win.get("k6_started") and win.get("k6_ended") else None
+    out = {"app": gc_summary(rep_dir / "gc.log.gz", w)}
+    if (rep_dir / "reconciler-gc.log.gz").exists():
+        out["reconciler"] = gc_summary(rep_dir / "reconciler-gc.log.gz", w)
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
 def tick_failure_causes(app_log_gz, with_events=False):
     """만료 틱 실패 원인(H-7) — app.log.gz의 스케줄 작업 예외 블록('Unexpected error occurred in scheduled task' 뒤 다음 로그 줄까지 — Caused by 포함)을 분류해 센다:
     SR001(B 트리거 엄격 — V8 RAISE 'counter row missing'. 로그에 SQLSTATE 자체는 찍히지 않는다) · 23514(CHECK cnt >= 0 — 'check constraint') ·
@@ -1410,6 +1461,8 @@ def rep_record(rep_dir, root, level, cell):
     rec["redis_keys"] = (after.get("redis") or {}).get("keys")
     # ---- ADR-009: 조건 · 마감 판정 비용 · 대조(C·F) · 틱 · MultiXact · 출처별 대기 · 효과 · 마감 임박 셀 ----
     rec["cond"], rec["cleanup"] = meta.get("cond"), meta.get("cleanup")
+    rec["pre_k6"] = load(rep_dir / "pre-k6.json")   # 명세 §13 시작 상태(시드 끝 → k6 시작)
+    rec["gc"] = load(rep_dir / "gc.json")
     sb, sa, se = (load(rep_dir / f) or {} for f in ("drift-before.json", "drift-after-k6.json", "drift-end.json"))
     n_sc, t_sc = snap_delta(sa, sb, "app", "sales_close_check", "COUNT"), snap_delta(sa, sb, "app", "sales_close_check", "TOTAL_TIME")
     rec["sales_close_check_n"], rec["sales_close_check_mean_ms"] = n_sc, (t_sc / n_sc * 1000 if n_sc and t_sc is not None else None)
@@ -1699,6 +1752,8 @@ if __name__ == "__main__":
         except Exception as e:   # 효과 지표를 못 만들면 effect.json이 없다 → rep_status effect-check-failed
             sys.exit(f"effect: {type(e).__name__}: {e}")
         sys.exit(0)
+    if len(sys.argv) == 3 and sys.argv[1] == "--gc":
+        sys.exit(gc_report(sys.argv[2]))
     if len(sys.argv) in (6, 7) and sys.argv[1] == "--runs-in-window":
         sys.exit(runs_in_window(*sys.argv[2:]))
     main(sys.argv[1])

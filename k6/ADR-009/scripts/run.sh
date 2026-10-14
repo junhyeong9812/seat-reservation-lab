@@ -158,7 +158,7 @@ if (( RESUME )); then
   done
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP"
   # H-15: 주입·마감 손잡이는 계획 값으로 — 환경변수로 다른 값을 주면 거부
-  for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S; do
+  for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S PRE_K6_HOLD_S PRE_K6_TARGET_S PRE_K6_TOL_S; do
     pv="$(jq -r --arg k "$k" '.knobs[$k] // empty' "$OUT_ROOT/plan.json")"
     [[ -n "$pv" ]] || { echo "resume: plan.json knobs.$k 없음" >&2; exit 2; }
     if [[ -n "${!k:-}" && "${!k}" != "$pv" ]]; then echo "resume: $k=${!k} ≠ 계획 $pv" >&2; exit 2; fi
@@ -193,6 +193,10 @@ INJECT_ROUNDS="${INJECT_ROUNDS:-$(inject_rounds_default)}" INJECT_HELD_MIN_S="${
 [[ "$INJECT_ROUNDS" =~ ^[0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+(\ [0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+)*$ && "$INJECT_HELD_MIN_S$INJECT_EXP_MARGIN_S$CLOSE_LEAD_S" =~ ^[0-9]+$ ]] \
   || { echo "INJECT_ROUNDS(<초>:<D>,<L1>,<L2>,<H> …)·INJECT_HELD_MIN_S·INJECT_EXP_MARGIN_S·CLOSE_LEAD_S 형식" >&2; exit 2; }
 export INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S
+# 명세 §13 k6 전 대기(교란 수정 — README '시작 상태'): 시드 끝 → 대기점 PRE_K6_HOLD_S(60) — 대조 조건의 첫 바퀴 대기(실측 30~43초)를 덮는 길이 ·
+#   시드 끝 → k6 시작 목표 PRE_K6_TARGET_S(77 = 대기점 60 + 준비 단계 약 16~17초 실측) · 허용 PRE_K6_TOL_S(5)
+PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-60}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-77}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}"
+[[ "$PRE_K6_HOLD_S$PRE_K6_TARGET_S$PRE_K6_TOL_S" =~ ^[0-9]+$ ]] || { echo "PRE_K6_HOLD_S·PRE_K6_TARGET_S·PRE_K6_TOL_S 형식(정수 초)" >&2; exit 2; }
 # 조건 키(compose.yml 머리말) — 모든 변수를 늘 넘긴다(빈 값 = 키 없음 · compose 경고 없음).
 # default 밖의 조건은 A·C·정리를 늘 명시한다(ADR-009 기본값 전환 뒤에도 전환 전과 같은 실효 값). default는 셋 다 비운다(키 없음 = 앱 기본값)
 cond_env() {
@@ -456,12 +460,18 @@ run_rep() {  # 인자: level cell rep
   if ! reset_with_retry "$dir" $seed > "$dir/seed.json"; then
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "seed-failed" -1 ""; return 1
   fi
-  local seed_done=$SECONDS
+  local seed_done=$SECONDS seed_t; seed_t=$(date +%s.%N)
   # ADR-009 C·F: 대조가 실제로 도는지 — 시드 뒤 첫 바퀴 기록이 생길 때까지 기다린다(최대 주기 + 60초). 못 보면 reconcile-first.json runs = 0 → rep_status reconcile-missing
   if (( HAS_C || HAS_F )); then
     wait_reconcile_run "$( ((HAS_F)) && echo reconcile-proc || echo reconcile-app)" $(( ${RECONCILE_INTERVAL%s} + 60 )) > "$dir/reconcile-first.json" 2>>"$dir/errors.log" \
       || echo "wait_reconcile_run failed" >> "$dir/errors.log"
   fi
+  # 명세 §13(교란 수정): 모든 조건이 k6 전에 같은 시간을 거친다 — 시드 끝(DB 준비 = /internal/reset 반환, ANALYZE 포함) 뒤 PRE_K6_HOLD_S까지 기다린다
+  # (대조 조건은 첫 바퀴를 본 뒤 남은 만큼, 대조 없는 조건은 그 길이 전부). 옛 하네스는 대조 조건만 약 30~43초 더 기다려 k6 시작이 DB autovacuum과 다르게 겹쳤다
+  local now_t hold_left; now_t=$(date +%s.%N)
+  local hold_reached; hold_reached=$(awk -v a="$now_t" -v b="$seed_t" 'BEGIN { printf "%.3f", a - b }')
+  hold_left=$(awk -v h="$PRE_K6_HOLD_S" -v r="$hold_reached" 'BEGIN { d = h - r; printf "%.3f", (d > 0 ? d : 0) }')
+  sleep "$hold_left"
 
   snapshot "$dir" before
   app_config "$dir" 2>>"$dir/errors.log" || echo "app_config failed" >> "$dir/errors.log"
@@ -486,6 +496,9 @@ run_rep() {  # 인자: level cell rep
   local deadlocks0; deadlocks0=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'" 2>/dev/null)
   app_counters "$dir/before-k6.json" 2>>"$dir/errors.log"
   drift_snaps "$dir" before
+  # 명세 §13: 마지막 맞춤 — 시드 끝 → k6 시작이 PRE_K6_TARGET_S가 되게 남은 만큼 더 기다린다(준비 단계 길이 차를 지운다). 넘었으면 기다리지 않는다(rep_status pre-k6-mismatch가 판정)
+  local topup; topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$(date +%s.%N)" -v b="$seed_t" -v lead="${PRE_K6_LEAD_S:-1.2}" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
+  sleep "$topup"
 
   local k6env; k6env=$(k6_env_of "$cell")
   local clk_before clk_after; clk_before=$(clock_offset 2>>"$dir/errors.log")
@@ -507,6 +520,12 @@ run_rep() {  # 인자: level cell rep
   fi
   local k6_started; k6_started=$(date -Is)
   local k6_t0; k6_t0=$(date +%s.%N)
+  # 명세 §13: 시드 끝(DB 준비) → k6 시작 실제 시간 — 모든 회차 meta.pre_k6 · rep_status pre-k6-mismatch
+  jq -n --argjson seed "$seed_t" --argjson k6 "$k6_t0" --argjson hold "$PRE_K6_HOLD_S" --argjson target "$PRE_K6_TARGET_S" --argjson tol "$PRE_K6_TOL_S" \
+        --argjson reached "$hold_reached" --argjson left "$hold_left" --argjson topup "$topup" \
+        --argjson rw "$(jq -c '.waited_s // null' "$dir/reconcile-first.json" 2>/dev/null || echo null)" \
+    '{mode: "fixed-after-seed", seed_done_epoch: $seed, k6_start_epoch: $k6, seed_to_k6_s: (($k6 - $seed) * 1000 | round / 1000),
+      hold_s: $hold, target_s: $target, tol_s: $tol, reconcile_wait_s: $rw, hold_reached_s: $reached, hold_slept_s: $left, topup_s: $topup}' > "$dir/pre-k6.json"
   # ADR-009 효과 셀(S3e — 설계 §9 주입기): k6 시작 기준 INJECT_ROUNDS의 초마다 주입(배경 작업 — injected.jsonl 한 줄씩). 끝나면 injected.json으로 묶는다
   [[ "$base" == S3e ]] && { injector_job "$dir" "$k6_t0" & bg_jobs+=($!); }
   env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" \
@@ -553,6 +572,14 @@ run_rep() {  # 인자: level cell rep
     remote "docker logs --since '$started' seatlab-$c-1 2>&1" | gzip > "$lf"
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/logs-status.txt"
   done
+  # 명세 §13: JVM GC 로그(compose JAVA_TOOL_OPTIONS -Xlog:gc*,safepoint:file=/tmp/gc.log — 컨테이너가 회차마다 새로 뜨므로 이 회차 전체) → gc.log.gz · F면 reconciler-gc.log.gz.
+  # 수집기는 고르지 않는다(JVM 기본 선택 그대로 — 기록만: gc.json collector). 상태는 gc-status.txt(rep_status gc-log-missing)
+  for c in app $( ((HAS_F)) && echo reconciler); do
+    lf="$dir/$([[ $c == app ]] && echo gc || echo reconciler-gc).log.gz"
+    remote "docker exec seatlab-$c-1 cat /tmp/gc.log" | gzip > "$lf"
+    echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/gc-status.txt"
+  done
+  python3 "$SUMMARIZE" --gc "$dir" > "$dir/gc.json" 2>>"$dir/errors.log" || echo "gc summary failed" >> "$dir/errors.log"
   gzip -f "$dir/k6-stdout.log"
   # ADR-009 효과 지표(effect.json — 요약기 --effect, 주입 셀만). rep_status 전에 만든다(합격 판정이 읽는다)
   [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
@@ -1028,6 +1055,13 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
      || [[ "$(wc -l < "$dir/logs-status.txt")" != "$((2 + HAS_F))" ]]; then
     reasons+=("container-log-missing")
   fi
+  # 명세 §13: 시드 끝 → k6 시작이 목표 ± 허용(PRE_K6_TARGET_S ± PRE_K6_TOL_S) 밖이면 pre-k6-mismatch — 조건마다 k6 시작 상태가 달라지는 교란을 막는다(파일 없음도 같은 사유)
+  if ! jq -e '(.seed_to_k6_s | type == "number") and ((.seed_to_k6_s - .target_s) | fabs) <= .tol_s' "$dir/pre-k6.json" > /dev/null 2>&1; then reasons+=("pre-k6-mismatch"); fi
+  # 명세 §13: GC 로그(앱, F면 reconciler) — 파이프 실패·0바이트·수집기 줄 없음이면 gc-log-missing
+  if ! [[ -s "$dir/gc-status.txt" ]] || grep -qvE '^[a-z]+ pipe=0/0 bytes=[1-9][0-9]*$' "$dir/gc-status.txt" \
+     || [[ "$(wc -l < "$dir/gc-status.txt")" != "$((1 + HAS_F))" ]] || ! jq -e '.app.collector | type == "string"' "$dir/gc.json" > /dev/null 2>&1; then
+    reasons+=("gc-log-missing")
+  fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
   local uniq=() x; for x in "${reasons[@]}"; do [[ " ${uniq[*]} " == *" $x "* ]] || uniq+=("$x"); done; reasons=("${uniq[@]}")
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
@@ -1060,6 +1094,8 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
         --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
+        --argjson prek6 "$( { jq -ec . "$dir/pre-k6.json" 2>/dev/null || echo null; } | head -1)" \
+        --argjson gc "$( { jq -ec '{app: (.app | if . then {collector, pauses, pause_ms_max, k6} else null end), reconciler: (.reconciler | if . then {collector, pauses, pause_ms_max, k6} else null end)}' "$dir/gc.json" 2>/dev/null || echo null; } | head -1)" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
           k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
           strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), delay_ms:($delay|tonumber), bg:0,
@@ -1069,7 +1105,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           applied:{strategy:$applied_seat, limit_strategy:$applied_lim},
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
-          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock}' > "$dir/meta.json"
+          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
 }
 
@@ -1078,11 +1114,17 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 (( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
   --arg pg "$PG_PRESET" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
+  --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
                limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay},
-    knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl},
+    knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl},
+    start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber),
+                 analyze:"시드 직후 ANALYZE는 원래 있다(/internal/reset → LoadtestDataService.analyze — product·product_schedule·product_seat·seat_hold·reservation, 모든 조건 공통) — 더하지 않음",
+                 vacuum:"시드 직후 VACUUM은 넣지 않음 — 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 두고 시점만 맞춘다",
+                 why:"교란 원인은 시작 상태가 아니라 대조 조건만 k6 전에 약 30~43초 더 기다린 시점 차(명세 §13) — 모든 조건을 같은 시점(시드 끝 + target_s)에 시작한다",
+                 jvm:"JAVA_TOOL_OPTIONS -Xlog:gc*,safepoint:file=/tmp/gc.log — 수집기는 JVM 기본 선택 그대로(gc.json collector에 기록)"},
     created:(now|todate)}' > "$OUT_ROOT/plan.json"
 
 # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — lib.sh limit_config_check): 측정 대상 앱 SHA의 프로필 설정이 매수 방식을 덮지 않는가 ·

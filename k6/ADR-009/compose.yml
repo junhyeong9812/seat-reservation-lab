@@ -70,7 +70,8 @@ services:
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+      # 명세 §13: GC·safepoint 로그를 컨테이너 안 파일로(run.sh가 회차 끝에 gc.log.gz로 받는다). 수집기는 정하지 않는다(JVM 기본 선택 — 메모리 1g면 SerialGC, 결과 gc.json에 기록)
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Xlog:gc*,safepoint:file=/tmp/gc.log:time,uptime,level,tags"
     ports:
       - "8101:8101"
     cpus: ${APP_CPUS:-2}
