@@ -617,3 +617,21 @@ SELECT json_build_object('db_now', clock_timestamp(),
                                               FROM pg_stat_user_tables WHERE relname = 'user_hold_quota') t));
 SQL
 }
+
+# ---- 명세 §13 시작 상태 기록(리뷰 R2): k6 전 대기 동안 DB 상태 — 시드 끝·k6 직전에 한 번씩(db-state-seed.json · db-state-k6.json) --------------------
+#   postmaster_start = pg_postmaster_start_time()(DB 기동 시각 — 'DB 기동 → k6 시작'의 기준) · 주요 테이블 autovacuum/autoanalyze/vacuum/analyze 수와 last_* 시각 ·
+#   n_dead_tup · n_mod_since_analyze · n_ins_since_vacuum · 지금 도는 autovacuum worker(대상 문장 앞부분) · 체크포인트 수(PG16 pg_stat_bgwriter — pg_stat_checkpointer는 PG17부터)
+db_state() {
+  db_json <<'SQL'
+SELECT json_build_object('t', clock_timestamp(), 't_epoch', extract(epoch FROM clock_timestamp()),
+  'postmaster_start', pg_postmaster_start_time(), 'postmaster_start_epoch', extract(epoch FROM pg_postmaster_start_time()),
+  'tables', (SELECT json_object_agg(relname, json_build_object('autovacuum_count', autovacuum_count, 'autoanalyze_count', autoanalyze_count,
+                 'vacuum_count', vacuum_count, 'analyze_count', analyze_count, 'last_autovacuum', last_autovacuum, 'last_autoanalyze', last_autoanalyze,
+                 'last_vacuum', last_vacuum, 'last_analyze', last_analyze, 'n_live_tup', n_live_tup, 'n_dead_tup', n_dead_tup,
+                 'n_mod_since_analyze', n_mod_since_analyze, 'n_ins_since_vacuum', n_ins_since_vacuum))
+             FROM pg_stat_user_tables WHERE relname IN ('product_seat', 'seat_hold', 'reservation', 'user_hold_quota')),
+  'autovacuum_workers', (SELECT coalesce(json_agg(left(query, 120)), '[]') FROM pg_stat_activity WHERE backend_type = 'autovacuum worker'),
+  'checkpoints', (SELECT json_build_object('timed', checkpoints_timed, 'req', checkpoints_req, 'write_time', checkpoint_write_time, 'sync_time', checkpoint_sync_time)
+                  FROM pg_stat_bgwriter));
+SQL
+}

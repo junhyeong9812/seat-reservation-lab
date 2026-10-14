@@ -89,17 +89,29 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
   - 오탐 복구에는 주입 쌍이 주입 **전에** repaired된 것도 넣는다(H-17)
 - **control·A의 남은 어긋남과 만료 정지는 결과이지 하네스 실패가 아니다** — 효과 셀의 `counter-mismatch`는 판정기 값이 아니라 **주입 밖 쌍**의 끝 어긋남으로 판정한다.
 
-## 시작 상태 — k6 전 대기(명세 §13 교란 수정)
+## 시작 상태 — k6 전 대기(명세 §13 교란 수정 + 리뷰 H1~H5·R1~R10)
+
+용어(기준점): **시드 끝** = `/internal/reset`(시드 + ANALYZE)이 반환한 시각(k6 PC 시계) · **DB 기동** = `pg_postmaster_start_time()`(회차마다 컨테이너·볼륨을 새로 띄운다) ·
+**k6 시작** = k6 프로세스를 띄운 시각(`k6_start_epoch`) · **첫 요청** = k6 첫 반복 시각(S4c `setup_data.startedAt` ms, 그 밖 CSV 1초 분해능). ADR 문서 §7.6의 '시작 대기'는 시드 끝 기준이다.
 
 - **교란**: 옛 하네스는 대조 조건(A+C·A+F)만 시드 뒤 첫 대조 바퀴를 기다렸다(`wait_reconcile_run` — 실측 30~43초). 시드 끝 → k6 시작이 대조 없는 조건 16~18초 · 대조 조건 43~58초로 달라
   k6 시작이 DB autovacuum과 다르게 겹쳤고, tmpfs의 control·A·B에만 k6 26~36초 '램프 붕괴'(p99 최대 약 4.2초)가 났다(캠페인 20261013-adr009-285ba256 실측).
-- **선택 = 고정 대기(fixed-after-seed)**: 모든 조건이 시드 끝(= `/internal/reset` 반환 — DB 준비) 뒤 `PRE_K6_HOLD_S`(60초)까지 기다리고(대조 조건은 첫 바퀴를 본 뒤 남은 만큼),
-  준비 단계를 거친 뒤 시드 끝 → k6 시작이 `PRE_K6_TARGET_S`(77초 = 60 + 준비 약 16~17초 실측)가 되게 남은 만큼 더 기다린다. 허용 `PRE_K6_TOL_S` ±5초 — 밖이면 `pre-k6-mismatch`.
-  실제 값은 회차마다 `pre-k6.json`·meta.json `pre_k6`(시드 끝·k6 시작 epoch · 차 · 대조 대기 · 잔 시간). 세 값은 plan.json `knobs`·`start_state`(이어서 실행 때 대조).
-- **ANALYZE는 더하지 않았다**: 시드 직후 ANALYZE는 원래 있다(`/internal/reset` → `LoadtestDataService.analyze` — product·product_schedule·product_seat·seat_hold·reservation, 모든 조건 공통).
-  교란 원인은 시작 상태(통계)가 아니라 시점 차라서, 시드 직후 VACUUM 같은 상태 변경도 넣지 않고 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 둔 채 시점만 맞춘다.
-- **GC 로그**: `JAVA_TOOL_OPTIONS`에 `-Xlog:gc*,safepoint:file=/tmp/gc.log:time,uptime,level,tags`(앱 · F 컨테이너가 물려받는다) — 회차 끝 `gc.log.gz`·`reconciler-gc.log.gz`,
-  요약 `gc.json`(수집기 · 정지 수·합·최대 · safepoint 최대 · k6 구간 값 · 50ms 넘는 정지). 수집기는 고르지 않는다(JVM 기본 선택 그대로 — 기록만). 없으면 `gc-log-missing`.
+- **선택 = 고정 대기(fixed-after-seed)**: 모든 조건이 시드 끝 뒤 대기점 `PRE_K6_HOLD_S`(70초)까지 기다리고(대조 조건은 첫 바퀴를 본 뒤 남은 만큼), 준비 단계를 거쳐
+  시드 끝 → **첫 요청**이 `PRE_K6_TARGET_S`(87초)가 되게 맞춘다(`PRE_K6_LEAD_S` 1.2초 = 맞춤 sleep 뒤 첫 요청까지). 판정 `pre-k6-mismatch` = |시드 끝 → 첫 요청 − 87| > `PRE_K6_TOL_S`(5초).
+  대기점에서 첫 바퀴를 아직 못 봤거나, 준비를 마친 시각이 이미 목표 + 허용을 넘으면 **k6 전에 멈춘다**(`pre-k6-overrun` — 하네스 실패, 재측정 대상. `reconcile-missing`(결과 사유)로 남기지 않는다).
+  네 값은 plan.json `knobs`·`start_state`(이어서 실행 때 대조).
+- **명세 §13과 다른 점(사유)**: ① 목표 77 → **87초**(리뷰 H1·R5 — 첫 바퀴 대기의 이론 최대 = 주기 60초 + 바퀴 시간 + 폴링 3초를 대기점 70초가 덮게. 77초 대기점 60초로는 첫 바퀴가 늦은 회차가 넘친다) ·
+  ② GC 로그 `gc` → **`gc*,safepoint`**(짧은 벽 원인 확인에는 정지 시간 = safepoint가 필요하다 — Serial은 Young·Full이 한 정지로 묶인다).
+- **한계(리뷰 H2)**: 시드 끝 → k6와 첫 대조 바퀴 → k6는 **함께 맞출 수 없다**(바퀴는 앱 기동 + 주기에 묶인다). 시드 끝 기준으로 맞추고, 바퀴 위상(시드 끝 ~ k6 끝 바퀴의 k6_t0 기준 시작·끝 ·
+  k6 전 완료 수 · k6 구간 첫 바퀴)은 `pre-k6.json reconcile_phase`·meta에 기록만 한다. 비교는 S4c p99를 **램프(0~60초)·램프 밖(60~420초)으로 나눠**(summarize fixed.p99_ramp/steady_nz_ms) 본다.
+- **대기 중 DB 상태(리뷰 R2)**: 시드 끝·k6 직전에 `db-state-seed.json`·`db-state-k6.json`(DB 기동 시각 · product_seat·seat_hold·reservation·user_hold_quota의 autovacuum·autoanalyze·vacuum·analyze 수와 last_* ·
+  n_dead_tup·n_ins_since_vacuum · 도는 autovacuum worker · 체크포인트 수 — PG16 pg_stat_bgwriter). 차와 DB 기동 → k6 시작은 `pre-k6.json db_during_wait`·`db_start_to_k6_s`.
+- **ANALYZE는 더하지 않았다**: 시드 직후 ANALYZE는 원래 있다(`/internal/reset` → `LoadtestDataService.analyze`, 모든 조건 공통). 교란 원인은 시점 차라 VACUUM 같은 상태 변경도 넣지 않았다.
+- **예열 약화(리뷰 R9)**: 예열(warmup 20초) 뒤 k6까지 약 90초 이상 걸려 Tomcat이 유휴 스레드를 내린다(기본 유휴 60초) — 예열 효과가 줄지만 **모든 조건에 같다**.
+- **GC 로그(리뷰 H3·R3·R4·R7)**: `-Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:time,uptime,level,tags:filecount=0`(비동기 쓰기 · 컨테이너 메모리 파일 · 회전 끔 — F도 같다).
+  회차 끝 `gc.log.gz`·`reconciler-gc.log.gz`, 요약 `gc.json` — **정지 = GC VM 작업 safepoint 한 번**(Serial은 Young이 승격 실패로 같은 safepoint 안에서 Full로 이어지면 GC id 둘이 한 정지 —
+  실측 smoke3 control: GC id 2,019 · 정지 2,009 · 묶인 정지 10, 최대 정지 108.7ms(GC 끝 줄 기준 103.8ms)). 로그 양 `log_bytes`·`lines`. 수집기는 고르지 않는다(기본 선택 Serial — 기록만).
+  F면 reconciler 수집기 줄도 있어야 한다(`gc-log-missing`).
 
 ## 회차 합격(정확히 `ok`만 정상) — ADR-008 사유 + 아래
 
@@ -112,7 +124,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `counter-judge-vacuous`·`counter-excluded-missing` | 판정기 제외 회차 ≥ 시드 회차 수(부하 대상 회차가 전부 판정에서 빠짐 — 명세 §11 N3) · 항목 없음 | S3c 밖 |
 | `schedule-closed-seen` | 선점 409 본문 `SCHEDULE_CLOSED` > 0(k6 `hold_closed`) — 시드 회차 2026-12-31 19:00+09 시한폭탄 | S3c 밖 |
 | `reconcile-missing`·`reconcile-errors` | C·F인데 시드 **뒤에 시작한** 첫 바퀴가 없음(H-14) 또는 (S2 밖) k6 구간에서 바퀴 결손 — 시작 간격 > 주기 + 앞 바퀴 실행 시간 + 10초(fixedDelay — N-2, 앞·끝단 포함) · 바퀴 기록 errors·skipped_chunks > 0 또는 지표 reconcile.errors 증가 > 0(H-13). reconcile-missing도 결과 사유(재측정 안 함 — H-16) | C·F |
-| `pre-k6-mismatch`·`gc-log-missing` | 시드 끝 → k6 시작이 목표 ± 허용 밖(명세 §13 — 조건별 시작 시점 교란) · GC 로그 수집 실패·0바이트·수집기 줄 없음 | 전부 |
+| `pre-k6-mismatch`·`pre-k6-overrun`·`gc-log-missing` | 시드 끝 → 첫 요청이 87 ± 5초 밖(명세 §13 · H5) · k6 전 맞춤 실패로 멈춤(H1 — 재측정 대상) · GC 로그 수집 실패·0바이트·수집기 줄 없음(F는 reconciler도) | 전부 |
 | `drift-snap-failed`·`drift-db-failed`·`drift-db-incomplete`·`drift-record-failed`·`cleanup-errors`·`container-log-missing` | 지표 스냅숏·V7 덤프 실패 · counter_drift_log를 페이지로 모았는데 총수보다 적음(H-4·N-5 — 수집 실패, 재측정 대상) · `drift.record_failed` > 0 · 정리 errors > 0 · docker logs 파이프 실패·빈 로그(H-12) | 전부 |
 | `inject-failed`·`inject-short`·`inject-mismatch`·`effect-check-failed`·`effect-unexpected`·`false-repair` | 주입 실패 · 라운드 계획보다 적게 고름(조용한 절단 금지) · 영향 행 수 ≠ 기록 수 · effect.json 없음 · 조건별 기대와 다름 · 주입 밖 repaired > 0 | S3e |
 | `close-leak`·`close-wrong-code`·`close-no-hold-before` | 마감 뒤 보낸 선점(PC 시각 + 시계 차 > starts_at + 오차)이 201 · `SCHEDULE_CLOSED` 밖 코드(H-2) · 마감 전 330초 안 성공 선점 표본 0(H-2 — 시나리오가 S3c 성공 선점을 모두 남긴다. 약 350~610초에는 빈 좌석이 없어 마감 직전 30초에는 성공이 없다) | S3c |
@@ -136,7 +148,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 
 ## 캠페인(설계 §10 · 명세 §11 측정 조건 갱신)
 
-- **`--set cost-remeasure`(명세 §13)**: {control, A, A+C, A+F} × {S4c4200 디스크 · S4c4200 tmpfs · S2 · S3-a20} × 3 = 48회(예상 약 9.3시간 — 시작 대기 반영).
+- **`--set cost-remeasure`(명세 §13)**: {control, A, A+C, A+F} × {S4c4200 디스크 · S4c4200 tmpfs · S2 · S3-a20} × 3 = 48회(예상 약 9.4시간 — 시작 대기 87초 반영).
   순서는 회차 우선 + 균형 회전(묶음 4개·묶음 안 조건 4개를 회차마다 1칸씩). 판정은 이 캠페인 회차끼리만(옛 캠페인과 섞지 않는다). `--set main`(기본)의 conditions.txt·order.txt는 명세 §13 전과 바이트가 같다(dry-run 확인) —
   그 예상분 열은 옛 대기 기준이라, 시작 대기를 반영한 보정 예상은 dry-run 끝 줄에 따로 낸다.
 

@@ -158,7 +158,7 @@ if (( RESUME )); then
   done
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP"
   # H-15: 주입·마감 손잡이는 계획 값으로 — 환경변수로 다른 값을 주면 거부
-  for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S PRE_K6_HOLD_S PRE_K6_TARGET_S PRE_K6_TOL_S; do
+  for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S PRE_K6_HOLD_S PRE_K6_TARGET_S PRE_K6_TOL_S PRE_K6_LEAD_S; do
     pv="$(jq -r --arg k "$k" '.knobs[$k] // empty' "$OUT_ROOT/plan.json")"
     [[ -n "$pv" ]] || { echo "resume: plan.json knobs.$k 없음" >&2; exit 2; }
     if [[ -n "${!k:-}" && "${!k}" != "$pv" ]]; then echo "resume: $k=${!k} ≠ 계획 $pv" >&2; exit 2; fi
@@ -193,10 +193,12 @@ INJECT_ROUNDS="${INJECT_ROUNDS:-$(inject_rounds_default)}" INJECT_HELD_MIN_S="${
 [[ "$INJECT_ROUNDS" =~ ^[0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+(\ [0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+)*$ && "$INJECT_HELD_MIN_S$INJECT_EXP_MARGIN_S$CLOSE_LEAD_S" =~ ^[0-9]+$ ]] \
   || { echo "INJECT_ROUNDS(<초>:<D>,<L1>,<L2>,<H> …)·INJECT_HELD_MIN_S·INJECT_EXP_MARGIN_S·CLOSE_LEAD_S 형식" >&2; exit 2; }
 export INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S
-# 명세 §13 k6 전 대기(교란 수정 — README '시작 상태'): 시드 끝 → 대기점 PRE_K6_HOLD_S(60) — 대조 조건의 첫 바퀴 대기(실측 30~43초)를 덮는 길이 ·
-#   시드 끝 → k6 시작 목표 PRE_K6_TARGET_S(77 = 대기점 60 + 준비 단계 약 16~17초 실측) · 허용 PRE_K6_TOL_S(5)
-PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-60}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-77}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}"
-[[ "$PRE_K6_HOLD_S$PRE_K6_TARGET_S$PRE_K6_TOL_S" =~ ^[0-9]+$ ]] || { echo "PRE_K6_HOLD_S·PRE_K6_TARGET_S·PRE_K6_TOL_S 형식(정수 초)" >&2; exit 2; }
+# 명세 §13 k6 전 대기(교란 수정 — README '시작 상태'): 시드 끝 → 대기점 PRE_K6_HOLD_S(70) — 대조 조건 첫 바퀴 대기의 이론 최대
+#   (주기 60초 − 예열 뒤 시드까지 최소 약 20초 + 바퀴 시간 + 폴링 3초 — 실측 30~43초, 리뷰 H1·R5로 주기 + 바퀴 + 폴링 ≥ 70초를 덮게) ·
+#   시드 끝 → **첫 요청** 목표 PRE_K6_TARGET_S(87 = 70 + 준비 단계 약 16~17초 실측) · 허용 PRE_K6_TOL_S(5) ·
+#   PRE_K6_LEAD_S(1.2 — 맞춤 sleep 뒤 첫 요청까지: 시계 차 측정 약 0.5초 + S3c 준비 + k6 기동 약 0.3초 실측). 넷 다 plan.json knobs
+PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-1.2}"
+[[ "$PRE_K6_HOLD_S$PRE_K6_TARGET_S$PRE_K6_TOL_S" =~ ^[0-9]+$ && "$PRE_K6_LEAD_S" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "PRE_K6_HOLD_S·PRE_K6_TARGET_S·PRE_K6_TOL_S(정수 초)·PRE_K6_LEAD_S(초) 형식" >&2; exit 2; }
 # 조건 키(compose.yml 머리말) — 모든 변수를 늘 넘긴다(빈 값 = 키 없음 · compose 경고 없음).
 # default 밖의 조건은 A·C·정리를 늘 명시한다(ADR-009 기본값 전환 뒤에도 전환 전과 같은 실효 값). default는 셋 다 비운다(키 없음 = 앱 기본값)
 cond_env() {
@@ -461,9 +463,12 @@ run_rep() {  # 인자: level cell rep
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "seed-failed" -1 ""; return 1
   fi
   local seed_done=$SECONDS seed_t; seed_t=$(date +%s.%N)
+  db_state > "$dir/db-state-seed.json" 2>>"$dir/errors.log" || echo "db_state seed failed" >> "$dir/errors.log"   # 리뷰 R2 — 시드 끝 DB 상태
   # ADR-009 C·F: 대조가 실제로 도는지 — 시드 뒤 첫 바퀴 기록이 생길 때까지 기다린다(최대 주기 + 60초). 못 보면 reconcile-first.json runs = 0 → rep_status reconcile-missing
   if (( HAS_C || HAS_F )); then
-    wait_reconcile_run "$( ((HAS_F)) && echo reconcile-proc || echo reconcile-app)" $(( ${RECONCILE_INTERVAL%s} + 60 )) > "$dir/reconcile-first.json" 2>>"$dir/errors.log" \
+    # 기다리는 상한 = 대기점(PRE_K6_HOLD_S) — 그 안에 첫 바퀴가 없으면 목표 시각에 k6를 시작할 수 없다 → 아래 pre-k6-overrun(하네스 실패)로 멈춘다(리뷰 H1:
+    # reconcile-missing(결과 사유)로 남기지 않는다 — 첫 바퀴가 늦은 것은 이 하네스의 시작 맞춤 실패다)
+    wait_reconcile_run "$( ((HAS_F)) && echo reconcile-proc || echo reconcile-app)" "$PRE_K6_HOLD_S" > "$dir/reconcile-first.json" 2>>"$dir/errors.log" \
       || echo "wait_reconcile_run failed" >> "$dir/errors.log"
   fi
   # 명세 §13(교란 수정): 모든 조건이 k6 전에 같은 시간을 거친다 — 시드 끝(DB 준비 = /internal/reset 반환, ANALYZE 포함) 뒤 PRE_K6_HOLD_S까지 기다린다
@@ -471,6 +476,11 @@ run_rep() {  # 인자: level cell rep
   local now_t hold_left; now_t=$(date +%s.%N)
   local hold_reached; hold_reached=$(awk -v a="$now_t" -v b="$seed_t" 'BEGIN { printf "%.3f", a - b }')
   hold_left=$(awk -v h="$PRE_K6_HOLD_S" -v r="$hold_reached" 'BEGIN { d = h - r; printf "%.3f", (d > 0 ? d : 0) }')
+  # 리뷰 H1·R5: 대기점을 넘었거나(첫 바퀴가 늦음) 대조 조건인데 첫 바퀴를 못 봤으면 k6 전에 멈춘다 — 하네스 실패(pre-k6-overrun, 재측정 대상)
+  if awk -v r="$hold_reached" -v h="$PRE_K6_HOLD_S" 'BEGIN { exit !(r > h + 1) }' \
+     || { (( HAS_C || HAS_F )) && ! jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1; }; then
+    abort_pre_k6 "$dir" "$level" "$cell" "$rep" "$started" "hold-reached=${hold_reached}s"; return 1
+  fi
   sleep "$hold_left"
 
   snapshot "$dir" before
@@ -491,13 +501,22 @@ run_rep() {  # 인자: level cell rep
   (( waited )) || echo "$(date -Is) samples-before-load timeout: timeline-locks.jsonl 15s 동안 비어 있음 — 표본 없이 부하 시작" >> "$dir/errors.log"
   waited=0; for w in $(seq 1 20); do [[ -s "$dir/timeline-host.jsonl" ]] && { waited=1; break; }; sleep 0.5; done
   (( waited )) || echo "$(date -Is) host-samples-before-load timeout: timeline-host.jsonl 10s 동안 비어 있음" >> "$dir/errors.log"
-  local wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - seed_done) )); (( wait_io > 0 )) && sleep "$wait_io"
+  # (리뷰 R6) 옛 'IO_SETTLE_S만큼 시드 뒤 기다리기'는 명세 §13 대기점(70초 ≥ IO_SETTLE_S 11초)이 늘 덮어 할 일이 없다 — 지웠다. k6 뒤의 IO_SETTLE_S 대기는 그대로
+  local wait_io
   io_snapshot > "$dir/io-before.json" 2>>"$dir/errors.log" || echo "io_snapshot before failed" >> "$dir/errors.log"
   local deadlocks0; deadlocks0=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'" 2>/dev/null)
   app_counters "$dir/before-k6.json" 2>>"$dir/errors.log"
   drift_snaps "$dir" before
   # 명세 §13: 마지막 맞춤 — 시드 끝 → k6 시작이 PRE_K6_TARGET_S가 되게 남은 만큼 더 기다린다(준비 단계 길이 차를 지운다). 넘었으면 기다리지 않는다(rep_status pre-k6-mismatch가 판정)
-  local topup; topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$(date +%s.%N)" -v b="$seed_t" -v lead="${PRE_K6_LEAD_S:-1.2}" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
+  db_state > "$dir/db-state-k6.json" 2>>"$dir/errors.log" || echo "db_state k6 failed" >> "$dir/errors.log"   # 리뷰 R2 — k6 직전 DB 상태(맞춤 sleep 앞)
+  local now2; now2=$(date +%s.%N)
+  # 리뷰 H1: 준비 단계까지 마친 시각이 이미 목표 + 허용을 넘었으면(첫 요청이 허용 밖이 된다) k6 전에 멈춘다
+  if awk -v n="$now2" -v b="$seed_t" -v t="$PRE_K6_TARGET_S" -v l="$PRE_K6_TOL_S" -v lead="$PRE_K6_LEAD_S" 'BEGIN { exit !((n - b) + lead > t + l) }'; then
+    stop_pollers $pids; remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1
+    recover_samples "$dir"; host_sampler_kill "$HOST_COPY"; host_recover "$dir" "$HOST_COPY" "$HOST_IOSTAT"   # 서버 사본 지우기(서버 디스크)
+    abort_pre_k6 "$dir" "$level" "$cell" "$rep" "$started" "setup-done=$(awk -v n="$now2" -v b="$seed_t" 'BEGIN { printf "%.3f", n - b }')s"; return 1
+  fi
+  local topup; topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$now2" -v b="$seed_t" -v lead="$PRE_K6_LEAD_S" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
   sleep "$topup"
 
   local k6env; k6env=$(k6_env_of "$cell")
@@ -552,6 +571,8 @@ run_rep() {  # 인자: level cell rep
   # ADR-009 회차 끝 수집: 앱(·F) 지표 · V7 기록 테이블 · 효과 셀 끝 쌍 상태 · 마감 임박 셀 정리 상태
   drift_snaps "$dir" end
   drift_db_dump > "$dir/drift-db.json" 2>>"$dir/errors.log" || echo "drift_db_dump failed" >> "$dir/errors.log"
+  # 리뷰 H2·H5·R2: pre-k6.json에 첫 요청 시각·대조 바퀴 위상·대기 중 DB 상태를 더한다(판정 기준 = 시드 끝 → 첫 요청)
+  python3 "$SUMMARIZE" --pre-k6-finish "$dir" 2>>"$dir/errors.log" || echo "pre-k6 finish failed" >> "$dir/errors.log"
   if [[ "$base" == S3e ]]; then
     injected_finish "$dir"
     end_pairs "$(jq -r '[.rounds[].pairs[] | "(\(.schedule_id),\(.user_id))"] | join(",")' "$dir/injected.json" 2>/dev/null)" > "$dir/end-pairs.json" 2>>"$dir/errors.log" \
@@ -572,11 +593,11 @@ run_rep() {  # 인자: level cell rep
     remote "docker logs --since '$started' seatlab-$c-1 2>&1" | gzip > "$lf"
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/logs-status.txt"
   done
-  # 명세 §13: JVM GC 로그(compose JAVA_TOOL_OPTIONS -Xlog:gc*,safepoint:file=/tmp/gc.log — 컨테이너가 회차마다 새로 뜨므로 이 회차 전체) → gc.log.gz · F면 reconciler-gc.log.gz.
+  # 명세 §13: JVM GC 로그(compose JAVA_TOOL_OPTIONS -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log — 컨테이너가 회차마다 새로 뜨므로 이 회차 전체) → gc.log.gz · F면 reconciler-gc.log.gz.
   # 수집기는 고르지 않는다(JVM 기본 선택 그대로 — 기록만: gc.json collector). 상태는 gc-status.txt(rep_status gc-log-missing)
   for c in app $( ((HAS_F)) && echo reconciler); do
     lf="$dir/$([[ $c == app ]] && echo gc || echo reconciler-gc).log.gz"
-    remote "docker exec seatlab-$c-1 cat /tmp/gc.log" | gzip > "$lf"
+    remote "docker exec seatlab-$c-1 cat /dev/shm/gc.log" | gzip > "$lf"
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/gc-status.txt"
   done
   python3 "$SUMMARIZE" --gc "$dir" > "$dir/gc.json" 2>>"$dir/errors.log" || echo "gc summary failed" >> "$dir/errors.log"
@@ -585,6 +606,13 @@ run_rep() {  # 인자: level cell rep
   [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
 
   finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$k6_started|$k6_ended" "$(rep_status "$dir" "$base" "$k6_exit" "$k6_started" "$k6_ended")" "$k6_exit" "$k6env"
+}
+
+# 리뷰 H1·R5: k6 전 맞춤 실패 — k6를 시작하지 않고 회차를 pre-k6-overrun(하네스 실패, 재측정 대상)으로 끝낸다. 정리(컨테이너 내리기)는 다음 회차·끝의 compose_down
+abort_pre_k6() {  # 인자: 회차폴더 level cell rep started 설명
+  echo "$(date -Is) pre-k6-overrun: $6 (대기점 ${PRE_K6_HOLD_S}s · 목표 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}s) — k6 전에 멈춤" >> "$1/errors.log"
+  remote "docker logs --since '$5' seatlab-app-1 2>&1" | gzip > "$1/app.log.gz"
+  finish_rep "$1" "$2" "$3" "$4" "$5" "|" "pre-k6-overrun" -1 ""
 }
 
 # ---- ADR-009 수집·배경 작업 ------------------------------------------------------------------------------
@@ -1056,10 +1084,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     reasons+=("container-log-missing")
   fi
   # 명세 §13: 시드 끝 → k6 시작이 목표 ± 허용(PRE_K6_TARGET_S ± PRE_K6_TOL_S) 밖이면 pre-k6-mismatch — 조건마다 k6 시작 상태가 달라지는 교란을 막는다(파일 없음도 같은 사유)
-  if ! jq -e '(.seed_to_k6_s | type == "number") and ((.seed_to_k6_s - .target_s) | fabs) <= .tol_s' "$dir/pre-k6.json" > /dev/null 2>&1; then reasons+=("pre-k6-mismatch"); fi
+  # 리뷰 H5: 기준은 k6 **첫 요청** 시각(seed_to_first_request_s — pre-k6 finish). 없으면 같은 사유
+  if ! jq -e '(.seed_to_first_request_s | type == "number") and ((.seed_to_first_request_s - .target_s) | fabs) <= .tol_s' "$dir/pre-k6.json" > /dev/null 2>&1; then reasons+=("pre-k6-mismatch"); fi
   # 명세 §13: GC 로그(앱, F면 reconciler) — 파이프 실패·0바이트·수집기 줄 없음이면 gc-log-missing
   if ! [[ -s "$dir/gc-status.txt" ]] || grep -qvE '^[a-z]+ pipe=0/0 bytes=[1-9][0-9]*$' "$dir/gc-status.txt" \
-     || [[ "$(wc -l < "$dir/gc-status.txt")" != "$((1 + HAS_F))" ]] || ! jq -e '.app.collector | type == "string"' "$dir/gc.json" > /dev/null 2>&1; then
+     || [[ "$(wc -l < "$dir/gc-status.txt")" != "$((1 + HAS_F))" ]] \
+     || ! jq -e --argjson f "$HAS_F" '(.app.collector | type == "string") and ($f == 0 or (.reconciler.collector | type == "string"))' "$dir/gc.json" > /dev/null 2>&1; then
     reasons+=("gc-log-missing")
   fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
@@ -1095,7 +1125,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
         --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
         --argjson prek6 "$( { jq -ec . "$dir/pre-k6.json" 2>/dev/null || echo null; } | head -1)" \
-        --argjson gc "$( { jq -ec '{app: (.app | if . then {collector, pauses, pause_ms_max, k6} else null end), reconciler: (.reconciler | if . then {collector, pauses, pause_ms_max, k6} else null end)}' "$dir/gc.json" 2>/dev/null || echo null; } | head -1)" \
+        --argjson gc "$( { jq -ec '{app: (.app | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end), reconciler: (.reconciler | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end)}' "$dir/gc.json" 2>/dev/null || echo null; } | head -1)" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
           k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
           strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), delay_ms:($delay|tonumber), bg:0,
@@ -1114,17 +1144,20 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 (( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
   --arg pg "$PG_PRESET" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
-  --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" \
+  --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
                limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay},
-    knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl},
-    start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber),
+    knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
+    start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
+                 judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",
+                 overrun:"대기점·맞춤에서 목표 + 허용을 넘으면 k6 전에 멈춘다(pre-k6-overrun — 하네스 실패, 재측정 대상)",
+                 limit:"시드 끝 → k6와 첫 대조 바퀴 → k6를 함께 맞출 수는 없다 — 시드 끝 기준으로 맞추고 바퀴 위상은 기록만(pre-k6.json reconcile_phase)",
                  analyze:"시드 직후 ANALYZE는 원래 있다(/internal/reset → LoadtestDataService.analyze — product·product_schedule·product_seat·seat_hold·reservation, 모든 조건 공통) — 더하지 않음",
                  vacuum:"시드 직후 VACUUM은 넣지 않음 — 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 두고 시점만 맞춘다",
                  why:"교란 원인은 시작 상태가 아니라 대조 조건만 k6 전에 약 30~43초 더 기다린 시점 차(명세 §13) — 모든 조건을 같은 시점(시드 끝 + target_s)에 시작한다",
-                 jvm:"JAVA_TOOL_OPTIONS -Xlog:gc*,safepoint:file=/tmp/gc.log — 수집기는 JVM 기본 선택 그대로(gc.json collector에 기록)"},
+                 jvm:"JAVA_TOOL_OPTIONS -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:…:filecount=0 — 수집기는 JVM 기본 선택 그대로(gc.json collector에 기록)"},
     created:(now|todate)}' > "$OUT_ROOT/plan.json"
 
 # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — lib.sh limit_config_check): 측정 대상 앱 SHA의 프로필 설정이 매수 방식을 덮지 않는가 ·

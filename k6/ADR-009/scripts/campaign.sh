@@ -85,11 +85,11 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
 }
 name_of() { [[ "$1" == s3c ]] && echo "close-$2-s3c" || echo "$2-$1"; }
 # 1회 예상 분(설계 §10 실측 출처: S2 1.3 · S3-a20 21.8 · S4c4200 9.6 — S3e·S3c는 S3-a20과 같은 길이) + C·F 첫 대조 바퀴 대기(최대 2분, 평균 1분으로 셈)
-# 명세 §13 뒤 하네스는 모든 조건이 시드 끝 → k6 시작 77초(PRE_K6_TARGET_S)를 거친다 — 옛 대기(대조 없음 약 17초 · 대조 약 45초)보다 1회당 약 1분·0.5분 길다.
-#   main의 order.txt(예상분 열)는 바꾸지 않는다(명세 §13 전 계획과 바이트가 같아야 한다) — 보정 예상은 dry-run 끝 줄에 따로. cost-remeasure는 보정 값(모든 조건 + 1분)
+# 명세 §13 뒤 하네스는 모든 조건이 시드 끝 → 첫 요청 87초(PRE_K6_TARGET_S)를 거친다 — 옛 대기(대조 없음 약 17초 · 대조 약 45초)보다 1회당 약 1.2분·0.7분 길다.
+#   main의 order.txt(예상분 열)는 바꾸지 않는다(명세 §13 전 계획과 바이트가 같아야 한다) — 보정 예상은 dry-run 끝 줄에 따로. cost-remeasure는 보정 값(모든 조건 + 1.2분)
 minutes_of() {
   local m; case "$1" in s4c-*) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
-  if [[ "$SET" == cost-remeasure ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1 }')
+  if [[ "$SET" == cost-remeasure ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1.2 }')
   else case "$2" in A+C|A+F|B+C) m=$(awk -v m="$m" 'BEGIN { print m + 1 }') ;; esac; fi
   echo "$m"
 }
@@ -146,8 +146,8 @@ if (( DRY_RUN )); then
   for g in $BLOCKS; do
     echo "  $g: $(grep -v '^#' "$ROOT/order.txt" | awk -v g="$g" '$4 ~ ("-" g "$") { n++; s += $5 } END { printf "%d회 %.1f분", n, s }')" >&2
   done
-  # main: 명세 §13 시작 대기(모든 조건 77초)로 보정한 예상 — 대조 없는 조건 + 1분, 대조 조건 + 0.5분(order.txt는 그대로)
-  [[ "$SET" == main ]] && echo "  보정 예상(명세 §13 시작 대기 반영): $(grep -v '^#' "$ROOT/order.txt" | awk '{ s += $5 + ($4 ~ /^(A\+C|A\+F|B\+C)-/ ? 0.5 : 1) } END { printf "%.1f분(%.1f시간)", s, s / 60 }')" >&2
+  # main: 명세 §13 시작 대기(모든 조건 87초)로 보정한 예상 — 대조 없는 조건 + 1.2분, 대조 조건 + 0.7분(order.txt는 그대로)
+  [[ "$SET" == main ]] && echo "  보정 예상(명세 §13 시작 대기 반영): $(grep -v '^#' "$ROOT/order.txt" | awk '{ s += $5 + ($4 ~ /^(A\+C|A\+F|B\+C)-/ ? 0.7 : 1.2) } END { printf "%.1f분(%.1f시간)", s, s / 60 }')" >&2
   exit 0
 fi
 

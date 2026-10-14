@@ -200,6 +200,7 @@ def fixed_csv(csv_gz, summ, stages):
     nn = {i: 0 for i in range(n_iv)}
     drop = {i: 0 for i in range(n_iv)}
     ramp = {"requests": 0, "status0": 0, "dropped": 0}
+    ramp_lat = []
     try:
         with gzip.open(csv_gz, "rt", newline="") as f:
             header = next(csv.reader([f.readline()]))
@@ -222,6 +223,8 @@ def fixed_csv(csv_gz, summ, stages):
                 if stage == "ramp":
                     ramp["requests"] += 1
                     ramp["status0"] += zero
+                    if not zero:
+                        ramp_lat.append(float(row[i_val]))
                     continue
                 if stage is None or not stage.isdigit() or int(stage) >= n_iv:
                     continue
@@ -239,7 +242,12 @@ def fixed_csv(csv_gz, summ, stages):
         s.update(p99_nz_ms=xs[int(len(xs) * 0.99)] if xs else None, status0=n0[i], status0_share=n0[i] / nn[i] if nn[i] else None,
                  dropped=drop[i] if hold0 is not None else None, achieved_ratio=s["achieved_rps"] / s["target_rps"] if s["target_rps"] else None)
     tot = sum(nn.values())
-    return {"status0": sum(n0.values()), "status0_share": sum(n0.values()) / tot if tot else None,
+    steady = sorted(x for i in lat for x in lat[i])
+    ramp_lat.sort()
+    p99 = lambda xs: xs[int(len(xs) * 0.99)] if xs else None
+    # 리뷰 H2: 램프(0~60초)와 램프 밖(60~420초 — 계획 구간 전체) p99를 따로(코드 0 제외) — 램프 붕괴가 회차 전체 p99를 흔드는지 가른다
+    ramp["p99_nz_ms"] = p99(ramp_lat)
+    return {"p99_steady_nz_ms": p99(steady), "p99_ramp_nz_ms": p99(ramp_lat), "status0": sum(n0.values()), "status0_share": sum(n0.values()) / tot if tot else None,
             "dropped_hold": sum(drop.values()) if hold0 is not None else None, "ramp": ramp, "ramp_s": ramp_s}
 
 
@@ -249,7 +257,8 @@ def fixed_summary(stages, step_s, raw=None):
     total_s = len(stages) * step_s
     target = sum(s["target_rps"] for s in stages) * step_s
     raw = raw or {}
-    return {"ok_rps_total": sum(s["ok_rps"] * step_s for s in stages) / total_s if total_s else None,
+    return {"p99_steady_nz_ms": raw.get("p99_steady_nz_ms"), "p99_ramp_nz_ms": raw.get("p99_ramp_nz_ms"),
+            "ok_rps_total": sum(s["ok_rps"] * step_s for s in stages) / total_s if total_s else None,
             "achieved_rps_total": sum(s["requests"] for s in stages) / total_s if total_s else None,
             "achieved_ratio_total": sum(s["requests"] for s in stages) / target if target else None,
             "under_delivered_intervals": sum(1 for s in stages if s["under_delivered"]),
@@ -770,40 +779,54 @@ def snap_delta(a, b, *path):
 
 
 GC_TIME = re.compile(r"^\[(\d{4}-\d{2}-\d{2}T[\d:.]+)([+-]\d{2})(\d{2})\]")
-GC_PAUSE = re.compile(r"\bPause (.+?) (\d+)M->(\d+)M\((\d+)M\) ([\d.]+)ms")
-GC_SAFEPOINT = re.compile(r"Safepoint \"([^\"]+)\".*Total: (\d+) ns")
+GC_END = re.compile(r"\bGC\((\d+)\) Pause (.+?) (\d+)M->(\d+)M\((\d+)M\) ([\d.]+)ms")
+GC_SAFEPOINT = re.compile(r'Safepoint "([^"]+)".*At safepoint: (\d+) ns.*Total: (\d+) ns')
 
 
 def gc_summary(gc_gz, window=None):
-    """명세 §13: JVM GC 로그(-Xlog:gc*,safepoint — time 꾸밈) 요약 — 수집기(Using …) · 일시 정지(Pause …) 수·합·최대 · safepoint 최대 ·
-    k6 구간(window = 서버 epoch (시작, 끝) — 앱 컨테이너 시계 = 서버 시계) 안 같은 값 · 50ms 넘는 정지 목록(시각 · 종류 · ms). 파일 없음·빈 파일 = None."""
+    """명세 §13 · 리뷰 R4: JVM GC 로그(-Xlog:gc*,safepoint — time 꾸밈) 요약. **정지(stop) = GC VM 작업의 safepoint 한 번**으로 센다:
+    Serial은 Young이 승격 실패로 같은 safepoint 안에서 Full로 이어지면 GC id 두 개(Pause Young + Pause Full)가 한 정지다(실측 smoke3 control GC(110)+(111) =
+    safepoint Total 102.5ms) — GC 끝 줄(Pause …)을 따로 세면 정지 수가 부풀고 최대가 작게 나온다. 그래서 safepoint 줄(VM 작업 이름 + Total)마다 그 사이 끝난
+    GC id를 묶어 정지 하나로 셈 — gc_ids가 2개 이상이면 nested. GC 작업이 아닌 safepoint(Cleanup·ICBufferFull 등)는 safepoint_other로 따로.
+    값: collector · stops(정지 수) · stop_ms_total·max(safepoint Total) · gc_ids(GC id 수 — 참고) · nested(GC id 여럿을 묶은 정지 수) · safepoint_other_max_ms ·
+    k6 구간 같은 값(window = 서버 epoch — 앱 컨테이너 시계 = 서버 시계) · 50ms 넘는 정지 목록(시각 · 종류 · ms · GC id) · 로그 양(bytes·lines). 파일 없음·빈 파일 = None."""
     if not gc_gz.exists():
         return None
-    out = {"collector": None, "pauses": 0, "pause_ms_total": 0.0, "pause_ms_max": 0.0, "safepoint_ms_max": 0.0, "lines": 0,
-           "k6": {"pauses": 0, "pause_ms_total": 0.0, "pause_ms_max": 0.0, "safepoint_ms_max": 0.0} if window else None, "long_pauses": []}
+    z = lambda: {"stops": 0, "stop_ms_total": 0.0, "stop_ms_max": 0.0, "nested": 0, "gc_ids": 0, "safepoint_other_max_ms": 0.0}
+    out = {"collector": None, **z(), "lines": 0, "log_bytes": 0, "k6": z() if window else None, "long_stops": [], "unmatched_gc_ends": 0}
+    pending = []   # 직전 safepoint 뒤 끝난 GC(id, 종류)
     with gzip.open(gc_gz, "rt", errors="replace") as f:
         for line in f:
             out["lines"] += 1
+            out["log_bytes"] += len(line.encode())
             m = GC_TIME.match(line)
             t = datetime.fromisoformat(f"{m.group(1)}{m.group(2)}:{m.group(3)}").timestamp() if m else None
-            in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
             if out["collector"] is None and "Using " in line and "[gc" in line:
                 out["collector"] = line.split("Using ", 1)[1].strip()
-            pm = GC_PAUSE.search(line)
-            if pm:
-                ms = float(pm.group(5))
-                out["pauses"] += 1; out["pause_ms_total"] += ms; out["pause_ms_max"] = max(out["pause_ms_max"], ms)
-                if in_k6:
-                    k = out["k6"]; k["pauses"] += 1; k["pause_ms_total"] += ms; k["pause_ms_max"] = max(k["pause_ms_max"], ms)
-                if ms > 50 and len(out["long_pauses"]) < 200:
-                    out["long_pauses"].append({"t": t, "kind": pm.group(1), "ms": ms, "heap_mb": [int(pm.group(2)), int(pm.group(3)), int(pm.group(4))]})
+            em = GC_END.search(line)
+            if em:
+                pending.append((int(em.group(1)), em.group(2)))
+                out["gc_ids"] += 1
                 continue
             sm = GC_SAFEPOINT.search(line)
-            if sm:
-                ms = int(sm.group(2)) / 1e6
-                out["safepoint_ms_max"] = max(out["safepoint_ms_max"], ms)
-                if in_k6:
-                    out["k6"]["safepoint_ms_max"] = max(out["k6"]["safepoint_ms_max"], ms)
+            if not sm:
+                continue
+            ms = int(sm.group(3)) / 1e6
+            in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
+            buckets = [out] + ([out["k6"]] if in_k6 else [])
+            if pending:   # GC VM 작업 safepoint — 그 사이 끝난 GC id들이 한 정지
+                for bk in buckets:
+                    bk["stops"] += 1; bk["stop_ms_total"] += ms; bk["stop_ms_max"] = max(bk["stop_ms_max"], ms)
+                    bk["nested"] += len(pending) > 1
+                    if bk is not out:
+                        bk["gc_ids"] += len(pending)
+                if ms > 50 and len(out["long_stops"]) < 200:
+                    out["long_stops"].append({"t": t, "op": sm.group(1), "ms": round(ms, 3), "gc": [f"{i}:{k}" for i, k in pending]})
+                pending = []
+            else:
+                for bk in buckets:
+                    bk["safepoint_other_max_ms"] = max(bk["safepoint_other_max_ms"], ms)
+    out["unmatched_gc_ends"] = len(pending)   # 파일 끝에 safepoint 줄 없이 남은 GC 끝(보통 0)
     return out if out["lines"] else None
 
 
@@ -817,6 +840,83 @@ def gc_report(rep_dir):
     if (rep_dir / "reconciler-gc.log.gz").exists():
         out["reconciler"] = gc_summary(rep_dir / "reconciler-gc.log.gz", w)
     print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+def first_request(rep_dir):
+    """k6 첫 요청 시각(PC epoch) — 리뷰 H5. S4c는 k6 요약 setup_data.startedAt(ms — 첫 반복 직전, 정확), 그 밖은 k6-requests.csv.gz의 http_req_duration
+    행 중 가장 이른 (타임스탬프 − 지연)(타임스탬프가 초 단위라 ±1초). (epoch, 출처) · 없으면 (None, None)."""
+    rep_dir = Path(rep_dir)
+    st = ((load(rep_dir / "k6-summary.json") or {}).get("setup_data") or {}).get("startedAt")
+    if isinstance(st, (int, float)):
+        return st / 1000, "setup_data.startedAt"
+    f = rep_dir / "k6-requests.csv.gz"
+    if not f.exists():
+        return None, None
+    best = None
+    try:
+        with gzip.open(f, "rt", newline="") as fh:
+            h = next(csv.reader([fh.readline()]))
+            i_ts, i_v = h.index("timestamp"), h.index("metric_value")
+            for line in fh:
+                if not line.startswith("http_req_duration,"):
+                    continue
+                r = next(csv.reader([line]))
+                x = int(r[i_ts]) - float(r[i_v]) / 1000
+                best = x if best is None or x < best else best
+    except (EOFError, OSError, ValueError, StopIteration):
+        return None, None
+    return (best, "csv(1s)") if best is not None else (None, None)
+
+
+def reconcile_phase(rep_dir, seed_epoch, k6_t0, k6_end):
+    """리뷰 H2·R1: 시드 끝 ~ k6 끝 사이 대조 바퀴(counter_reconcile_run — 서버 시계 → PC로 옮김)의 시작·끝(k6_t0 기준 초) · k6 전 완료 바퀴 수 · k6 구간 첫 바퀴.
+    대조 없는 조건은 바퀴가 없다(빈 목록). 출처는 기록된 그대로(reconcile-app·reconcile-proc)."""
+    db = load(Path(rep_dir) / "drift-db.json") or {}
+    off, _ = clock_off(rep_dir)
+    off = off or 0
+    runs = []
+    for r in db.get("reconcile_runs") or []:
+        s0, f0 = ts(r["started_at"]) - off, ts(r["finished_at"]) - off
+        if s0 >= seed_epoch - 1 and s0 <= k6_end:
+            runs.append({"source": r["source"], "start_rel_s": round(s0 - k6_t0, 3), "end_rel_s": round(f0 - k6_t0, 3)})
+    runs.sort(key=lambda x: x["start_rel_s"])
+    first_in = next((x for x in runs if x["start_rel_s"] >= 0), None)
+    return {"passes": runs, "completed_before_k6": sum(1 for x in runs if x["end_rel_s"] < 0), "first_in_k6": first_in}
+
+
+def pre_k6_finish(rep_dir):
+    """pre-k6.json(run.sh가 k6 시작 때 쓴 것)에 회차 끝 값을 더해 다시 쓴다 — 첫 요청 시각(H5 — 판정 기준) · 대조 바퀴 위상(H2) · DB 상태(R2: 시드 끝·k6 직전 스냅숏 차 ·
+    DB 기동 → k6 시작). 판정은 rep_status(pre-k6-mismatch = |시드 끝 → 첫 요청 − target| > tol)."""
+    rep_dir = Path(rep_dir)
+    pk = load(rep_dir / "pre-k6.json")
+    if not isinstance(pk, dict):
+        return 1
+    win = load(rep_dir / "k6-window.json") or {}
+    fr, src = first_request(rep_dir)
+    pk.update(first_request_epoch=fr, first_request_source=src,
+              seed_to_first_request_s=round(fr - pk["seed_done_epoch"], 3) if fr else None,
+              k6_startup_s=round(fr - pk["k6_start_epoch"], 3) if fr else None)
+    k6_end = ts(win["k6_ended"]) if win.get("k6_ended") else pk["k6_start_epoch"] + 3600
+    pk["reconcile_phase"] = reconcile_phase(rep_dir, pk["seed_done_epoch"], pk["k6_start_epoch"], k6_end)
+    a, b = load(rep_dir / "db-state-seed.json"), load(rep_dir / "db-state-k6.json")
+    off, _ = clock_off(rep_dir)
+    if isinstance(a, dict) and isinstance(b, dict):
+        ps = b.get("postmaster_start_epoch")
+        pk["db_start_to_k6_s"] = round(pk["k6_start_epoch"] + (off or 0) - ps, 3) if isinstance(ps, (int, float)) else None
+        pk["db_start_to_seed_s"] = round(pk["seed_done_epoch"] + (off or 0) - ps, 3) if isinstance(ps, (int, float)) else None
+        d = {}
+        for t, x in (b.get("tables") or {}).items():
+            y = (a.get("tables") or {}).get(t) or {}
+            d[t] = {k: (x.get(k) or 0) - (y.get(k) or 0) for k in ("autovacuum_count", "autoanalyze_count", "vacuum_count", "analyze_count")}
+            d[t]["last_autovacuum"], d[t]["last_autoanalyze"] = x.get("last_autovacuum"), x.get("last_autoanalyze")
+        ca, cb = a.get("checkpoints") or {}, b.get("checkpoints") or {}
+        pk["db_during_wait"] = {"tables": d, "checkpoints": {k: (cb.get(k) or 0) - (ca.get(k) or 0) for k in ("timed", "req")},
+                                "autovacuum_workers_at_k6": b.get("autovacuum_workers"), "same_postmaster": a.get("postmaster_start") == b.get("postmaster_start")}
+    else:
+        pk["db_start_to_k6_s"] = None
+        pk["db_during_wait"] = None
+    (rep_dir / "pre-k6.json").write_text(json.dumps(pk, ensure_ascii=False, indent=1))
     return 0
 
 
@@ -1752,6 +1852,8 @@ if __name__ == "__main__":
         except Exception as e:   # 효과 지표를 못 만들면 effect.json이 없다 → rep_status effect-check-failed
             sys.exit(f"effect: {type(e).__name__}: {e}")
         sys.exit(0)
+    if len(sys.argv) == 3 and sys.argv[1] == "--pre-k6-finish":
+        sys.exit(pre_k6_finish(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--gc":
         sys.exit(gc_report(sys.argv[2]))
     if len(sys.argv) in (6, 7) and sys.argv[1] == "--runs-in-window":

@@ -2,6 +2,7 @@
 """ADR-009 확정 측정 비교(ADR §3 가설 H1~H8 · §5 판정 기준 · 명세 §5·§10·§11) — 캠페인 결과의 조건별 summary.json·effect.json·원시 파일에서 가설별 표를 산출한다.
 
     scripts/compare.py results/<campaign-id>     → <campaign-id>/COMPARISON.md · comparison.json
+    scripts/compare.py --set cost-remeasure results/<campaign-id>   → 같은 파일(명세 §13 비용 셀 재측정 — 4조건 × 4셀 · 시작 상태·대조 위상·k6 구간 GC 표, 리뷰 R8)
 
 먼저 할 것(없으면 해당 칸은 '누락'으로 드러난다 — 채워 넣지 않는다):
   - 조건마다 `summarize.py results/<campaign-id>/<조건>` → summary.json(효과 셀 effect.json은 run.sh가 회차마다 이미 남긴다)
@@ -294,9 +295,9 @@ def cmp_fact(data, c, b, extra=""):
 
 
 # ---- 비용: S2 · S3-a20 -------------------------------------------------------------------------------------
-def short_cost(camp, out, js):
+def short_cost(camp, out, js, conds=COST):
     s2, s3 = {}, {}
-    for c in COST:
+    for c in conds:
         reps = camp.reps(f"{c}-s2", "S2")
         s2[c] = {"n": len(reps), "p99": agg([r.get("hold_p99") for r in reps]), "p50": agg([r.get("hold_p50") for r in reps]),
                  "borrow": agg([r.get("borrow_per_request") for r in reps]), "wal_per_hold": agg([r.get("io_wal_bytes_per_hold") for r in reps]),
@@ -311,7 +312,7 @@ def short_cost(camp, out, js):
           [[c, d["n"], txt(d["p99"]), txt(d["p50"]), txt(d["borrow"], 4), txt(d["wal_per_hold"]), txt(d["recon_runs"]),
             ptxt(pct(d["p99"], s2["control"]["p99"])), ptxt(pct(d["p99"], s2["A"]["p99"]))] for c, d in s2.items()])
     fact(out, "S2 p99 중앙값 — " + " · ".join(f"{c} {fx(d['p99']['median'])} ms" for c, d in s2.items())
-         + f" · B vs control {ptxt(pct(s2['B']['p99'], s2['control']['p99']))} · A+C vs A {ptxt(pct(s2['A+C']['p99'], s2['A']['p99']))} · A+F vs A {ptxt(pct(s2['A+F']['p99'], s2['A']['p99']))}"
+         + (f" · B vs control {ptxt(pct(s2['B']['p99'], s2['control']['p99']))}" if "B" in s2 else "") + f" · A+C vs A {ptxt(pct(s2['A+C']['p99'], s2['A']['p99']))} · A+F vs A {ptxt(pct(s2['A+F']['p99'], s2['A']['p99']))}"
          + " (ADR §6 ⑤: S2 k6 구간은 몇 초라 C·F 바퀴와 거의 겹치지 않는다 — 대조 바퀴 수 열)")
     out.append("### S3-a20(입장→선점→확정, 이탈 20%) — 선점당 WAL · p99 · 빌림\n")
     table(out, ["조건", "n", "선점당 WAL B", "선점 p99 ms", "선점 p50 ms", "요청당 빌림(대조·정리 뺌)", "앱 대조 빌림(Δ)", "F 빌림(Δ)", "MultiXact ID", "마감 판정 ms",
@@ -319,9 +320,13 @@ def short_cost(camp, out, js):
           [[c, d["n"], txt(d["wal_per_hold"]), txt(d["p99"]), txt(d["p50"]), txt(d["borrow"], 4), txt(d["recon_borrows_app"]), txt(d["recon_borrows_f"]),
             txt(d["mxid"]), txt(d["close_ms"], 4), ptxt(pct(d["wal_per_hold"], s3["control"]["wal_per_hold"])), ptxt(pct(d["wal_per_hold"], s3["A"]["wal_per_hold"])),
             ptxt(pct(d["p99"], s3["control"]["p99"]))] for c, d in s3.items()])
-    fact(out, f"B vs control 선점당 WAL {fx(s3['B']['wal_per_hold']['median'])} vs {fx(s3['control']['wal_per_hold']['median'])} B "
+    if "B" in s3:
+      fact(out, f"B vs control 선점당 WAL {fx(s3['B']['wal_per_hold']['median'])} vs {fx(s3['control']['wal_per_hold']['median'])} B "
               f"({ptxt(pct(s3['B']['wal_per_hold'], s3['control']['wal_per_hold']))} — 설계 근사 +17%) · p99 {fx(s3['B']['p99']['median'])} vs {fx(s3['control']['p99']['median'])} ms "
               f"({ptxt(pct(s3['B']['p99'], s3['control']['p99']))}) · A+C vs A WAL {ptxt(pct(s3['A+C']['wal_per_hold'], s3['A']['wal_per_hold']))} · A+F vs A WAL {ptxt(pct(s3['A+F']['wal_per_hold'], s3['A']['wal_per_hold']))}")
+    else:
+      fact(out, f"A+C vs A 선점당 WAL {ptxt(pct(s3['A+C']['wal_per_hold'], s3['A']['wal_per_hold']))} · A+F vs A WAL {ptxt(pct(s3['A+F']['wal_per_hold'], s3['A']['wal_per_hold']))} · "
+                f"A vs control WAL {ptxt(pct(s3['A']['wal_per_hold'], s3['control']['wal_per_hold']))} · p99 A+C vs A {ptxt(pct(s3['A+C']['p99'], s3['A']['p99']))}")
     js["s2"], js["s3a20"] = s2, s3
 
 
@@ -402,10 +407,11 @@ def effect_block(camp, out, js):
 
 
 # ---- 대조 비용(H4·H5) -----------------------------------------------------------------------------------------
-def reconcile_block(camp, out, js, s4c):
+def reconcile_block(camp, out, js, s4c, skip=()):
     plan = [("S4c 디스크", "s4c-disk", "S4c4200", ("A+C", "A+F")), ("S4c tmpfs", "s4c-tmpfs", "S4c4200", ("A+C", "A+F")),
             ("S3-a20", "s3a20", "S3-a20", ("A+C", "A+F")), ("S3e", "s3e", "S3e-a20", ("A+C", "A+F", "B+C")), ("S2", "s2", "S2", ("A+C", "A+F"))]
     data, rows, wrows, crows = {}, [], [], []
+    plan = [x for x in plan if x[1] not in skip]   # cost-remeasure에는 효과 셀(s3e)이 없다
     for label, suf, cell, conds in plan:
         for c in conds:
             reps = camp.reps(f"{c}-{suf}", cell)
@@ -546,7 +552,73 @@ def close_block(camp, out, js):
 
 
 # ---- main ---------------------------------------------------------------------------------------------------
+# ---- 명세 §13 cost-remeasure(리뷰 R8) -------------------------------------------------------------------------------
+RM_CONDS = ("control", "A", "A+C", "A+F")
+RM_CELLS = (("s4c-disk", "S4c4200"), ("s4c-tmpfs", "S4c4200"), ("s2", "S2"), ("s3a20", "S3-a20"))
+S4C_RM_EXTRA = [("p99_steady", "선점 p99 ms 램프 밖(60~420초, 코드 0 제외)", lambda r: get(r, "fixed", "p99_steady_nz_ms"), 0),
+                ("p99_ramp", "선점 p99 ms 램프(0~60초, 코드 0 제외)", lambda r: get(r, "fixed", "p99_ramp_nz_ms"), 0)]
+
+
+def start_block(camp, out, js):
+    """시작 상태(시드 끝 → 첫 요청 · DB 기동 → k6) 퍼짐 · 대조 바퀴 위상(k6 전 완료 수 · k6 구간 첫 바퀴 시작) · k6 구간 GC(정지 수·합·최대 — safepoint 기준) — 회차별 + 조건·셀별 중앙값."""
+    rows, data = [], {}
+    for folder_sfx, cell in RM_CELLS:
+        for c in RM_CONDS:
+            reps = camp.reps(f"{c}-{folder_sfx}", cell)
+            d = {"seed_to_first": agg([get(r, "pre_k6", "seed_to_first_request_s") for r in reps]),
+                 "db_start_to_k6": agg([get(r, "pre_k6", "db_start_to_k6_s") for r in reps]),
+                 "before_k6": agg([get(r, "pre_k6", "reconcile_phase", "completed_before_k6") for r in reps]),
+                 "first_in_k6": agg([get(r, "pre_k6", "reconcile_phase", "first_in_k6", "start_rel_s") for r in reps]),
+                 "gc_stops": agg([get(r, "gc", "app", "k6", "stops") for r in reps]),
+                 "gc_total": agg([get(r, "gc", "app", "k6", "stop_ms_total") for r in reps]),
+                 "gc_max": agg([get(r, "gc", "app", "k6", "stop_ms_max") for r in reps]),
+                 "gc_nested": agg([get(r, "gc", "app", "k6", "nested") for r in reps]),
+                 "f_gc_max": agg([get(r, "gc", "reconciler", "k6", "stop_ms_max") for r in reps]),
+                 "autovac_wait": agg([sum(t.get("autovacuum_count", 0) for t in (get(r, "pre_k6", "db_during_wait", "tables") or {}).values())
+                                      if get(r, "pre_k6", "db_during_wait", "tables") is not None else None for r in reps]),
+                 "n": len(reps)}
+            data[f"{c}/{folder_sfx}"] = d
+            rows.append([folder_sfx, c, d["n"], txt(d["seed_to_first"], 2), txt(d["db_start_to_k6"], 1), txt(d["autovac_wait"]), txt(d["before_k6"]),
+                         txt(d["first_in_k6"], 1), txt(d["gc_stops"]), txt(d["gc_total"], 0), txt(d["gc_max"], 1), txt(d["gc_nested"]), txt(d["f_gc_max"], 1)])
+    out.append("### 시작 상태 · 대조 바퀴 위상 · k6 구간 GC(조건·셀별 중앙값 [최소–최대])\n")
+    table(out, ["셀", "조건", "n", "시드 끝 → 첫 요청 s", "DB 기동 → k6 s", "대기 중 autovacuum 수", "k6 전 완료 바퀴", "k6 구간 첫 바퀴 시작 s",
+                "GC 정지 수(k6)", "GC 정지 합 ms", "GC 정지 최대 ms", "Young+Full 묶인 정지", "F GC 최대 ms"], rows)
+    allv = [v for d in data.values() for v in d["seed_to_first"]["values"] if num(v)]
+    if allv:
+        fact(out, f"시드 끝 → 첫 요청 전체 퍼짐 {min(allv):.2f}~{max(allv):.2f}초(최대−최소 {max(allv) - min(allv):.2f}초) — 판정 허용 ±5초(pre-k6-mismatch). "
+                  "시드 끝 → k6와 첫 대조 바퀴 → k6는 함께 맞출 수 없다(대조 바퀴 위상은 기록만 — README '시작 상태')")
+    js["start"] = data
+
+
+def remeasure_main(root, camp, out, js):
+    out.append("## 1. 비용 재측정 — S4c4200 · S2 · S3-a20 (명세 §13 · H4 · H5)\n")
+    saved = list(S4C_METRICS)
+    S4C_METRICS.extend(S4C_RM_EXTRA)
+    try:
+        disk = s4c_block(camp, out, js, "disk", RM_CONDS)
+        rr, rd = ratio_rows(disk, [("A+C", "A"), ("A+F", "A"), ("A", "control")])
+        out.append("#### 디스크 — 기준 대비(중앙값 비율)\n")
+        table(out, RATIO_HDR, rr)
+        fact(out, "H4 " + cmp_fact(disk, "A+C", "A") + " / " + cmp_fact(disk, "A+F", "A"))
+        tmp = s4c_block(camp, out, js, "tmpfs", RM_CONDS)
+        rr2, rd2 = ratio_rows(tmp, [("A+C", "A"), ("A+F", "A"), ("A", "control")])
+        out.append("#### tmpfs — 기준 대비(중앙값 비율)\n")
+        table(out, RATIO_HDR, rr2)
+        fact(out, "H4 " + cmp_fact(tmp, "A+C", "A") + " / " + cmp_fact(tmp, "A+F", "A"))
+    finally:
+        S4C_METRICS[:] = saved
+    js["ratios"] = {"disk": rd, "tmpfs": rd2}
+    short_cost(camp, out, js, RM_CONDS)
+    out.append("## 2. 시작 상태 · 대조 위상 · GC (리뷰 R8)\n")
+    start_block(camp, out, js)
+    out.append("## 3. 대조 비용 — C vs F (H4 · H5)\n")
+    reconcile_block(camp, out, js, {"disk": disk, "tmpfs": tmp}, skip=("s3e",))
+
+
 def main(argv):
+    rm = False
+    if len(argv) == 3 and argv[0] == "--set" and argv[1] == "cost-remeasure":
+        rm, argv = True, argv[2:]
     if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
@@ -562,7 +634,10 @@ def main(argv):
            "> `k6/ADR-009/scripts/compare.py`가 조건별 `summary.json`(summarize.py) · 회차 `effect.json`·원시 파일 · `wall.json`·`wdrop.json`에서 산출. "
            "값 = 중앙값 [최소–최대](n = 정확히 ok인 회차), 값이 빠진 회차는 `누락 k/n`. 정의는 스크립트 머리말. "
            "각 표 아래 '반증 관측 사실'은 비교 값뿐이며 가설 성립·기각 판정은 담지 않는다.\n"]
-    js = {"campaign": root.name}
+    js = {"campaign": root.name, "set": "cost-remeasure" if rm else "main"}
+    if rm:
+        remeasure_main(root, camp, out, js)
+        return finish(root, camp, out, js)
 
     out.append("## 1. 비용 — S4c4200 · S2 · S3-a20 (H4 · H6 · H7)\n")
     disk = s4c_block(camp, out, js, "disk", S4C_DISK)
@@ -590,7 +665,10 @@ def main(argv):
 
     out.append("## 4. 정리 — S3c-a20 (H8)\n")
     close_block(camp, out, js)
+    return finish(root, camp, out, js)
 
+
+def finish(root, camp, out, js):
     retries = sorted(str(p.relative_to(root)) for p in root.glob("*/L*/*/rep*.*") if p.is_dir())
     out.append("## 누락·의심·재측정\n")
     out += [f"- 재측정: `{p}`(보존된 옛 회차 — status `{(root / p / 'status').read_text().strip() if (root / p / 'status').exists() else '없음'}`) — 표에는 새 회차만 든다" for p in retries]
