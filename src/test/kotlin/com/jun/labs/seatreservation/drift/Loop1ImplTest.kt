@@ -158,6 +158,7 @@ class ReconcileErrorsImplTest : DriftTestSupport() {
 /**
  * L1-5 · L1-10 · L1-13 · L1-18 — 실제 SpringApplication 기동: F 프로필은 업무 컨트롤러가 없고 출처가 reconcile-proc ·
  * F인데 대조 끔이면 실패 · C 또는 external-reconciler인데 A 없음이면 실패(counter-trigger 예외) · F 프로세스는 A 검사를 하지 않는다.
+ * ADR-009 기본값 전환(명세 §12 — A·C·정리 ① 켬) 뒤: 업무 앱 조합은 '그 밖은 끔'(전환 전 기본값)을 명시한다. F 프로필은 프로필 yml이 A·정리를 끈다(명시 없음).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Loop1BootImplTest {
@@ -207,7 +208,7 @@ class Loop1BootImplTest {
 
     @Test
     fun `업무 앱(C + A) — 컨트롤러가 있고 출처는 reconcile-app`() {
-        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.expiry-repair=true").use { ctx ->
+        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.cleanup.mode=none").use { ctx ->
             assertEquals(1, ctx.getBeansOfType(SeatHoldController::class.java).size)
             assertEquals("reconcile-app", ctx.getBean(CounterDriftScheduling::class.java).reconcileSource())
         }
@@ -219,12 +220,12 @@ class Loop1BootImplTest {
 
     @Test
     fun `C인데 A 없음 — 기동 실패`() =
-        assertBootFails("후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수", "--seat.hold.counter-drift.reconcile.enabled=true")
+        assertBootFails("후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수", "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none")
 
     @Test
     fun `external-reconciler인데 A 없음 — 기동 실패, A를 켜면 뜬다`() {
-        assertBootFails("후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수", "--seat.hold.counter-drift.external-reconciler=true")
-        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=true").close()
+        assertBootFails("후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none")
+        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none").close()
     }
 
     @Test
@@ -232,7 +233,7 @@ class Loop1BootImplTest {
         boot(
             "--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.limit-strategy=counter-trigger",
             "--spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
-            "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.external-reconciler=true",
+            "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none",
         ).close()
     }
 }

@@ -16,7 +16,10 @@ data class SeatHoldProperties(
     val criticalSectionDelay: Duration = Duration.ZERO,
     /** ADR-009 판매 마감(회차 starts_at). 기본 켬(도메인 규칙). */
     val salesClose: SalesClose = SalesClose(),
-    /** ADR-009 카운터 어긋남 후보(A·C·F)와 쿼터 행 정리. 기본 모두 끔 = ADR-008 동작 그대로. */
+    /**
+     * ADR-009 카운터 어긋남 후보(A·C·F)와 쿼터 행 정리. 기본 = ADR-009 결정(명세 §12) A 켬 · C 켬 · 정리 ① schedule(B·F는 기본 아님).
+     * 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 기동 검사가 이 기본값을 거부한다 — 세 키를 명시해 끈다(ADR-008 none 고정과 같은 방식). counter-trigger(B)는 A를, counter는 정리를 끈다.
+     */
     val counterDrift: CounterDrift = CounterDrift(),
 ) {
     data class SalesClose(
@@ -25,8 +28,8 @@ data class SeatHoldProperties(
     )
 
     data class CounterDrift(
-        /** 후보 A — 만료 배치에서 감소가 실패한 쌍만 그 자리에서 실제 값으로 복구한다. */
-        val expiryRepair: Boolean = false,
+        /** 후보 A — 만료 배치에서 감소가 실패한 쌍만 그 자리에서 실제 값으로 복구한다. 기본 켬(ADR-009 결정). */
+        val expiryRepair: Boolean = true,
         /**
          * 업무 앱 쪽 표시: 별도 대조 프로세스(F — reconciler 프로필)가 이 DB를 대조한다. true이고 counter-trigger가 아니면 A가 필수(기동 검사).
          * F 프로세스 자신의 기동 검사로는 업무 앱의 A를 볼 수 없어서 둔다(코드 루프 1 L1-18). 하네스가 F 조건에서 업무 앱에 켠다.
@@ -37,8 +40,8 @@ data class SeatHoldProperties(
     )
 
     data class Reconcile(
-        /** 후보 C — 앱 안 청크 대조(F는 reconciler 프로필이 켠다). */
-        val enabled: Boolean = false,
+        /** 후보 C — 앱 안 청크 대조(F는 reconciler 프로필이 켠다). 기본 켬(ADR-009 결정 — C는 A가 필수다, 기동 검사). */
+        val enabled: Boolean = true,
         val interval: Duration = Duration.ofSeconds(60),
         /** 쌍 복구 트랜잭션의 `SET LOCAL lock_timeout`. */
         val lockTimeout: Duration = Duration.ofSeconds(1),
@@ -49,7 +52,8 @@ data class SeatHoldProperties(
     )
 
     data class Cleanup(
-        val mode: CleanupMode = CleanupMode.NONE,
+        /** 기본 schedule = 정리 ①(ADR-009 결정 — 판매 마감 켬이 전제, 기동 검사). */
+        val mode: CleanupMode = CleanupMode.SCHEDULE,
         val interval: Duration = Duration.ofSeconds(60),
         /** cnt = 0 정리(②)의 청크 크기(쿼터 행 수). */
         val chunkSize: Int = 1_000,

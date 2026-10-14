@@ -50,7 +50,11 @@ class CounterDriftStartupCheckTest {
         return "jdbc:postgresql://${postgres.host}:${postgres.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)}/$name"
     }
 
-    /** [props]가 같은 키를 주면 기본값을 덮는다(명령행 인자에 같은 키를 두 번 넣지 않는다). null 값 = 그 기본 키를 빼라. */
+    /**
+     * [props]가 같은 키를 주면 기본값을 덮는다(명령행 인자에 같은 키를 두 번 넣지 않는다). null 값 = 그 기본 키를 빼라.
+     * ADR-009 후보·정리(A·C·정리)는 끔이 기본 키다 — 이 클래스의 조합들은 ADR-009 기본값 전환(명세 §12 — A·C·정리 ① 켬) 전에 '그 밖은 끔'으로 쓰였다.
+     * reconciler 프로필 경우는 세 키를 null로 빼서 프로필 yml(application-reconciler.yml)이 정하게 한다(명령행이 프로필보다 우선하므로).
+     */
     private fun boot(props: Map<String, String?>): ConfigurableApplicationContext {
         val base = mapOf<String, String?>(
             "spring.datasource.url" to freshDbUrl(),
@@ -58,7 +62,7 @@ class CounterDriftStartupCheckTest {
             "spring.datasource.password" to postgres.password,
             "server.port" to "0",
             "seat.hold.expiry-scheduler-enabled" to "false",
-        )
+        ) + ADR009_OFF
         val args = (base + props).filterValues { it != null }.map { (k, v) -> "--$k=$v" }
         return SpringApplicationBuilder(SeatReservationApplication::class.java).run(*args.toTypedArray())
     }
@@ -92,6 +96,16 @@ class CounterDriftStartupCheckTest {
     }
 
     private val trigger = "classpath:db/migration,classpath:db/migration-trigger"
+
+    private companion object {
+        val ADR009_OFF = mapOf<String, String?>(
+            "seat.hold.counter-drift.expiry-repair" to "false",
+            "seat.hold.counter-drift.reconcile.enabled" to "false",
+            "seat.hold.counter-drift.cleanup.mode" to "none",
+        )
+        /** 세 키를 빼라(앱 기본값·프로필 yml이 정한다) */
+        val ADR009_UNSET = ADR009_OFF.mapValues { null }
+    }
 
     // ---- 쿼터 테이블 없음 -----------------------------------------------------------------------------------------
 
@@ -178,7 +192,7 @@ class CounterDriftStartupCheckTest {
     @Test
     fun `reconciler 프로필 + 만료 스케줄러 켬 — 기동 실패(대조 프로세스가 만료까지 돌면 앱과 이중 만료)`() {
         assertBootFails(
-            mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-scheduler-enabled" to "true"),
+            ADR009_UNSET + mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-scheduler-enabled" to "true"),
             "reconciler 프로필에서 만료 스케줄러",
             keyword = "만료 스케줄러를 꺼야 한다",
         )
@@ -186,7 +200,7 @@ class CounterDriftStartupCheckTest {
 
     @Test
     fun `reconciler 프로필만 주면 뜨고 만료 스케줄러 빈이 없다(프로필이 스케줄러를 끈다)`() {
-        assertBoots(mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-scheduler-enabled" to null)) {
+        assertBoots(ADR009_UNSET + mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-scheduler-enabled" to null)) {
             assertTrue(it.getBeansOfType(HoldExpiryScheduler::class.java).isEmpty(), "reconciler 프로필에 만료 스케줄러가 떴다")
         }
     }

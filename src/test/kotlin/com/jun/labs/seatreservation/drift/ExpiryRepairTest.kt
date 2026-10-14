@@ -11,6 +11,9 @@ import com.jun.labs.seatreservation.service.HoldSeatUseCase
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.support.IntegrationTest
+import com.jun.labs.seatreservation.support.PIN_A_OFF
+import com.jun.labs.seatreservation.support.PIN_CLEANUP_OFF
+import com.jun.labs.seatreservation.support.PIN_C_OFF
 import com.jun.labs.seatreservation.support.actualOf
 import com.jun.labs.seatreservation.support.clearAdr009Tables
 import com.jun.labs.seatreservation.support.cntOf
@@ -40,7 +43,8 @@ import kotlin.test.fail
  * 만료 스케줄러 빈을 띄워 둔다(주기 1h — 기동 때 1회 빈 DB에서 돌고 끝) — 틱 지표 `seat.hold.expiry.tick`을 스케줄러 진입점으로 재기 위해서다.
  * 나머지 단언은 기존 진입점 `ExpireHoldsUseCase.expire()`를 직접 부른다.
  */
-@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=true", "seat.hold.expiry-interval=1h"])
+// IntegrationTest의 @SpringBootTest를 대신하므로 ADR-009 후보·정리 끔 고정을 다시 적는다(애너테이션은 합쳐지지 않는다) — A를 켜는 하위 클래스는 @TestPropertySource로 덮는다
+@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=true", "seat.hold.expiry-interval=1h", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF])
 abstract class ExpiryDriftScenario(private val type: UserLimitStrategyType) : IntegrationTest() {
 
     @Autowired lateinit var holdSeat: HoldSeatUseCase
@@ -214,7 +218,7 @@ class ExpiryRepairUpsertTest : ExpiryRepairOnTest(UserLimitStrategyType.COUNTER_
 class ExpiryRepairCounterTest : ExpiryRepairOnTest(UserLimitStrategyType.COUNTER)
 
 /**
- * 대조군 — A 끔(기본값). 명세 §2 '기본값 외 동작 불변': 지금과 같이 어긋난 쌍 하나가 만료 배치 전체를 롤백한다.
+ * 대조군 — A 끔(ADR-009 전환 전 기본값 — 지금은 ExpiryDriftScenario가 끔 고정). 명세 §2 '기본값 외 동작 불변': 지금과 같이 어긋난 쌍 하나가 만료 배치 전체를 롤백한다.
  * 이 클래스는 주입이 실제로 감소 실패를 만든다는 것도 보인다(위 A 테스트가 공허하지 않다는 근거).
  */
 @TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert-precheck"])

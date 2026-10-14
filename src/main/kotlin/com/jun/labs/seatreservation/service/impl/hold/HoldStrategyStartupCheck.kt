@@ -91,23 +91,26 @@ class HoldStrategyStartupCheck(
         val cleanup = drift.cleanup.mode
         check(!(a || c || f || external) || limit in COUNTER_FAMILY) {
             "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f · external-reconciler=$external)는 " +
-                "카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
+                "카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit" + DEFAULTS_HINT
         }
         check(!(a && limit == COUNTER_TRIGGER)) {
-            "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)"
+            "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)" +
+                " — A는 ADR-009 기본값이 켠다: counter-trigger는 seat.hold.counter-drift.expiry-repair=false를 명시하라"
         }
         // 대조(C·F)를 켜면 A 필수(코드 루프 1 L1-10·L1-18, 사용자 결정): 대조는 마감 회차를 보지 않으므로, 마감 회차의 어긋난 쌍이 만료 감소를 실패시키면
         // A 없이는 틱이 계속 롤백된다(만료 정지). counter-trigger는 예외 — 트리거가 마감 회차를 건너뛰어 그 정지 경로가 없다.
         // F 프로세스 자신은 만료를 하지 않으므로 이 검사를 하지 않는다 — 업무 앱이 external-reconciler=true로 같은 검사를 받는다.
         check(!((c || external) && !f && !a && limit != COUNTER_TRIGGER)) {
             "대조(C reconcile.enabled=$c · F external-reconciler=$external)를 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다 " +
-                "— 마감 회차 어긋남이 만료를 멈출 수 있다(counter-trigger는 예외) — 현재 $limit"
+                "— 마감 회차 어긋남이 만료를 멈출 수 있다(counter-trigger는 예외) — 현재 $limit" +
+                " — C는 ADR-009 기본값이 켠다: A를 끄려면 reconcile.enabled=false도 명시하라"
         }
         check(cleanup == CleanupMode.NONE || limit in CLEANUP_STRATEGIES) {
-            "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)"
+            "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)" + DEFAULTS_HINT
         }
         check(cleanup != CleanupMode.SCHEDULE || properties.salesClose.enabled) {
-            "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다"
+            "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다" +
+                " — 정리 ①은 ADR-009 기본값이 켠다: 마감을 끄려면 cleanup.mode=none을 명시하라"
         }
         if (a || c || f || cleanup != CleanupMode.NONE) {
             val missing = LOG_TABLES.filterNot(::exists)
@@ -132,6 +135,9 @@ class HoldStrategyStartupCheck(
         /** 쿼터 행 정리를 허용하는 방식 — 트랜잭션 안에서 행을 만들거나(upsert) 트리거가 만든다 */
         val CLEANUP_STRATEGIES = setOf(COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
         val LOG_TABLES = listOf("counter_drift_log", "counter_reconcile_run", "counter_cleanup_run")
+        /** ADR-009 기본값 전환(명세 §12) 뒤 조합 거부 안내 — 검사 자체는 바꾸지 않는다(기본값을 조용히 끄지 않는다: 설정·configprops와 실제 동작이 갈리지 않게) */
+        private const val DEFAULTS_HINT =
+            " — ADR-009 기본값이 A·C·정리 ①을 켠다: 이 방식으로 띄우려면 seat.hold.counter-drift.expiry-repair=false · reconcile.enabled=false · cleanup.mode=none을 명시하라"
         const val HOLD_TRIGGER = "seat_hold_quota"
         const val RESERVATION_TRIGGER = "reservation_quota"
     }

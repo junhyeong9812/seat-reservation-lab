@@ -354,7 +354,9 @@ class CounterReconcileFalsePositiveTest : ReconcileScenario() {
  * 이 프로필은 선점 경로를 쓰지 않을 수 있어 쌍을 SQL로 만든다.
  */
 @ActiveProfiles("reconciler")
-@TestPropertySource(properties = ["seat.hold.counter-drift.reconcile.interval=1h"])
+// reconcile.enabled=true: IntegrationTest의 ADR-009 끔 고정(테스트 인라인 속성)이 프로필 yml(application-reconciler.yml의 대조 켬)보다 우선해서 — 프로필이 켜는 값을 다시 적는다.
+// 프로필 yml 자체가 대조 켬 · A 끔 · 정리 끔인지는 Adr009DefaultBindingTest가 본다
+@TestPropertySource(properties = ["seat.hold.counter-drift.reconcile.interval=1h", "seat.hold.counter-drift.reconcile.enabled=true"])
 class CounterReconcileProcTest : ReconcileScenario() {
 
     @Test
