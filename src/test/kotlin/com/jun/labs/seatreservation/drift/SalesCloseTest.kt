@@ -28,6 +28,7 @@ import kotlin.test.assertEquals
 /**
  * ADR-009 판매 마감 — 명세 §1-2 · §2 '판매 마감'(now >= starts_at이면 선점 거절, 시각 출처 = 앱 Clock, 확정은 막지 않음) · §5.
  * 기본 설정(좌석 3b + counter-upsert-precheck, 마감 기본 켬). 조합 전체의 판정 순서는 SalesCloseOrderTest.
+ * ADR-009 축(A·C·정리)은 IntegrationTest가 끔 고정한다(ADR-009 기본값 켬과 다르다).
  */
 @AutoConfigureMockMvc
 class SalesCloseTest : IntegrationTest() {

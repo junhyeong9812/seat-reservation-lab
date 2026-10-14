@@ -35,7 +35,7 @@ import kotlin.test.assertEquals
 
 private fun code(block: () -> Unit): String = try { block(); "ok" } catch (e: SeatReservationException) { e.errorCode.name }
 
-/** 판매 마감 기본 동작(기본 방식 3b + precheck): 직전 성공 · 정각 마감 · 마감 뒤 확정 성공. */
+/** 판매 마감 기본 동작(기본 방식 3b + precheck): 직전 성공 · 정각 마감 · 마감 뒤 확정 성공. ADR-009 축(A·C·정리)은 IntegrationTest 끔 고정. */
 class SalesCloseImplTest : IntegrationTest() {
     @Autowired lateinit var holdSeat: HoldSeatUseCase
     @Autowired lateinit var confirm: ConfirmReservationUseCase

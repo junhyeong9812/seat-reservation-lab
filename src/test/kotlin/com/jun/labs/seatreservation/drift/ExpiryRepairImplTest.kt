@@ -76,7 +76,7 @@ class ExpiryRepairImplTest : DriftTestSupport() {
     }
 }
 
-/** 키를 끄면(기본) ADR-008 동작 그대로 — 어긋난 쌍 하나가 틱 전체를 롤백한다. */
+/** 키를 끄면 ADR-008 동작 그대로 — 어긋난 쌍 하나가 틱 전체를 롤백한다. (끔은 ADR-009 전환 전 기본값 — 지금은 IntegrationTest가 끔 고정) */
 class ExpiryRepairOffImplTest : DriftTestSupport() {
     @Autowired lateinit var holdSeat: HoldSeatUseCase
     @Autowired lateinit var expire: ExpireHoldsUseCase
