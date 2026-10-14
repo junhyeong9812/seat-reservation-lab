@@ -93,6 +93,11 @@ class HoldStrategyStartupCheck(
             "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f · external-reconciler=$external)는 " +
                 "카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit" + DEFAULTS_HINT
         }
+        // F(별도 대조 프로세스)를 쓰는 업무 앱(external-reconciler)이 앱 안 대조(C)까지 켜면 같은 DB를 두 프로세스가 대조한다 — ADR-009 기본값이 C를 켜므로 끄라고 명시해야 한다
+        check(!(external && c && !f)) {
+            "업무 앱에 external-reconciler=true(F)와 대조(C reconcile.enabled=true)가 함께 켜져 있다 — 대조가 두 프로세스에서 겹친다. " +
+                "F를 쓰면 업무 앱은 seat.hold.counter-drift.reconcile.enabled=false를 명시하라(ADR-009 기본값이 C를 켠다)"
+        }
         check(!(a && limit == COUNTER_TRIGGER)) {
             "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)" +
                 " — A는 ADR-009 기본값이 켠다: counter-trigger는 seat.hold.counter-drift.expiry-repair=false를 명시하라"
@@ -106,11 +111,11 @@ class HoldStrategyStartupCheck(
                 " — C는 ADR-009 기본값이 켠다: A를 끄려면 reconcile.enabled=false도 명시하라"
         }
         check(cleanup == CleanupMode.NONE || limit in CLEANUP_STRATEGIES) {
-            "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)" + DEFAULTS_HINT
+            "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)" + CLEANUP_HINT
         }
         check(cleanup != CleanupMode.SCHEDULE || properties.salesClose.enabled) {
             "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다" +
-                " — 정리 ①은 ADR-009 기본값이 켠다: 마감을 끄려면 cleanup.mode=none을 명시하라"
+                CLEANUP_HINT
         }
         if (a || c || f || cleanup != CleanupMode.NONE) {
             val missing = LOG_TABLES.filterNot(::exists)
@@ -138,6 +143,9 @@ class HoldStrategyStartupCheck(
         /** ADR-009 기본값 전환(명세 §12) 뒤 조합 거부 안내 — 검사 자체는 바꾸지 않는다(기본값을 조용히 끄지 않는다: 설정·configprops와 실제 동작이 갈리지 않게) */
         private const val DEFAULTS_HINT =
             " — ADR-009 기본값이 A·C·정리 ①을 켠다: 이 방식으로 띄우려면 seat.hold.counter-drift.expiry-repair=false · reconcile.enabled=false · cleanup.mode=none을 명시하라"
+        /** 정리 조합 거부(counter · 판매 마감 끔) 안내 — 정리만 끄면 된다(A·C는 이 조합에서 허용된다) */
+        private const val CLEANUP_HINT =
+            " — 정리 ①은 ADR-009 기본값이 켠다: seat.hold.counter-drift.cleanup.mode=none을 명시하라(A·C는 켠 채 둘 수 있다)"
         const val HOLD_TRIGGER = "seat_hold_quota"
         const val RESERVATION_TRIGGER = "reservation_quota"
     }
