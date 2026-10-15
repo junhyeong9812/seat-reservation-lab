@@ -792,6 +792,7 @@ def snap_delta(a, b, *path):
 
 GC_TIME = re.compile(r"^\[(\d{4}-\d{2}-\d{2}T[\d:.]+)([+-]\d{2})(\d{2})\]")
 GC_END = re.compile(r"\bGC\((\d+)\) Pause (.+?) (\d+)M->(\d+)M\((\d+)M\) ([\d.]+)ms")
+GC_STALL = re.compile(r"\] (?:Allocation|Relocation) Stall \([^)]*\) ([\d.]+)ms")
 GC_SAFEPOINT = re.compile(r'Safepoint "([^"]+)".*At safepoint: (\d+) ns.*Total: (\d+) ns')
 
 
@@ -804,14 +805,17 @@ def gc_summary(gc_gz, window=None, steady_from=None):
     k6 구간 같은 값(window = 서버 epoch — 앱 컨테이너 시계 = 서버 시계) · 50ms 넘는 정지 목록(시각 · 종류 · ms · GC id) · 로그 양(bytes·lines). 파일 없음·빈 파일 = None.
     ADR-010: full(Full GC가 든 정지 수 — 버킷마다) · k6_steady(steady_from ~ k6 끝 — 램프 제외 정상 구간, 같은 값) · heap_max_mb(gc,init Heap Max Capacity) ·
     heap_committed_max_mb(GC 끝 줄 괄호 안 — GC 뒤 잡은 힙의 최대, **로그 전체**(기동·시드 포함)).
+    ADR-010 2차(ZGC): ZGC는 'Pause … NM->NM(NM)' 끝 줄이 없다 — Z로 시작하는 safepoint(ZMarkStart·ZMarkEnd·ZRelocateStart …)를 GC 정지 하나로 센다 ·
+    stalls·stall_ms_max(버킷마다 — 'Allocation Stall (스레드) X ms'·'Relocation Stall' 줄, 앱 스레드가 GC를 기다린 시간) · zgc_generational('Minor Collection' 줄 유무) ·
+    heap_max_mb는 ZGC면 gc,init 'Max Capacity:'.
     steady_from(서버 epoch) = k6 램프 끝(setup_data.startedAt + ramp_s — 지연 지표의 정상 구간과 같은 기준, 리뷰). 없으면 window 시작 + 60."""
     if not gc_gz.exists():
         return None
-    z = lambda: {"stops": 0, "stop_ms_total": 0.0, "stop_ms_max": 0.0, "nested": 0, "gc_ids": 0, "safepoint_other_max_ms": 0.0, "full": 0}
+    z = lambda: {"stops": 0, "stop_ms_total": 0.0, "stop_ms_max": 0.0, "nested": 0, "gc_ids": 0, "safepoint_other_max_ms": 0.0, "full": 0, "stalls": 0, "stall_ms_max": 0.0}
     if window is not None and steady_from is None:
         steady_from = window[0] + 60
     out = {"collector": None, **z(), "lines": 0, "log_bytes": 0, "k6": z() if window else None, "k6_steady": z() if window else None, "steady_from": steady_from,
-           "long_stops": [], "unmatched_gc_ends": 0, "heap_max_mb": None, "heap_committed_max_mb": None}
+           "long_stops": [], "unmatched_gc_ends": 0, "heap_max_mb": None, "heap_committed_max_mb": None, "zgc_generational": False}
     pending = []   # 직전 safepoint 뒤 끝난 GC(id, 종류)
     with gzip.open(gc_gz, "rt", errors="replace") as f:
         for line in f:
@@ -821,8 +825,17 @@ def gc_summary(gc_gz, window=None, steady_from=None):
             t = datetime.fromisoformat(f"{m.group(1)}{m.group(2)}:{m.group(3)}").timestamp() if m else None
             if out["collector"] is None and "Using " in line and "[gc" in line:
                 out["collector"] = line.split("Using ", 1)[1].strip()
-            if out["heap_max_mb"] is None and "Heap Max Capacity:" in line:
-                hm = re.search(r"Heap Max Capacity: (\d+)([MG])", line)
+            if "Minor Collection" in line:
+                out["zgc_generational"] = True
+            stl = GC_STALL.search(line)
+            if stl:
+                ms = float(stl.group(1))
+                in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
+                for bk in [out] + ([out["k6"]] if in_k6 else []) + ([out["k6_steady"]] if in_k6 and t >= steady_from else []):
+                    bk["stalls"] += 1; bk["stall_ms_max"] = max(bk["stall_ms_max"], ms)
+                continue
+            if out["heap_max_mb"] is None and ("Heap Max Capacity:" in line or ("[gc,init" in line and "] Max Capacity:" in line)):
+                hm = re.search(r"Max Capacity: (\d+)([MG])", line)
                 out["heap_max_mb"] = int(hm.group(1)) * (1024 if hm.group(2) == "G" else 1) if hm else None
             em = GC_END.search(line)
             if em:
@@ -836,6 +849,8 @@ def gc_summary(gc_gz, window=None, steady_from=None):
             ms = int(sm.group(3)) / 1e6
             in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
             buckets = [out] + ([out["k6"]] if in_k6 else []) + ([out["k6_steady"]] if in_k6 and t >= steady_from else [])
+            if not pending and sm.group(1).startswith("Z"):   # ZGC 정지(ZMarkStart… 등) — 끝 줄이 없으므로 safepoint 자체를 GC 정지로
+                pending = [(-1, sm.group(1))]
             if pending:   # GC VM 작업 safepoint — 그 사이 끝난 GC id들이 한 정지
                 for bk in buckets:
                     bk["stops"] += 1; bk["stop_ms_total"] += ms; bk["stop_ms_max"] = max(bk["stop_ms_max"], ms)

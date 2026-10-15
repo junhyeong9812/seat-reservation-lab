@@ -23,7 +23,7 @@
 # 인덱스는 V2 고정(ADR-002 기준선), 배경 0. 좌석 전략은 pessimistic-nowait(ADR-003 결정 3b) 고정이 기본 — 적용 값은 회차마다 대조한다. 앱은 1대(ADR-009에는 --apps 없음).
 #
 #   scripts/run.sh --sha <SHA> --cond <조건> [--cleanup none] [--pg-preset default] [--levels "4"] [--reps 3] [--cells "S2"] [--id <matrix-id>] [--only-rep k]
-#     [--app-mem 1g] [--app-gc auto|g1]   # ADR-010 앱 JVM 축: 컨테이너 메모리 한도 · 수집기(auto = JVM 기본 선택, g1 = -XX:+UseG1GC) — 기본은 이전과 같은 1g·auto
+#     [--app-mem 1g] [--app-gc auto|g1|zgc]   # ADR-010 앱 JVM 축: 컨테이너 메모리 한도 · 수집기(auto = JVM 기본 선택, g1 = -XX:+UseG1GC, zgc = -XX:+UseZGC -XX:+ZGenerational) — 기본은 이전과 같은 1g·auto
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-009)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
@@ -89,7 +89,7 @@ CONDS="control control-noclose A A+C A+F B B+C default"
 [[ " $CONDS " == *" $COND "* ]] || { echo "--cond one of: $CONDS" >&2; exit 2; }
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
 [[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
-[[ "$APP_GC" =~ ^(auto|g1)$ ]] || { echo "--app-gc auto|g1" >&2; exit 2; }
+[[ "$APP_GC" =~ ^(auto|g1|zgc)$ ]] || { echo "--app-gc auto|g1|zgc" >&2; exit 2; }
 [[ "$COND" == default && " $COND_CLI " == *" cleanup "* ]] && { echo "--cond default는 --cleanup을 받지 않는다(정리 방식도 앱 기본값 schedule — 키를 넣지 않는다)" >&2; exit 2; }
 # 시드 회차 starts_at 2026-12-31 19:00+09(LoadtestDataService) 시한폭탄(명세 §0 · 설계 §5a): 그 1시간 전부터는 회차를 시작하지 않는다(모든 선점이 SCHEDULE_CLOSED가 된다)
 if (( $(date -u +%s) >= $(date -u -d '2026-12-31T09:00:00Z' +%s) )); then echo "seed-time-bomb: 시드 회차 starts_at(2026-12-31T10:00Z) 1시간 전 — 하네스 시드 시각부터 바꿔야 한다" >&2; exit 2; fi
@@ -252,7 +252,7 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
   # ADR-008: SEAT_HOLD_LIMIT_STRATEGY를 넘기지 않는다 — compose가 읽지도 않지만 meta app_env에 거짓 값을 남기지 않게
   # ADR-009: 조건 키(cond_env)도 모든 그룹에 붙는다 — meta.json app_env에 그대로 남는다(값에 비밀 없음)
   # ADR-010: 앱 JVM 축(APP_MEM = compose mem_limit · APP_JVM_OPTS = JAVA_TOOL_OPTIONS 앞에 붙음 — auto면 넘기지 않는다)
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$([[ "$APP_GC" == g1 ]] && echo "-XX:+UseG1GC")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게)
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac) APP_JVM_OPTS2=$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게)
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;
@@ -1114,10 +1114,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   if [[ "$base" == S4c* ]] && ! jq -e '(.app.k6.stops // 0) > 0' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-log-missing"); fi
   # ADR-010 리뷰: 실제 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 앞머리가 계획(--app-mem·--app-gc)과 같아야 한다 — 다르면 app-jvm-mismatch(하네스 실패, 다시 잼)
   local want_b; case "$APP_MEM" in *g) want_b=$(( ${APP_MEM%g} * 1073741824 )) ;; *m) want_b=$(( ${APP_MEM%m} * 1048576 )) ;; esac
-  local want_jto; [[ "$APP_GC" == g1 ]] && want_jto="-XX:+UseG1GC -XX:MaxRAMPercentage=" || want_jto="-XX:MaxRAMPercentage="
+  local want_jto; case "$APP_GC" in g1) want_jto="-XX:+UseG1GC -XX:MaxRAMPercentage=" ;; zgc) want_jto="-XX:+UseZGC -XX:+ZGenerational -XX:MaxRAMPercentage=" ;; *) want_jto="-XX:MaxRAMPercentage=" ;; esac
   if ! jq -e --argjson b "$want_b" --arg p "$want_jto" '.mem_bytes == $b and (.java_tool_options | startswith($p))' "$dir/app-jvm.json" > /dev/null 2>&1; then reasons+=("app-jvm-mismatch"); fi
   # ADR-010: --app-gc g1이면 앱 수집기가 실제로 G1이어야 한다(옵션이 안 먹으면 조건이 섞인다). auto는 기록만(gc.json collector)
   if [[ "$APP_GC" == g1 ]] && ! jq -e '.app.collector == "G1"' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
+  # zgc: 수집기 = Z이고 세대형(로그에 Minor Collection — 세대형만 있다)이어야 한다
+  if [[ "$APP_GC" == zgc ]] && ! jq -e '(.app.collector // "" | startswith("The Z Garbage Collector")) and (.app.zgc_generational == true)' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
   local uniq=() x; for x in "${reasons[@]}"; do [[ " ${uniq[*]} " == *" $x "* ]] || uniq+=("$x"); done; reasons=("${uniq[@]}")
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
