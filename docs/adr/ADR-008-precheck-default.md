@@ -1,5 +1,7 @@
 # ADR-008: counter-upsert-precheck 기본 적용·검증
 
+> 번호 이동(2026-10-15, 6차): 앱 JVM GC·메모리 기준을 새 ADR-010으로 넣으며 기존 ADR-010~016을 011~017로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+
 - 상태: 결정됨(Accepted) — 2026-10-12. 매수 제어 기본값을 `none` → **`counter-upsert-precheck`**로 바꿨다(설정·코드). V6로 기존 데이터의 카운터를 채운다. 기본값 그대로 기동한 앱으로 기능 셀 13회를 재측정했고, 전부 합격했으며 ADR-007 precheck(방식 명시)와 같은 정합·동작이 나왔다(§5).
 - 명세: `docs/plans/2026-10-11/adr-008-precheck-default/requirement-spec.md` · 기록: 같은 폴더 `log.md`
 - 날짜: 2026-10-11 ~ 2026-10-12
