@@ -201,6 +201,13 @@
 
 - 카드에 나오면 안 되는 원 식별자: seat-reservation-lab · seatlab · backend-labs-commerce · jun · 192.168.55.164 · .164 · seat_hold · user_hold_quota · counter_reconcile_run · product_schedule · SeatHoldProperties · LoadtestDataService · ExpireHoldsService · ConfirmReservationService · UserLimitStrategies · counter-upsert-precheck · counter-trigger · seatlab-app-1 · ADR-0xx 번호 · 커밋 SHA
 
+- 아카이브: issue/java/container-gc-ergonomics ⓐ e428a7ba
+- 아카이브: issue/cross-cutting/testing/performance-measurement-validity ⓒ 67b13036 (30초 구간 백분위수가 짧은 멈춤을 가림 · 측정 전 대기 비대칭 교란)
+- 아카이브: issue/shell/quoting-expansion-layers ⓒ 5759400f (한 줄 함수 안 주석이 뒤 분기를 삼킴)
+- 아카이브: issue/cross-cutting/reliability/reference-graph-not-text ⓒ 63a3e2aa (번호 치환이 접두어 없는 병기·범위 숫자를 놓침)
+- 노출 스캔: 워커 커밋별 + 메인 브랜치 전체 추가 행 재확인 0건. 기존 줄 오탐 5건(루트 README·index.md의 다른 프로젝트 경로·이름 — 이번 커밋이 추가하지 않은 줄) 개별 판정. study-note 브랜치 archive/2026-10-15 — push 대기(사용자 확인).
+- 카드화하지 않은 ADR-009 후보(사용자 판단 대기): 한 문장 DELETE … NOT EXISTS가 커밋 전 선점을 못 봄 · 체인 실패 무음 · finally 순서로 항상 참인 동시성 테스트 · 판정 시각 두 번 읽음/테스트 시계 가시성 · FOR NO KEY UPDATE와 FK KEY SHARE
+
 ## 생략한 검증
 
 - 없음
