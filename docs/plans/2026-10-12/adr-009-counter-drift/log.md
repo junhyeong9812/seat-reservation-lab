@@ -47,6 +47,11 @@
 | 10-14 16:4x | 하네스 교란 수정 회수 5c799681(시드 끝 → k6 77초 고정 · pre-k6-mismatch · GC·safepoint 로그 · --set cost-remeasure 48회 · main 바이트 동일) · 스모크 tmpfs control·A+C ok(76.44 vs 76.33초, 램프 붕괴 둘 다 없음, Serial Full GC 약 70~100ms·약 50초 주기가 램프 뒤 p99 > 200ms 초와 맞음) · 하네스 듀얼 1패스(rv26): codex H1~H5 · Opus R1~R10(P1 0) → 전부 채택(첫 바퀴 넘침 중단 · 대조 바퀴 위상 기록 · 대기 중 DB 상태 · GC 로그 async·/dev/shm · 파서 이중 집계 · F 수집기 · k6 실제 시작 · compare cost-remeasure 모드) 수정 위임 | 진행 |
 | 10-14 17:2x | 하네스 리뷰 반영 회수 e9146773(대기점 70초·목표 87초·pre-k6-overrun · 대조 위상 · 대기 중 DB 상태 · GC async·/dev/shm · safepoint 집계(실측 Young+Full 묶음 10~11건 확인) · F 수집기 · 첫 요청 판정 · compare cost-remeasure) · 스모크 A+C tmpfs·control 디스크 ok(시드 끝 → 첫 요청 86.85 vs 86.87초, product_seat autovacuum이 대기 중에 끝남) · 메인 오프라인 py 100/100 · rs 63/63 · dry-run 48 · codex 타깃 재점검: fixed 5·partial 4 · 신규 3(조기 overrun 경계 · k6와 겹친 첫 바퀴 first_in_k6 누락 · compare S3e 누락 문구) → 수집 데이터에 영향 없음(원시 drift-db·k6 기록으로 사후 재요약 가능) — 캠페인 뒤 summarize·compare 보정으로 이월(실행 중 스크립트 변경 위험 회피) | 재측정 시작 |
 | 10-14 17:36 | **비용 셀 재측정 시작**: systemd-run --user --unit seatlab-adr009r → campaign.sh --set cost-remeasure --sha e9146773 --id 20261014-adr009-remeasure-e9146773(48회, 예상 565분 ≈ 9.4시간) · 감시(결과 사유·ABORT·종료) | 예상 종료 10-15 03:xx |
+| 10-15 03:15 | **비용 셀 재측정 종료** — CAMPAIGN done, 48/48 ok, 비정상 회차 0 | 결과 폴더 20261014-adr009-remeasure-e9146773 |
+| 10-15 03:40 | summarize(16조건)·wall·wdrop·compare --set cost-remeasure 실행 → COMPARISON.md 153행 | 시드 끝→첫 요청 85.81~88.48초(퍼짐 2.68초, 허용 ±5초) — 교란 해소 확인. 반복문이 conditions.txt 인자까지 조건으로 읽어 생긴 잘못된 *.summarize.log 18개는 삭제(결과 무영향) |
+| 10-15 03:42 | **H4 비용(tmpfs 기준)**: A+C ÷ A p99 +2.2%·가장 나쁜 구간 +2.0%·RPS −0.0% / A+F ÷ A p99 +0.7% — 허용 10% 안. 옛 'A+C p99 −42%'는 교란이었고 지금은 차이 없음. 디스크: A+C ÷ A p99 +11.1%(노이즈 ±25% 안)·C 바퀴 최대 94초(≥60초 바퀴 2개 — 앱 풀 공유로 디스크 벽 중 지연) vs F 4초. S3-a20: WAL +0.3%·p99 +0.3%. S2: k6 구간 대조 바퀴 0인데 회차 퍼짐 큼(A 283–477ms) — 노이즈 | H4 tmpfs 성립 · 디스크 C 바퀴 장기화는 관측 사실로 기록 |
+| 10-15 03:55 | **JVM 확인(짧은 벽)**: 수집기 = Serial(1 GiB 제한). tmpfs 4조건 rep1 정상 구간(60초 이후) 최대 >50ms 초 8~9개 = 전부 Full GC(±1초)와 일치, Full GC 회차당 8회·70~105ms. 조건 간 차이 없음. 디스크는 벽 279~283초가 저장장치 원인(GC 일치 8~11초뿐) | 짧은 벽 = JVM Serial Full GC(후보 비용 아님) — 후속 후보(G1 지정·힙 조정) |
+| 10-15 12:23 | ADR-009 §7.7 신설·§7.5 H4·H5·§8 확정 + README·NEXT 갱신 → 문서 듀얼 1패스 rv28(codex 3건·Opus 14건, 중복 병합 13건 RM-1~13) 전부 채택·반영 | H5 판정을 디스크 반증·tmpfs 부분 확인으로 낮춤, 짧은 벽은 재측정 한정 확정 |
 
 ## 리뷰 ledger
 
@@ -169,6 +174,28 @@
 | RD-9 | r | opus R9 | §8 B 확정 실패 | 채택 — 추론 표시 | fixed | doc 10-14 |
 | RD-10 | r | opus R10 | spec §5 ③ | 채택 — S2·S3 참고 1줄 | fixed | doc 10-14 |
 | RD-11 | r | codex R4 | COMPARISON 183·187-190 | 채택 — H8 ② 행별 보존은 미검증 | fixed | doc 10-14 |
+
+- review packet(재측정 반영 문서): rv28 — `scratchpad/rv28`(미러 + `_packet/doc.diff`·spec·gc 대조 결과). 기준 HEAD 75cfef40 + 작업트리. Opus(opus) ∥ codex(medium).
+
+| id | first_seen_loop | source | 근거 | disposition | status | fixed_in_loop |
+|----|-----------------|--------|------|-------------|--------|---------------|
+| RM-1 | r | codex 1 + opus 1 | H5 디스크 대기 0.015 vs 0.039, 바퀴당 1.6배 · tmpfs DB CPU 155 vs 145 | 채택 — H5 디스크 반증(사전 기준)·tmpfs 부분 확인, 정규화는 사후 해석 | fixed | doc 10-15 |
+| RM-2 | r | codex 2 + opus 4 | §7.6 짧은 벽 · §8.1 | 채택 — 재측정 = Full GC 일치, 본측정 사건 = 추정. 옛 "확정 아님" 문장 당시로, 주기 차이 미설명 명시 | fixed | doc 10-15 |
+| RM-3 | r | codex 3 + opus 9·10 | gc.json Full GC 간격 25~60초·safepoint 72~108ms · 힙 186~202MB · Tenured 출처 | 채택 — 수치·출처 정정 | fixed | doc 10-15 |
+| RM-4 | r | opus 2 | H4 디스크 p99 +11.1%·가장 나쁜 구간 +22% ≥ 사전 5% | 채택 — 사전 기준 초과 명시, 디스크 판정 제외 결정에 따름 | fixed | doc 10-15 |
+| RM-5 | r | opus 3 | §8 F가 아닌가 — 디스크 C 불리 방향 | 채택 — 디스크 C 불리 관측·"뿐"은 추론 표시 | fixed | doc 10-15 |
+| RM-6 | r | opus 5 | gcwall.py 1회차·한 방향·Full ms | 채택 — 한계 1행·우연 확률·디스크 원인 표현 완화 | fixed | doc 10-15 |
+| RM-7 | r | opus 6 | pre-k6 DB 기동→k6 A+F +7초 · tmpfs A+F CPU·MultiXact·S2 WAL | 채택 — A+F 잔여 차이 원인 미확인 1행 | fixed | doc 10-15 |
+| RM-8 | r | opus 7 | §7.2 머리말·글머리·§7.3·§7 제목 | 채택 — B·noclose 예외, 본측정 값 표시, 제목에 별도 캠페인 | fixed | doc 10-15 |
+| RM-9 | r | opus 8 | §8.1 대조 전용 풀 | 채택 — 재측정에서 관측 안 됨 | fixed | doc 10-15 |
+| RM-10 | r | opus 11 | §7.5 끝 문단·§7.7 디스크 잡음 예 | 채택 — 벽 시작도 흔들림·예시 정정 | fixed | doc 10-15 |
+| RM-11 | r | opus 12 | 명세 §12 허용선 = 대조군 대비 | 채택 — A+C ÷ control +1.0%·A+F −0.5% 병기(메인 comparison.json 교차 확인 3.924/3.885), A+C +2.2% 회차 범위 비겹침 | fixed | doc 10-15 |
+| RM-12 | r | opus 13 | wall.json tmpfs 벽 351·338초 = Full GC 352·338초 | 채택 — 설명 1행 | fixed | doc 10-15 |
+| RM-13 | r | opus 14 | §8.1 다른 ADR 일반화 | 채택 — 추정 표시 | fixed | doc 10-15 |
+| RM-14 | p | codex post-fix | §8.1 대조 전용 풀 "탐지는 빨라진다" | 채택 — 예상(미시험)으로 표시 | fixed | doc 10-15 post-fix |
+| RM-15 | p | codex post-fix | §7.7 S2 "회차 범위가 겹친다" — A+F 205–265 vs A 283–477 | 채택 — A+F 비겹침 명시, 대조 비용 아님 유지 | fixed | doc 10-15 post-fix |
+| RM-3 재점검 partial | p | codex post-fix | Tenured·응답 초 대조 원시 gc.log.gz·k6-requests.csv.gz가 미러 밖 | 범위 밖 — 패킷 크기로 gz 제외. 원시 파일은 결과 폴더에 커밋(재현 가능), 메인이 gc.log.gz GC(637) 줄 직접 확인 | — | — |
+- post-fix 재점검 종료: 신규 2건(RM-14·15) 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스 규칙).
 
 ## 생략한 검증
 
