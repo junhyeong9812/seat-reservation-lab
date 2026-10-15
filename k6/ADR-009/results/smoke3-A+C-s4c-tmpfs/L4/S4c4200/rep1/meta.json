@@ -1,0 +1,83 @@
+{
+  "sha": "5c799681",
+  "level": 4,
+  "cell": "S4c4200",
+  "rep": 1,
+  "started": "2026-10-14T16:18:22+09:00",
+  "ended": "2026-10-14T16:28:58+09:00",
+  "k6_started": "2026-10-14T16:20:20+09:00",
+  "k6_ended": "2026-10-14T16:27:30+09:00",
+  "ttl_s": 3600,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:5c799681",
+  "cond": "A+C",
+  "cleanup": "none",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "START_RATE=4200 FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50",
+  "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL= DRIFT_C_ENABLED=true DRIFT_C=60s DRIFT_CLEANUP=none RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "io_settle_s": 11,
+  "pg_preset": "tmpfs",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.017,
+      "rtt_s": 0.0022,
+      "at": 1791962420.416458
+    },
+    "after": {
+      "offset_s": -0.0164,
+      "rtt_s": 0.0008,
+      "at": 1791962850.848326
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1791962344.109201,
+    "k6_start_epoch": 1791962420.4423325,
+    "seed_to_k6_s": 76.333,
+    "hold_s": 60,
+    "target_s": 77,
+    "tol_s": 5,
+    "reconcile_wait_s": 31,
+    "hold_reached_s": 31.035,
+    "hold_slept_s": 28.965,
+    "topup_s": 4.177
+  },
+  "gc": {
+    "app": {
+      "collector": "Serial",
+      "pauses": 2054,
+      "pause_ms_max": 101.712,
+      "k6": {
+        "pauses": 1938,
+        "pause_ms_total": 6355.572000000004,
+        "pause_ms_max": 101.712,
+        "safepoint_ms_max": 101.81809
+      }
+    },
+    "reconciler": null
+  }
+}

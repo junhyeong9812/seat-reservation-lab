@@ -1,0 +1,140 @@
+{
+  "sha": "e9146773",
+  "level": 4,
+  "cell": "S3-a20",
+  "rep": 2,
+  "started": "2026-10-14T22:55:19+09:00",
+  "ended": "2026-10-14T23:18:34+09:00",
+  "k6_started": "2026-10-14T22:57:18+09:00",
+  "k6_ended": "2026-10-14T23:12:18+09:00",
+  "ttl_s": 300,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:e9146773",
+  "cond": "control",
+  "cleanup": "none",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+  "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=false DRIFT_EXTERNAL= DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=none RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "io_settle_s": 11,
+  "pg_preset": "default",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.0013,
+      "rtt_s": 0.0008,
+      "at": 1791986238.6413486
+    },
+    "after": {
+      "offset_s": -0.0063,
+      "rtt_s": 0.001,
+      "at": 1791987139.283094
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1791986152.2700276,
+    "k6_start_epoch": 1791986238.6680996,
+    "seed_to_k6_s": 86.398,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": null,
+    "hold_reached_s": 0.628,
+    "hold_slept_s": 69.372,
+    "topup_s": 1.981,
+    "first_request_epoch": 1791986238.9621508,
+    "first_request_source": "csv(1s)",
+    "seed_to_first_request_s": 86.692,
+    "k6_startup_s": 0.294,
+    "reconcile_phase": {
+      "passes": [],
+      "completed_before_k6": 0,
+      "first_in_k6": null
+    },
+    "db_start_to_k6_s": 115.146,
+    "db_start_to_seed_s": 28.748,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T13:55:53.563304+00:00",
+          "last_autoanalyze": null
+        },
+        "seat_hold": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": "2026-10-14T13:56:53.565633+00:00"
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": "2026-10-14T13:55:53.564212+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "Serial",
+      "stops": 445,
+      "stop_ms_max": 114.866625,
+      "nested": 5,
+      "log_bytes": 528894,
+      "k6": {
+        "stops": 332,
+        "stop_ms_total": 1354.601085,
+        "stop_ms_max": 114.866625,
+        "nested": 3,
+        "gc_ids": 335,
+        "safepoint_other_max_ms": 0.135474
+      }
+    },
+    "reconciler": null
+  }
+}
