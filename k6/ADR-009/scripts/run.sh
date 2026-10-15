@@ -23,6 +23,7 @@
 # 인덱스는 V2 고정(ADR-002 기준선), 배경 0. 좌석 전략은 pessimistic-nowait(ADR-003 결정 3b) 고정이 기본 — 적용 값은 회차마다 대조한다. 앱은 1대(ADR-009에는 --apps 없음).
 #
 #   scripts/run.sh --sha <SHA> --cond <조건> [--cleanup none] [--pg-preset default] [--levels "4"] [--reps 3] [--cells "S2"] [--id <matrix-id>] [--only-rep k]
+#     [--app-mem 1g] [--app-gc auto|g1]   # ADR-010 앱 JVM 축: 컨테이너 메모리 한도 · 수집기(auto = JVM 기본 선택, g1 = -XX:+UseG1GC) — 기본은 이전과 같은 1g·auto
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-009)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
@@ -53,6 +54,7 @@ SHA="" LEVELS="4" REPS=3 CELLS="S2" MATRIX_ID="" RESUME=0 ONLY_REP=""
 STRATEGY=pessimistic-nowait POOL=10 APPS=1 DELAY_MS=0   # ADR-003 조건 축 (+ ADR-004 임계 구역 지연) — ADR-009는 좌석 3b·앱 1대 고정
 COND="" CLEANUP=none    # ADR-009 조건 축(머리말)
 PG_PRESET=default       # ADR-007 조건 축: DB 설정(preset_env)
+APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(머리말)
 WORKTREE=0   # 스모크 전용(머리말)
 COND_CLI=""             # 명령줄로 준 조건 — 이어서 실행 시 계획과 다르면 거부
 while (( $# )); do
@@ -70,6 +72,8 @@ while (( $# )); do
     --cleanup) CLEANUP="$2"; COND_CLI+=" cleanup"; shift 2 ;;
     --apps|--limit-strategy|--inject-limit-strategy) echo "$1: ADR-009에는 없다 — 앱 1대 고정, 매수 방식은 --cond B·B+C만 주입(머리말)" >&2; exit 2 ;;
     --pg-preset) PG_PRESET="$2"; COND_CLI+=" pg"; shift 2 ;;
+    --app-mem) APP_MEM="$2"; COND_CLI+=" app_mem"; shift 2 ;;
+    --app-gc) APP_GC="$2"; COND_CLI+=" app_gc"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -84,6 +88,8 @@ CONDS="control control-noclose A A+C A+F B B+C default"
 (( RESUME )) && [[ -z "$COND" ]] && COND=control   # 이어서 실행은 계획에서 복원(아래)
 [[ " $CONDS " == *" $COND "* ]] || { echo "--cond one of: $CONDS" >&2; exit 2; }
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
+[[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
+[[ "$APP_GC" =~ ^(auto|g1)$ ]] || { echo "--app-gc auto|g1" >&2; exit 2; }
 [[ "$COND" == default && " $COND_CLI " == *" cleanup "* ]] && { echo "--cond default는 --cleanup을 받지 않는다(정리 방식도 앱 기본값 schedule — 키를 넣지 않는다)" >&2; exit 2; }
 # 시드 회차 starts_at 2026-12-31 19:00+09(LoadtestDataService) 시한폭탄(명세 §0 · 설계 §5a): 그 1시간 전부터는 회차를 시작하지 않는다(모든 선점이 SCHEDULE_CLOSED가 된다)
 if (( $(date -u +%s) >= $(date -u -d '2026-12-31T09:00:00Z' +%s) )); then echo "seed-time-bomb: 시드 회차 starts_at(2026-12-31T10:00Z) 1시간 전 — 하네스 시드 시각부터 바꿔야 한다" >&2; exit 2; fi
@@ -146,6 +152,8 @@ if (( RESUME )); then
   P_DELAY="$(jq -r '.condition.delay_ms // 0' "$OUT_ROOT/plan.json")"; P_LIMIT="$(jq -r .condition.limit_strategy "$OUT_ROOT/plan.json")"
   P_PG="$(jq -r '.condition.pg_preset // "default"' "$OUT_ROOT/plan.json")"
   P_COND="$(jq -r .condition.cond "$OUT_ROOT/plan.json")"; P_CLEANUP="$(jq -r '.condition.cleanup // "none"' "$OUT_ROOT/plan.json")"
+  # ADR-010 축이 없는 옛 계획 = 그때의 실효 값(1g·auto)
+  P_APP_MEM="$(jq -r '.condition.app_mem // "1g"' "$OUT_ROOT/plan.json")"; P_APP_GC="$(jq -r '.condition.app_gc // "auto"' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -154,9 +162,11 @@ if (( RESUME )); then
       pg)       [[ "$PG_PRESET" == "$P_PG" ]] || { echo "resume: --pg-preset $PG_PRESET ≠ 계획 $P_PG" >&2; exit 2; } ;;
       cond)     [[ "$COND" == "$P_COND" ]] || { echo "resume: --cond $COND ≠ 계획 $P_COND" >&2; exit 2; } ;;
       cleanup)  [[ "$CLEANUP" == "$P_CLEANUP" ]] || { echo "resume: --cleanup $CLEANUP ≠ 계획 $P_CLEANUP" >&2; exit 2; } ;;
+      app_mem)  [[ "$APP_MEM" == "$P_APP_MEM" ]] || { echo "resume: --app-mem $APP_MEM ≠ 계획 $P_APP_MEM" >&2; exit 2; } ;;
+      app_gc)   [[ "$APP_GC" == "$P_APP_GC" ]] || { echo "resume: --app-gc $APP_GC ≠ 계획 $P_APP_GC" >&2; exit 2; } ;;
     esac
   done
-  STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP"
+  STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
   # H-15: 주입·마감 손잡이는 계획 값으로 — 환경변수로 다른 값을 주면 거부
   for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S PRE_K6_HOLD_S PRE_K6_TARGET_S PRE_K6_TOL_S PRE_K6_LEAD_S; do
     pv="$(jq -r --arg k "$k" '.knobs[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -241,7 +251,8 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
   # ADR-007: DB 설정 축(preset_env)도 모든 그룹에 붙는다 — compose db.command가 읽는다(meta.json app_env에 그대로 남는다)
   # ADR-008: SEAT_HOLD_LIMIT_STRATEGY를 넘기지 않는다 — compose가 읽지도 않지만 meta app_env에 거짓 값을 남기지 않게
   # ADR-009: 조건 키(cond_env)도 모든 그룹에 붙는다 — meta.json app_env에 그대로 남는다(값에 비밀 없음)
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env)"
+  # ADR-010: 앱 JVM 축(APP_MEM = compose mem_limit · APP_JVM_OPTS = JAVA_TOOL_OPTIONS 앞에 붙음 — auto면 넘기지 않는다)
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM$([[ "$APP_GC" == g1 ]] && echo " APP_JVM_OPTS=-XX:+UseG1GC")"
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;
@@ -1092,6 +1103,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
      || ! jq -e --argjson f "$HAS_F" '(.app.collector | type == "string") and ($f == 0 or (.reconciler.collector | type == "string"))' "$dir/gc.json" > /dev/null 2>&1; then
     reasons+=("gc-log-missing")
   fi
+  # ADR-010: --app-gc g1이면 앱 수집기가 실제로 G1이어야 한다(옵션이 안 먹으면 조건이 섞인다). auto는 기록만(gc.json collector)
+  if [[ "$APP_GC" == g1 ]] && ! jq -e '.app.collector == "G1"' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
   local uniq=() x; for x in "${reasons[@]}"; do [[ " ${uniq[*]} " == *" $x "* ]] || uniq+=("$x"); done; reasons=("${uniq[@]}")
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
@@ -1143,12 +1156,12 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
 # 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다 (이어서 실행이면 기존 계획 유지)
 (( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
-  --arg pg "$PG_PRESET" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
+  --arg pg "$PG_PRESET" --arg app_mem "$APP_MEM" --arg app_gc "$APP_GC" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
   --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
-               limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay},
+               limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay, app_mem:$app_mem, app_gc:$app_gc},
     knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
     start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
                  judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",

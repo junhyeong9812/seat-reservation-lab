@@ -201,6 +201,7 @@ def fixed_csv(csv_gz, summ, stages):
     drop = {i: 0 for i in range(n_iv)}
     ramp = {"requests": 0, "status0": 0, "dropped": 0}
     ramp_lat = []
+    per_sec = {}   # ADR-010: 램프 밖 1초(행 타임스탬프 — 초 단위)별 지연(코드 0 제외) — 0.1초짜리 GC 멈춤은 30초 구간 p99에 묻힌다
     try:
         with gzip.open(csv_gz, "rt", newline="") as f:
             header = next(csv.reader([f.readline()]))
@@ -234,6 +235,7 @@ def fixed_csv(csv_gz, summ, stages):
                     n0[i] += 1
                 else:
                     lat[i].append(float(row[i_val]))
+                    per_sec.setdefault(int(row[i_ts]), []).append(float(row[i_val]))
     except (EOFError, OSError, ValueError, StopIteration):
         return None
     for s in stages:
@@ -247,7 +249,11 @@ def fixed_csv(csv_gz, summ, stages):
     p99 = lambda xs: xs[int(len(xs) * 0.99)] if xs else None
     # 리뷰 H2: 램프(0~60초)와 램프 밖(60~420초 — 계획 구간 전체) p99를 따로(코드 0 제외) — 램프 붕괴가 회차 전체 p99를 흔드는지 가른다
     ramp["p99_nz_ms"] = p99(ramp_lat)
-    return {"p99_steady_nz_ms": p99(steady), "p99_ramp_nz_ms": p99(ramp_lat), "status0": sum(n0.values()), "status0_share": sum(n0.values()) / tot if tot else None,
+    # ADR-010: 1초 p99의 최대 · 최대 응답 > 50ms인 초 수 · 최대 응답(램프 밖, 코드 0 제외)
+    sec_p99 = [p99(sorted(v)) for v in per_sec.values() if v]
+    return {"sec_p99_max_ms": max(sec_p99, default=None), "slow_secs_50ms": sum(1 for v in per_sec.values() if v and max(v) > 50),
+            "max_req_nz_ms": max((max(v) for v in per_sec.values() if v), default=None), "secs_steady": len(per_sec),
+            "p99_steady_nz_ms": p99(steady), "p99_ramp_nz_ms": p99(ramp_lat), "status0": sum(n0.values()), "status0_share": sum(n0.values()) / tot if tot else None,
             "dropped_hold": sum(drop.values()) if hold0 is not None else None, "ramp": ramp, "ramp_s": ramp_s}
 
 
@@ -258,6 +264,8 @@ def fixed_summary(stages, step_s, raw=None):
     target = sum(s["target_rps"] for s in stages) * step_s
     raw = raw or {}
     return {"p99_steady_nz_ms": raw.get("p99_steady_nz_ms"), "p99_ramp_nz_ms": raw.get("p99_ramp_nz_ms"),
+            "sec_p99_max_ms": raw.get("sec_p99_max_ms"), "slow_secs_50ms": raw.get("slow_secs_50ms"), "max_req_nz_ms": raw.get("max_req_nz_ms"),
+            "secs_steady": raw.get("secs_steady"),
             "ok_rps_total": sum(s["ok_rps"] * step_s for s in stages) / total_s if total_s else None,
             "achieved_rps_total": sum(s["requests"] for s in stages) / total_s if total_s else None,
             "achieved_ratio_total": sum(s["requests"] for s in stages) / target if target else None,
@@ -789,11 +797,14 @@ def gc_summary(gc_gz, window=None):
     safepoint Total 102.5ms) — GC 끝 줄(Pause …)을 따로 세면 정지 수가 부풀고 최대가 작게 나온다. 그래서 safepoint 줄(VM 작업 이름 + Total)마다 그 사이 끝난
     GC id를 묶어 정지 하나로 셈 — gc_ids가 2개 이상이면 nested. GC 작업이 아닌 safepoint(Cleanup·ICBufferFull 등)는 safepoint_other로 따로.
     값: collector · stops(정지 수) · stop_ms_total·max(safepoint Total) · gc_ids(GC id 수 — 참고) · nested(GC id 여럿을 묶은 정지 수) · safepoint_other_max_ms ·
-    k6 구간 같은 값(window = 서버 epoch — 앱 컨테이너 시계 = 서버 시계) · 50ms 넘는 정지 목록(시각 · 종류 · ms · GC id) · 로그 양(bytes·lines). 파일 없음·빈 파일 = None."""
+    k6 구간 같은 값(window = 서버 epoch — 앱 컨테이너 시계 = 서버 시계) · 50ms 넘는 정지 목록(시각 · 종류 · ms · GC id) · 로그 양(bytes·lines). 파일 없음·빈 파일 = None.
+    ADR-010: full(Full GC가 든 정지 수 — 버킷마다) · k6_steady(k6 시작 60초 뒤 ~ 끝 — 램프 제외 정상 구간, 같은 값) · heap_max_mb(gc,init Heap Max Capacity) ·
+    heap_committed_max_mb(GC 끝 줄 괄호 안 — GC 뒤 잡은 힙의 최대)."""
     if not gc_gz.exists():
         return None
-    z = lambda: {"stops": 0, "stop_ms_total": 0.0, "stop_ms_max": 0.0, "nested": 0, "gc_ids": 0, "safepoint_other_max_ms": 0.0}
-    out = {"collector": None, **z(), "lines": 0, "log_bytes": 0, "k6": z() if window else None, "long_stops": [], "unmatched_gc_ends": 0}
+    z = lambda: {"stops": 0, "stop_ms_total": 0.0, "stop_ms_max": 0.0, "nested": 0, "gc_ids": 0, "safepoint_other_max_ms": 0.0, "full": 0}
+    out = {"collector": None, **z(), "lines": 0, "log_bytes": 0, "k6": z() if window else None, "k6_steady": z() if window else None,
+           "long_stops": [], "unmatched_gc_ends": 0, "heap_max_mb": None, "heap_committed_max_mb": None}
     pending = []   # 직전 safepoint 뒤 끝난 GC(id, 종류)
     with gzip.open(gc_gz, "rt", errors="replace") as f:
         for line in f:
@@ -803,8 +814,12 @@ def gc_summary(gc_gz, window=None):
             t = datetime.fromisoformat(f"{m.group(1)}{m.group(2)}:{m.group(3)}").timestamp() if m else None
             if out["collector"] is None and "Using " in line and "[gc" in line:
                 out["collector"] = line.split("Using ", 1)[1].strip()
+            if out["heap_max_mb"] is None and "Heap Max Capacity:" in line:
+                hm = re.search(r"Heap Max Capacity: (\d+)([MG])", line)
+                out["heap_max_mb"] = int(hm.group(1)) * (1024 if hm.group(2) == "G" else 1) if hm else None
             em = GC_END.search(line)
             if em:
+                out["heap_committed_max_mb"] = max(out["heap_committed_max_mb"] or 0, int(em.group(5)))
                 pending.append((int(em.group(1)), em.group(2)))
                 out["gc_ids"] += 1
                 continue
@@ -813,11 +828,12 @@ def gc_summary(gc_gz, window=None):
                 continue
             ms = int(sm.group(3)) / 1e6
             in_k6 = window is not None and t is not None and window[0] <= t <= window[1]
-            buckets = [out] + ([out["k6"]] if in_k6 else [])
+            buckets = [out] + ([out["k6"]] if in_k6 else []) + ([out["k6_steady"]] if in_k6 and t >= window[0] + 60 else [])
             if pending:   # GC VM 작업 safepoint — 그 사이 끝난 GC id들이 한 정지
                 for bk in buckets:
                     bk["stops"] += 1; bk["stop_ms_total"] += ms; bk["stop_ms_max"] = max(bk["stop_ms_max"], ms)
                     bk["nested"] += len(pending) > 1
+                    bk["full"] += any(k.startswith("Full") for _, k in pending)
                     if bk is not out:
                         bk["gc_ids"] += len(pending)
                 if ms > 50 and len(out["long_stops"]) < 200:
