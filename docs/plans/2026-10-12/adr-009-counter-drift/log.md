@@ -214,7 +214,7 @@
 - 아카이브: issue/cross-cutting/testing/test-isolation-and-determinism ⓒ d2d5659b
 - 아카이브: issue/cross-cutting/database/sql-dialect-and-driver-traps ⓒ 52310971
 - 로컬 study-note main이 원격보다 15커밋 뒤(10-09~10-12 push분 미수신)라 배치를 origin/main(7f7659a3) 위로 rebase(push 전 로컬 브랜치) — 비교 번호 이어 매김·인덱스 재계수(카드 166), 재판정 ⓑ 전환 0, SHA는 rebase 뒤 값. 노출 스캔 추가 674행 0건.
-- push 보류: study-note main push가 자동 모드 분류기에 거부됨(Out-of-Place Publication) — 사용자 확인 대기. 로컬 main에 원격에 없는 옛 로그 커밋 db07feb8(2026-10-08 push 기록 2줄)이 있어 함께 처리 필요.
+- ~~push 보류~~ → 사용자 "푸시해줘"(2026-10-15): 옛 로그 커밋 db07feb8을 배치 끝에 cherry-pick(fa04bfc0) → study-note main push 7f7659a3..fa04bfc0(fast-forward) · 로컬 main = origin/main · archive/2026-10-15 삭제(병합됨) · backup 브랜치 2개는 로컬에 남김.
 - 후속 후보: ADR-009 본 결과(탐지·복구 후보 A/B/C/F 비교) → denormalized-counter-drift 카드의 '후속 설계' 자리에 ⓒ 후보.
 
 ## 생략한 검증
