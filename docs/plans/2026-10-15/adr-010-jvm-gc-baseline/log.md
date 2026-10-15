@@ -11,6 +11,8 @@
 | 10-15 13:04 | task 02 ADR-010 문서(§1 GC 설명 · §2 선택지 · §3 가설 J1~J5 · §4 계획·판정 · §5 한계) — 측정 전 고정 | 커밋 |
 | 10-15 13:17 | task 03 하네스: run.sh --app-mem·--app-gc(+ 계획·이어서 실행 대조, gc-collector-mismatch), compose APP_JVM_OPTS, campaign --set jvm-baseline, summarize GC full·k6_steady·힙, compare --set jvm-baseline → 4b3e64ab | dry-run 4회 계획 · main·cost-remeasure 계획 기존과 동일 · compose 렌더(tmpfs 오버레이 포함) 손잡이 없음·APP_MEM=1g 모두 diff 0 · 새 GC 집계를 재측정 control tmpfs rep1에 돌려 정상 구간 Full 8(gcwall 대조와 일치) |
 | 10-15 13:17 | 발견: 하네스 "가장 나쁜 구간 p99"는 30초 구간이라 Full GC 멈춤이 묻힘(재측정 control tmpfs 1회차 4.2ms) → 1초 꼬리 지표 추가(1초 p99 최대 283ms·> 50ms 초 8·최대 295ms — gcwall과 일치) · ADR-010 §3 J2·J4·§4 판정 지표를 측정 전에 1초 p99 최대로 정정 | docs 커밋 |
+| 10-15 13:17~13:29 | 스모크 smoke-adr010-1g-g1(4b3e64ab, default · S4c4200 tmpfs · 1g · g1) → ok | 가정 1 실증: G1 로그 집계 정상(Young Normal·Concurrent Start·Prepare Mixed·Mixed·Remark·Cleanup 모두 Pause 줄 매칭, unmatched 0) · 정상 구간 Full GC 0 · 정지 최대 5.0ms(k6 7.8ms) · 잡은 힙 최대 153MB · 실행 중 컨테이너에서 메모리 1073741824B·JAVA_TOOL_OPTIONS 앞 -XX:+UseG1GC 확인 |
+| 10-15 13:48 | **본측정 시작**: systemd-run --user --unit seatlab-adr010j → campaign.sh --set jvm-baseline --sha 9c898522(4회, 예상 43분) · id 20261015-adr010-jvm-9c898522 | — |
 
 ## 리뷰 ledger
 
@@ -27,6 +29,9 @@
 | HJ-7 | 1 | opus 3 | compare.py:687 | 채택 — None → 누락 | fixed | 6ddb9358 |
 | HJ-8 | 1 | opus 4 | compare.py:710 | 채택 — jvm 세트는 벽·반감 누락 알림 생략 | fixed | 6ddb9358 |
 | HJ-9 | 1 | opus 5 | summarize.py:822 | 채택 — 잡은 힙 최대 = 로그 전체 범위 명시(표 머리·docstring) | fixed | 6ddb9358 |
+| HJ-10 | p | codex post-fix | run.sh gc 정지 0 검사 범위 | 채택 — S4c 셀로 한정 | fixed | post-fix |
+| HJ-4 재점검 partial | p | codex post-fix | 응답 0건인 초는 per_sec에 없음 | 범위 밖(표의 '집계 초/계획 초'가 빈 초를 드러냄) — 추가 수정 없음 | — | — |
+- post-fix 재점검 종료: 신규 1(HJ-10) 반영 — 한 줄 범위 한정이라 추가 재점검 없음(中 듀얼 1패스).
 - Opus 워커가 미러 안에 `__pycache__`를 만들었다(py_compile) — 재점검 전 메인이 삭제.
 
 ## 생략한 검증
