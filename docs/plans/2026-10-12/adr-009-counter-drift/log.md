@@ -197,6 +197,10 @@
 | RM-3 재점검 partial | p | codex post-fix | Tenured·응답 초 대조 원시 gc.log.gz·k6-requests.csv.gz가 미러 밖 | 범위 밖 — 패킷 크기로 gz 제외. 원시 파일은 결과 폴더에 커밋(재현 가능), 메인이 gc.log.gz GC(637) 줄 직접 확인 | — | — |
 - post-fix 재점검 종료: 신규 2건(RM-14·15) 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스 규칙).
 
+## 아카이브 (사이클 마감 ② — 사용자 확인 2026-10-15: ADR-009·010 함께)
+
+- 카드에 나오면 안 되는 원 식별자: seat-reservation-lab · seatlab · backend-labs-commerce · jun · 192.168.55.164 · .164 · seat_hold · user_hold_quota · counter_reconcile_run · product_schedule · SeatHoldProperties · LoadtestDataService · ExpireHoldsService · ConfirmReservationService · UserLimitStrategies · counter-upsert-precheck · counter-trigger · seatlab-app-1 · ADR-0xx 번호 · 커밋 SHA
+
 ## 생략한 검증
 
 - 없음

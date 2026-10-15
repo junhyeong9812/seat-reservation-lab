@@ -83,6 +83,10 @@ print(d.split('/')[0],'slow:',[(s-int(k0), round(mx[s]), 'GC' if any(abs(s-int(k
 - post-fix 재점검(결과 문서) 종료: partial 2·신규 1 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스).
 - Opus 워커가 미러 안에 `__pycache__`를 만들었다(py_compile) — 재점검 전 메인이 삭제.
 
+## 아카이브 (사이클 마감 ② — 사용자 확인 2026-10-15: ADR-009·010 함께)
+
+- 카드에 나오면 안 되는 원 식별자: seat-reservation-lab · seatlab · backend-labs-commerce · jun · 192.168.55.164 · .164 · seat_hold · user_hold_quota · counter_reconcile_run · product_schedule · SeatHoldProperties · LoadtestDataService · ExpireHoldsService · ConfirmReservationService · UserLimitStrategies · counter-upsert-precheck · counter-trigger · seatlab-app-1 · ADR-0xx 번호 · 커밋 SHA
+
 ## 생략한 검증
 
 - 없음
