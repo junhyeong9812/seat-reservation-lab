@@ -70,3 +70,8 @@ seat-reservation-lab에서 ① GC 설명을 머리에 둔 `docs/adr/ADR-010-jvm-
 | 03 | 하네스 손잡이(`--app-mem`·`--jvm-opts`) + `campaign.sh --set jvm-baseline` + 비교 표 | — | 렌더 diff 0 · 스모크 G1 |
 | 04 | 서버 4회 측정 | 03 | 4/4 ok |
 | 05 | 결과·결정·Dockerfile 반영 + 리뷰 + NEXT·측정로그 | 04 | 듀얼 1패스 신규 0 |
+
+## 10. 재합의 (2026-10-15, 측정 뒤)
+
+- **적용 위치**: '앱 기본 실행 설정(Dockerfile)에도 반영'을 철회 — Dockerfile을 바꾸면 ADR-001~009 하네스도 같은 이미지로 떠 지난 결과의 재현(수집기)이 깨져 §2 불변식과 충돌한다. 사용자 선택 "하네스 기본값으로": Dockerfile 무변경, ADR-011부터 새 하네스 앱 기본값 = 1g + `-XX:+UseG1GC`, ADR-010 문서에 측정용 앱 기준으로 기록. → task 05의 Dockerfile 항목 삭제(코드 변경 없음).
+- **GC 아닌 약 26.5초 주기 튐**: 사용자 선택 "후속 후보로 넘김" — ADR-010은 GC 기준에서 닫고 NEXT에 원인 조사 후보로.
