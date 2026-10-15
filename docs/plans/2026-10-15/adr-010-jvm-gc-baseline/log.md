@@ -81,6 +81,13 @@ print(d.split('/')[0],'slow:',[(s-int(k0), round(mx[s]), 'GC' if any(abs(s-int(k
 | RJ-10 | r | opus 9 | 대조 스크립트 재현 경로 | 채택 — log.md '느린 초 대조'에 스크립트·정의·결과 원문 | fixed | doc |
 | RJ-11 | p | codex post-fix | ② 주기 10/13 서술 · J3 경계 출처 · §8.1 '회차당 8~13초' | 채택 — 허용 ±1.5초·64초 어긋남 명시, 경계 출처(OpenJDK is_server_class_machine), G1 회차와 ① 4초 구분 | fixed | post-fix |
 - post-fix 재점검(결과 문서) 종료: partial 2·신규 1 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스).
+- review packet(2차 하네스 2807764a): rv31 — `scratchpad/rv31`(미러 tracked − results·ledger, harness.diff·spec·로컬 ZGC 로그 표본). Opus ∥ codex.
+| HZ-1 | 2 | codex 1 + opus F3 | compare.py:715 | 채택 — 다회차는 ok 회차만 집계(1회 세트는 기존 동작) | fixed | 2차 fix |
+| HZ-2 | 2 | codex 2 + opus F1 | summarize.py:795 | 채택 — GC 작업자 줄(GC(n) y: … ZWorker)도 매칭, worker_stalls 따로 · 판정 1을 앱 스레드 멈춤으로 명시(명세·ADR §9) | fixed | 2차 fix |
+| HZ-3 | 2 | codex 3 | compare.py:656 | 채택 — 메모리 창 = setup_data.startedAt + ramp_s | fixed | 2차 fix |
+| HZ-4 | 2 | opus F2 | compare.py:693 | 채택 — 계획 초 열·회차별 집계 초/계획 초 복원 | fixed | 2차 fix |
+| HZ-5 | 2 | opus F4 | app_mem · /dev/shm GC 로그 | 채택 — GC 로그 MB 열 + ADR §9 한계 | fixed | 2차 fix |
+| HZ-참고 | 2 | opus | gc_ids 어긋남(ZGC 가짜 id) | 범위 밖 — compare가 읽지 않음 | — | — |
 - Opus 워커가 미러 안에 `__pycache__`를 만들었다(py_compile) — 재점검 전 메인이 삭제.
 
 ## 아카이브 (사이클 마감 ② — 사용자 확인 2026-10-15: ADR-009·010 함께)
