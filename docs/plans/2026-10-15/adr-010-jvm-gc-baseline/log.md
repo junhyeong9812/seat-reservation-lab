@@ -14,10 +14,20 @@
 
 ## 리뷰 ledger
 
-- review packet: (아직 없음)
+- review packet(하네스 4b3e64ab): rv29 — `scratchpad/rv29`(미러 tracked − results·ledger, `_packet/harness.diff`·spec·related-raw). Opus(opus) ∥ codex(medium). post-fix: `_packet/fix.diff`(4b3e64ab..6ddb9358)
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
+| HJ-1 | 1 | codex 1 | run.sh:255 · compose.yml:77 | 채택 — auto도 APP_JVM_OPTS 빈 값 명시 | fixed | 6ddb9358 |
+| HJ-2 | 1 | codex 2 | summarize.py:805–846 · run.sh:1100 | 채택 — k6 구간 GC 정지 0이면 gc-log-missing | fixed | 6ddb9358 |
+| HJ-3 | 1 | codex 3 | run.sh:1159 · compare.py:663 | 채택 — docker inspect 메모리 한도·JAVA_TOOL_OPTIONS 한 변수만 app-jvm.json, app-jvm-mismatch, 표에 실제 한도 | fixed | 6ddb9358 |
+| HJ-4 | 1 | codex 4 + opus 5 | summarize.py:238–255 | 채택 — 얇은 초(계획 도착률 절반 미만) 1초 p99 제외·secs_thin, 표에 집계 초/계획 초·코드 0 비율 | fixed | 6ddb9358 |
+| HJ-5 | 1 | opus 1 | summarize.py:831 | 채택 — GC 정상 구간 시작 = startedAt + ramp_s(지연 지표와 같은 기준), steady_from 기록 | fixed | 6ddb9358 |
+| HJ-6 | 1 | opus 2 | compare.py:122·660 | 채택 — ok 아닌 회차도 상태와 함께 표에 | fixed | 6ddb9358 |
+| HJ-7 | 1 | opus 3 | compare.py:687 | 채택 — None → 누락 | fixed | 6ddb9358 |
+| HJ-8 | 1 | opus 4 | compare.py:710 | 채택 — jvm 세트는 벽·반감 누락 알림 생략 | fixed | 6ddb9358 |
+| HJ-9 | 1 | opus 5 | summarize.py:822 | 채택 — 잡은 힙 최대 = 로그 전체 범위 명시(표 머리·docstring) | fixed | 6ddb9358 |
+- Opus 워커가 미러 안에 `__pycache__`를 만들었다(py_compile) — 재점검 전 메인이 삭제.
 
 ## 생략한 검증
 

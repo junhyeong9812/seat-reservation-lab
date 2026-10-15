@@ -1110,7 +1110,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     reasons+=("gc-log-missing")
   fi
   # 명세 §13 · ADR-010 리뷰: 로그가 있어도 k6 구간 GC 정지가 0이면(파싱 실패·잘림) 'Full GC 0'으로 보이지 않게 같은 사유
-  if ! jq -e '(.app.k6.stops // 0) > 0' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-log-missing"); fi
+  #   고정 도착률 셀(S4c — k6 약 7분, 정지 수천 회)만 — S2처럼 k6 구간이 몇 초인 셀은 실제로 GC가 0일 수 있다(재점검)
+  if [[ "$base" == S4c* ]] && ! jq -e '(.app.k6.stops // 0) > 0' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-log-missing"); fi
   # ADR-010 리뷰: 실제 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 앞머리가 계획(--app-mem·--app-gc)과 같아야 한다 — 다르면 app-jvm-mismatch(하네스 실패, 다시 잼)
   local want_b; case "$APP_MEM" in *g) want_b=$(( ${APP_MEM%g} * 1073741824 )) ;; *m) want_b=$(( ${APP_MEM%m} * 1048576 )) ;; esac
   local want_jto; [[ "$APP_GC" == g1 ]] && want_jto="-XX:+UseG1GC -XX:MaxRAMPercentage=" || want_jto="-XX:MaxRAMPercentage="
