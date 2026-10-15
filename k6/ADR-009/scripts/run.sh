@@ -252,7 +252,7 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
   # ADR-008: SEAT_HOLD_LIMIT_STRATEGY를 넘기지 않는다 — compose가 읽지도 않지만 meta app_env에 거짓 값을 남기지 않게
   # ADR-009: 조건 키(cond_env)도 모든 그룹에 붙는다 — meta.json app_env에 그대로 남는다(값에 비밀 없음)
   # ADR-010: 앱 JVM 축(APP_MEM = compose mem_limit · APP_JVM_OPTS = JAVA_TOOL_OPTIONS 앞에 붙음 — auto면 넘기지 않는다)
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM$([[ "$APP_GC" == g1 ]] && echo " APP_JVM_OPTS=-XX:+UseG1GC")"
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$([[ "$APP_GC" == g1 ]] && echo "-XX:+UseG1GC")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게)
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;
@@ -612,6 +612,12 @@ run_rep() {  # 인자: level cell rep
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/gc-status.txt"
   done
   python3 "$SUMMARIZE" --gc "$dir" > "$dir/gc.json" 2>>"$dir/errors.log" || echo "gc summary failed" >> "$dir/errors.log"
+  # ADR-010(리뷰): 앱 컨테이너에 실제로 걸린 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 한 변수만 기록 — 환경 전체는 남기지 않는다. rep_status app-jvm-mismatch
+  local amem ajto
+  amem="$(remote "docker inspect --format '{{.HostConfig.Memory}}' seatlab-app-1" 2>/dev/null | tr -d '[:space:]')"
+  ajto="$(remote "docker exec seatlab-app-1 sh -c 'printf %s \"\$JAVA_TOOL_OPTIONS\"'" 2>/dev/null)"
+  jq -n --arg mem "$amem" --arg jto "$ajto" --arg want_mem "$APP_MEM" --arg want_gc "$APP_GC" \
+    '{mem_bytes:($mem|tonumber? // null), java_tool_options:$jto, want_mem:$want_mem, want_gc:$want_gc}' > "$dir/app-jvm.json"
   gzip -f "$dir/k6-stdout.log"
   # ADR-009 효과 지표(effect.json — 요약기 --effect, 주입 셀만). rep_status 전에 만든다(합격 판정이 읽는다)
   [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
@@ -1103,6 +1109,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
      || ! jq -e --argjson f "$HAS_F" '(.app.collector | type == "string") and ($f == 0 or (.reconciler.collector | type == "string"))' "$dir/gc.json" > /dev/null 2>&1; then
     reasons+=("gc-log-missing")
   fi
+  # 명세 §13 · ADR-010 리뷰: 로그가 있어도 k6 구간 GC 정지가 0이면(파싱 실패·잘림) 'Full GC 0'으로 보이지 않게 같은 사유
+  if ! jq -e '(.app.k6.stops // 0) > 0' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-log-missing"); fi
+  # ADR-010 리뷰: 실제 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 앞머리가 계획(--app-mem·--app-gc)과 같아야 한다 — 다르면 app-jvm-mismatch(하네스 실패, 다시 잼)
+  local want_b; case "$APP_MEM" in *g) want_b=$(( ${APP_MEM%g} * 1073741824 )) ;; *m) want_b=$(( ${APP_MEM%m} * 1048576 )) ;; esac
+  local want_jto; [[ "$APP_GC" == g1 ]] && want_jto="-XX:+UseG1GC -XX:MaxRAMPercentage=" || want_jto="-XX:MaxRAMPercentage="
+  if ! jq -e --argjson b "$want_b" --arg p "$want_jto" '.mem_bytes == $b and (.java_tool_options | startswith($p))' "$dir/app-jvm.json" > /dev/null 2>&1; then reasons+=("app-jvm-mismatch"); fi
   # ADR-010: --app-gc g1이면 앱 수집기가 실제로 G1이어야 한다(옵션이 안 먹으면 조건이 섞인다). auto는 기록만(gc.json collector)
   if [[ "$APP_GC" == g1 ]] && ! jq -e '.app.collector == "G1"' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
