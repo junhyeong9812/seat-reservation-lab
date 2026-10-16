@@ -1,5 +1,5 @@
 # ADR-011 서버 측정기(run.sh --probes): seatlab compose 프로젝트 안 k6 컨테이너 하나 — 앱에 직접(http://app:8101 — 같은 compose 네트워크) 초당 PROBE_RATE(50)건
-# `GET /actuator/health/ping`(scenarios/probe-ping.js — DB를 거치지 않는다). PC 측정기와 같은 시나리오다.
+# `GET /actuator`(링크 목록 — scenarios/probe-ping.js, DB를 거치지 않는다). PC 측정기와 같은 시나리오다.
 # compose.yml 위에 얹는 오버레이. compose_up(회차 시작)에는 넣지 않는다 — run.sh가 주 k6 직전에 `up -d --no-deps probe`로 이 서비스 하나만 띄우고(lib.sh probe_server_up),
 # 주 k6가 끝나면 멈춰(SIGTERM — k6 정상 종료, CSV를 닫는다) /tmp의 CSV를 docker cp로 받은 뒤 지운다(probe_server_collect). compose_down은 늘 이 오버레이까지 지정한다.
 # 이미지는 받지 않는다(pull_policy: never) — 측정 중 내려받기가 끼지 않게, 서버에 없으면 기동 실패 = 회차 사유 probe-missing(스모크 전에 한 번 pull).

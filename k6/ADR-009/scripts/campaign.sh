@@ -33,7 +33,7 @@
 #   순서 고정(1회 — 회전 없음, ADR-010 §5 한계). 기본 id = <날짜>-adr010-jvm-<SHA>
 # jvm-ladder(ADR-010 2차 — 명세 §11): default × S4c4200 tmpfs × {1g,2g,4g}-{g1,zgc} × 3회 = 18. 회차 우선 · 조건 6개를 회차마다 2(k−1)칸 회전. 기본 id = <날짜>-adr010-jvm2-<SHA>
 # ADR-011(측정 환경 꼬리 지연 — ADR-011 §3): 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정(회전 없음 — 회차마다 A B → A B A B …, ABAB).
-#   k6ver(E1): 2g × 주 k6 {v220, v230} × 3 = 6 — 둘 다 --probes --gctrace. 바이너리 = --k6-v220(기본 아래 K6_V220) · --k6-v230(기본 k6 = 시스템 v2.3.0) — 시작 전에 version 대조. 기본 id = <날짜>-adr011-k6ver-<SHA>
+#   k6ver(E1): 2g × 주 k6 {v220, v230, v230gc} × 3 = 9 — 모두 --probes, Go GC 기록(--gctrace)은 v230gc만(스모크에서 기록 자체가 주 k6를 흔든 정황 — ADR-011 §3). 바이너리 = --k6-v220(기본 아래 K6_V220) · --k6-v230(기본 k6 = 시스템 v2.3.0) — 시작 전에 version 대조. 기본 id = <날짜>-adr011-k6ver-<SHA>
 #   pretouch(E2): 4g × {none, xms(--app-xms-full — 초기 힙 = 최대), pt(--app-xms-full --app-pretouch — 힙 전체를 기동 때 미리 건드림)} × 3 = 9 — --probes. 주 k6 = --k6-bin(필수 — E1 결과로 정한다). 기본 id = <날짜>-adr011-pretouch-<SHA>
 #   soak(E3): 2g × 2회 — --probes · --s4c-steps 60(30분) · --seed-schedules 800(800만 석). 주 k6 = --k6-bin(필수). 기본 id = <날짜>-adr011-soak-<SHA>
 #   측정기 바이너리는 run.sh 기본(v2.2.0) — --probe-k6-bin을 주면 조건 인자에 붙는다. 비교 = scripts/tail.py --set <세트>
@@ -49,7 +49,10 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
 SHA="" CAMPAIGN="" DRY_RUN=0 SET=main
-K6_V220=/tmp/claude-1000/-home-jun-project-lab-backend-labs-commerce/1663be45-5674-4b50-9b12-8820c73f9421/scratchpad/k6-v2.2.0/k6-v2.2.0-linux-amd64/k6 K6_V230=k6   # ADR-011 k6ver 기본
+# ADR-011 k6ver 기본: v2.2.0 = 안정 경로(공식 k6-v2.2.0-linux-amd64.tar.gz — checksums.txt sha256 b5a8003c… 확인 뒤 푼 바이너리) · v2.3.0 = 시스템 k6.
+#   v2.2.0 바이너리 sha256(K6_V220_SHA256)을 시작 전에 대조한다 — 다른 빌드가 'v2.2.0'으로 섞이지 않게(run.sh는 plan.json k6_sha256으로 회차마다 대조)
+K6_V220="$HOME/.local/opt/k6-v2.2.0/k6" K6_V230=k6
+K6_V220_SHA256=9fced9ff140d73bf3d69b3cde2493adce3807b35ab210a5cb0771045d0ad5a29
 K6_BIN_ARG="" PROBE_BIN_ARG="" CLI_K6=""
 while (( $# )); do
   case "$1" in
@@ -80,7 +83,9 @@ k6ver_of() { "$1" version 2>/dev/null | head -1; }
 case "$SET" in
   k6ver)
     [[ "$(k6ver_of "$K6_V220")" == "k6 v2.2.0 "* ]] || { echo "--k6-v220 $K6_V220: version이 v2.2.0이 아니다($(k6ver_of "$K6_V220"))" >&2; exit 2; }
-    [[ "$(k6ver_of "$K6_V230")" == "k6 v2.3.0 "* ]] || { echo "--k6-v230 $K6_V230: version이 v2.3.0이 아니다($(k6ver_of "$K6_V230"))" >&2; exit 2; } ;;
+    [[ "$(k6ver_of "$K6_V230")" == "k6 v2.3.0 "* ]] || { echo "--k6-v230 $K6_V230: version이 v2.3.0이 아니다($(k6ver_of "$K6_V230"))" >&2; exit 2; }
+    v220_sha="$(sha256sum "$(command -v "$K6_V220")" 2>/dev/null | cut -d' ' -f1)"
+    [[ "$v220_sha" == "$K6_V220_SHA256" ]] || { echo "--k6-v220 $K6_V220: sha256 ${v220_sha:-없음} ≠ 공식 v2.2.0 $K6_V220_SHA256" >&2; exit 2; } ;;
   pretouch|soak) [[ "$(k6ver_of "$K6_BIN_ARG")" == "k6 v"* ]] || { echo "--k6-bin $K6_BIN_ARG: version을 읽지 못함" >&2; exit 2; } ;;
 esac
 if [[ -n "$PROBE_BIN_ARG" ]] && [[ "$(k6ver_of "$PROBE_BIN_ARG")" != "k6 v"* ]]; then echo "--probe-k6-bin $PROBE_BIN_ARG: version을 읽지 못함" >&2; exit 2; fi
@@ -121,7 +126,7 @@ if [[ "$SET" == jvm-ladder ]]; then
   EXPECT_TOTAL=18 BLOCK_STEP=0 COND_STEP_DIV=3   # 조건 ⌈6/3⌉(k−1) = 2(k−1)칸
 fi
 # ADR-011(머리말): 묶음 하나 · 회전 없음(COND_ROT=0 — 회차마다 같은 순서라 회차 우선이면 A B A B …)
-[[ "$SET" == k6ver ]] && { REPS=3 BLOCKS="k6ver" BLOCK_k6ver="v220 v230" EXPECT_TOTAL=6 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
+[[ "$SET" == k6ver ]] && { REPS=3 BLOCKS="k6ver" BLOCK_k6ver="v220 v230 v230gc" EXPECT_TOTAL=9 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
 [[ "$SET" == pretouch ]] && { REPS=3 BLOCKS="pretouch" BLOCK_pretouch="none xms pt" EXPECT_TOTAL=9 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
 [[ "$SET" == soak ]] && { REPS=2 BLOCKS="soak" BLOCK_soak="2g-zgc" EXPECT_TOTAL=2 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
 ADR011_BASE="--cond default --cells 'S4c4200' --pg-preset tmpfs --app-gc zgc"
@@ -136,7 +141,7 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
     s3c)       echo "--cond control --cleanup $2 --cells 'S3c-a20' --pg-preset default" ;;
     jvm)       echo "--cond default --cells 'S4c4200' --pg-preset tmpfs --app-mem ${2%-*} --app-gc ${2##*-}" ;;   # 조건 = <메모리>-<수집기>
     # ADR-011(머리말) — 조건 줄에 바이너리 경로까지 든다(이어서 실행 때 conditions.txt 대조 · run.sh가 plan.json k6_bin·k6_version 대조)
-    k6ver)     echo "$ADR011_BASE --app-mem 2g --k6-bin $([[ "$2" == v220 ]] && echo "$K6_V220" || echo "$K6_V230") --probes --gctrace$PROBE_TAIL" ;;
+    k6ver)     echo "$ADR011_BASE --app-mem 2g --k6-bin $([[ "$2" == v220 ]] && echo "$K6_V220" || echo "$K6_V230") --probes$([[ "$2" == v230gc ]] && echo " --gctrace")$PROBE_TAIL" ;;
     pretouch)  echo "$ADR011_BASE --app-mem 4g --k6-bin $K6_BIN_ARG --probes$(case "$2" in xms) echo " --app-xms-full" ;; pt) echo " --app-xms-full --app-pretouch" ;; esac)$PROBE_TAIL" ;;
     soak)      echo "$ADR011_BASE --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800$PROBE_TAIL" ;;
   esac
