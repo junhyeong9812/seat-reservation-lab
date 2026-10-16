@@ -8,7 +8,10 @@
 #   scripts/campaign.sh --set cost-remeasure --sha <SHA> [--id <id>] [--dry-run]   # 명세 §13 비용 셀 재측정 48회(아래 'cost-remeasure')
 #   scripts/campaign.sh --set jvm-baseline --sha <SHA> [--id <id>] [--dry-run]     # ADR-010 앱 JVM 기준 4회(아래 'jvm-baseline')
 #   scripts/campaign.sh --set jvm-ladder --sha <SHA> [--id <id>] [--dry-run]       # ADR-010 2차 — G1·ZGC × 1g·2g·4g × 3회 = 18(아래 'jvm-ladder')
-#   --set main(기본 — 아래 84회 계획, 명세 §13 전 본측정과 같은 conditions.txt·order.txt) | cost-remeasure | jvm-baseline
+#   scripts/campaign.sh --set k6ver --sha <SHA> [--k6-v220 <경로>] [--k6-v230 k6] [--probe-k6-bin <경로>] [--id <id>] [--dry-run]   # ADR-011 E1(아래 'k6ver')
+#   scripts/campaign.sh --set pretouch --sha <SHA> --k6-bin <경로> [--probe-k6-bin <경로>] [--id <id>] [--dry-run]                 # ADR-011 E2(아래 'pretouch')
+#   scripts/campaign.sh --set soak --sha <SHA> --k6-bin <경로> [--probe-k6-bin <경로>] [--id <id>] [--dry-run]                     # ADR-011 E3(아래 'soak')
+#   --set main(기본 — 아래 84회 계획, 명세 §13 전 본측정과 같은 conditions.txt·order.txt) | cost-remeasure | jvm-baseline | jvm-ladder | k6ver | pretouch | soak
 #
 # 계획(설계 §10, 명세 §11 측정 조건 갱신 — C·F = A+C·A+F, B+C는 효과 셀만) — 조건 이름 = <조건>-<셀 묶음>, 각 3회:
 #   비용  {control, A, B, A+C, A+F} × {s4c-disk(S4c4200 디스크) · s4c-tmpfs(S4c4200 tmpfs) · s2(S2) · s3a20(S3-a20)}  = 60
@@ -29,6 +32,11 @@
 # jvm-baseline(ADR-010 — 앱 JVM GC·메모리 기준): 앱 기본값 조건(default) × S4c4200 tmpfs × 앱 JVM {1g·auto, 1g·g1, 1792m·auto, 2g·auto} × 1회 = 4.
 #   순서 고정(1회 — 회전 없음, ADR-010 §5 한계). 기본 id = <날짜>-adr010-jvm-<SHA>
 # jvm-ladder(ADR-010 2차 — 명세 §11): default × S4c4200 tmpfs × {1g,2g,4g}-{g1,zgc} × 3회 = 18. 회차 우선 · 조건 6개를 회차마다 2(k−1)칸 회전. 기본 id = <날짜>-adr010-jvm2-<SHA>
+# ADR-011(측정 환경 꼬리 지연 — ADR-011 §3): 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정(회전 없음 — 회차마다 A B → A B A B …, ABAB).
+#   k6ver(E1): 2g × 주 k6 {v220, v230} × 3 = 6 — 둘 다 --probes --gctrace. 바이너리 = --k6-v220(기본 아래 K6_V220) · --k6-v230(기본 k6 = 시스템 v2.3.0) — 시작 전에 version 대조. 기본 id = <날짜>-adr011-k6ver-<SHA>
+#   pretouch(E2): 4g × {none, xms(--app-xms-full — 초기 힙 = 최대), pt(--app-xms-full --app-pretouch — 힙 전체를 기동 때 미리 건드림)} × 3 = 9 — --probes. 주 k6 = --k6-bin(필수 — E1 결과로 정한다). 기본 id = <날짜>-adr011-pretouch-<SHA>
+#   soak(E3): 2g × 2회 — --probes · --s4c-steps 60(30분) · --seed-schedules 800(800만 석). 주 k6 = --k6-bin(필수). 기본 id = <날짜>-adr011-soak-<SHA>
+#   측정기 바이너리는 run.sh 기본(v2.2.0) — --probe-k6-bin을 주면 조건 인자에 붙는다. 비교 = scripts/tail.py --set <세트>
 # 시한: 시드 회차 starts_at 2026-12-31 19:00+09 — run.sh가 그 1시간 전부터 회차를 거부한다(seed-time-bomb). 캠페인은 약 19.5시간.
 set -uo pipefail
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -41,23 +49,47 @@ if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"   # 동결 사본의 scripts/
 SHA="" CAMPAIGN="" DRY_RUN=0 SET=main
+K6_V220=/tmp/claude-1000/-home-jun-project-lab-backend-labs-commerce/1663be45-5674-4b50-9b12-8820c73f9421/scratchpad/k6-v2.2.0/k6-v2.2.0-linux-amd64/k6 K6_V230=k6   # ADR-011 k6ver 기본
+K6_BIN_ARG="" PROBE_BIN_ARG="" CLI_K6=""
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
     --id) CAMPAIGN="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --set) SET="$2"; shift 2 ;;
+    --k6-bin) K6_BIN_ARG="$2"; CLI_K6+=" k6-bin"; shift 2 ;;
+    --k6-v220) K6_V220="$2"; CLI_K6+=" k6-v220"; shift 2 ;;
+    --k6-v230) K6_V230="$2"; CLI_K6+=" k6-v230"; shift 2 ;;
+    --probe-k6-bin) PROBE_BIN_ARG="$2"; CLI_K6+=" probe-k6-bin"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
-[[ "$SET" =~ ^(main|cost-remeasure|jvm-baseline|jvm-ladder)$ ]] || { echo "--set main|cost-remeasure|jvm-baseline|jvm-ladder" >&2; exit 2; }
+[[ "$SET" =~ ^(main|cost-remeasure|jvm-baseline|jvm-ladder|k6ver|pretouch|soak)$ ]] || { echo "--set main|cost-remeasure|jvm-baseline|jvm-ladder|k6ver|pretouch|soak" >&2; exit 2; }
+# ADR-011 바이너리 인자: 세트마다 받는 것만(다른 세트에 주면 조용히 버리지 않고 거부) · 경로는 eval되는 조건 줄에 들어가므로 안전한 글자만 · version을 시작 전에 확인
+case "$SET" in
+  k6ver) for k in $CLI_K6; do [[ "$k" == k6-bin ]] && { echo "--set k6ver는 --k6-bin 대신 --k6-v220·--k6-v230" >&2; exit 2; }; done ;;
+  pretouch|soak) [[ -n "$K6_BIN_ARG" ]] || { echo "--set $SET는 --k6-bin <경로>가 필요하다(E1 결과로 정한 주 k6)" >&2; exit 2; }
+                 for k in $CLI_K6; do [[ "$k" == k6-v2* ]] && { echo "--set $SET에는 --k6-v220·--k6-v230이 없다(--k6-bin)" >&2; exit 2; }; done ;;
+  *) [[ -z "$CLI_K6" ]] || { echo "--k6-bin·--k6-v220·--k6-v230·--probe-k6-bin은 ADR-011 세트(k6ver·pretouch·soak)에서만" >&2; exit 2; } ;;
+esac
+for b in "$K6_BIN_ARG" "$K6_V220" "$K6_V230" "$PROBE_BIN_ARG"; do
+  [[ -z "$b" || "$b" =~ ^[A-Za-z0-9._/+-]+$ ]] || { echo "바이너리 경로에 쓸 수 없는 글자: $b" >&2; exit 2; }
+done
+k6ver_of() { "$1" version 2>/dev/null | head -1; }
+case "$SET" in
+  k6ver)
+    [[ "$(k6ver_of "$K6_V220")" == "k6 v2.2.0 "* ]] || { echo "--k6-v220 $K6_V220: version이 v2.2.0이 아니다($(k6ver_of "$K6_V220"))" >&2; exit 2; }
+    [[ "$(k6ver_of "$K6_V230")" == "k6 v2.3.0 "* ]] || { echo "--k6-v230 $K6_V230: version이 v2.3.0이 아니다($(k6ver_of "$K6_V230"))" >&2; exit 2; } ;;
+  pretouch|soak) [[ "$(k6ver_of "$K6_BIN_ARG")" == "k6 v"* ]] || { echo "--k6-bin $K6_BIN_ARG: version을 읽지 못함" >&2; exit 2; } ;;
+esac
+if [[ -n "$PROBE_BIN_ARG" ]] && [[ "$(k6ver_of "$PROBE_BIN_ARG")" != "k6 v"* ]]; then echo "--probe-k6-bin $PROBE_BIN_ARG: version을 읽지 못함" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 if (( ! DRY_RUN )) && { ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-009 ':(exclude)k6/ADR-009/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-009 ':(exclude)k6/ADR-009/results')" ]]; }; then
   echo "k6/ADR-009 differs from $SHA — commit first" >&2; exit 2
 fi
-case "$SET" in jvm-baseline) DEF_ID="$(date +%Y%m%d)-adr010-jvm-$SHA" ;; jvm-ladder) DEF_ID="$(date +%Y%m%d)-adr010-jvm2-$SHA" ;; cost-remeasure) DEF_ID="$(date +%Y%m%d)-adr009-remeasure-$SHA" ;; *) DEF_ID="$(date +%Y%m%d)-adr009-$SHA" ;; esac
+case "$SET" in k6ver|pretouch|soak) DEF_ID="$(date +%Y%m%d)-adr011-$SET-$SHA" ;; jvm-baseline) DEF_ID="$(date +%Y%m%d)-adr010-jvm-$SHA" ;; jvm-ladder) DEF_ID="$(date +%Y%m%d)-adr010-jvm2-$SHA" ;; cost-remeasure) DEF_ID="$(date +%Y%m%d)-adr009-remeasure-$SHA" ;; *) DEF_ID="$(date +%Y%m%d)-adr009-$SHA" ;; esac
 CAMPAIGN="${CAMPAIGN:-$DEF_ID}"
 ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
@@ -74,6 +106,7 @@ BLOCK_s3a20="control A B A+C A+F"
 BLOCK_s3e="control A A+C A+F B+C"
 BLOCK_s3c="schedule zero"
 EXPECT_TOTAL=84 BLOCK_STEP=2 COND_STEP_DIV=3   # main: 묶음 2(k−1)칸 · 조건 ⌈n/3⌉(k−1)칸(머리말)
+COND_ROT=1   # ADR-011 세트는 0(조건 순서 고정 — ABAB). 그 밖은 1(이전 회전 그대로)
 if [[ "$SET" == cost-remeasure ]]; then
   BLOCKS="s4c-disk s4c-tmpfs s2 s3a20"
   BLOCK_s4c_disk="control A A+C A+F" BLOCK_s4c_tmpfs="control A A+C A+F" BLOCK_s2="control A A+C A+F" BLOCK_s3a20="control A A+C A+F"
@@ -87,6 +120,12 @@ if [[ "$SET" == jvm-ladder ]]; then
   REPS=3 BLOCKS="jvm" BLOCK_jvm="1g-g1 2g-g1 4g-g1 1g-zgc 2g-zgc 4g-zgc"
   EXPECT_TOTAL=18 BLOCK_STEP=0 COND_STEP_DIV=3   # 조건 ⌈6/3⌉(k−1) = 2(k−1)칸
 fi
+# ADR-011(머리말): 묶음 하나 · 회전 없음(COND_ROT=0 — 회차마다 같은 순서라 회차 우선이면 A B A B …)
+[[ "$SET" == k6ver ]] && { REPS=3 BLOCKS="k6ver" BLOCK_k6ver="v220 v230" EXPECT_TOTAL=6 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
+[[ "$SET" == pretouch ]] && { REPS=3 BLOCKS="pretouch" BLOCK_pretouch="none xms pt" EXPECT_TOTAL=9 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
+[[ "$SET" == soak ]] && { REPS=2 BLOCKS="soak" BLOCK_soak="2g-zgc" EXPECT_TOTAL=2 BLOCK_STEP=0 COND_STEP_DIV=1 COND_ROT=0; }
+ADR011_BASE="--cond default --cells 'S4c4200' --pg-preset tmpfs --app-gc zgc"
+PROBE_TAIL="${PROBE_BIN_ARG:+ --probe-k6-bin $PROBE_BIN_ARG}"
 args_of() {  # 인자: 묶음 조건 → run.sh 인자
   case "$1" in
     s4c-disk)  echo "--cond $2 --cells 'S4c4200' --pg-preset default" ;;
@@ -96,6 +135,10 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
     s3e)       echo "--cond $2 --cells 'S3e-a20' --pg-preset default" ;;
     s3c)       echo "--cond control --cleanup $2 --cells 'S3c-a20' --pg-preset default" ;;
     jvm)       echo "--cond default --cells 'S4c4200' --pg-preset tmpfs --app-mem ${2%-*} --app-gc ${2##*-}" ;;   # 조건 = <메모리>-<수집기>
+    # ADR-011(머리말) — 조건 줄에 바이너리 경로까지 든다(이어서 실행 때 conditions.txt 대조 · run.sh가 plan.json k6_bin·k6_version 대조)
+    k6ver)     echo "$ADR011_BASE --app-mem 2g --k6-bin $([[ "$2" == v220 ]] && echo "$K6_V220" || echo "$K6_V230") --probes --gctrace$PROBE_TAIL" ;;
+    pretouch)  echo "$ADR011_BASE --app-mem 4g --k6-bin $K6_BIN_ARG --probes$(case "$2" in xms) echo " --app-xms-full" ;; pt) echo " --app-xms-full --app-pretouch" ;; esac)$PROBE_TAIL" ;;
+    soak)      echo "$ADR011_BASE --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800$PROBE_TAIL" ;;
   esac
 }
 name_of() { case "$1" in s3c) echo "close-$2-s3c" ;; jvm) echo "$2-jvm" ;; *) echo "$2-$1" ;; esac; }
@@ -103,8 +146,10 @@ name_of() { case "$1" in s3c) echo "close-$2-s3c" ;; jvm) echo "$2-jvm" ;; *) ec
 # 명세 §13 뒤 하네스는 모든 조건이 시드 끝 → 첫 요청 87초(PRE_K6_TARGET_S)를 거친다 — 옛 대기(대조 없음 약 17초 · 대조 약 45초)보다 1회당 약 1.2분·0.7분 길다.
 #   main의 order.txt(예상분 열)는 바꾸지 않는다(명세 §13 전 계획과 바이트가 같아야 한다) — 보정 예상은 dry-run 끝 줄에 따로. cost-remeasure는 보정 값(모든 조건 + 1.2분)
 minutes_of() {
-  local m; case "$1" in s4c-*|jvm) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
-  if [[ "$SET" == cost-remeasure || "$SET" == jvm-baseline || "$SET" == jvm-ladder ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1.2 }')
+  local m; case "$1" in s4c-*|jvm|k6ver|pretouch|soak) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
+  # ADR-011 soak: + 구간 48개 × 0.5분(60 − 12구간) + 시드 4배(200 → 800회차 — 시드 약 0.5분 × 3 실측 근사 1.5분)
+  [[ "$1" == soak ]] && m=$(awk -v m="$m" 'BEGIN { print m + (60 - 12) * 0.5 + 1.5 }')
+  if [[ "$SET" == cost-remeasure || "$SET" == jvm-baseline || "$SET" == jvm-ladder || "$SET" == k6ver || "$SET" == pretouch || "$SET" == soak ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1.2 }')
   else case "$2" in A+C|A+F|B+C) m=$(awk -v m="$m" 'BEGIN { print m + 1 }') ;; esac; fi
   echo "$m"
 }
@@ -126,14 +171,15 @@ ORDER_NEW="$(mktemp)"
   if [[ "$SET" == main ]]; then echo "# ADR-009 조건 순서 — 회차 우선 · 묶음($BLOCKS) 회차마다 2칸 회전 · 묶음 안 조건 ⌈n/3⌉칸 회전 (campaign.sh 머리말)"
   elif [[ "$SET" == cost-remeasure ]]; then echo "# ADR-009 cost-remeasure 조건 순서(명세 §13) — 회차 우선 · 묶음($BLOCKS) 회차마다 1칸 회전 · 묶음 안 조건 1칸 회전 (campaign.sh 머리말)"
   elif [[ "$SET" == jvm-baseline ]]; then echo "# ADR-010 jvm-baseline 조건 순서 — 1회 · 고정 순서(campaign.sh 머리말)"
-  else echo "# ADR-010 jvm-ladder 조건 순서 — 회차 우선 · 조건 2칸 회전(campaign.sh 머리말)"; fi
+  elif [[ "$SET" == jvm-ladder ]]; then echo "# ADR-010 jvm-ladder 조건 순서 — 회차 우선 · 조건 2칸 회전(campaign.sh 머리말)"
+  else echo "# ADR-011 $SET 조건 순서 — 회차 우선 · 조건 순서 고정(ABAB — campaign.sh 머리말)"; fi
   echo "# 회차 회차안순번 전체순번 조건 예상분"
   seq_all=0
   for rep in $(seq 1 "$REPS"); do
     pos=0
     for b in $(rotate $(( BLOCK_STEP * (rep - 1) )) $BLOCKS); do
       read -r -a cs <<< "$(block_conds "$b")"
-      for c in $(rotate $(( (${#cs[@]} + COND_STEP_DIV - 1) / COND_STEP_DIV * (rep - 1) )) "${cs[@]}"); do
+      for c in $(rotate $(( COND_ROT * ((${#cs[@]} + COND_STEP_DIV - 1) / COND_STEP_DIV) * (rep - 1) )) "${cs[@]}"); do
         pos=$((pos + 1)); seq_all=$((seq_all + 1))
         echo "$rep $pos $seq_all $(name_of "$b" "$c") $(minutes_of "$b" "$c")"
       done

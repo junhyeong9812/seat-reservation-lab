@@ -24,6 +24,15 @@
 #
 #   scripts/run.sh --sha <SHA> --cond <조건> [--cleanup none] [--pg-preset default] [--levels "4"] [--reps 3] [--cells "S2"] [--id <matrix-id>] [--only-rep k]
 #     [--app-mem 1g] [--app-gc auto|g1|zgc]   # ADR-010 앱 JVM 축: 컨테이너 메모리 한도 · 수집기(auto = JVM 기본 선택, g1 = -XX:+UseG1GC, zgc = -XX:+UseZGC -XX:+ZGenerational) — 기본은 이전과 같은 1g·auto
+#     ADR-011 손잡이(README 'ADR-011' — 지정하지 않으면 이전과 같은 렌더·계획·실행):
+#     [--k6-bin k6]           주 k6·예열 k6 바이너리(plan.json condition.k6_bin·k6_version — 이어서 실행 때 대조 · meta k6_version = 그 바이너리의 version)
+#     [--gctrace]             주 k6를 GODEBUG=gctrace=1로 — stderr의 gc 줄마다 PC epoch(소수 초)를 앞에 붙여 k6-gctrace.log.gz(나머지 stderr는 이전처럼 k6-stdout.log)
+#     [--probes] [--probe-k6-bin <경로>]   저율 측정기 둘(scenarios/probe-ping.js — 50/s GET /actuator/health/ping): PC 측정기(별도 k6 프로세스 → 8101) ·
+#                             서버 측정기(compose.probe.yml probe 컨테이너 → http://app:8101). 주 k6 창에 맞춰 띄우고 내린다(probe-status.json · probe-check.json · 실패 = probe-missing)
+#                             이미지 손잡이 PROBE_IMAGE(환경변수, 기본 grafana/k6:2.2.0 — plan.json condition.probe_image)
+#     [--app-pretouch]        앱 JVM에 -XX:+AlwaysPreTouch(compose APP_JVM_OPTS3) — 기동 때 잡힌 힙만 건드린다(초기 힙 기본 = 한도의 1/64 → 4g면 64MB, 실측)
+#     [--app-xms-full]        앱 JVM에 -XX:InitialRAMPercentage=75(compose APP_JVM_OPTS4) — 초기 힙 = 최대 힙. pretouch와 함께 줘야 힙 전체를 미리 건드린다
+#     [--s4c-steps 12] [--seed-schedules 200]   S4c 계획 구간 수(30초 구간) · S4c 시드 회차 수(회차당 1만 석) — E3 장시간 = 60 · 800
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-009)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
@@ -55,6 +64,9 @@ STRATEGY=pessimistic-nowait POOL=10 APPS=1 DELAY_MS=0   # ADR-003 조건 축 (+ 
 COND="" CLEANUP=none    # ADR-009 조건 축(머리말)
 PG_PRESET=default       # ADR-007 조건 축: DB 설정(preset_env)
 APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(머리말)
+# ADR-011 손잡이(머리말): 주 k6 바이너리 · Go GC 기록 · 측정기 · AlwaysPreTouch · S4c 구간 수 · S4c 시드 회차 수
+K6_BIN=k6 GCTRACE=0 PROBES=0 APP_PRETOUCH=0 APP_XMS_FULL=0 S4C_STEPS=12 SEED_SCHEDULES=200
+PROBE_K6_BIN=/tmp/claude-1000/-home-jun-project-lab-backend-labs-commerce/1663be45-5674-4b50-9b12-8820c73f9421/scratchpad/k6-v2.2.0/k6-v2.2.0-linux-amd64/k6   # v2.2.0(체크섬 확인 — ADR-011 log) — 주 k6와 다른 바이너리
 WORKTREE=0   # 스모크 전용(머리말)
 COND_CLI=""             # 명령줄로 준 조건 — 이어서 실행 시 계획과 다르면 거부
 while (( $# )); do
@@ -74,6 +86,14 @@ while (( $# )); do
     --pg-preset) PG_PRESET="$2"; COND_CLI+=" pg"; shift 2 ;;
     --app-mem) APP_MEM="$2"; COND_CLI+=" app_mem"; shift 2 ;;
     --app-gc) APP_GC="$2"; COND_CLI+=" app_gc"; shift 2 ;;
+    --k6-bin) K6_BIN="$2"; COND_CLI+=" k6_bin"; shift 2 ;;
+    --gctrace) GCTRACE=1; COND_CLI+=" gctrace"; shift ;;
+    --probes) PROBES=1; COND_CLI+=" probes"; shift ;;
+    --probe-k6-bin) PROBE_K6_BIN="$2"; COND_CLI+=" probe_k6_bin"; shift 2 ;;
+    --app-pretouch) APP_PRETOUCH=1; COND_CLI+=" app_pretouch"; shift ;;
+    --app-xms-full) APP_XMS_FULL=1; COND_CLI+=" app_xms_full"; shift ;;
+    --s4c-steps) S4C_STEPS="$2"; COND_CLI+=" s4c_steps"; shift 2 ;;
+    --seed-schedules) SEED_SCHEDULES="$2"; COND_CLI+=" seed_schedules"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -90,6 +110,31 @@ CONDS="control control-noclose A A+C A+F B B+C default"
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
 [[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
 [[ "$APP_GC" =~ ^(auto|g1|zgc)$ ]] || { echo "--app-gc auto|g1|zgc" >&2; exit 2; }
+# ADR-011: S4c 구간 수 상한 100 — S4c 앱 설정 HOLD_TTL 60m(config_env s4) 안에 램프 60초 + 구간 × 30초 + 회차 끝 판정이 들어야 한다(만료 배치가 측정에 끼지 않게).
+#   시드 회차 수 상한 1,000 = LoadtestDataService.reset(명세 §3 — 회차 ≤ 1,000). 좌석 수 ≥ 누적 요청은 셀을 펼친 뒤(아래) 확인한다
+[[ "$S4C_STEPS" =~ ^[1-9][0-9]*$ ]] && (( S4C_STEPS <= 100 )) || { echo "--s4c-steps 1..100(30초 구간 수 — HOLD_TTL 60m 안)" >&2; exit 2; }
+[[ "$SEED_SCHEDULES" =~ ^[1-9][0-9]*$ ]] && (( SEED_SCHEDULES <= 1000 )) || { echo "--seed-schedules 1..1000(회차당 1만 석)" >&2; exit 2; }
+PROBE_IMAGE_ENV="${PROBE_IMAGE:-}" PROBE_IMAGE="${PROBE_IMAGE:-grafana/k6:2.2.0}" PROBE_RATE=50
+[[ "$PROBE_IMAGE" =~ ^[A-Za-z0-9._/:@-]+$ ]] || { echo "PROBE_IMAGE 형식(이미지 이름[:태그][@digest])" >&2; exit 2; }
+# S4c 좌석(시드 회차 × 1만 석)이 누적 요청(좌석 = 반복 번호 — 램프 (50 + 목표) ÷ 2 × 60초 + 목표 × 구간 × 30초)보다 적으면 없는 좌석(404)이 성공률을 깎는다 — 시작 전에 거부.
+#   기본(12구간 · 200회차): 4,200/s 163.95만 ≤ 200만 · E3(60구간 · 800회차): 769.5만 ≤ 800만. 이어서 실행은 계획을 만들 때 이미 확인했다
+if (( ! RESUME )); then
+  for c in $CELLS; do
+    [[ "$c" =~ ^S4c([0-9]+)$ ]] || continue
+    need=$(( (50 + BASH_REMATCH[1]) * 30 + BASH_REMATCH[1] * S4C_STEPS * 30 ))
+    (( need <= SEED_SCHEDULES * 10000 )) || { echo "$c: 누적 요청 $need > 시드 좌석 $(( SEED_SCHEDULES * 10000 )) — --seed-schedules를 늘린다" >&2; exit 2; }
+  done
+fi
+# ADR-011: 실행할 k6 바이너리의 version(plan.json condition·meta k6_version). 못 읽으면 실행하지 않는다 — 이어서 실행이면 계획의 version과도 같아야 한다(아래)
+k6_versions() {
+  K6_VERSION="$("$K6_BIN" version 2>/dev/null | head -1)"
+  [[ "$K6_VERSION" == "k6 v"* ]] || { echo "--k6-bin $K6_BIN: version을 읽지 못함" >&2; return 1; }
+  PROBE_K6_VERSION=""
+  if (( PROBES )); then
+    PROBE_K6_VERSION="$("$PROBE_K6_BIN" version 2>/dev/null | head -1)"
+    [[ "$PROBE_K6_VERSION" == "k6 v"* ]] || { echo "--probe-k6-bin $PROBE_K6_BIN: version을 읽지 못함" >&2; return 1; }
+  fi
+}
 [[ "$COND" == default && " $COND_CLI " == *" cleanup "* ]] && { echo "--cond default는 --cleanup을 받지 않는다(정리 방식도 앱 기본값 schedule — 키를 넣지 않는다)" >&2; exit 2; }
 # 시드 회차 starts_at 2026-12-31 19:00+09(LoadtestDataService) 시한폭탄(명세 §0 · 설계 §5a): 그 1시간 전부터는 회차를 시작하지 않는다(모든 선점이 SCHEDULE_CLOSED가 된다)
 if (( $(date -u +%s) >= $(date -u -d '2026-12-31T09:00:00Z' +%s) )); then echo "seed-time-bomb: 시드 회차 starts_at(2026-12-31T10:00Z) 1시간 전 — 하네스 시드 시각부터 바꿔야 한다" >&2; exit 2; fi
@@ -143,7 +188,7 @@ if (( RESUME )); then
   # 이어서 실행: 계획·셀·회차는 기존 plan.json 그대로. 측정 대상(앱·시나리오·compose)이 계획의 SHA와 같을 때만 허용한다
   [[ -f "$OUT_ROOT/plan.json" ]] || { echo "resume: $OUT_ROOT/plan.json 없음" >&2; exit 2; }
   PLAN_SHA="$(jq -r .sha "$OUT_ROOT/plan.json")"
-  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore k6/ADR-009/scenarios k6/ADR-009/compose.yml k6/ADR-009/compose.reconciler.yml k6/ADR-009/compose.tmpfs.yml; then
+  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore k6/ADR-009/scenarios k6/ADR-009/compose.yml k6/ADR-009/compose.reconciler.yml k6/ADR-009/compose.tmpfs.yml k6/ADR-009/compose.probe.yml; then
     echo "resume: 측정 대상이 계획($PLAN_SHA)과 다르다 — 이어서 잴 수 없음" >&2; exit 2
   fi
   LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"
@@ -154,6 +199,13 @@ if (( RESUME )); then
   P_COND="$(jq -r .condition.cond "$OUT_ROOT/plan.json")"; P_CLEANUP="$(jq -r '.condition.cleanup // "none"' "$OUT_ROOT/plan.json")"
   # ADR-010 축이 없는 옛 계획 = 그때의 실효 값(1g·auto)
   P_APP_MEM="$(jq -r '.condition.app_mem // "1g"' "$OUT_ROOT/plan.json")"; P_APP_GC="$(jq -r '.condition.app_gc // "auto"' "$OUT_ROOT/plan.json")"
+  # ADR-011 손잡이가 없는 옛 계획 = 그때의 실효 값(k6 · 끔 · 12구간 · 200회차)
+  P_K6_BIN="$(jq -r '.condition.k6_bin // "k6"' "$OUT_ROOT/plan.json")"; P_GCTRACE="$(jq -r 'if .condition.gctrace then 1 else 0 end' "$OUT_ROOT/plan.json")"
+  P_PROBES="$(jq -r 'if .condition.probes then 1 else 0 end' "$OUT_ROOT/plan.json")"; P_PROBE_K6_BIN="$(jq -r --arg d "$PROBE_K6_BIN" '.condition.probe_k6_bin // $d' "$OUT_ROOT/plan.json")"
+  P_PROBE_IMAGE="$(jq -r --arg d "$PROBE_IMAGE" '.condition.probe_image // $d' "$OUT_ROOT/plan.json")"
+  P_APP_PRETOUCH="$(jq -r 'if .condition.app_pretouch then 1 else 0 end' "$OUT_ROOT/plan.json")"
+  P_APP_XMS_FULL="$(jq -r 'if .condition.app_xms_full then 1 else 0 end' "$OUT_ROOT/plan.json")"
+  P_S4C_STEPS="$(jq -r '.condition.s4c_steps // 12' "$OUT_ROOT/plan.json")"; P_SEED_SCHEDULES="$(jq -r '.condition.seed_schedules // 200' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -164,9 +216,27 @@ if (( RESUME )); then
       cleanup)  [[ "$CLEANUP" == "$P_CLEANUP" ]] || { echo "resume: --cleanup $CLEANUP ≠ 계획 $P_CLEANUP" >&2; exit 2; } ;;
       app_mem)  [[ "$APP_MEM" == "$P_APP_MEM" ]] || { echo "resume: --app-mem $APP_MEM ≠ 계획 $P_APP_MEM" >&2; exit 2; } ;;
       app_gc)   [[ "$APP_GC" == "$P_APP_GC" ]] || { echo "resume: --app-gc $APP_GC ≠ 계획 $P_APP_GC" >&2; exit 2; } ;;
+      k6_bin)   [[ "$K6_BIN" == "$P_K6_BIN" ]] || { echo "resume: --k6-bin $K6_BIN ≠ 계획 $P_K6_BIN" >&2; exit 2; } ;;
+      gctrace)  [[ "$GCTRACE" == "$P_GCTRACE" ]] || { echo "resume: --gctrace ≠ 계획(gctrace=$P_GCTRACE)" >&2; exit 2; } ;;
+      probes)   [[ "$PROBES" == "$P_PROBES" ]] || { echo "resume: --probes ≠ 계획(probes=$P_PROBES)" >&2; exit 2; } ;;
+      probe_k6_bin) [[ "$PROBE_K6_BIN" == "$P_PROBE_K6_BIN" ]] || { echo "resume: --probe-k6-bin $PROBE_K6_BIN ≠ 계획 $P_PROBE_K6_BIN" >&2; exit 2; } ;;
+      app_pretouch) [[ "$APP_PRETOUCH" == "$P_APP_PRETOUCH" ]] || { echo "resume: --app-pretouch ≠ 계획(app_pretouch=$P_APP_PRETOUCH)" >&2; exit 2; } ;;
+      app_xms_full) [[ "$APP_XMS_FULL" == "$P_APP_XMS_FULL" ]] || { echo "resume: --app-xms-full ≠ 계획(app_xms_full=$P_APP_XMS_FULL)" >&2; exit 2; } ;;
+      s4c_steps) [[ "$S4C_STEPS" == "$P_S4C_STEPS" ]] || { echo "resume: --s4c-steps $S4C_STEPS ≠ 계획 $P_S4C_STEPS" >&2; exit 2; } ;;
+      seed_schedules) [[ "$SEED_SCHEDULES" == "$P_SEED_SCHEDULES" ]] || { echo "resume: --seed-schedules $SEED_SCHEDULES ≠ 계획 $P_SEED_SCHEDULES" >&2; exit 2; } ;;
     esac
   done
+  # 측정기 이미지는 환경변수 손잡이 — 명시했는데 계획과 다르면 거부(지정하지 않으면 위 기본값이 들어 있으므로 계획에 값이 있을 때만 대조)
+  if [[ -n "${PROBE_IMAGE_ENV:-}" && "$PROBE_IMAGE_ENV" != "$P_PROBE_IMAGE" ]]; then echo "resume: PROBE_IMAGE=$PROBE_IMAGE_ENV ≠ 계획 $P_PROBE_IMAGE" >&2; exit 2; fi
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
+  K6_BIN="$P_K6_BIN" GCTRACE="$P_GCTRACE" PROBES="$P_PROBES" PROBE_K6_BIN="$P_PROBE_K6_BIN" PROBE_IMAGE="$P_PROBE_IMAGE" APP_PRETOUCH="$P_APP_PRETOUCH" APP_XMS_FULL="$P_APP_XMS_FULL"
+  S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES"
+  k6_versions || exit 2
+  for k in k6_version probe_k6_version; do
+    pv="$(jq -r --arg k "$k" '.condition[$k] // empty' "$OUT_ROOT/plan.json")"
+    cv=$([[ "$k" == k6_version ]] && echo "$K6_VERSION" || echo "$PROBE_K6_VERSION")
+    if [[ -n "$pv" && "$pv" != "$cv" ]]; then echo "resume: $k '$cv' ≠ 계획 '$pv'" >&2; exit 2; fi
+  done
   # H-15: 주입·마감 손잡이는 계획 값으로 — 환경변수로 다른 값을 주면 거부
   for k in INJECT_ROUNDS INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S CLOSE_LEAD_S PRE_K6_HOLD_S PRE_K6_TARGET_S PRE_K6_TOL_S PRE_K6_LEAD_S; do
     pv="$(jq -r --arg k "$k" '.knobs[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -181,6 +251,7 @@ if (( RESUME )); then
 else
   # 기존 결과를 덮어쓰지 않는다 — 근거 보존
   [[ -e "$OUT_ROOT" ]] && { echo "results/$MATRIX_ID already exists — refuse to overwrite" >&2; exit 2; }
+  k6_versions || exit 2   # 결과 폴더를 만들기 전에(빈 폴더가 남지 않게)
   mkdir -p "$OUT_ROOT"
 fi
 SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
@@ -252,7 +323,7 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
   # ADR-008: SEAT_HOLD_LIMIT_STRATEGY를 넘기지 않는다 — compose가 읽지도 않지만 meta app_env에 거짓 값을 남기지 않게
   # ADR-009: 조건 키(cond_env)도 모든 그룹에 붙는다 — meta.json app_env에 그대로 남는다(값에 비밀 없음)
   # ADR-010: 앱 JVM 축(APP_MEM = compose mem_limit · APP_JVM_OPTS = JAVA_TOOL_OPTIONS 앞에 붙음 — auto면 넘기지 않는다)
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac) APP_JVM_OPTS2=$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게)
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac) APP_JVM_OPTS2=$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational") APP_JVM_OPTS3=$( ((APP_PRETOUCH)) && echo "-XX:+AlwaysPreTouch") APP_JVM_OPTS4=$( ((APP_XMS_FULL)) && echo "-XX:InitialRAMPercentage=75")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게) · ADR-011 APP_JVM_OPTS3(--app-pretouch)도 같다
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;
@@ -261,7 +332,7 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
 }
 ttl_s_of()   { case "$(config_of "$1")" in scaled) echo 30 ;; s4) echo 3600 ;; *) echo 300 ;; esac; }
 grace_of()   { case "$(config_of "$1")" in scaled) echo 2 ;; *) echo 20 ;; esac; }   # 배치 주기 × 2
-seed_of()    { case "$1" in S4|S4c*) echo "200 10000 0" ;; S6*) echo "20 10000 0" ;; *) echo "1 10000 0" ;; esac; }   # S6: 핫 1~100,000 + 이웃 100,001~ (7.5만)   # 배경 0. S4는 200만 석 — 16단계 누적 요청(약 197만)이 시드를 넘으면 없는 좌석(404)이 성공률을 깎는다
+seed_of()    { case "$1" in S4) echo "200 10000 0" ;; S4c*) echo "$SEED_SCHEDULES 10000 0" ;; S6*) echo "20 10000 0" ;; *) echo "1 10000 0" ;; esac; }   # S6: 핫 1~100,000 + 이웃 100,001~ (7.5만)   # 배경 0. S4는 200만 석 — 16단계 누적 요청(약 197만)이 시드를 넘으면 없는 좌석(404)이 성공률을 깎는다
 script_of() {
   case "$1" in
     S1) echo s1-same-seat.js ;; S2) echo s2-same-user.js ;; S4|S4c*) echo s4-throughput.js ;; S7) echo s7-winner-rollback.js ;;
@@ -293,7 +364,8 @@ k6_env_of() {  # 시나리오 파라미터는 기본값에 기대지 않고 전�
     # 리뷰 A13: 앞에 램프 60초(계단 시작 도착률 50/s → 목표, 선형 — stage 태그 'ramp', 구간표·판정·벽 분석 밖)를 둔다. 0초부터 목표를 걸면 기동 과도에 VU가 10,000까지 늘어
     # 6분 내내 request timeout·dial i/o timeout이 남았다(스모크 smoke-b). 좌석 = 반복 번호라 누적 요청 = 램프 (50 + 4,200) ÷ 2 × 60 = 12.75만 + 4,200 × 360 = 151.2만
     # = 163.95만 < 시드 200만 석(seed_of). 에러율 중단(abortOnFail)은 끈다 — 무너진 뒤의 회복·지속을 끝까지 본다
-    S4c*) echo "START_RATE=${base#S4c} FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50" ;;
+    # ADR-011: 구간 수 = --s4c-steps(기본 12 — 이전과 같은 문자열). 시드 회차 수 --seed-schedules(seed_of — 기본 200)
+    S4c*) echo "START_RATE=${base#S4c} FACTOR=1 STEPS=$S4C_STEPS STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50" ;;
     S6-k*) echo "K=${base#S6-k} M=20 START_RATE=200 FACTOR=2 STEPS=5 STEP_S=30 NEIGHBOR_RATE=500" ;;   # 핫 200→3,200/s + 이웃 500/s
     S7)  local m=20 late=0 c="$cell"; [[ "$c" == *-late ]] && { late=1; c="${c%-late}"; }   # ADR-007 S7-m1-late = S7-m1 + U를 R 응답 뒤에(시나리오 LATE)
          [[ "$c" == *-m* ]] && m="${c##*-m}"
@@ -366,14 +438,15 @@ recover_samples() {  # 인자: 회차폴더
 
 start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출력
   # 수집기의 stdout은 /dev/null — $(...)가 백그라운드 프로세스의 파이프를 기다리며 멈추지 않게
-  local dir="$1" cell="$2"
+  local dir="$1" cell="$2" K6_COMM; K6_COMM="$(basename "$K6_BIN" | cut -c1-15)"
   ( while :; do
       remote "echo \"{\\\"t\\\":\\\"\$(date -Is)\\\",\\\"load\\\":\\\"\$(cut -d' ' -f1-3 /proc/loadavg)\\\"}\"; docker stats --no-stream --format '{{json .}}'" \
         >> "$dir/timeline-server.jsonl" 2>/dev/null
       sleep 10
     done ) > /dev/null 2>&1 & echo $!
   ( while :; do
-      p=$(pgrep -x k6 | head -1)
+      # ADR-011: 주 k6 바이너리 이름(--k6-bin — 기본 k6, comm은 15자) · 측정기(--probes)의 PC k6 프로세스는 뺀다(probe-pc.pid — 같은 이름일 수 있다)
+      if [[ -s "$dir/probe-pc.pid" ]]; then p=$(pgrep -x "$K6_COMM" | grep -vxF -f "$dir/probe-pc.pid" | head -1); else p=$(pgrep -x "$K6_COMM" | head -1); fi
       [[ -n "$p" ]] && echo "{\"t\":\"$(date -Is)\",\"k6_pcpu\":$(ps -o pcpu= -p "$p" | tr -d ' '),\"k6_rss_kb\":$(ps -o rss= -p "$p" | tr -d ' '),\"load\":\"$(cut -d' ' -f1-3 /proc/loadavg)\"}" >> "$dir/timeline-client.jsonl"
       sleep 5
     done ) > /dev/null 2>&1 & echo $!
@@ -468,7 +541,7 @@ run_rep() {  # 인자: level cell rep
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "reconciler-unhealthy" -1 ""; return 1
   fi
   UNHEALTHY_STREAK=0
-  k6 run --quiet "$SCENARIOS/warmup.js" > "$dir/warmup.log" 2>&1
+  "$K6_BIN" run --quiet "$SCENARIOS/warmup.js" > "$dir/warmup.log" 2>&1   # ADR-011 --k6-bin(기본 k6)
   local seed; seed=$(seed_of "$base")
   if ! reset_with_retry "$dir" $seed > "$dir/seed.json"; then
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "seed-failed" -1 ""; return 1
@@ -528,6 +601,9 @@ run_rep() {  # 인자: level cell rep
     abort_pre_k6 "$dir" "$level" "$cell" "$rep" "$started" "setup-done=$(awk -v n="$now2" -v b="$seed_t" 'BEGIN { printf "%.3f", n - b }')s"; return 1
   fi
   local topup; topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$now2" -v b="$seed_t" -v lead="$PRE_K6_LEAD_S" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
+  # ADR-011 측정기(--probes): 맞춤 sleep 앞에 띄운다 — PC 측정기는 배경 프로세스, 서버 측정기는 배경 ssh(기동 왕복이 시드 끝 → 첫 요청 맞춤을 밀지 않게).
+  # 서버 측정기 첫 요청은 주 k6 시작과 몇 초 어긋날 수 있다 — 분석 창은 램프(60초) 뒤라 덮인다(판정 = probe-check.json)
+  (( PROBES )) && probes_start "$dir" "$cell"
   sleep "$topup"
 
   local k6env; k6env=$(k6_env_of "$cell")
@@ -558,12 +634,25 @@ run_rep() {  # 인자: level cell rep
       hold_s: $hold, target_s: $target, tol_s: $tol, reconcile_wait_s: $rw, hold_reached_s: $reached, hold_slept_s: $left, topup_s: $topup}' > "$dir/pre-k6.json"
   # ADR-009 효과 셀(S3e — 설계 §9 주입기): k6 시작 기준 INJECT_ROUNDS의 초마다 주입(배경 작업 — injected.jsonl 한 줄씩). 끝나면 injected.json으로 묶는다
   [[ "$base" == S3e ]] && { injector_job "$dir" "$k6_t0" & bg_jobs+=($!); }
-  env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" \
-    k6 run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
-  local k6_exit=$?
+  local k6_exit
+  if (( GCTRACE )); then
+    # ADR-011 --gctrace: Go GC 기록(GODEBUG=gctrace=1 — 런타임이 GC 한 바퀴마다 stderr에 'gc N @…' 한 줄). stdout은 이전처럼 k6-stdout.log, stderr는 줄 나누기(gctrace_split)로 —
+    # gc 줄은 받은 순간의 PC epoch를 앞에 붙여 k6-gctrace.log, 나머지 stderr 줄은 k6-stdout.log에 덧붙인다(둘 다 O_APPEND). 종료 코드 = 파이프의 k6 쪽(PIPESTATUS[0])
+    : > "$dir/k6-stdout.log"
+    env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" GODEBUG=gctrace=1 \
+      "$K6_BIN" run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" 2>&1 >> "$dir/k6-stdout.log" \
+      | gctrace_split "$dir/k6-stdout.log" "$dir/k6-gctrace.log"
+    k6_exit=${PIPESTATUS[0]}
+  else
+    env $k6env "${dash[@]}" BASE_URL="$BASE_URL" OUT_DIR="$dir" \
+      "$K6_BIN" run --quiet --out "csv=$dir/k6-requests.csv.gz" "$SCENARIOS/$(script_of "$base")" > "$dir/k6-stdout.log" 2>&1
+    k6_exit=$?
+  fi
+  local k6_t1; k6_t1=$(date +%s.%N)
   local k6_ended; k6_ended=$(date -Is)
   local k6_done=$SECONDS
   jq -n --arg s "$k6_started" --arg e "$k6_ended" --argjson t0 "$k6_t0" '{k6_started:$s, k6_ended:$e, k6_t0_epoch:$t0}' > "$dir/k6-window.json"
+  (( PROBES )) && probes_stop "$dir" "$k6_t0" "$k6_t1"   # ADR-011: 주 k6가 끝나자마자 측정기를 내린다(probe-status.json)
   clk_after=$(clock_offset 2>>"$dir/errors.log")
   jq -n --argjson b "${clk_before:-null}" --argjson a "${clk_after:-null}" '{before:$b, after:$a}' > "$dir/clock-offset.json" \
     || echo '{"before":null,"after":null}' > "$dir/clock-offset.json"
@@ -619,6 +708,7 @@ run_rep() {  # 인자: level cell rep
   jq -n --arg mem "$amem" --arg jto "$ajto" --arg want_mem "$APP_MEM" --arg want_gc "$APP_GC" \
     '{mem_bytes:($mem|tonumber? // null), java_tool_options:$jto, want_mem:$want_mem, want_gc:$want_gc}' > "$dir/app-jvm.json"
   gzip -f "$dir/k6-stdout.log"
+  (( GCTRACE )) && gzip -f "$dir/k6-gctrace.log"
   # ADR-009 효과 지표(effect.json — 요약기 --effect, 주입 셀만). rep_status 전에 만든다(합격 판정이 읽는다)
   [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
 
@@ -630,6 +720,68 @@ abort_pre_k6() {  # 인자: 회차폴더 level cell rep started 설명
   echo "$(date -Is) pre-k6-overrun: $6 (대기점 ${PRE_K6_HOLD_S}s · 목표 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}s) — k6 전에 멈춤" >> "$1/errors.log"
   remote "docker logs --since '$5' seatlab-app-1 2>&1" | gzip > "$1/app.log.gz"
   finish_rep "$1" "$2" "$3" "$4" "$5" "|" "pre-k6-overrun" -1 ""
+}
+
+# ---- ADR-011 측정기·Go GC 기록 ----------------------------------------------------------------------------
+# --gctrace: 주 k6 stderr 줄 나누기. 줄을 받은 순간(time.time — PC 시계)을 gc 줄 앞에 붙인다. 파이프를 블록 버퍼로 기다리지 않는다(BufferedReader는 pipe에서 온 만큼만 읽는다 —
+# mawk 입력 버퍼링 사고(리뷰 A11) 재발 금지). 인자: 나머지 stderr를 덧붙일 파일 · gc 줄 파일
+gctrace_split() {
+  python3 -I -c '
+import re, sys, time
+out = open(sys.argv[1], "ab", buffering=0)
+gc = open(sys.argv[2], "wb")
+pat = re.compile(rb"^gc [0-9]+ @")
+n = 0
+for line in sys.stdin.buffer:
+    t = time.time()
+    if pat.match(line):
+        gc.write(b"%.6f " % t + line)
+        n += 1
+        if n % 20 == 0:
+            gc.flush()
+    else:
+        out.write(line)
+gc.close()
+out.close()
+' "$1" "$2"
+}
+# 측정기 길이(초): 주 k6 창(S4c = 램프 60 + 구간 × 30)보다 PROBE_TAIL_S(180 — k6 기동·종료 + 내리기 여유) 길게 — 주 k6가 끝나면 신호로 멈춘다(probes_stop).
+# 다른 셀은 1시간(측정기는 S4c용 — 다른 셀에서도 돌지만 판정 창은 같다)
+probe_duration_of() { case "$(cell_base "$1")" in S4c*) echo $(( 60 + S4C_STEPS * 30 + ${PROBE_TAIL_S:-180} )) ;; *) echo 3600 ;; esac; }
+probes_start() {  # 인자: 회차폴더 셀 — PROBE_PC_PID·PROBE_SRV_JOB·PROBE_PC_T0·PROBE_DUR를 정한다
+  local dir="$1"
+  PROBE_DUR=$(probe_duration_of "$2")
+  # 서버 측정기: 배경 ssh(lib.sh probe_server_up) — 시작·끝 시각과 종료 코드를 .probe-server-up에(probes_stop이 probe-status.json으로 묶는다)
+  ( t=$(date +%s.%N); probe_server_up "$DEPLOY_ID" "$PROBE_DUR" >> "$dir/probe-server.log" 2>&1; rc=$?; echo "$t $(date +%s.%N) $rc" > "$dir/.probe-server-up" ) > /dev/null 2>&1 &
+  PROBE_SRV_JOB=$!
+  # PC 측정기: 주 k6와 다른 프로세스(--probe-k6-bin) — 요청 시각 ms(K6_CSV_TIME_FORMAT=unix_milli)
+  PROBE_PC_T0=$(date +%s.%N)
+  env BASE_URL="$BASE_URL" PROBE_RATE="$PROBE_RATE" PROBE_DURATION_S="$PROBE_DUR" K6_CSV_TIME_FORMAT=unix_milli \
+    "$PROBE_K6_BIN" run --quiet --out "csv=$dir/k6-probe-pc.csv.gz" "$SCENARIOS/probe-ping.js" > "$dir/probe-pc.log" 2>&1 < /dev/null &
+  PROBE_PC_PID=$!
+  echo "$PROBE_PC_PID" > "$dir/probe-pc.pid"   # 수집기(timeline-client)가 주 k6를 고를 때 뺀다
+}
+probes_stop() {  # 인자: 회차폴더 주k6시작epoch 주k6끝epoch → probe-status.json(판정은 rep_status — tail.py --probe-check)
+  local dir="$1" i killed=false pc_rc pc_sig pc_end srv up0="" up1="" uprc=""
+  wait "$PROBE_SRV_JOB" 2>/dev/null   # 기동 ssh(보통 수 초 — 주 k6보다 먼저 끝나 있다)
+  pc_sig=$(date +%s.%N)
+  kill -INT "$PROBE_PC_PID" 2>/dev/null   # k6 정상 종료(CSV를 닫는다 — 종료 코드 105)
+  for i in $(seq 1 60); do kill -0 "$PROBE_PC_PID" 2>/dev/null || break; sleep 0.5; done
+  if kill -0 "$PROBE_PC_PID" 2>/dev/null; then kill -KILL "$PROBE_PC_PID" 2>/dev/null; killed=true; fi
+  wait "$PROBE_PC_PID" 2>/dev/null; pc_rc=$?
+  pc_end=$(date +%s.%N)
+  srv=$(probe_server_collect "$DEPLOY_ID" "$dir" 2>>"$dir/errors.log") && jq -e . <<< "$srv" > /dev/null 2>&1 || srv=null
+  [[ -s "$dir/.probe-server-up" ]] && read -r up0 up1 uprc < "$dir/.probe-server-up"
+  rm -f "$dir/.probe-server-up"
+  local f; for f in probe-pc.log probe-server.log; do [[ -f "$dir/$f" ]] && gzip -f "$dir/$f"; done
+  jq -n --argjson rate "$PROBE_RATE" --argjson dur "$PROBE_DUR" --argjson k0 "$2" --argjson k1 "$3" \
+        --arg pbin "$PROBE_K6_BIN" --arg pver "$PROBE_K6_VERSION" --argjson ppid "$PROBE_PC_PID" --argjson pt0 "$PROBE_PC_T0" --argjson psig "$pc_sig" \
+        --argjson pend "$pc_end" --argjson prc "$pc_rc" --argjson killed "$killed" \
+        --arg image "$PROBE_IMAGE" --arg up0 "$up0" --arg up1 "$up1" --arg uprc "$uprc" --argjson srv "$srv" \
+    '{rate: $rate, duration_s: $dur, main: {k6_t0_epoch: $k0, k6_end_epoch: $k1},
+      pc: {bin: $pbin, version: $pver, pid: $ppid, start_epoch: $pt0, stop_signal_epoch: $psig, end_epoch: $pend, exit_code: $prc, killed: $killed},
+      server: ({image: $image, up_start_epoch: ($up0 | tonumber? // null), up_end_epoch: ($up1 | tonumber? // null), up_rc: ($uprc | tonumber? // null)}
+               + (if $srv == null then {collect: null} else $srv end))}' > "$dir/probe-status.json"
 }
 
 # ---- ADR-009 수집·배경 작업 ------------------------------------------------------------------------------
@@ -1114,12 +1266,25 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   if [[ "$base" == S4c* ]] && ! jq -e '(.app.k6.stops // 0) > 0' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-log-missing"); fi
   # ADR-010 리뷰: 실제 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 앞머리가 계획(--app-mem·--app-gc)과 같아야 한다 — 다르면 app-jvm-mismatch(하네스 실패, 다시 잼)
   local want_b; case "$APP_MEM" in *g) want_b=$(( ${APP_MEM%g} * 1073741824 )) ;; *m) want_b=$(( ${APP_MEM%m} * 1048576 )) ;; esac
-  local want_jto; case "$APP_GC" in g1) want_jto="-XX:+UseG1GC -XX:MaxRAMPercentage=" ;; zgc) want_jto="-XX:+UseZGC -XX:+ZGenerational -XX:MaxRAMPercentage=" ;; *) want_jto="-XX:MaxRAMPercentage=" ;; esac
+  local want_jto; case "$APP_GC" in g1) want_jto="-XX:+UseG1GC " ;; zgc) want_jto="-XX:+UseZGC -XX:+ZGenerational " ;; *) want_jto="" ;; esac
+  # ADR-011 --app-pretouch: compose 순서 APP_JVM_OPTS · APP_JVM_OPTS2 · APP_JVM_OPTS3 → 수집기 옵션 뒤, MaxRAMPercentage 앞
+  (( APP_PRETOUCH )) && want_jto+="-XX:+AlwaysPreTouch "
+  (( APP_XMS_FULL )) && want_jto+="-XX:InitialRAMPercentage=75 "
+  want_jto+="-XX:MaxRAMPercentage="
   if ! jq -e --argjson b "$want_b" --arg p "$want_jto" '.mem_bytes == $b and (.java_tool_options | startswith($p))' "$dir/app-jvm.json" > /dev/null 2>&1; then reasons+=("app-jvm-mismatch"); fi
   # ADR-010: --app-gc g1이면 앱 수집기가 실제로 G1이어야 한다(옵션이 안 먹으면 조건이 섞인다). auto는 기록만(gc.json collector)
   if [[ "$APP_GC" == g1 ]] && ! jq -e '.app.collector == "G1"' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
   # zgc: 수집기 = Z이고 세대형(로그에 Minor Collection — 세대형만 있다)이어야 한다
   if [[ "$APP_GC" == zgc ]] && ! jq -e '(.app.collector // "" | startswith("The Z Garbage Collector")) and (.app.zgc_generational == true)' "$dir/gc.json" > /dev/null 2>&1; then reasons+=("gc-collector-mismatch"); fi
+  # ADR-011 --gctrace: gc 줄 기록(k6-gctrace.log.gz)이 없거나 깨졌거나 gc 줄이 0이면 gctrace-missing(하네스 실패 — 다시 잼). k6 종료 코드 판정은 위 그대로
+  if (( GCTRACE )); then
+    if ! { [[ -s "$dir/k6-gctrace.log.gz" ]] && gzip -t "$dir/k6-gctrace.log.gz" 2>/dev/null && zgrep -qE '^[0-9]+\.[0-9]+ gc [0-9]+ @' "$dir/k6-gctrace.log.gz"; }; then reasons+=("gctrace-missing"); fi
+  fi
+  # ADR-011 --probes: 두 측정기가 주 k6 창(램프 끝 ~ k6 끝)을 덮었나 — 종료 코드(0·105) · CSV 무결성 · 덮은 범위·건수·공백(tail.py --probe-check → probe-check.json).
+  #   실패는 probe-missing(결과 사유가 아니라 하네스 실패 — 다시 잰다). 판정을 못 하면(파이썬 실패) 같은 사유
+  if (( PROBES )); then
+    if ! python3 -I "$(dirname "$0")/tail.py" --probe-check "$dir" > /dev/null 2>>"$dir/errors.log"; then reasons+=("probe-missing"); fi
+  fi
   # 같은 사유가 여러 경로로 붙었으면 한 번만(순서 유지)
   local uniq=() x; for x in "${reasons[@]}"; do [[ " ${uniq[*]} " == *" $x "* ]] || uniq+=("$x"); done; reasons=("${uniq[@]}")
   if (( ${#reasons[@]} )); then (IFS=,; echo "${reasons[*]}"); else echo ok; fi
@@ -1147,7 +1312,9 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg limit "$LIMIT_STRATEGY" --arg applied "$APPLIED_LIMIT" --arg harness "$HARNESS" \
         --arg applied_seat "$(jq -r '.configprops[]? | select(.prefix=="seat.hold") | .properties.strategy' "$dir/app-config.json" 2>/dev/null)" \
         --arg applied_lim "$(jq -r '.configprops[]? | select(.prefix=="seat.hold") | .properties.limitStrategy' "$dir/app-config.json" 2>/dev/null)" \
-        --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$(k6 version | head -1)" \
+        --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$("$K6_BIN" version | head -1)" --arg k6bin "$K6_BIN" \
+        --argjson adr011 "$(jq -nc --argjson g "$GCTRACE" --argjson p "$PROBES" --argjson t "$APP_PRETOUCH" --argjson x "$APP_XMS_FULL" --argjson st "$S4C_STEPS" --argjson ss "$SEED_SCHEDULES" \
+                             '{gctrace: ($g == 1), probes: ($p == 1), app_pretouch: ($t == 1), app_xms_full: ($x == 1), s4c_steps: $st, seed_schedules: $ss}')" \
         --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
@@ -1161,7 +1328,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           injected_limit_strategy:(if $cond == "B" or $cond == "B+C" then $limit else null end), harness:$harness,
           cond:$cond, cleanup:$cleanup, reconcile_interval:$rint,
           applied:{strategy:$applied_seat, limit_strategy:$applied_lim},
-          k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6,
+          k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6, k6_bin:$k6bin, adr011:$adr011,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
           pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
@@ -1173,10 +1340,15 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
   --arg pg "$PG_PRESET" --arg app_mem "$APP_MEM" --arg app_gc "$APP_GC" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
   --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
+  --arg k6bin "$K6_BIN" --arg k6ver "$K6_VERSION" --argjson gctrace "$GCTRACE" --argjson probes "$PROBES" --arg pbin "$PROBE_K6_BIN" --arg pver "$PROBE_K6_VERSION" \
+  --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
-               limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay, app_mem:$app_mem, app_gc:$app_gc},
+               limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay, app_mem:$app_mem, app_gc:$app_gc,
+               k6_bin:$k6bin, k6_version:$k6ver, gctrace:($gctrace == 1), probes:($probes == 1), probe_k6_bin:$pbin,
+               probe_k6_version:(if $probes == 1 then $pver else null end), probe_image:$pimage, probe_rate:$prate,
+               app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched},
     knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
     start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
                  judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",

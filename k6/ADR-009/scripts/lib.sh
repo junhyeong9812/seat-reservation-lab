@@ -11,6 +11,8 @@ RECONCILER_URL="${RECONCILER_URL:-http://${SERVER_HOST}:8102}"   # ADR-009 F(A+F
 COMPOSE_FILE="k6/ADR-009/compose.yml"
 # ADR-009: 앱 2대 조건은 없다(--apps 없음). A+F면 run.sh가 COMPOSE_EXTRA="-f k6/ADR-009/compose.reconciler.yml", tmpfs면 compose.tmpfs.yml을 더한다
 COMPOSE_EXTRA="${COMPOSE_EXTRA:-}"
+# ADR-011 서버 측정기 오버레이 — compose_up에는 넣지 않는다(회차 시작에 함께 뜨지 않게). probe_server_up이 주 k6 직전에 이 서비스 하나만 띄우고, compose_down은 늘 함께 내린다
+PROBE_FILE="k6/ADR-009/compose.probe.yml"
 # run.sh가 동결 사본에서 실행될 때는 원래 위치를 환경변수로 넘겨받는다
 ADR_DIR="${ADR_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$ADR_DIR/../.." && pwd)}"
@@ -78,9 +80,10 @@ compose_down() {
   for i in 1 2 3; do
     log "compose down ($sha) (attempt $i)"
     # ADR-009: F 오버레이(reconciler 컨테이너)까지 함께 지정해야 내려간다 — 다음 회차가 F가 아니어도 남지 않게(--remove-orphans가 보조)
-    remote "cd $REMOTE_BASE/$sha && docker compose -p seatlab -f $COMPOSE_FILE -f k6/ADR-009/compose.reconciler.yml down -v --remove-orphans" >&2
-    # DB 볼륨·db 컨테이너에 더해 reconciler 컨테이너도 없어야 한다(F 회차 뒤 다음 회차에 대조 프로세스가 남아 같은 DB를 고치지 않게)
-    if remote "! docker volume inspect seatlab_pgdata > /dev/null 2>&1 && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=db)\" ] && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=reconciler)\" ]" >&2; then
+    # ADR-011: 서버 측정기 오버레이(compose.probe.yml — probe 컨테이너)도 함께 지정한다 — 회차 끝 수거가 실패해도 다음 회차 앞에서 내려간다
+    remote "cd $REMOTE_BASE/$sha && docker compose -p seatlab -f $COMPOSE_FILE -f k6/ADR-009/compose.reconciler.yml -f $PROBE_FILE down -v --remove-orphans" >&2
+    # DB 볼륨·db 컨테이너에 더해 reconciler 컨테이너도 없어야 한다(F 회차 뒤 다음 회차에 대조 프로세스가 남아 같은 DB를 고치지 않게) · ADR-011 probe 컨테이너도
+    if remote "! docker volume inspect seatlab_pgdata > /dev/null 2>&1 && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=db)\" ] && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=reconciler)\" ] && [ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=probe)\" ]" >&2; then
       return 0
     fi
     log "compose down: seatlab_pgdata 볼륨 또는 db 컨테이너가 남았거나 확인 실패 — retry in 10s"; sleep 10
@@ -634,4 +637,26 @@ SELECT json_build_object('t', clock_timestamp(), 't_epoch', extract(epoch FROM c
   'checkpoints', (SELECT json_build_object('timed', checkpoints_timed, 'req', checkpoints_req, 'write_time', checkpoint_write_time, 'sync_time', checkpoint_sync_time)
                   FROM pg_stat_bgwriter));
 SQL
+}
+
+# ---- ADR-011 서버 측정기(compose.probe.yml — run.sh --probes) ----------------------------------------------------------------------------
+# 주 k6 직전에 probe 서비스 하나만 띄운다(--no-deps: 앱·DB는 건드리지 않는다). 이미지는 받지 않는다(compose pull_policy: never — 없으면 기동 실패 → probe-missing).
+# 인자: 배포폴더 길이(초). PROBE_IMAGE·PROBE_RATE는 run.sh가 정한다(plan.json condition)
+probe_server_up() {
+  remote "cd $REMOTE_BASE/$1 && env PROBE_IMAGE='$PROBE_IMAGE' PROBE_RATE=$PROBE_RATE PROBE_DURATION_S=$2 docker compose -p seatlab -f $COMPOSE_FILE -f $PROBE_FILE up -d --no-deps --no-build probe"
+}
+# 회차 끝: SIGTERM으로 멈추고(k6가 정상 종료하며 CSV를 닫는다 — 종료 코드 105) 결과 CSV·로그를 받은 뒤 컨테이너를 지운다.
+# 인자: 배포폴더 회차폴더 → probe-server.json 한 줄 {stop_rc, exit_code, started_at, finished_at, cp_rc, csv_bytes, log_rc, rm_rc}(서버 시계 — docker 기록)
+probe_server_collect() {
+  local id="$1" dir="$2" stop_rc st cp_rc log_rc rm_rc ec sa fa ss
+  remote "cd $REMOTE_BASE/$id && docker compose -p seatlab -f $COMPOSE_FILE -f $PROBE_FILE stop -t 30 probe" >> "$dir/probe-server.log" 2>&1; stop_rc=$?
+  st=$(remote "docker inspect -f '{{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}} {{.State.Status}}' seatlab-probe-1" 2>>"$dir/probe-server.log")
+  remote "docker cp seatlab-probe-1:/tmp/k6-probe-server.csv.gz -" 2>>"$dir/probe-server.log" | tar -xO > "$dir/k6-probe-server.csv.gz" 2>>"$dir/probe-server.log"
+  cp_rc=$(( PIPESTATUS[0] + PIPESTATUS[1] ))
+  remote "docker logs seatlab-probe-1 2>&1" >> "$dir/probe-server.log" 2>&1; log_rc=$?
+  remote "cd $REMOTE_BASE/$id && docker compose -p seatlab -f $COMPOSE_FILE -f $PROBE_FILE rm -f -s probe" >> "$dir/probe-server.log" 2>&1; rm_rc=$?
+  read -r ec sa fa ss <<< "$st"
+  jq -nc --argjson stop "$stop_rc" --arg ec "${ec:-}" --arg sa "${sa:-}" --arg fa "${fa:-}" --arg ss "${ss:-}" --argjson cp "$cp_rc" \
+        --argjson bytes "$(stat -c %s "$dir/k6-probe-server.csv.gz" 2>/dev/null || echo 0)" --argjson log "$log_rc" --argjson rm "$rm_rc" \
+    '{stop_rc:$stop, exit_code:($ec|tonumber? // null), started_at:$sa, finished_at:$fa, state:$ss, cp_rc:$cp, csv_bytes:$bytes, log_rc:$log, rm_rc:$rm}'
 }
