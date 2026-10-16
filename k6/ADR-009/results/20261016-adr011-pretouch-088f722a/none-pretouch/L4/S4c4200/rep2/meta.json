@@ -1,0 +1,199 @@
+{
+  "sha": "088f722a",
+  "level": 4,
+  "cell": "S4c4200",
+  "rep": 2,
+  "started": "2026-10-16T19:23:14+09:00",
+  "ended": "2026-10-16T19:34:10+09:00",
+  "k6_started": "2026-10-16T19:25:22+09:00",
+  "k6_ended": "2026-10-16T19:32:33+09:00",
+  "ttl_s": 3600,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:088f722a",
+  "cond": "default",
+  "cleanup": "schedule",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "START_RATE=4200 FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50",
+  "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A= DRIFT_EXTERNAL= DRIFT_C_ENABLED= DRIFT_C= DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_MEM=4g APP_JVM_OPTS=-XX:+UseZGC APP_JVM_OPTS2=-XX:+ZGenerational APP_JVM_OPTS3= APP_JVM_OPTS4= APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "k6_bin": "/home/jun/.local/opt/k6-v2.2.0/k6",
+  "adr011": {
+    "gctrace": false,
+    "probes": true,
+    "app_pretouch": false,
+    "app_xms_full": false,
+    "s4c_steps": 12,
+    "seed_schedules": 200
+  },
+  "io_settle_s": 11,
+  "pg_preset": "tmpfs",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.0273,
+      "rtt_s": 0.0017,
+      "at": 1792146322.541639
+    },
+    "after": {
+      "offset_s": -0.0244,
+      "rtt_s": 0.0016,
+      "at": 1792146758.2138786
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1792146236.0953867,
+    "k6_start_epoch": 1792146322.5724645,
+    "seed_to_k6_s": 86.477,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": 30,
+    "hold_reached_s": 30.832,
+    "hold_slept_s": 39.168,
+    "topup_s": 2.138,
+    "first_request_epoch": 1792146322.804,
+    "first_request_source": "setup_data.startedAt",
+    "seed_to_first_request_s": 86.709,
+    "k6_startup_s": 0.232,
+    "reconcile_phase": {
+      "passes": [
+        {
+          "source": "reconcile-app",
+          "start_rel_s": -57.733,
+          "end_rel_s": -57.709
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 2.292,
+          "end_rel_s": 2.309
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 62.309,
+          "end_rel_s": 62.978
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 122.979,
+          "end_rel_s": 124.691
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 184.692,
+          "end_rel_s": 187.121
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 247.121,
+          "end_rel_s": 250.458
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 310.458,
+          "end_rel_s": 314.784
+        },
+        {
+          "source": "reconcile-app",
+          "start_rel_s": 374.784,
+          "end_rel_s": 380.094
+        }
+      ],
+      "completed_before_k6": 1,
+      "first_in_k6": {
+        "source": "reconcile-app",
+        "start_rel_s": 2.292,
+        "end_rel_s": 2.309
+      }
+    },
+    "db_start_to_k6_s": 124.343,
+    "db_start_to_seed_s": 37.866,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-16T10:24:50.675452+00:00",
+          "last_autoanalyze": null
+        },
+        "seat_hold": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": "2026-10-16T10:24:50.676567+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "The Z Garbage Collector",
+      "stops": 364,
+      "stop_ms_max": 1.543285,
+      "nested": 0,
+      "log_bytes": 1022363,
+      "k6": {
+        "stops": 344,
+        "stop_ms_total": 16.691930000000006,
+        "stop_ms_max": 1.543285,
+        "nested": 0,
+        "gc_ids": 344,
+        "safepoint_other_max_ms": 0.18559,
+        "full": 0,
+        "stalls": 0,
+        "stall_ms_max": 0.0,
+        "worker_stalls": 0,
+        "worker_stall_ms_max": 0.0
+      }
+    },
+    "reconciler": null
+  }
+}
