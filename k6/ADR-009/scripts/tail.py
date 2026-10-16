@@ -204,7 +204,9 @@ def overlap(slow, steady, intervals):
     exp = share * len(slow) if share is not None else None
     max_lift = (1 / share) if share else None
     return {"hits": hits, "n_slow": len(slow), "events": len(intervals), "chance_share": share, "expected": exp, "lift": (hits / exp) if exp else None,
-            "max_lift": max_lift, "undecidable": share is not None and (share == 0 or max_lift < LIFT_DECIDE)}
+            # 사건(튐·GC)이 0건이면 겹칠 대상이 없다 — 판정 불가가 아니라 '겹침 없음'(배수 0 — 반증 관측 없음, ADR-011 §4 측정 전 정정)
+            "max_lift": max_lift, "no_events": share == 0,
+            "undecidable": share is not None and share > 0 and max_lift < LIFT_DECIDE}
 
 
 def _series(per, s_min, s_max):
