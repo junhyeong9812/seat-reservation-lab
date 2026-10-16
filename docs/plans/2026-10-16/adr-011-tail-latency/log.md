@@ -10,6 +10,7 @@
 | 10-16 10:59 | task 01 번호 이동 7차: git mv 011~017 → 012~018 · 참조 108곳(병기·범위 뒤 숫자까지 — 6차 실수 재발 방지) · 7차 메모 · 6차 때 잘못 바뀐 5차 이력 줄(NEXT '기존 ADR-011~015' → 원문 010~015) 복원 · '다음 측정 ADR부터' 뜻의 ADR-012부터 → ADR-011부터 → ec7a6286 · 코드 주석 3곳 939839a8 | 링크 대상 MISSING 0(2026-09-29 옛 기록 제외) |
 | 10-16 11:34 | task 02 읽기 전용 분석 회수(Opus, 50회 · 요청 약 8,200만 건) — 결과는 아래 '읽기 전용 분석' | 1순위 후보 = PC(k6) 쪽 지연 · 메인 교차 확인: meta.json k6_version 10-14 v2.2.0(go1.26.5) → 10-15 v2.3.0(go1.26.8), `last -x reboot` 10-15 12:43·12:56(커널 7.0.0-34 → 38) |
 | 10-16 15:53 | ADR-011 문서(측정 전 8fddcba9) · k6 v2.2.0 gh release 내려받기·체크섬 확인(commit 00a9a1b7f5 = 옛 측정과 같음) · 하네스 구현 워커(Opus) → 4d2c752b · E2 3조건 정정(로컬 4g 컨테이너 실측: AlwaysPreTouch만이면 Initial Capacity 64M) 6b2ef3de · 서버에 grafana/k6:2.2.0 pull(digest 9bd01d69…) · 스모크 smoke-adr011-probes → probe-missing(측정기 대상 404) · 듀얼 리뷰 rv33 | 수정 워커 진행 |
+| 10-16 16:51 | 리뷰 반영 a594f27e·문서 3af80c99(E1 3조건 — 기록 켠 스모크에서 느린 초 72·26초 성분 소실·긴 Go GC 겹침 70/72 → 기록이 주 k6를 흔든 정황) · codex 재점검 신규 3 → e4c24c2b(수거 실패 판정·트랩 정리·구간 상한 83) · 스모크 2 smoke-adr011-probes2(v2.3.0·기록 없음·측정기) ok: probe-check 통과 · 26초 성분 재등장 p=0.001(26.7초) · 느린 초 6(주기 6·클라이언트형 5) · PC 측정기 튐 2(겹침 0) · 서버 측정기 튐 0 → 사건 0건 = 겹침 없음 수정 a57f92e0·ddfbe6c3 | E1 시작 |
 
 ## 읽기 전용 분석 (task 02 — 워커 Opus, 2026-10-16)
 
@@ -26,16 +27,19 @@
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
-| HT-1 | 1 | codex 1 | tail.py:311 probe-check 창 경계 | 채택 | open | — |
+| HT-1 | 1 | codex 1 | tail.py:311 probe-check 창 경계 | 채택 | fixed | a594f27e |
 | HT-2 | 1 | codex 2 | run.sh:1339 plan.json 키 추가 | 기각 — 명세 §2 '계획' 범위 명시(conditions·order·렌더), plan.json 키 추가는 ADR-010과 같은 방식 | — | — |
-| HT-3 | 1 | codex 3 | tail.py:245 T4 비주기 서버형 | 채택 | open | — |
-| HT-4 | 1 | codex 4 | run.sh:765 서버 측정기 기동 시한 | 채택 | open | — |
-| HT-5 | 1 | opus H1 + 스모크 실측(gctrace 353줄/430초) | T3 검정력 상한 | 채택 — 최대 배수·판정 불가·사건 좁힘·시작 시각 보정 + ADR §4 측정 전 정정 | open | — |
-| HT-6 | 1 | opus M1 | T1 재배열 귀무 거짓 양성 | 채택 — 위상 무작위 대리 계열 + v2.2.0 20회 거짓 양성률 확인 | open | — |
-| HT-7 | 1 | opus M2 | T2 튐 기준·상한 | 채택 — 절대 하한·판정 불가 | open | — |
-| HT-8 | 1 | opus M3 | v2.2.0 경로 scratchpad 고정 | 채택 — 안정 경로 + sha256 기록·대조 | open | — |
-| HT-9 | 1 | opus L1~L5 | gctrace 부분 실패 · 측정기 고아 · probe compose 묶음 · 구간 상한 · '성분 없음' 표기 | 채택 | open | — |
-| HT-10 | 1 | 메인 스모크 | probe-ping.js /actuator/health/ping 404(양쪽 전부) | 채택 — 대상 GET /actuator | open | — |
+| HT-3 | 1 | codex 3 | tail.py:245 T4 비주기 서버형 | 채택 | fixed | a594f27e |
+| HT-4 | 1 | codex 4 | run.sh:765 서버 측정기 기동 시한 | 채택 | fixed | a594f27e |
+| HT-5 | 1 | opus H1 + 스모크 실측(gctrace 353줄/430초) | T3 검정력 상한 | 채택 — 최대 배수·판정 불가·사건 좁힘·시작 시각 보정 + ADR §4 측정 전 정정 | fixed | a594f27e |
+| HT-6 | 1 | opus M1 | T1 재배열 귀무 거짓 양성 | 채택 — 위상 무작위 대리 계열 + v2.2.0 20회 거짓 양성률 확인 | fixed | a594f27e |
+| HT-7 | 1 | opus M2 | T2 튐 기준·상한 | 채택 — 절대 하한·판정 불가 | fixed | a594f27e |
+| HT-8 | 1 | opus M3 | v2.2.0 경로 scratchpad 고정 | 채택 — 안정 경로 + sha256 기록·대조 | fixed | a594f27e |
+| HT-9 | 1 | opus L1~L5 | gctrace 부분 실패 · 측정기 고아 · probe compose 묶음 · 구간 상한 · '성분 없음' 표기 | 채택 | fixed | a594f27e |
+| HT-10 | 1 | 메인 스모크 | probe-ping.js /actuator/health/ping 404(양쪽 전부) | 채택 — 대상 GET /actuator | fixed | a594f27e |
+| HT-11 | p | codex post-fix | 수거 stop·rm 실패 무시 · EXIT 트랩 정리 · 구간 상한 여유 | 채택 | fixed | e4c24c2b |
+| HT-12 | p | 메인 스모크 2 | 사건 0건을 판정 불가로 표시 | 채택 — 겹침 없음 | fixed | a57f92e0 |
+- post-fix 재점검 종료(中 듀얼 1패스) — 신규 3 반영 · 추가 1(메인) — 수정 범위 작아 추가 재점검 없음.
 
 ## 생략한 검증
 
