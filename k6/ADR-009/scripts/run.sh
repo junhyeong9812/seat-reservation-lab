@@ -112,11 +112,11 @@ CONDS="control control-noclose A A+C A+F B B+C default"
 [[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
 [[ "$APP_GC" =~ ^(auto|g1|zgc)$ ]] || { echo "--app-gc auto|g1|zgc" >&2; exit 2; }
 # ADR-011: S4c 구간 수 상한 = 계산 — 첫 홀드(k6 첫 요청)가 만료되기 전(S4c 앱 설정 HOLD_TTL 60m = 3,600초 — config_env s4)에 회차 끝 판정(consistency)까지 끝나야 한다
-#   (만료 배치가 측정·판정에 끼지 않게). k6 첫 요청부터: 램프 60 + 구간 × 30 + 측정기 내림 여유 S4C_PROBE_STOP_S(PC 신호 뒤 최대 30 + 서버 stop -t 30 + 수거 30 = 90)
+#   (만료 배치가 측정·판정에 끼지 않게). k6 첫 요청부터: 램프 60 + 구간 × 30 + 측정기 내림 여유 S4C_PROBE_STOP_S(재점검: 실패 경로 최대 = PC 신호 뒤 30 + 서버 수거 단계 시한 합 lib.sh probe_server_collect 90+30+120+60+90 = 420)
 #   + IO_SETTLE_S(11) + consistency 시한 CONSISTENCY_TIMEOUT(600 — run_rep) ≤ 3,600 → 구간 ≤ ⌊(3,600 − 60 − 90 − 11 − 600) ÷ 30⌋ = 94.
 #   (S3 셀의 TTL+grace 대기는 S4c에 없다. 장시간 실측 스모크로 여유를 확인 — 메인)
 #   시드 회차 수 상한 1,000 = LoadtestDataService.reset(명세 §3 — 회차 ≤ 1,000). 좌석 수 ≥ 누적 요청은 셀을 펼친 뒤(아래) 확인한다
-S4C_HOLD_TTL_S=3600 S4C_RAMP_S=60 S4C_PROBE_STOP_S=90 S4C_CONSISTENCY_S=600
+S4C_HOLD_TTL_S=3600 S4C_RAMP_S=60 S4C_PROBE_STOP_S=420 S4C_CONSISTENCY_S=600
 S4C_STEPS_MAX=$(( (S4C_HOLD_TTL_S - S4C_RAMP_S - S4C_PROBE_STOP_S - ${IO_SETTLE_S:-11} - S4C_CONSISTENCY_S) / 30 ))
 [[ "$S4C_STEPS" =~ ^[1-9][0-9]*$ ]] && (( S4C_STEPS <= S4C_STEPS_MAX )) || { echo "--s4c-steps 1..$S4C_STEPS_MAX(30초 구간 수 — HOLD_TTL 3,600초 − 램프 − 측정기 내림 − IO 대기 − consistency 시한)" >&2; exit 2; }
 [[ "$SEED_SCHEDULES" =~ ^[1-9][0-9]*$ ]] && (( SEED_SCHEDULES <= 1000 )) || { echo "--seed-schedules 1..1000(회차당 1만 석)" >&2; exit 2; }
@@ -317,7 +317,12 @@ cleanup() {
   if [[ -n "${PROBE_PC_PID:-}" ]] && kill -0 "$PROBE_PC_PID" 2>/dev/null \
      && [[ "$(ps -o comm= -p "$PROBE_PC_PID" 2>/dev/null)" == "$(basename "$PROBE_K6_BIN" | cut -c1-15)" ]]; then
     echo "[$(date '+%F %T')] cleanup: probe pc pid=$PROBE_PC_PID SIGINT" >&2; kill -INT "$PROBE_PC_PID" 2>/dev/null
+    # 재점검: 끝날 때까지 최대 10초 기다리고, 남으면 SIGKILL
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$PROBE_PC_PID" 2>/dev/null || break; sleep 1; done
+    kill -0 "$PROBE_PC_PID" 2>/dev/null && kill -KILL "$PROBE_PC_PID" 2>/dev/null
   fi
+  # 재점검: 서버 측정기 컨테이너가 남았으면 지운다(다음 회차 compose_down도 probe 부재를 확인하지만, 도중 종료 뒤 곧바로 지우게)
+  if (( ${PROBES:-0} )); then remote_t 60 "docker rm -f seatlab-probe-1" > /dev/null 2>&1 || true; fi
   [[ -n "${FROZEN_DIR:-}" && "$FROZEN_DIR" == "${TMPDIR:-/tmp}"/tmp.* && -d "$FROZEN_DIR/scripts" ]] && rm -rf "$FROZEN_DIR"
 }
 trap cleanup EXIT

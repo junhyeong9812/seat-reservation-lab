@@ -68,7 +68,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `PROBE_IMAGE`(환경변수) | `grafana/k6:2.2.0` | 서버 측정기 이미지(Docker Hub 공식 태그 — 접두어 `v` 없음). **서버에 미리 받아 둔다**(compose `pull_policy: never` — 측정 중 내려받기 금지, 없으면 기동 실패) |
 | `--app-pretouch` | 끔 | 앱 JVM `-XX:+AlwaysPreTouch`(compose `APP_JVM_OPTS3` → `JAVA_TOOL_OPTIONS` 수집기 옵션 뒤). 기동 때 잡힌 힙만 건드린다(초기 힙 기본 = 한도의 1/64 — 4g면 64MB, 실측). `app-jvm-mismatch`의 기대 앞머리도 따른다 |
 | `--app-xms-full` | 끔 | 앱 JVM `-XX:InitialRAMPercentage=75`(compose `APP_JVM_OPTS4`) — 초기 힙 = 최대 힙. `--app-pretouch`와 함께 줘야 힙 전체를 미리 건드린다 |
-| `--s4c-steps N` | 12 | S4c 계획 구간 수(30초) — 1..94(계산: HOLD_TTL 3,600 − 램프 60 − 측정기 내림 90 − IO 대기 11 − consistency 시한 600 ≥ 30 × 구간 — run.sh `S4C_STEPS_MAX`) |
+| `--s4c-steps N` | 12 | S4c 계획 구간 수(30초) — 1..83(계산: HOLD_TTL 3,600 − 램프 60 − 측정기 내림 최대 420(실패 경로 단계 시한 합) − IO 대기 11 − consistency 시한 600 ≥ 30 × 구간 — run.sh `S4C_STEPS_MAX`) |
 | `--seed-schedules N` | 200 | S4c 시드 회차 수(회차당 1만 석) — 1..1,000. 누적 요청(램프 (50 + 목표) ÷ 2 × 60 + 목표 × 구간 × 30)이 좌석보다 많으면 시작 전에 거부 |
 
 **측정기(`--probes` — ADR-011 §3)**: 같은 시나리오 `scenarios/probe-ping.js`(50/s · 시각 ms)를 두 곳에서 띄운다.

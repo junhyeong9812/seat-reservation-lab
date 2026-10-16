@@ -401,8 +401,9 @@ def probe_check(d):
     pc, sv = (st or {}).get("pc") or {}, (st or {}).get("server") or {}
     if pc.get("exit_code") not in (0, 105) or pc.get("killed"):
         res["reasons"].append(f"pc 종료 코드 {pc.get('exit_code')} · 강제 종료 {pc.get('killed')}")
-    if sv.get("up_rc") != 0 or sv.get("exit_code") not in (0, 105) or sv.get("cp_rc") != 0:
-        res["reasons"].append(f"server 기동 {sv.get('up_rc')}(124 = 기동 시한 초과) · 종료 코드 {sv.get('exit_code')} · 수거 {sv.get('cp_rc')}")
+    if sv.get("up_rc") != 0 or sv.get("exit_code") not in (0, 105) or sv.get("cp_rc") != 0 or sv.get("stop_rc") != 0 or sv.get("rm_rc") != 0:
+        # 재점검(codex): 멈춤(stop)·지우기(rm) 실패도 — 컨테이너가 남아 다음 회차에 섞일 수 있다
+        res["reasons"].append(f"server 기동 {sv.get('up_rc')}(124 = 기동 시한 초과) · 멈춤 {sv.get('stop_rc')} · 종료 코드 {sv.get('exit_code')} · 수거 {sv.get('cp_rc')} · 지우기 {sv.get('rm_rc')}")
     for name, f, shift in (("pc", "k6-probe-pc.csv.gz", 0.0), ("server", "k6-probe-server.csv.gz", off)):
         if t0 is None or not num(t1):
             break
