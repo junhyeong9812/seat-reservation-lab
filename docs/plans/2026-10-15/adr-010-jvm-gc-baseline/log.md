@@ -16,6 +16,9 @@
 | 10-15 14:33 | 본측정 종료 — 4/4 ok, 비정상 0 · summarize·compare --set jvm-baseline | ① Serial Full GC 8 · 1초 p99 최대 301ms / ② G1 Full GC 0 · 97ms / ③ 1792m 자동 G1 · 90ms / ④ 2g G1 · 96ms · 앱 CPU 140 → 166~175% |
 | 10-15 14:50 | 느린 초 대조(아래) — G1 세 회차의 느린 초는 Full GC와 무관, 약 26~27초 간격 | 사용자 재합의: Dockerfile 대신 ADR-011부터 하네스 기본값 · 남은 튐은 후속(명세 §10) |
 | 10-15 18:23 | ADR-010 §6~§8 · README · NEXT · 측정로그 · ADR-009 참조 → 결과 문서 듀얼 1패스 rv30(codex 4·Opus 9 → RJ-1~10) + 재점검(RJ-11) 전부 반영 | 판정 좁힘: J4는 1초 p99 최대에서만, ②는 p99·30초 p99가 가장 나쁨(1회), 2g 반복 측정 후보 · 번호 이동 누락 3곳 수정 |
+| 10-15 18:58 | 2차 스모크 smoke-adr010-4g-zgc ok(세대형 · 정지 최대 0.18ms · 멈춤 0) → 본측정 시작 seatlab-adr010j2 campaign --set jvm-ladder --sha 93f35059(18회) | — |
+| 10-15 22:18 | 2차 본측정 종료 — 18/18 ok · compare --set jvm-ladder | 안정성 통과 {2g G1, 1g ZGC, 2g ZGC, 4g ZGC} · 규칙(한도 해석) → 2g ZGC |
+| 10-16 10:46 | 사용자 확정 "2g + 세대형 ZGC" → 결과 문서 듀얼 1패스 rv32(codex 5·Opus 15 → RZ-1~12) · 메인 원시 확인(ZGC Capacity · 4g 느린 초 대조) · 사용자 재확인(메모리 해석 = 한도 유지) · 재점검 RZ-13 | §8 최종 결정 2g ZGC · 4g 꼬리 원인 미상(AlwaysPreTouch 후속) |
 
 ## 느린 초 대조 (ADR-010 §6 — 2026-10-15)
 
@@ -88,6 +91,21 @@ print(d.split('/')[0],'slow:',[(s-int(k0), round(mx[s]), 'GC' if any(abs(s-int(k
 | HZ-4 | 2 | opus F2 | compare.py:693 | 채택 — 계획 초 열·회차별 집계 초/계획 초 복원 | fixed | 2차 fix |
 | HZ-5 | 2 | opus F4 | app_mem · /dev/shm GC 로그 | 채택 — GC 로그 MB 열 + ADR §9 한계 | fixed | 2차 fix |
 | HZ-참고 | 2 | opus | gc_ids 어긋남(ZGC 가짜 id) | 범위 밖 — compare가 읽지 않음 | — | — |
+- review packet(2차 결과 문서): rv32 — `scratchpad/rv32`(ADR-010·README + 2차 결과 요약 파일). Opus ∥ codex.
+| RZ-1 | r | opus 중간-1 | §10 기준 고르기 '메모리' 해석 | 채택 — 한도 해석 명시 + 실사용 해석 결과(2g G1) 병기 · **사용자 재확인 "2g ZGC 유지(한도 해석)" 2026-10-16** | fixed | doc |
+| RZ-2 | r | codex 2 + opus 중간-5 | 2g ZGC 여유 15% | 채택 — 최대 1,817MiB 기준 여유 약 11% | fixed | doc |
+| RZ-3 | r | codex 1 + opus 중간-6·낮음-2 | 1g ZGC 원인 단정 | 채택 — 메인이 원시 gc.log Capacity로 확인(잡은 힙 678~700MB + 힙 밖 약 330MB, High Usage Minor 약 500회), docker stats 포함 범위·OOM 위험 크기 미측정 명시 | fixed | doc |
+| RZ-4 | r | codex 3 | K6 원인 결론 | 채택 — §6 관측과 모순 없음까지로 | fixed | doc |
+| RZ-5 | r | codex 4 | K2·README '변화 없음' | 채택 — '개선 확인 못 함' | fixed | doc |
+| RZ-6 | r | codex 5 + opus 중간-3 | §9 한계 'ZGC에 불리' | 채택 — §10에 '예상과 반대(G1 로그가 큼)' 정정(§9는 측정 전 고정이라 그대로) | fixed | doc |
+| RZ-7 | r | opus 중간-2 | 1초 p99 최대 '개선' | 채택 — 확실한 것은 정지·CPU뿐, 1초 p99 최대는 범위 겹침 | fixed | doc |
+| RZ-8 | r | opus 중간-4 | ④ 비대칭 | 채택 — §10·§8 한계 | fixed | doc |
+| RZ-9 | r | opus 낮음-1·3·4 | 7.7 → 7.8ms · G1 정지 횟수 · G1 힙 추이 전제 | 채택 | fixed | doc |
+| RZ-10 | r | opus 낮음-5 + 사용자 지적 | 4g ZGC 꼬리 | 채택 — 메인 시각 대조(힙 확장은 램프 중 완료 · Major 일치 뚜렷하지 않음 · 주기 없는 튐 추가) → 원인 미상, 후보 첫 접근 페이지 폴트(AlwaysPreTouch 후속) | fixed | doc |
+| RZ-11 | r | opus 낮음-6·7·8·9 | README 낡은 서술 · 해소된 문구 · JDK 플래그 · 한계 누락 | 채택 | fixed | doc |
+| RZ-12 | r | opus 확인 필요 | §9 고정 시점 | 확인 — ef2c3b87(18:4x) · 판정 ① 정정 93f35059 = 캠페인 SHA(18:58 시작 전) — 상태 줄에 기록 | fixed | doc |
+| RZ-13 | p | codex post-fix | K1 근거 모순 · '힙 밖 약 330MB' 확정 · §8 '수집기와 무관' | 채택 — 원인 미상·나머지 약 330MB(구성 미측정)·관측 범위까지로 | fixed | post-fix |
+- post-fix 재점검(2차 결과 문서) 종료: partial 1·신규 3 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스). 원시 gc.log Capacity·시각 대조는 미러 밖 — 메인이 직접 확인(zslow.py·Capacity 집계, 위).
 - Opus 워커가 미러 안에 `__pycache__`를 만들었다(py_compile) — 재점검 전 메인이 삭제.
 
 ## 아카이브 (사이클 마감 ② — 사용자 확인 2026-10-15: ADR-009·010 함께)
