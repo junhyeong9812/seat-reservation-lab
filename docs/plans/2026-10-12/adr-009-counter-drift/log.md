@@ -197,6 +197,26 @@
 | RM-3 재점검 partial | p | codex post-fix | Tenured·응답 초 대조 원시 gc.log.gz·k6-requests.csv.gz가 미러 밖 | 범위 밖 — 패킷 크기로 gz 제외. 원시 파일은 결과 폴더에 커밋(재현 가능), 메인이 gc.log.gz GC(637) 줄 직접 확인 | — | — |
 - post-fix 재점검 종료: 신규 2건(RM-14·15) 반영 — 문구 수정만이라 추가 재점검 없음(中 듀얼 1패스 규칙).
 
+## 아카이브 (사이클 마감 ② — 사용자 확인 2026-10-15: ADR-009·010 함께)
+
+- 카드에 나오면 안 되는 원 식별자: seat-reservation-lab · seatlab · backend-labs-commerce · jun · 192.168.55.164 · .164 · seat_hold · user_hold_quota · counter_reconcile_run · product_schedule · SeatHoldProperties · LoadtestDataService · ExpireHoldsService · ConfirmReservationService · UserLimitStrategies · counter-upsert-precheck · counter-trigger · seatlab-app-1 · ADR-0xx 번호 · 커밋 SHA
+
+- 아카이브: issue/java/container-gc-ergonomics ⓐ 55ca07e4
+- 아카이브: issue/cross-cutting/testing/performance-measurement-validity ⓒ ac5c5709 (30초 구간 백분위수가 짧은 멈춤을 가림 · 측정 전 대기 비대칭 교란)
+- 아카이브: issue/shell/quoting-expansion-layers ⓒ 49e36864 (한 줄 함수 안 주석이 뒤 분기를 삼킴)
+- 아카이브: issue/cross-cutting/reliability/reference-graph-not-text ⓒ 2a8d8d7a (번호 치환이 접두어 없는 병기·범위 숫자를 놓침)
+- 노출 스캔: 워커 커밋별 + 메인 브랜치 전체 추가 행 재확인 0건. 기존 줄 오탐 5건(루트 README·index.md의 다른 프로젝트 경로·이름 — 이번 커밋이 추가하지 않은 줄) 개별 판정. study-note 브랜치 archive/2026-10-15 — push 대기(사용자 확인).
+- ~~카드화하지 않은 ADR-009 후보~~ → 사용자 "진행" 2026-10-15, 2차 배치로 해소:
+- 아카이브: issue/cross-cutting/concurrency/critical-section-design ⓒ adb58657
+- 아카이브: issue/cross-cutting/reliability/silent-failure-vs-artifact ⓒ 9f4e5adf (shell/exit-status-semantics는 ⓑ 동일·무변경)
+- 아카이브: issue/cross-cutting/testing/green-masking ⓒ a3318a22
+- 아카이브: issue/cross-cutting/concurrency/capture-context-at-request-time ⓒ 916fd459
+- 아카이브: issue/cross-cutting/testing/test-isolation-and-determinism ⓒ d2d5659b
+- 아카이브: issue/cross-cutting/database/sql-dialect-and-driver-traps ⓒ 52310971
+- 로컬 study-note main이 원격보다 15커밋 뒤(10-09~10-12 push분 미수신)라 배치를 origin/main(7f7659a3) 위로 rebase(push 전 로컬 브랜치) — 비교 번호 이어 매김·인덱스 재계수(카드 166), 재판정 ⓑ 전환 0, SHA는 rebase 뒤 값. 노출 스캔 추가 674행 0건.
+- ~~push 보류~~ → 사용자 "푸시해줘"(2026-10-15): 옛 로그 커밋 db07feb8을 배치 끝에 cherry-pick(fa04bfc0) → study-note main push 7f7659a3..fa04bfc0(fast-forward) · 로컬 main = origin/main · archive/2026-10-15 삭제(병합됨) · backup 브랜치 2개는 로컬에 남김.
+- 후속 후보: ADR-009 본 결과(탐지·복구 후보 A/B/C/F 비교) → denormalized-counter-drift 카드의 '후속 설계' 자리에 ⓒ 후보.
+
 ## 생략한 검증
 
 - 없음

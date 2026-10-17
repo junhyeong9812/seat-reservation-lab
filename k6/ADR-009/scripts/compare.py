@@ -3,6 +3,8 @@
 
     scripts/compare.py results/<campaign-id>     → <campaign-id>/COMPARISON.md · comparison.json
     scripts/compare.py --set cost-remeasure results/<campaign-id>   → 같은 파일(명세 §13 비용 셀 재측정 — 4조건 × 4셀 · 시작 상태·대조 위상·k6 구간 GC 표, 리뷰 R8)
+    scripts/compare.py --set jvm-baseline results/<campaign-id>     → 같은 파일(ADR-010 앱 JVM 기준 — 1회 × 4조건 표: 수집기·힙·정상 구간 Full GC·GC 정지·지연·CPU·메모리)
+    scripts/compare.py --set jvm-ladder results/<campaign-id>       → 같은 파일(ADR-010 2차 — G1·ZGC × 1g·2g·4g × 3회: 중앙값 [최소–최대] + 회차별 안정성 지표)
 
 먼저 할 것(없으면 해당 칸은 '누락'으로 드러난다 — 채워 넣지 않는다):
   - 조건마다 `summarize.py results/<campaign-id>/<조건>` → summary.json(효과 셀 effect.json은 run.sh가 회차마다 이미 남긴다)
@@ -95,8 +97,9 @@ def ts(s):
 
 # ---- 입력 ---------------------------------------------------------------------------------------------
 class Camp:
-    def __init__(self, root):
+    def __init__(self, root, expect_reps=3):
         self.root = root
+        self.expect_reps = expect_reps
         self.conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
         self.summ = {c: S.load(root / c / "summary.json") for c in self.conds}
         self.wall = {(w["cond"], w["rep"]): w for w in (S.load(root / "wall.json") or [])}
@@ -112,7 +115,7 @@ class Camp:
         all_reps = s.get(f"L4/{cell}") or []
         self.statuses[f"{folder}/{cell}"] = [r.get("status") for r in all_reps]
         bad = [f'{r.get("rep")}:{r.get("status")}' for r in all_reps if r.get("status") != "ok"]
-        if bad or len(all_reps) != 3:
+        if bad or len(all_reps) != self.expect_reps:
             self.notes.append(f"{folder}/{cell}: ok 아닌 회차 {bad} · 전체 {len(all_reps)}회")
         for r in all_reps:
             r["_dir"] = self.root / folder / "L4" / cell / r["rep"]
@@ -615,10 +618,145 @@ def remeasure_main(root, camp, out, js):
     reconcile_block(camp, out, js, {"disk": disk, "tmpfs": tmp}, skip=("s3e",))
 
 
+JVM_CONDS = ("1g-auto", "1g-g1", "1792m-auto", "2g-auto")   # campaign.sh jvm-baseline — 폴더 <조건>-jvm
+JVM2_CONDS = ("1g-g1", "2g-g1", "4g-g1", "1g-zgc", "2g-zgc", "4g-zgc")   # campaign.sh jvm-ladder(ADR-010 2차)
+
+
+def app_mem(r):
+    """k6 구간 docker stats 앱 메모리 사용(MiB) {mean, max, first, last} — first·last = 램프 뒤 첫 1분(k6 60~120초)·마지막 60초 평균(회차 안 추세, ADR-010 2차 안정성).
+    파일 없음 = None. MemUsage '391.6MiB / 1GiB'의 앞쪽."""
+    p = r["_dir"] / "timeline-server.jsonl"
+    m = r.get("meta") or {}
+    if not p.exists() or not m.get("k6_started") or not m.get("k6_ended"):
+        return None
+    off = r.get("clock_offset_s") or 0.0
+    t0, t1 = ts(m["k6_started"]), ts(m["k6_ended"])
+    # 리뷰: 램프 끝 = setup_data.startedAt + ramp_s(GC 정상 구간과 같은 기준 — PC 시계). 없으면 k6 시작 + 60
+    ks = S.load(r["_dir"] / "k6-summary.json") or {}
+    st = (ks.get("setup_data") or {}).get("startedAt")
+    ramp_end = st / 1000 + (ks.get("ramp_s") or 0) if isinstance(st, (int, float)) else t0 + 60
+    now, vals = None, []
+    unit = {"KiB": 1 / 1024, "MiB": 1, "GiB": 1024}
+    for line in p.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "t" in row:
+            now = ts(row["t"]) - off
+            continue
+        if now is None or not (t0 <= now <= t1) or row.get("Name") != CONTAINERS["app"]:
+            continue
+        used = str(row.get("MemUsage", "")).split("/")[0].strip()
+        for u, k in unit.items():
+            if used.endswith(u):
+                try:
+                    vals.append((now, float(used[: -len(u)]) * k))
+                except ValueError:
+                    pass
+                break
+    if not vals:
+        return None
+    first = [v for t, v in vals if ramp_end <= t <= ramp_end + 60]   # 램프 뒤 첫 1분 — 램프 중 힙이 자라는 것은 추세가 아니다
+    last = [v for t, v in vals if t >= t1 - 60]
+    return {"mean": statistics.mean(v for _, v in vals), "max": max(v for _, v in vals),
+            "first": statistics.mean(first) if first else None, "last": statistics.mean(last) if last else None}
+
+
+def jvm_rep(camp, folder, r):
+    """회차 하나의 ADR-010 지표 dict(ok 아닌 회차도 — 상태와 함께)."""
+    if "_dir" not in r:
+        r["_dir"] = camp.root / folder / "L4" / "S4c4200" / r["rep"]
+    g = get(r, "gc", "app") or {}
+    aj = S.load(r["_dir"] / "app-jvm.json")
+    cp, mm = cpu(r), app_mem(r)
+    rps = get(r, "fixed", "ok_rps_total")
+    growth = (mm["last"] / mm["first"] - 1) * 100 if mm and num(mm.get("first")) and num(mm.get("last")) and mm["first"] else None
+    return {"rep": r.get("rep"), "status": r.get("status"), "mem_bytes": (aj or {}).get("mem_bytes"), "collector": g.get("collector"),
+            "zgc_generational": g.get("zgc_generational"), "heap_max_mb": g.get("heap_max_mb"), "heap_committed_max_mb": g.get("heap_committed_max_mb"),
+            "full_steady": get(g, "k6_steady", "full"), "full_k6": get(g, "k6", "full"),
+            "stalls_steady": get(g, "k6_steady", "stalls"), "stall_ms_max_steady": get(g, "k6_steady", "stall_ms_max"),
+            "worker_stalls_steady": get(g, "k6_steady", "worker_stalls"), "gc_log_mb": (g["log_bytes"] / 1048576) if num(g.get("log_bytes")) else None,
+            "stops_k6": get(g, "k6", "stops"), "stop_total_k6": get(g, "k6", "stop_ms_total"), "stop_max_k6": get(g, "k6", "stop_ms_max"),
+            "stop_max_steady": get(g, "k6_steady", "stop_ms_max"),
+            "ok_rps": rps, "rps_ratio": (rps / 4200) if num(rps) else None, "p99": r.get("hold_p99"), "p50": r.get("hold_p50"),
+            "worst_p99_nz": get(r, "fixed", "worst_p99_nz_ms"), "p99_steady": get(r, "fixed", "p99_steady_nz_ms"), "p99_ramp": get(r, "fixed", "p99_ramp_nz_ms"),
+            "err": r.get("hold_error_rate"), "sec_p99_max": get(r, "fixed", "sec_p99_max_ms"), "slow_secs": get(r, "fixed", "slow_secs_50ms"),
+            "max_req": get(r, "fixed", "max_req_nz_ms"), "secs": get(r, "fixed", "secs_steady"), "secs_thin": get(r, "fixed", "secs_thin"),
+            "secs_planned": get(r, "fixed", "secs_planned"), "status0_share": get(r, "fixed", "status0_share"),
+            "app_cpu_mean": (cp or {}).get("app")[0] if (cp or {}).get("app") else None,
+            "app_cpu_max": (cp or {}).get("app")[1] if (cp or {}).get("app") else None,
+            "app_mem_mean": (mm or {}).get("mean"), "app_mem_max": (mm or {}).get("max"), "app_mem_growth_pct": growth}
+
+
+JVM_COLS = [("status", "회차 상태", None), ("mem_bytes", "실제 메모리 한도 B", 0), ("collector", "수집기", None), ("heap_max_mb", "최대 힙 MB", 0),
+            ("heap_committed_max_mb", "잡은 힙 최대 MB(로그 전체)", 0), ("full_steady", "Full GC(정상 구간)", 0), ("full_k6", "Full GC(k6 전체)", 0),
+            ("stalls_steady", "앱 스레드 할당·재배치 멈춤(정상 구간)", 0), ("stall_ms_max_steady", "멈춤 최대 ms(정상 구간)", 1),
+            ("worker_stalls_steady", "GC 작업자 재배치 멈춤(정상 구간 — 기록만)", 0),
+            ("stops_k6", "GC 정지 수(k6)", 0), ("stop_total_k6", "GC 정지 합 ms", 0), ("stop_max_k6", "GC 정지 최대 ms(k6)", 1),
+            ("stop_max_steady", "GC 정지 최대 ms(정상 구간)", 1), ("ok_rps", "성공 RPS", 0), ("p50", "선점 p50 ms", 2), ("p99", "선점 p99 ms", 2),
+            ("p99_steady", "p99 램프 밖 ms", 2), ("worst_p99_nz", "가장 나쁜 30초 구간 p99 ms", 1), ("sec_p99_max", "1초 p99 최대 ms(램프 밖)", 1),
+            ("slow_secs", "최대 응답 > 50ms인 초(램프 밖)", 0), ("max_req", "최대 응답 ms(램프 밖)", 0), ("secs", "집계 초(램프 밖)", 0), ("secs_planned", "계획 초", 0), ("secs_thin", "얇은 초", 0), ("status0_share", "코드 0 비율", 4),
+            ("p99_ramp", "p99 램프 ms", 2), ("err", "에러율", 4), ("app_cpu_mean", "앱 CPU 평균 %", 0), ("app_cpu_max", "앱 CPU 최대 %", 0),
+            ("app_mem_mean", "앱 메모리 평균 MiB", 0), ("app_mem_max", "앱 메모리 최대 MiB", 0), ("app_mem_growth_pct", "앱 메모리 램프 뒤 첫 1분→끝 1분 %", 1), ("gc_log_mb", "GC 로그 MB(/dev/shm — 앱 메모리에 포함)", 1)]
+
+
+def jvm_main(root, camp, out, js, conds=JVM_CONDS, base_c="1g-auto"):
+    """ADR-010 — 조건별 회차(1회 세트면 그 값, 다회 세트면 중앙값 [최소–최대]). 판정(J·K 가설)은 담지 않는다."""
+    multi = camp.expect_reps > 1
+    out.append(f"## 1. 앱 JVM 조건별 — S4c4200 tmpfs · 앱 기본값 조건(default) · {camp.expect_reps}회 (ADR-010)\n")
+    rows, data, per_rep = [], {}, {}
+    for c in conds:
+        folder = f"{c}-jvm"
+        camp.reps(folder, "S4c4200")   # ok 아닌 회차 메모(notes)·상태 기록
+        allr = list((camp.summ.get(folder) or {}).get("L4/S4c4200") or [])
+        reps = [jvm_rep(camp, folder, r) for r in allr]
+        per_rep[c] = reps
+        okr = [x for x in reps if x["status"] == "ok"]
+        d = {"n": len(okr), "statuses": [x["status"] for x in reps]}
+        for k, _, dd in JVM_COLS:
+            if k in ("status", "collector"):
+                d[k] = ", ".join(sorted({str(x[k]) for x in reps})) if reps else None
+            else:
+                d[k] = agg([x[k] for x in (okr if multi else (okr or reps))])   # 리뷰: 다회차는 ok 회차만 — 실패 회차 값은 회차별 표에만(1회 세트는 이전처럼 상태 칸과 함께)
+        data[c] = d
+        cell = lambda k, dd: d[k] if k in ("status", "collector") else (txt(d[k], dd) if multi else (fx(d[k]["values"][0], dd) if d[k]["values"] and num(d[k]["values"][0]) else "누락"))
+        rows.append([c, d["n"]] + [cell(k, dd) or "누락" for k, _, dd in JVM_COLS])
+    table(out, ["조건(메모리-수집기)", "n(ok)"] + [lbl for _, lbl, _ in JVM_COLS], rows)
+    if multi:   # 회차별 안정성 원시 값(3회 모두 통과 판정은 메인 — 명세 §11)
+        out.append("### 회차별 안정성 지표\n")
+        rr = []
+        for c in conds:
+            for x in per_rep[c]:
+                v = lambda k, dd=0: fx(x[k], dd) if num(x[k]) else ("누락" if x[k] is None else str(x[k]))
+                rr.append([c, x["rep"], x["status"] or "누락", v("full_steady"), v("stalls_steady"), v("worker_stalls_steady"), v("stop_max_steady", 1), v("err", 4),
+                           v("status0_share", 4), v("rps_ratio", 4), f"{v('secs')}/{v('secs_planned')}", v("app_mem_growth_pct", 1), v("gc_log_mb", 1),
+                           v("p99", 2), v("sec_p99_max", 1), v("slow_secs"), v("app_cpu_mean")])
+        table(out, ["조건", "회차", "상태", "Full GC(정상)", "앱 스레드 멈춤(정상)", "GC 작업자 멈춤(정상 — 기록만)", "GC 정지 최대 ms(정상)", "에러율", "코드 0 비율",
+                    "성공 RPS ÷ 4,200", "집계 초/계획 초", "앱 메모리 램프 뒤 첫→끝 1분 %", "GC 로그 MB", "p99 ms", "1초 p99 최대 ms", "> 50ms 초", "앱 CPU 평균 %"], rr)
+    base = data.get(base_c) or {}
+    med = lambda d, k: (d.get(k) or {}).get("median") if isinstance(d.get(k), dict) else None
+    v = lambda x, dd=0: fx(x, dd) if num(x) else ("누락" if x is None else str(x))
+    rel = lambda a, b: (a / b - 1) * 100 if num(a) and num(b) and b else None
+    facts = []
+    for c in conds:
+        if c == base_c:
+            continue
+        d = data.get(c) or {}
+        facts.append(f"{c}: 수집기 {v(d.get('collector'))} · 정상 구간 Full GC {v(med(d, 'full_steady'))} · 멈춤 {v(med(d, 'stalls_steady'))} · "
+                     f"정지 최대 {v(med(d, 'stop_max_steady'), 1)} ms · 1초 p99 최대 {v(med(d, 'sec_p99_max'), 1)} vs {v(med(base, 'sec_p99_max'), 1)} ms · "
+                     f"p99 {ptxt(rel(med(d, 'p99'), med(base, 'p99')))} · 앱 CPU {ptxt(rel(med(d, 'app_cpu_mean'), med(base, 'app_cpu_mean')))}(÷ {base_c})")
+    fact(out, " / ".join(facts) + (" — 값 = 회차 중앙값" if multi else " — 1회 측정(회차 사이 흔들림 미측정, ADR-010 §5 ①)"))
+    js["jvm"] = data
+    js["jvm_reps"] = per_rep
+
+
 def main(argv):
-    rm = False
+    rm = jv = False
     if len(argv) == 3 and argv[0] == "--set" and argv[1] == "cost-remeasure":
         rm, argv = True, argv[2:]
+    elif len(argv) == 3 and argv[0] == "--set" and argv[1] in ("jvm-baseline", "jvm-ladder"):
+        jv, argv = argv[1], argv[2:]
     if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
@@ -626,15 +764,22 @@ def main(argv):
     if not (root / "conditions.txt").exists():
         print(f"conditions.txt 없음: {root}", file=sys.stderr)
         return 2
-    camp = Camp(root)
-    for f in ("wall.json", "wdrop.json"):
+    camp = Camp(root, expect_reps=1 if jv == "jvm-baseline" else 3)
+    for f in (() if jv else ("wall.json", "wdrop.json")):   # jvm 표에는 벽·반감 칸이 없다
         if not (root / f).exists():
             camp.notes.append(f"{f} 없음 — 벽·반감 칸은 누락")
     out = [f"# ADR-009 확정 측정 비교 — `{root.name}`\n",
            "> `k6/ADR-009/scripts/compare.py`가 조건별 `summary.json`(summarize.py) · 회차 `effect.json`·원시 파일 · `wall.json`·`wdrop.json`에서 산출. "
            "값 = 중앙값 [최소–최대](n = 정확히 ok인 회차), 값이 빠진 회차는 `누락 k/n`. 정의는 스크립트 머리말. "
            "각 표 아래 '반증 관측 사실'은 비교 값뿐이며 가설 성립·기각 판정은 담지 않는다.\n"]
-    js = {"campaign": root.name, "set": "cost-remeasure" if rm else "main"}
+    js = {"campaign": root.name, "set": jv or ("cost-remeasure" if rm else "main")}
+    if jv:
+        out[0] = f"# ADR-010 앱 JVM 기준 비교 — `{root.name}`\n"
+        if jv == "jvm-ladder":
+            jvm_main(root, camp, out, js, JVM2_CONDS, "1g-g1")
+        else:
+            jvm_main(root, camp, out, js)
+        return finish(root, camp, out, js)
     if rm:
         remeasure_main(root, camp, out, js)
         return finish(root, camp, out, js)

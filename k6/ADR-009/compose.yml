@@ -73,7 +73,8 @@ services:
       # 명세 §13: GC·safepoint 로그(run.sh가 회차 끝에 gc.log.gz로 받는다). 수집기는 정하지 않는다(JVM 기본 선택 — 메모리 1g면 SerialGC, 결과 gc.json에 기록).
       #   리뷰 H3·R3·R7: -Xlog:async(로그 쓰기가 GC·safepoint 스레드를 막지 않게) · 파일은 /dev/shm(컨테이너 메모리 — 디스크 I/O·tmpfs 조건과 무관) ·
       #   filecount=0(회전 끔 — 회차 전체가 한 파일, 기본 회전 5 × 20MB에서 잘리지 않게). 로그 양은 gc.json log_bytes·lines
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:time,uptime,level,tags:filecount=0"
+      # ADR-010: 앱 수집기 손잡이 APP_JVM_OPTS·APP_JVM_OPTS2(run.sh --app-gc g1 → -XX:+UseG1GC · zgc → -XX:+UseZGC + -XX:+ZGenerational) — 비우면(기본) 이전과 같은 문자열(수집기는 JVM 기본 선택)
+      JAVA_TOOL_OPTIONS: "${APP_JVM_OPTS:+${APP_JVM_OPTS} }${APP_JVM_OPTS2:+${APP_JVM_OPTS2} }-XX:MaxRAMPercentage=75 -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:time,uptime,level,tags:filecount=0"
     ports:
       - "8101:8101"
     cpus: ${APP_CPUS:-2}

@@ -45,6 +45,14 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
   `pg_trigger` 두 이름 ⇔ B(`trigger-mismatch`).
   F 컨테이너는 `application-reconciler.yml`이 A·정리를 끈다(대조 전용 — `reconciler-config-mismatch`가 A 끔·정리 NONE도 본다).
 
+## 앱 JVM 축(`--app-mem` · `--app-gc`) — ADR-010
+
+- `--app-mem <정수>m|g`(기본 1g) = 앱 컨테이너 메모리 한도(compose `APP_MEM` → `mem_limit`). `--app-gc auto|g1`(기본 auto) — `g1`이면 `APP_JVM_OPTS=-XX:+UseG1GC`가 `JAVA_TOOL_OPTIONS` 앞에 붙는다. 기본값이면 compose 렌더가 이전과 같다.
+- 회차 합격 추가 사유: `--app-gc g1`인데 `gc.json` 앱 수집기 ≠ G1 → `gc-collector-mismatch`(결과 사유 — 다시 재지 않음). auto는 수집기를 기록만 한다.
+- GC 요약(`summarize.py --gc`)에 `full`(Full GC가 든 정지 수) · `k6_steady`(k6 60초 뒤 ~ 끝) · `heap_max_mb` · `heap_committed_max_mb`, 고정 셀 요약에 1초 꼬리(`sec_p99_max_ms` · `slow_secs_50ms` · `max_req_nz_ms` — 램프 밖, 코드 0 제외)가 더해졌다.
+- ADR-010 2차: `--app-gc zgc`(= `-XX:+UseZGC -XX:+ZGenerational` — compose `APP_JVM_OPTS`·`APP_JVM_OPTS2`) · ZGC는 수집기 = Z이고 세대형(로그에 Minor Collection)이 아니면 `gc-collector-mismatch`. GC 요약에 `stalls`·`stall_ms_max`(할당·재배치 멈춤 — ZGC가 할당을 못 따라갈 때 앱 스레드가 기다린 시간), ZGC 정지 = Z로 시작하는 safepoint, `zgc_generational`. 캠페인 `--set jvm-ladder`(G1·ZGC × 1g·2g·4g × 3회 = 18) · 비교 `compare.py --set jvm-ladder`(중앙값 [최소–최대] + 회차별 안정성 표 — 메모리 추세는 램프 뒤 첫 1분 → 끝 1분).
+- 캠페인 `--set jvm-baseline`: 앱 기본값 조건(default) × S4c4200 tmpfs × {1g-auto, 1g-g1, 1792m-auto, 2g-auto} × 1회(폴더 `<메모리>-<수집기>-jvm`) · 비교 `compare.py --set jvm-baseline`.
+
 ## 셀
 
 | 셀 | 시나리오 | ADR-009에서 더한 것 |

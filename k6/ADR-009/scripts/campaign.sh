@@ -6,7 +6,9 @@
 #   scripts/campaign.sh --sha <SHA> [--id <campaign-id>]
 #   scripts/campaign.sh --sha <SHA> --id <id> --dry-run     # 조건·순서 계획(conditions.txt·order.txt) + 예상 시간만 — 측정 없음(84행)
 #   scripts/campaign.sh --set cost-remeasure --sha <SHA> [--id <id>] [--dry-run]   # 명세 §13 비용 셀 재측정 48회(아래 'cost-remeasure')
-#   --set main(기본 — 아래 84회 계획, 명세 §13 전 본측정과 같은 conditions.txt·order.txt) | cost-remeasure
+#   scripts/campaign.sh --set jvm-baseline --sha <SHA> [--id <id>] [--dry-run]     # ADR-010 앱 JVM 기준 4회(아래 'jvm-baseline')
+#   scripts/campaign.sh --set jvm-ladder --sha <SHA> [--id <id>] [--dry-run]       # ADR-010 2차 — G1·ZGC × 1g·2g·4g × 3회 = 18(아래 'jvm-ladder')
+#   --set main(기본 — 아래 84회 계획, 명세 §13 전 본측정과 같은 conditions.txt·order.txt) | cost-remeasure | jvm-baseline
 #
 # 계획(설계 §10, 명세 §11 측정 조건 갱신 — C·F = A+C·A+F, B+C는 효과 셀만) — 조건 이름 = <조건>-<셀 묶음>, 각 3회:
 #   비용  {control, A, B, A+C, A+F} × {s4c-disk(S4c4200 디스크) · s4c-tmpfs(S4c4200 tmpfs) · s2(S2) · s3a20(S3-a20)}  = 60
@@ -24,6 +26,9 @@
 # cost-remeasure(명세 §13 — 교란 수정 뒤 비용 셀만): {control, A, A+C, A+F} × {s4c-disk · s4c-tmpfs · s2 · s3a20} × 3 = 48.
 #   순서 = 회차 우선 + 균형 회전: 묶음 4개를 회차 k마다 (k−1)칸, 묶음 안 조건 4개를 회차 k마다 (k−1)칸 회전(4개 × 3회차 — 같은 묶음·조건이 회차마다 다른 자리).
 #   판정은 이 캠페인 회차끼리만(옛 캠페인과 섞지 않는다 — 명세 §13). 기본 id = <날짜>-adr009-remeasure-<SHA>
+# jvm-baseline(ADR-010 — 앱 JVM GC·메모리 기준): 앱 기본값 조건(default) × S4c4200 tmpfs × 앱 JVM {1g·auto, 1g·g1, 1792m·auto, 2g·auto} × 1회 = 4.
+#   순서 고정(1회 — 회전 없음, ADR-010 §5 한계). 기본 id = <날짜>-adr010-jvm-<SHA>
+# jvm-ladder(ADR-010 2차 — 명세 §11): default × S4c4200 tmpfs × {1g,2g,4g}-{g1,zgc} × 3회 = 18. 회차 우선 · 조건 6개를 회차마다 2(k−1)칸 회전. 기본 id = <날짜>-adr010-jvm2-<SHA>
 # 시한: 시드 회차 starts_at 2026-12-31 19:00+09 — run.sh가 그 1시간 전부터 회차를 거부한다(seed-time-bomb). 캠페인은 약 19.5시간.
 set -uo pipefail
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -46,13 +51,14 @@ while (( $# )); do
   esac
 done
 [[ -n "$SHA" ]] || { echo "--sha required" >&2; exit 2; }
-[[ "$SET" == main || "$SET" == cost-remeasure ]] || { echo "--set main|cost-remeasure" >&2; exit 2; }
+[[ "$SET" =~ ^(main|cost-remeasure|jvm-baseline|jvm-ladder)$ ]] || { echo "--set main|cost-remeasure|jvm-baseline|jvm-ladder" >&2; exit 2; }
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 if (( ! DRY_RUN )) && { ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- k6/ADR-009 ':(exclude)k6/ADR-009/results' \
    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- k6/ADR-009 ':(exclude)k6/ADR-009/results')" ]]; }; then
   echo "k6/ADR-009 differs from $SHA — commit first" >&2; exit 2
 fi
-CAMPAIGN="${CAMPAIGN:-$(date +%Y%m%d)-adr009-$([[ $SET == cost-remeasure ]] && echo remeasure-)$SHA}"
+case "$SET" in jvm-baseline) DEF_ID="$(date +%Y%m%d)-adr010-jvm-$SHA" ;; jvm-ladder) DEF_ID="$(date +%Y%m%d)-adr010-jvm2-$SHA" ;; cost-remeasure) DEF_ID="$(date +%Y%m%d)-adr009-remeasure-$SHA" ;; *) DEF_ID="$(date +%Y%m%d)-adr009-$SHA" ;; esac
+CAMPAIGN="${CAMPAIGN:-$DEF_ID}"
 ROOT="$ADR_DIR/results/$CAMPAIGN"
 mkdir -p "$ROOT"
 LOG="$ROOT/CAMPAIGN.log"
@@ -73,6 +79,14 @@ if [[ "$SET" == cost-remeasure ]]; then
   BLOCK_s4c_disk="control A A+C A+F" BLOCK_s4c_tmpfs="control A A+C A+F" BLOCK_s2="control A A+C A+F" BLOCK_s3a20="control A A+C A+F"
   EXPECT_TOTAL=48 BLOCK_STEP=1 COND_STEP_DIV=4   # 묶음 (k−1)칸 · 조건 ⌈4/4⌉(k−1) = (k−1)칸
 fi
+if [[ "$SET" == jvm-baseline ]]; then
+  REPS=1 BLOCKS="jvm" BLOCK_jvm="1g-auto 1g-g1 1792m-auto 2g-auto"
+  EXPECT_TOTAL=4 BLOCK_STEP=0 COND_STEP_DIV=1   # 1회 — 회전 없음
+fi
+if [[ "$SET" == jvm-ladder ]]; then
+  REPS=3 BLOCKS="jvm" BLOCK_jvm="1g-g1 2g-g1 4g-g1 1g-zgc 2g-zgc 4g-zgc"
+  EXPECT_TOTAL=18 BLOCK_STEP=0 COND_STEP_DIV=3   # 조건 ⌈6/3⌉(k−1) = 2(k−1)칸
+fi
 args_of() {  # 인자: 묶음 조건 → run.sh 인자
   case "$1" in
     s4c-disk)  echo "--cond $2 --cells 'S4c4200' --pg-preset default" ;;
@@ -81,15 +95,16 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
     s3a20)     echo "--cond $2 --cells 'S3-a20' --pg-preset default" ;;
     s3e)       echo "--cond $2 --cells 'S3e-a20' --pg-preset default" ;;
     s3c)       echo "--cond control --cleanup $2 --cells 'S3c-a20' --pg-preset default" ;;
+    jvm)       echo "--cond default --cells 'S4c4200' --pg-preset tmpfs --app-mem ${2%-*} --app-gc ${2##*-}" ;;   # 조건 = <메모리>-<수집기>
   esac
 }
-name_of() { [[ "$1" == s3c ]] && echo "close-$2-s3c" || echo "$2-$1"; }
+name_of() { case "$1" in s3c) echo "close-$2-s3c" ;; jvm) echo "$2-jvm" ;; *) echo "$2-$1" ;; esac; }
 # 1회 예상 분(설계 §10 실측 출처: S2 1.3 · S3-a20 21.8 · S4c4200 9.6 — S3e·S3c는 S3-a20과 같은 길이) + C·F 첫 대조 바퀴 대기(최대 2분, 평균 1분으로 셈)
 # 명세 §13 뒤 하네스는 모든 조건이 시드 끝 → 첫 요청 87초(PRE_K6_TARGET_S)를 거친다 — 옛 대기(대조 없음 약 17초 · 대조 약 45초)보다 1회당 약 1.2분·0.7분 길다.
 #   main의 order.txt(예상분 열)는 바꾸지 않는다(명세 §13 전 계획과 바이트가 같아야 한다) — 보정 예상은 dry-run 끝 줄에 따로. cost-remeasure는 보정 값(모든 조건 + 1.2분)
 minutes_of() {
-  local m; case "$1" in s4c-*) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
-  if [[ "$SET" == cost-remeasure ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1.2 }')
+  local m; case "$1" in s4c-*|jvm) m=9.6 ;; s2) m=1.3 ;; *) m=21.8 ;; esac
+  if [[ "$SET" == cost-remeasure || "$SET" == jvm-baseline || "$SET" == jvm-ladder ]]; then m=$(awk -v m="$m" 'BEGIN { print m + 1.2 }')
   else case "$2" in A+C|A+F|B+C) m=$(awk -v m="$m" 'BEGIN { print m + 1 }') ;; esac; fi
   echo "$m"
 }
@@ -109,7 +124,9 @@ rotate() {  # 인자: 칸수 원소... → 왼쪽으로 칸수만큼 회전한 �
 ORDER_NEW="$(mktemp)"
 {
   if [[ "$SET" == main ]]; then echo "# ADR-009 조건 순서 — 회차 우선 · 묶음($BLOCKS) 회차마다 2칸 회전 · 묶음 안 조건 ⌈n/3⌉칸 회전 (campaign.sh 머리말)"
-  else echo "# ADR-009 cost-remeasure 조건 순서(명세 §13) — 회차 우선 · 묶음($BLOCKS) 회차마다 1칸 회전 · 묶음 안 조건 1칸 회전 (campaign.sh 머리말)"; fi
+  elif [[ "$SET" == cost-remeasure ]]; then echo "# ADR-009 cost-remeasure 조건 순서(명세 §13) — 회차 우선 · 묶음($BLOCKS) 회차마다 1칸 회전 · 묶음 안 조건 1칸 회전 (campaign.sh 머리말)"
+  elif [[ "$SET" == jvm-baseline ]]; then echo "# ADR-010 jvm-baseline 조건 순서 — 1회 · 고정 순서(campaign.sh 머리말)"
+  else echo "# ADR-010 jvm-ladder 조건 순서 — 회차 우선 · 조건 2칸 회전(campaign.sh 머리말)"; fi
   echo "# 회차 회차안순번 전체순번 조건 예상분"
   seq_all=0
   for rep in $(seq 1 "$REPS"); do
@@ -178,7 +195,7 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
 
 # 결과 사유(머리말) — 이 사유가 하나라도 있는 회차는 다시 재지 않는다. ADR-008 결과 사유 + ADR-009(효과·마감 임박·조건 적용·시한폭탄·대조/정리 실패 ·
 #   H-16 reconcile-missing(대조가 기대만큼 돌지 않은 것은 부하의 결과 — 다시 재서 가리지 않는다))
-ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-key-missing|limit-set-by-profile|limit-default-not-precheck|spring-config-override|spring-config-import|cond-config-mismatch|reconciler-config-mismatch|trigger-mismatch|effect-unexpected|false-repair|close-leak|confirm-after-close-failed|cleanup1-early|cleanup1-incomplete|cleanup2-left|pre-close-mismatch|schedule-closed-seen|counter-judge-vacuous|reconcile-errors|reconcile-missing|cleanup-errors|drift-record-failed|close-wrong-code|close-tick-failed|drift-key-present)(,|$)'
+ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-key-missing|limit-set-by-profile|limit-default-not-precheck|spring-config-override|spring-config-import|cond-config-mismatch|reconciler-config-mismatch|trigger-mismatch|effect-unexpected|false-repair|close-leak|confirm-after-close-failed|cleanup1-early|cleanup1-incomplete|cleanup2-left|pre-close-mismatch|schedule-closed-seen|counter-judge-vacuous|reconcile-errors|reconcile-missing|cleanup-errors|drift-record-failed|close-wrong-code|close-tick-failed|drift-key-present|gc-collector-mismatch)(,|$)'
 all_status() { ls "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true; }
 non_ok_reps() { local st; for st in $(all_status); do grep -qxs 'ok' "$st" || echo "$st"; done; }
 consistency_violation() {  # 인자: status 경로 — 판정기 위반이 찍혔으면 0. 효과 셀(S3e)은 주입한 어긋남이 기대값이라 effect.json(주입 밖 어긋남·오탐 복구)으로 본다
