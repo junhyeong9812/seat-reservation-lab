@@ -11,7 +11,7 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 |------|------|
 | `compose.yml` | ADR-008 compose + 조건 키를 **조건이 켤 때만** 넣는 `${VAR:+…}` 조각(머리말) · 앱 커넥션 `ApplicationName=seatlab-app` |
 | `compose.reconciler.yml` | F 오버레이 — 같은 이미지, 프로필 `loadtest,reconciler`, 포트 8102, CPU 1, `ApplicationName=seatlab-reconciler`, JSON은 대조 주기·풀·Flyway만 |
-| `compose.tmpfs.yml` | ADR-007 그대로(데이터 디렉터리 tmpfs · DB 메모리 8g) |
+| `compose.tmpfs.yml` | ADR-007 그대로(데이터 디렉터리 tmpfs · DB 메모리 8g). 크기는 run.sh `--pg-tmpfs-size <GiB>`로 바꿀 수 있다(DB 메모리 = 크기 + 2g · 지정 안 하면 6g·8g) |
 | `compose.probe.yml` | ADR-011 서버 측정기 — 서비스 `probe`(이미지 `${PROBE_IMAGE:-grafana/k6:2.2.0}` · `pull_policy: never` · 앱에 `http://app:8101`). `--probes` 회차만 주 k6 직전에 띄우고 회차 끝에 지운다 · `compose_down`이 늘 함께 내린다 |
 | `scripts/tail.py` | **ADR-011 새로 씀** — 판정 지표(ADR-011 §4 T1~T5: 느린 초 · 26초 성분 검정 · 지연 분해 · 측정기 튐 겹침 · Go GC 겹침 · 1분 p99 추세 · 안정성 4항목 · 메모리 ÷ 한도) · `--probe-check`(회차 사유 `probe-missing`) |
 | `scenarios/probe-ping.js` | ADR-011 저율 측정기 시나리오 — 고정 도착률 50/s `GET /actuator`(actuator 링크 목록 200 — DB를 거치지 않음. `/actuator/health/ping`은 이 앱에서 404 · `/actuator/health`는 DB 검사를 부른다) · 요청 시각 ms |
@@ -85,6 +85,7 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `k6ver`(E1) | `v220-k6ver` · `v230-k6ver` · `v230gc-k6ver`(2g — Go GC 기록은 v230gc만) | 3 | `--k6-bin` = `--k6-v220`(기본 `~/.local/opt/k6-v2.2.0/k6` — sha256 대조)·`--k6-v230`(기본 `k6`) · `--probes`(v230gc만 `--gctrace`) | `<날짜>-adr011-k6ver-<SHA>` |
 | `pretouch`(E2) | `none-pretouch` · `xms-pretouch`(`--app-xms-full`) · `pt-pretouch`(`--app-xms-full --app-pretouch`)(4g) | 3 | `--k6-bin`(캠페인 인자 — 필수) · `--probes` | `<날짜>-adr011-pretouch-<SHA>` |
 | `soak`(E3) | `2g-zgc-soak` | 2 | `--k6-bin`(필수) · `--probes --s4c-steps 60 --seed-schedules 800`(30분 · 800만 석) | `<날짜>-adr011-soak-<SHA>` |
+| `soakrc`(E3 대조 켜고 끄기) | `noc-soakrc`(`--cond A --cleanup schedule` — 앱 대조 C만 끔) · `c-soakrc`(default) | 1 | soak과 같음 + `--pg-tmpfs-size 12` · 순서 noc → c 고정 | `<날짜>-adr011-soakrc-<SHA>` |
 
 캠페인은 시작 전에 바이너리 version을 대조한다(k6ver: v2.2.0·v2.3.0 + v2.2.0 sha256 = 공식 빌드). `--probe-k6-bin`을 주면 조건 줄에 붙는다. 비교: 조건마다 `summarize.py` 뒤 `tail.py --set <세트> results/<id>` → `TAIL.md`·`tail.json`(정의 = 스크립트 머리말 — 느린 초는 ADR-010 log '느린 초 대조'와 같다). 판정 손잡이(환경변수 — 쓴 값은 결과 `knobs`): `TAIL_NULL`(26초 성분 귀무 — 기본 `ar` = AR(4) 스펙트럼 대리 계열 1000개) · `TAIL_SPIKE_FLOOR_MS`(측정기 튐 하한 20) · `TAIL_GC_STW_MS`(5)·`TAIL_GC_WALL_MS`(100 — Go GC 사건) · `TAIL_PERIOD_TOL_S`(1.5 — 주기 초). 겹침마다 최대 배수(1 ÷ 우연 비율)를 내고 2 미만이면 '판정 불가'.
 
@@ -96,7 +97,7 @@ k6/ADR-009/scripts/run.sh --sha <SHA> --worktree --cond default --cells S4c4200 
 python3 k6/ADR-009/scripts/tail.py --rep k6/ADR-009/results/<id>/L4/S4c4200/rep1   # 회차 하나 지표(스모크)
 ```
 
-장시간(E3) 한계: S4c 앱 설정 HOLD_TTL 60m(run.sh `config_env` s4) — 구간 상한 100이 이것에 묶인다. tmpfs 6g·DB 메모리 8g는 그대로다(7분 회차 사용 약 1.75GB — 800만 석·약 770만 홀드에서 남은 공간은 `tmpfs-low-space`가 판정).
+장시간(E3) 한계: S4c 앱 설정 HOLD_TTL 60m(run.sh `config_env` s4) — 구간 상한 100이 이것에 묶인다. `soak`은 tmpfs 6g·DB 메모리 8g 그대로다 — 30분 회차에서 끝 정합성 쿼리의 임시 파일이 6g를 넘겨 회차가 매번 실패했다(ADR-011 log 10-17). `soakrc`는 12g·14g(`--pg-tmpfs-size 12`)이고, 적용된 크기는 `tmpfs-size-mismatch`, 쿼리 뒤 공간은 `pg-storage-end.json`(기록만)으로 본다.
 
 ## 셀
 
