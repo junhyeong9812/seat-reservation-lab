@@ -1,0 +1,96 @@
+# log — ADR-011 측정 환경 꼬리 지연 원인
+
+## 타임라인
+
+| 시각 | 사건 | 결과/결정 |
+|------|------|----------|
+| 10-16 10:55 | 사용자 요청(ADR-010이 넘긴 ①~④ 중 원인 규명) · 인터뷰 4문항 + "4번은 후순위" | 새 ADR-011(기존 +1) · 범위 ①②③ · 기존 데이터 먼저 → 가설별 실험 · 브랜치 feat/adr-011-tail-latency(feat/adr-010 위) |
+| 10-16 10:55 | 명세 작성 — 사용자 합의 대기 | — |
+| 10-16 10:59 | 사용자 "진행하자" — 명세 합의, 모드 auto · task 02 읽기 전용 분석 워커(Opus) 시작(합의 전 L0로 착수) | — |
+| 10-16 10:59 | task 01 번호 이동 7차: git mv 011~017 → 012~018 · 참조 108곳(병기·범위 뒤 숫자까지 — 6차 실수 재발 방지) · 7차 메모 · 6차 때 잘못 바뀐 5차 이력 줄(NEXT '기존 ADR-011~015' → 원문 010~015) 복원 · '다음 측정 ADR부터' 뜻의 ADR-012부터 → ADR-011부터 → ec7a6286 · 코드 주석 3곳 939839a8 | 링크 대상 MISSING 0(2026-09-29 옛 기록 제외) |
+| 10-16 11:34 | task 02 읽기 전용 분석 회수(Opus, 50회 · 요청 약 8,200만 건) — 결과는 아래 '읽기 전용 분석' | 1순위 후보 = PC(k6) 쪽 지연 · 메인 교차 확인: meta.json k6_version 10-14 v2.2.0(go1.26.5) → 10-15 v2.3.0(go1.26.8), `last -x reboot` 10-15 12:43·12:56(커널 7.0.0-34 → 38) |
+| 10-16 15:53 | ADR-011 문서(측정 전 8fddcba9) · k6 v2.2.0 gh release 내려받기·체크섬 확인(commit 00a9a1b7f5 = 옛 측정과 같음) · 하네스 구현 워커(Opus) → 4d2c752b · E2 3조건 정정(로컬 4g 컨테이너 실측: AlwaysPreTouch만이면 Initial Capacity 64M) 6b2ef3de · 서버에 grafana/k6:2.2.0 pull(digest 9bd01d69…) · 스모크 smoke-adr011-probes → probe-missing(측정기 대상 404) · 듀얼 리뷰 rv33 | 수정 워커 진행 |
+| 10-16 16:51 | 리뷰 반영 a594f27e·문서 3af80c99(E1 3조건 — 기록 켠 스모크에서 느린 초 72·26초 성분 소실·긴 Go GC 겹침 70/72 → 기록이 주 k6를 흔든 정황) · codex 재점검 신규 3 → e4c24c2b(수거 실패 판정·트랩 정리·구간 상한 83) · 스모크 2 smoke-adr011-probes2(v2.3.0·기록 없음·측정기) ok: probe-check 통과 · 26초 성분 재등장 p=0.001(26.7초) · 느린 초 6(주기 6·클라이언트형 5) · PC 측정기 튐 2(겹침 0) · 서버 측정기 튐 0 → 사건 0건 = 겹침 없음 수정 a57f92e0·ddfbe6c3 | E1 시작 |
+| 10-16 18:50 | E1 끝(18:30, 9회 전부 ok) · 요약·tail.py → 088f722a(결과) · **T1 기각**: v2.2.0 3회 모두 26초 성분 p=0.001(26.05·25.85·26.15초) — 버전 아님 → 한계 2대로 PC 상태가 후보 · **T2 기각**: v2.3.0 PC 측정기(별도 k6 프로세스) 겹침 7/27(기대 0.8 · ×9.1) · v2.2.0도 10/28(×10.3) — 주 k6 프로세스 밖, PC 전체 · 서버 측정기 튐 v2.2.0 0건(겹침 없음) · v2.3.0 2/27 · 느린 초 클라이언트형 우세(클라이언트 구간 중앙 50~85ms · waiting 2~25ms) · **T3 판정 가능·성립**: 기록 조건 26초 성분 유지(p=0.001 ×3 · 느린 초 7~9 — 기록 없음과 같은 모양) · Go GC 겹침 21/23(기대 1.9 · ×11.2). 긴 Go GC 자체가 약 26초 간격(26.5·27.0·26.2·26.9초 등) · 예: rep1 gc103 wall 306ms·assist CPU 2,021ms. 인과 방향(k6 할당 폭주 → GC → 지연 대 PC 정지 → GC가 길어짐)은 이 자료로 가를 수 없음 · E2 주 k6 = v2.2.0(둘 다 튐 → 규칙대로) | E2 시작 18:50(sha 088f722a · 9회 · 약 97분) |
+| 10-16 20:00 | 노트북(k6 PC — HP Victus 16 · 24스레드 · powersave) 읽기 전용 점검(사용자 "확인해보자") · **유력 원인 발견**: 다른 프로젝트 컨테이너 text-es(compose text-server · Elasticsearch · restart unless-stopped)가 재부팅(10-15 12:56:45) 뒤부터 기동 실패 반복 — RestartCount 4,635(× 약 24초 ≈ 31시간 = 재부팅 뒤 전체) · 기동 간격 실측 23.4~27.9초(3분 관찰) · 기동마다 JVM AlwaysPreTouch로 RSS 약 9GB · CPU 400%+ · 실패 사유 failed to obtain node locks(데이터 경로 잠금). 재부팅 시점·주기·PC 전체 영향(측정기 k6 동반 튐) 모두 맞음 — 켜고 끄기 전이라 후보 · 같은 시각 사용자의 다른 실험(ccle-v500 컨테이너, 로컬 postgres 부하)도 E2와 동시 진행 중 | 사용자에게 보고 — text-es 정지·E2 처리 결정 대기 |
+| 10-16 20:07 | text-es 출처 확인: compose 라벨 = `~/markCloud/squatting-project/text-server`(6월 12일 생성) — 그 경로에 compose 파일 없음·빈 폴더 4개(root 소유, 10-15 12:43 생성 = 재부팅 때 Docker가 없는 바인드 경로를 새로 만든 것) → ES가 root 폴더에 못 써 기동 실패 반복. 사용자 "es 끄고 저장된 폴더도 깔끔하게 삭제하자" → `docker stop`·`docker rm text-es` 20:06:51(이미지·text-es-init은 그대로) · 폴더는 root 소유라 사용자 sudo 필요 · E2 rep3 첫 회차(none) 도중 text-es 꺼짐 — E2 전체는 간섭(text-es·사용자 다른 실험)이 섞여 참고 자료 | 폴더 삭제 사용자 대기 · E2 끝나면 확인 측정 |
+| 10-16 20:45 | E2 끝(20:29, 9회 ok) · 요약·tail.py → 결과 커밋 · text-es 켜진 회차 7회(none 1~3 · xms 1~2 · pt 1~2 — none rep3은 끝 1분만 꺼짐) 모두 26초 성분 p=0.001 · 느린 초 9~14 · **text-es 끈 뒤 2회(xms rep3 · pt rep3) 느린 초 0 · 26초 성분 없음(p=0.630 · 0.416)** — 켜고 끄기 1차 정황. T4 판정은 text-es 간섭으로 보류(주기 없는 서버형 none 0~1 · xms 0 · pt 0 — 차이 작음) · 사용자 "es날렸으니 이제 문제 없는지 확인만" → E1 같은 구성 재측정(text-es 없음) 시작 | id 20261016-adr011-k6ver-noes-<sha> · 9회 약 97분 |
+| 10-16 22:35 | E1 재측정(text-es 없음, 20261016-adr011-k6ver-noes-3807c2a2) 끝 22:23 · 9회 ok · **느린 초 9회 모두 0 · 26초 성분 0/9(p 0.147~0.709)** · 1초 p99 최대 4.6~23.0ms(text-es 켜짐 E1: 37.2~112.8ms) · 측정기 튐 PC 0~1·서버 0 · 안정성 4항목 전부 ○ · **켜고 끄기 충족 → 26초 주기 튐 원인 = 노트북의 text-es 기동 실패 반복 확정**(켜짐 E1 9/9 + E2 7/7 → 끔 9/9 + E2 2/2). k6 버전 무관 · .164 seatlab 컨테이너 0 | 사용자 보고 |
+| 10-17 08:45 | 사용자 "남은 측정 먼저 돌리자" · 노트북 확인(ccle-v500 끝남 · load 2.2) · E2 재측정(20261017-adr011-pretouch-noes-c5117f4b · 9회) → E3 장시간(20261017-adr011-soak-c5117f4b · 2회) 한 유닛으로 이어 시작 · 주 k6 v2.2.0(E2와 같게) | 약 2.8시간 |
+| 10-17 14:20 | E2 재측정 끝 10:23(9회 ok) · **E3 4회 연속 재측정 사유 같음**(invalid-consistency.json · accept-consistency-missing · db-log-fatal, 1회는 borrow-missing도): PG `could not write to file "base/pgsql_tmp/…": No space left on device` — tmpfs 프리셋 PG_TMPFS_SIZE 6g(run.sh:160)에 회차 800 × 1만 석(800만 행) + 30분 예약이 차서, k6 끝 약 25초 뒤 정합성 검사 쿼리 임시 파일이 넘침. 부하 구간(k6 창)은 4회 모두 디스크 오류 전에 끝남 · 확정적 실패라 5번째 회차 도중 `systemctl --user stop` 14:16 → EXIT 트랩이 안 돌아 .164 seatlab 컨테이너 3개 남음 · `docker compose -p seatlab down -v`는 자동 모드 분류기가 거부 → 사용자 확인 필요 · 대기 스크립트가 exit≠0만 보고 재측정 반복은 못 잡음(교훈) | 사용자 결정 대기 |
+| 10-17 14:30 | E2 재측정(20261017-adr011-pretouch-noes-c5117f4b) 분석: 9회 ok · 느린 초 none 0·0·0 · xms 0·0·0 · pt 3·0·0(rep1 서버형 2 · 1초 p99 최대 58.6ms) · 26초 성분 0/9 · 1초 p99 최대 none 5.1~23.9 · xms 6.4~8.4 · pt 6.7~58.6ms · 메모리 최대 ÷ 한도 none 76~77% · xms·pt 86~87% · 안정성 4항목 전부 ○ · **T4 기각**(판정 관측: 미리 건드림 서버형 [0–2]가 없음 [0–0]과 범위 겹침) — 대조(none)에 줄일 튐이 처음부터 없음 → ADR-010의 '4g ZGC 추가 튐'은 text-es 간섭(10-15 재부팅 뒤 측정)으로 보는 것이 자연스러움 | 결과 커밋 |
+| 10-17 15:10 | 사용자 "1번 진행하고 2번도 진행하자" → .164 `docker compose -p seatlab down -v`(컨테이너·볼륨 0 · 가용 29GiB) · E3는 권장안 A(있는 회차로 판정 — 2번 = E3 처리 항목, 권장안으로 해석) · 완료 회차 실제 5개 + 중단 1(rep2 — k6 창은 거의 다 돎) · summarize·tail(--set soak · --rep 6개): 안정성 4항목 ○(rep1) · 메모리 최대 1,892MiB = 한도 92.4%(< 95%) · 1분 p99 첫 5분 1.55 → 마지막 5분 1.49ms(−4%) → T5 미리 정한 기준은 통과 · **새 관측**: 6회 모두 느린 초 12~15, 거의 전부 서버형(waiting 중앙 57~71ms · 클라이언트 0.1ms) · 최대 135~206ms · **17~20분 뒤부터만** 나타남 · 26초 성분 없음 · ZGC 할당 정지 0 · 정지 최대 0.05ms → JVM 아님 · 원인 조사 워커(Opus, 읽기 전용) 시작 — 후보: tmpfs 6g가 차며 DB 컨테이너 메모리 8g 한도 압박 · WAL·checkpoint · autovacuum · 시나리오 후반 회차 · 호스트 CPU | 워커 회수 대기 |
+| 10-17 15:40 | 워커(Opus, 읽기 전용) 회수 — 패킷 요지: 후반 서버형 느린 초는 **앱 안 카운터 대조 바퀴(CounterReconciler · default reconcile.enabled · scheduleWithFixedDelay 60초 + 바퀴 14~27초 ≈ 80초 주기 · 앱 풀 공유) 진행 중에 몰림** — 후반 76개 중 72개(기대 23.2 · ×3.1), 6/6 회차 · 바퀴 일 ∝ seat_hold 행 수(매 바퀴 전체 훑기) · #19 바퀴(t0 + 약 17.6분 · 쌍 약 460만)에서 orphan 갈래 ms/청크 약 12 → 15.3 단절 + 병렬 쿼리 대기 표본 첫 등장(6/6 같은 바퀴) · DB 컨테이너 CPU 대조 중 338~384%/한도 400% · Hikari pending은 느린 초 근처에서만(결과 쪽) · 기각: 체크포인트(×0.92) · autovacuum(×0.73) · DB 메모리·tmpfs(부하 중 4.1GiB/8GiB, tmpfs는 k6 뒤 정합성 쿼리 pgsql_tmp가 채움) · JVM · 호스트 CPU 포화. 미확정: 병렬 계획 내용·전환 이유 · CPU 스로틀(nr_throttled 미수집) · 켜고 끄기 없음 · 주의: tail.py slow_rel_s는 k6 시작 기준(램프 60초 포함 — tail.py:343) · 메인 교차 확인: CounterDriftScheduling.kt:56 scheduleWithFixedDelay · rep1 drift-db.json #17~21 시작 간격 74~80초 · 쌍 395만 → 526만 · 바퀴 14.0 → 20.6초 | 사용자 보고 — 대조 끄기 소크 여부 |
+| 10-17 16:10 | 사용자 "1번으로 해보자" → 명세 task 07 추가(대조 켜고 끄기 · tmpfs 손잡이) · 하네스 42fda2dc: run.sh `--pg-tmpfs-size <GiB>`(0 = 6g·8g 그대로 · tmpfs preset만 · 상한 20 · resume 대조 · plan.json/meta pg_tmpfs_gb) · campaign.sh 세트 soakrc {noc(--cond A --cleanup schedule), c(default)} × 1 · tail.py soakrc(회차 1) · 불변식 확인: 기존 7세트(main·cost-remeasure·jvm-baseline·jvm-ladder·k6ver·pretouch·soak) dry-run을 결과 폴더에 대고 conditions.txt·order.txt 변경 0(CAMPAIGN.log DRY-RUN 줄만 — git restore) · preset_env 0 → 6g/8g 문자열 동일 · 12 → 12g/14g · bash -n·py_compile 통과 · 스모크 smoke-adr011-soakrc(noc · 12구간 · tmpfs 12) 시작 · 듀얼 리뷰 rv34(Opus ∥ codex) 시작 | 스모크·리뷰 대기 |
+| 10-17 20:06 | rv34 회수: codex 1(중간 — tmpfs 남은 공간을 정합성 쿼리 전에만 봄) · Opus 5(중간 1 적용 크기 미판정 · 낮음~중간 2 = codex와 같음 · 낮음 3 검증 순서 · 낮음 4 README · 낮음 5 설계 한계) → 1·2·3 수정 ae4f4a25(tmpfs-size-mismatch — 6g 회차 실측 값 대조 match·12 요청 대비 mismatch 확인 · pg-storage-end.json · 검증 이동) · 4 README 12c9516a · 5 ADR 한계로 기록 · codex post-fix 재점검 지적 없음 · 스모크 smoke-adr011-soakrc ok(tmpfs 12884901888 B · memory.max 15032385536 · cond A·schedule · 대조 바퀴 0) 52cde2a9 · **soakrc 시작 20:05**(20261017-adr011-soakrc-52cde2a9 · noc → c · 약 73분) · 감시는 re-measure 줄도 잡음 | 측정 대기 |
+| 10-17 21:55 | soakrc 끝 21:25(비정상 회차 0 · 재측정 0). noc-soakrc: 상태 ok · 대조 바퀴 0 · 정합성 위반 0(HT-17 우려 실현 안 됨) · 느린 초 1(19.7분 94ms 서버형 — 체크포인트 끝 1183s와 겹침) · 1초 p99 최대 50.6ms · 마지막 5분 p99 1.33ms. c-soakrc: ok · 바퀴 28(마지막 766.0만 쌍) · 느린 초 12(서버형 10 · 12.5~29.3분 · 최대 167ms) · 9/12가 바퀴 안(우연 기대 2.7 · ×3.4) · 1초 p99 최대 97.6ms. 두 회차 모두 19.7분(≈1180s)에 체크포인트 경계 튐 1개(WAL 양이 같아 같은 시점) — 대조와 무관한 별도 후보(켜고 끄기 없음). 안정성 4항목 둘 다 ○ · 메모리 최대 1,874/1,894MiB · 끝 tmpfs 남은 공간 8.8GB(12g). 주기 p 0.54/0.83(26초 성분 없음). 결과 커밋 927f8198 | **후반 서버형 튐 = 앱 안 대조 C 바퀴로 확정**(끔 1 ↔ 켬 12, 기존 켬 6회 12~15와 같음). 한계: ×1·순서 고정 |
+| 10-17 22:40 | 사용자와 대처 논의(L0): 1초 증분 대조 · 별도 대조 앱 + Kafka · 프라이머리–레플리카 탐지 분리 → ADR-011 §9 후보로 정리. 메인 정정 필요 1건: 대화에서 'F도 같은 DB라 튈 것'이라 했으나 ADR-009 §7.7 디스크에서 F 바퀴 최대 약 4초(자기 풀) 대 C 94초(앱 풀 대기) — 이번 C 바퀴가 풀 대기인지 DB CPU인지 미분리 → §9-1 'F 30분으로 가른다'로 적음 · 사용자 "ADR-011 결과 작성 먼저" · .164 읽기 전용 점검(사용자 요청 — LLM 실행 여부): load 0.00 · 상위 프로세스 sshd·dockerd·htop · 컨테이너 0 · LLM 프로세스(ollama·llama·vllm 등) 없음 · nvidia-smi 'Driver/library version mismatch'(가동 78일 — 드라이버 갱신 뒤 재부팅 전, GPU 사용 불가 상태) · 사용자 "55.9번 서버도 활용하면 될 것 같다(스터디 노트 사이트와 충돌 작음)" · .158 = 스터디 노트 → 이번 명세 금지영역은 그대로(.9·.158 접속 안 함), 다음 ADR 명세에서 재합의 · ADR-011 §6~§10 + ADR-009/010 측정 뒤 주 5ca56cca · 결과 문서 듀얼 리뷰 rv35(Opus ∥ codex) 시작 | 리뷰 대기 |
+| 10-17 23:30 | rv35 회수: codex 6 · Opus 13(중복 4) → 전부 채택(RT-1~11) 08348c32 · 핵심: text-es는 되돌리기 없어 명세 §2 '확정'에 못 미침 → 판정 수준 낮춤(대조 C는 soak 6회 켬 → noc 끔 → c 켬이라 확정 유지) · codex post-fix 신규 2(RT-12) → 92c5a7ca·c86a9ad7 | 결과 문서 리뷰 종료 |
+| 10-17 23:45 | NEXT·측정로그 8083a8ec · 이슈 아카이브 시작(명세 task 06 범위) — CS 이슈 후보 6: ①Docker가 없는 바인드 경로를 root로 만들어 재시작 정책 컨테이너가 기동 실패 반복 → 부하 생성기 호스트에서 주기 꼬리 오염 ②전체 훑기 주기 작업의 비용 ∝ 누적 행 수 — 짧은 측정이 숨김 ③메모리 파일시스템 DB의 큰 쿼리 임시 파일이 공간을 넘침 ④대기 스크립트가 종료 코드만 봐 재측정 반복을 놓침(무음 실패) ⑤런타임 GC 추적 출력이 측정 대상을 흔듦(관찰자 효과) ⑥자기상관 계열의 주기 검정 — 무작위 재배열 귀무의 거짓 양성 → AR 대리 계열. 노출 스캔용 원 식별자: seat-reservation-lab · seatlab · backend-labs-commerce · CounterReconciler · PairRepair · CounterDriftScheduling · user_hold_quota · seat_hold · counter_reconcile_run · text-es · text-server · markCloud · squatting-project · Victus · 192.168.55. · .164 · .158 · jun@ · k6/ADR-009 · ADR-0 · S4c4200 · soakrc · tail.py · run.sh · campaign.sh | 워커(Opus) 카드 초안 위임 |
+| 10-18 00:10 | 아카이브 워커(Opus) 회수 — study-note 브랜치 archive/2026-10-17(worktree study-note-wt-archive-1017, main fa04bfc0 위) 커밋 4 · 메인 재확인: 추가 행 노출 스캔(원 식별자·시크릿·IP·/home/) 0건 · 커밋 메시지 attribution 0 · 삭제 행은 인덱스 수치만(README·index 4파일) | push·main ff는 사용자 확인 대기 |
+| 10-18 00:10 | 아카이브: issue/cross-cutting/database/temp-spill-on-bounded-storage ⓐ 5852d4d1 (③ tmpfs 임시 파일) | — |
+| 10-18 00:10 | 아카이브: issue/cross-cutting/database/periodic-full-scan-cost-growth ⓐ cbf64702 (② 전체 훑기 비용) | — |
+| 10-18 00:10 | 아카이브: issue/cross-cutting/reliability/silent-failure-vs-artifact ⓒ aeaba39b (④ 재측정 반복을 놓친 감시) | — |
+| 10-18 00:10 | 아카이브: issue/cross-cutting/testing/performance-measurement-validity ⓒ 61842b53 (① 생성기 호스트 오염·층별 측정기 · ⑤ GC 추적 관찰자 효과 · ⑥ AR 대리 계열 귀무 — 방안 비교 6·7·8) · ①의 Docker 기전(없는 바인드 경로 root 자동 생성)은 effective-uid-file-access 변형 A·silent-failure-vs-artifact 변형 D와 같은 원리·처방 → ⓑ 무변경(링크만) | — |
+| 10-18 00:10 | 아카이브 제외 1: `systemctl --user stop`에서 EXIT 트랩이 돌지 않아 서버 컨테이너가 남음(10-17 14:20) — 트랩이 왜 안 돌았는지(신호·systemd KillMode) 확인하지 않아 원인 미확정 → 카드로 쓰지 않음 · 테스트 `./gradlew test` 508 통과(실패 0 — 코드 변경은 주석 ADR 번호 3곳) · PR 본문 초안 scratchpad/pr-011.md | PR 정리 사용자 확인 대기 |
+| 10-18 00:30 | 사용자 확인(PR 전부 진행 · 아카이브 ff+push) → #8 병합(merge commit cf1e6644) · #9 대상 main으로 바꿔 병합(cbb8031c) · feat/adr-011-tail-latency push · **PR #10**(main 대상) 생성 · study-note main ff fa04bfc0 → 61842b53 push · worktree study-note-wt-archive-1017 제거 | PR #10 리뷰·병합 대기 |
+
+## 읽기 전용 분석 (task 02 — 워커 Opus, 2026-10-16)
+
+- 대상: jvm2 18회 · jvm 4회 · remeasure tmpfs 12회 · 10-13 tmpfs 4회 · 스모크 6회(k6 v2.2.0 20회 · v2.3.0 24회). 스크립트·중간 산출물: `scratchpad/adr011-p1/bin`·`out`(임시).
+- 주기: v2.3.0 24회 모두 26초 안팎(25.2~30.4초, 회차마다 다름, 회차 안에서는 잔차 0.3~1.3초로 일정) 성분 유의(10ms 넘는 요청 수 계열 p ≤ 0.04). v2.2.0 20회는 26초 성분 없음(p ≤ 0.05 2회 — 16.6·20.1초). 위상은 k6 시작·앱 기동·DB ready·수집기 시작 어디에도 묶이지 않음(Rayleigh p ≈ 0.5~0.6).
+- 신호 대조(v2.3.0 Full GC 아닌 느린 초 236개, ±1초, 우연 기대 대비 배수): VU ≥15 13.4(결과 신호) · Hikari pending>0 4.2(결과일 수 있음) · Hikari active≥5 2.3 · DB 활성 ≥5 2.1 · safepoint >1ms 0.99 · GC 아닌 safepoint 0 · DB 대기 0.7 · lock 0 · autovacuum 0.5 · checkpoint 0.5 · 대조 바퀴 0.9 · 디스크 1.0 · docker stats 수집 1.07 · db_counts 1.02 · ps 0.98. 수집기 주기 1.16·5.2·10.5·12.55·0.57·1.0초 — 26초 근처 없음.
+- 지연 분해: 서버 멈춤 대조군(Serial Full GC 초 138개)은 느린 요청 지연 100%가 waiting(TTFB)·클라이언트 구간 작음(blocked·sending·receiving 최대 중앙값 0.9·1.3·2.7ms). 26초 주기 초는 blocked·sending·receiving 최대 중앙값 30·48·57ms(p90 84·100·116ms), 64% 초에서 클라이언트 구간이 더 큼, 50ms 넘는 요청 1~50건(전역 멈춤 아님). 정상 초 클라이언트 구간 최대 p95: v2.2.0 10.2ms 대 v2.3.0 25.0ms.
+- 후보 순위: ① PC 쪽 변화 묶음(k6 v2.3.0 내부 주기 동작 또는 재부팅 뒤 PC 상태 — 커널·패키지 약 120개 동시 갱신) ② 앱 조건 변화(같은 날 control 계열 → default) — 서버 신호 불일치·지연 모양이 반대 근거 ③ 서버 JVM·DB·호스트·수집기 — 일치가 우연 수준. 4g ZGC의 주기 없는 추가 튐은 waiting(서버형)이 많다 — 첫 접근 페이지 폴트 후보와 모순 없음.
+- 한계: CSV 시각 정수 초 · k6 CPU 순간값·Go GC 미관측 · k6 버전·PC 재부팅·앱 조건·하네스 SHA가 같은 날 바뀌어 이 자료만으로 분리 불가.
+
+## 리뷰 ledger
+
+- review packet(하네스 4d2c752b·6b2ef3de): rv33 — `scratchpad/rv33`(미러 tracked − results·ledger, harness.diff·spec). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| HT-1 | 1 | codex 1 | tail.py:311 probe-check 창 경계 | 채택 | fixed | a594f27e |
+| HT-2 | 1 | codex 2 | run.sh:1339 plan.json 키 추가 | 기각 — 명세 §2 '계획' 범위 명시(conditions·order·렌더), plan.json 키 추가는 ADR-010과 같은 방식 | — | — |
+| HT-3 | 1 | codex 3 | tail.py:245 T4 비주기 서버형 | 채택 | fixed | a594f27e |
+| HT-4 | 1 | codex 4 | run.sh:765 서버 측정기 기동 시한 | 채택 | fixed | a594f27e |
+| HT-5 | 1 | opus H1 + 스모크 실측(gctrace 353줄/430초) | T3 검정력 상한 | 채택 — 최대 배수·판정 불가·사건 좁힘·시작 시각 보정 + ADR §4 측정 전 정정 | fixed | a594f27e |
+| HT-6 | 1 | opus M1 | T1 재배열 귀무 거짓 양성 | 채택 — 위상 무작위 대리 계열 + v2.2.0 20회 거짓 양성률 확인 | fixed | a594f27e |
+| HT-7 | 1 | opus M2 | T2 튐 기준·상한 | 채택 — 절대 하한·판정 불가 | fixed | a594f27e |
+| HT-8 | 1 | opus M3 | v2.2.0 경로 scratchpad 고정 | 채택 — 안정 경로 + sha256 기록·대조 | fixed | a594f27e |
+| HT-9 | 1 | opus L1~L5 | gctrace 부분 실패 · 측정기 고아 · probe compose 묶음 · 구간 상한 · '성분 없음' 표기 | 채택 | fixed | a594f27e |
+| HT-10 | 1 | 메인 스모크 | probe-ping.js /actuator/health/ping 404(양쪽 전부) | 채택 — 대상 GET /actuator | fixed | a594f27e |
+| HT-11 | p | codex post-fix | 수거 stop·rm 실패 무시 · EXIT 트랩 정리 · 구간 상한 여유 | 채택 | fixed | e4c24c2b |
+| HT-12 | p | 메인 스모크 2 | 사건 0건을 판정 불가로 표시 | 채택 — 겹침 없음 | fixed | a57f92e0 |
+- post-fix 재점검 종료(中 듀얼 1패스) — 신규 3 반영 · 추가 1(메인) — 수정 범위 작아 추가 재점검 없음.
+- review packet(하네스 42fda2dc — tmpfs 손잡이·soakrc): rv34 — `scratchpad/rv34`. Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| HT-13 | 1 | opus 1 | run.sh rep_status tmpfs 블록 — 적용 크기 미판정 | 채택 — tmpfs-size-mismatch | fixed | ae4f4a25 |
+| HT-14 | 1 | codex 1 + opus 2 | run.sh:694 → 701 정합성 쿼리 뒤 공간 미기록 | 채택 — pg-storage-end.json(기록만) | fixed | ae4f4a25 |
+| HT-15 | 1 | opus 3 | run.sh:168 검증 전 산술 | 채택 — 검증 이동·문구 0..20 | fixed | ae4f4a25 |
+| HT-16 | 1 | opus 4 | README.md:14·99 | 채택 | fixed | 12c9516a |
+| HT-17 | 1 | opus 5 | campaign.sh soakrc × 1 순서 고정 · noc counter-mismatch 가능 | 채택 — ADR 한계로 기록(앞선 soak 6회 = 켬 기준선 → noc → c 순서가 끔·되돌림) | open(문서) | — |
+- post-fix 재점검(codex) 지적 없음 — 종료.
+- review packet(결과 문서 5ca56cca — ADR-011 §6~§10 · ADR-009/010 측정 뒤 주): rv35 — `scratchpad/rv35`(미러: docs/adr · 하네스 스크립트 · drift 코드 · 명세 · 캠페인 TAIL.md·tail.json·CAMPAIGN.log · soak 회차별 tail JSON · 정렬 스크립트 — log·NEXT·measurement-log 제외). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RT-1 | 1 | codex 1 + opus 1 | ADR-011:3·90·161 text-es '확정' — 명세 §2 되돌리기 없음 | 채택 — '없애기로 강하게 지지 · 확정에 못 미침' · 시간 순서 교란 명시 · ADR-010 주도 낮춤 | fixed | 08348c32 |
+| RT-2 | 1 | codex 2 + opus 2 | ADR-011:111 '17~20분 뒤부터만' — 앞쪽 5개(144·531·800·1000초 등) | 채택 — 81개 중 약 76개 | fixed | 08348c32 |
+| RT-3 | 1 | codex 3 | ADR-011:109 6회 모두 re-measure — 재측정 4건 · 마지막 중단 | 채택 | fixed | 92c5a7ca·c86a9ad7 |
+| RT-4 | 1 | codex 4 + opus 3 | ADR-011:143·ADR-009:7 바퀴 14~21초 대 §6.4 14~27초 · 실측 400만 쌍 이상 14.7~25.5초 | 채택 — 14~26초 | fixed | 08348c32 |
+| RT-5 | 1 | codex 5 | ADR-011:150 '병목은 DB CPU' 과대(§9-1과 모순) | 채택 — 사용률 높음 · F로 가름 | fixed | 08348c32 |
+| RT-6 | 1 | codex 6 | ADR-011:86~88 '사건 없음' 오독 | 채택 — 느린 초 0 · 겹침 0 | fixed | 08348c32 |
+| RT-7 | 1 | opus 4 | ADR-011:124 c의 19.7분 초가 C 바퀴 #20 안 — '무관' 과대 | 채택 — noc만 체크포인트 사례 | fixed | 08348c32 |
+| RT-8 | 1 | opus 5 | T2·§6.2 서버 측정기 동반 튐 누락 · 판정 조건 값 분리 | 채택 — 해석(추정) 1줄 · ×9.1 분리 | fixed | 08348c32 |
+| RT-9 | 1 | opus 6 | §6.3 켜짐에서 4g가 2g보다 나쁨 누락 | 채택 | fixed | 08348c32 |
+| RT-10 | 1 | opus 7 | §10② 기준선 6회 조건 차이(tmpfs 6g) | 채택 | fixed | 08348c32 |
+| RT-11 | 1 | opus 8~13 | 주기 범위 출처 · 체크포인트 ms 혼합 · 메모리 추세 범위 · 재부팅 시각 · T4 전제 소실 · 마지막 5분 +12% · T5 default 1회 | 채택(주기 25.85~28.35 메인 재계산 일치) | fixed | 08348c32 |
+| RT-12 | p | codex post-fix | 첫 시도 회차 표현 잔존 · 4g·2g '범위 비겹침' 과대 | 채택 | fixed | 92c5a7ca·c86a9ad7 |
+- post-fix 재점검(codex) 신규 2 반영 — 수정 범위 문장 2개라 추가 재점검 없음. 미러로 확인 못 한 값(워커 보고): 바퀴 14.0 → 20.6초 · 청크당 12 → 15.3ms · DB CPU 338~384% · 4.1/8GiB · tmpfs 8.8GB · 체크포인트 시각 · ×0.92·×0.73 · 72/76 — 원본 soak 회차 drift-db·db.log에서 메인·워커가 산출(10-17 15:40·21:55 행).
+
+## 생략한 검증
+
+- 없음

@@ -1,0 +1,64 @@
+{
+  "sha": "3807c2a2",
+  "harness": "sha:3807c2a2",
+  "levels": [
+    4
+  ],
+  "reps": 3,
+  "cells": [
+    "S4c4200"
+  ],
+  "condition": {
+    "cond": "default",
+    "cleanup": "schedule",
+    "reconcile_interval": "60s",
+    "limit_strategy": "counter-upsert-precheck",
+    "limit_source": "default",
+    "pg_preset": "tmpfs",
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "app_mem": "2g",
+    "app_gc": "zgc",
+    "k6_bin": "k6",
+    "k6_version": "k6 v2.3.0 (commit/e088784614, go1.26.8, linux/amd64)",
+    "k6_sha256": "e001bbf39ba67424a85c9c8516440ba5c73ecf7a6021be96c76194380c15f260",
+    "probe_k6_sha256": "9fced9ff140d73bf3d69b3cde2493adce3807b35ab210a5cb0771045d0ad5a29",
+    "gctrace": true,
+    "probes": true,
+    "probe_k6_bin": "/home/jun/.local/opt/k6-v2.2.0/k6",
+    "probe_k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "probe_image": "grafana/k6:2.2.0",
+    "probe_rate": 50,
+    "app_pretouch": false,
+    "app_xms_full": false,
+    "s4c_steps": 12,
+    "seed_schedules": 200
+  },
+  "knobs": {
+    "INJECT_ROUNDS": "270:10,5,5,10 600:10,5,5,10",
+    "INJECT_HELD_MIN_S": "250",
+    "INJECT_EXP_MARGIN_S": "15",
+    "CLOSE_LEAD_S": "1",
+    "PRE_K6_HOLD_S": "70",
+    "PRE_K6_TARGET_S": "87",
+    "PRE_K6_TOL_S": "5",
+    "PRE_K6_LEAD_S": "1.2"
+  },
+  "start_state": {
+    "mode": "fixed-after-seed",
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "lead_s": 1.2,
+    "judged_on": "시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",
+    "overrun": "대기점·맞춤에서 목표 + 허용을 넘으면 k6 전에 멈춘다(pre-k6-overrun — 하네스 실패, 재측정 대상)",
+    "limit": "시드 끝 → k6와 첫 대조 바퀴 → k6를 함께 맞출 수는 없다 — 시드 끝 기준으로 맞추고 바퀴 위상은 기록만(pre-k6.json reconcile_phase)",
+    "analyze": "시드 직후 ANALYZE는 원래 있다(/internal/reset → LoadtestDataService.analyze — product·product_schedule·product_seat·seat_hold·reservation, 모든 조건 공통) — 더하지 않음",
+    "vacuum": "시드 직후 VACUUM은 넣지 않음 — 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 두고 시점만 맞춘다",
+    "why": "교란 원인은 시작 상태가 아니라 대조 조건만 k6 전에 약 30~43초 더 기다린 시점 차(명세 §13) — 모든 조건을 같은 시점(시드 끝 + target_s)에 시작한다",
+    "jvm": "JAVA_TOOL_OPTIONS -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:…:filecount=0 — 수집기는 JVM 기본 선택 그대로(gc.json collector에 기록)"
+  },
+  "created": "2026-10-16T12:07:23Z"
+}

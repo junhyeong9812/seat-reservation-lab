@@ -11,7 +11,10 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 |------|------|
 | `compose.yml` | ADR-008 compose + 조건 키를 **조건이 켤 때만** 넣는 `${VAR:+…}` 조각(머리말) · 앱 커넥션 `ApplicationName=seatlab-app` |
 | `compose.reconciler.yml` | F 오버레이 — 같은 이미지, 프로필 `loadtest,reconciler`, 포트 8102, CPU 1, `ApplicationName=seatlab-reconciler`, JSON은 대조 주기·풀·Flyway만 |
-| `compose.tmpfs.yml` | ADR-007 그대로(데이터 디렉터리 tmpfs · DB 메모리 8g) |
+| `compose.tmpfs.yml` | ADR-007 그대로(데이터 디렉터리 tmpfs · DB 메모리 8g). 크기는 run.sh `--pg-tmpfs-size <GiB>`로 바꿀 수 있다(DB 메모리 = 크기 + 2g · 지정 안 하면 6g·8g) |
+| `compose.probe.yml` | ADR-011 서버 측정기 — 서비스 `probe`(이미지 `${PROBE_IMAGE:-grafana/k6:2.2.0}` · `pull_policy: never` · 앱에 `http://app:8101`). `--probes` 회차만 주 k6 직전에 띄우고 회차 끝에 지운다 · `compose_down`이 늘 함께 내린다 |
+| `scripts/tail.py` | **ADR-011 새로 씀** — 판정 지표(ADR-011 §4 T1~T5: 느린 초 · 26초 성분 검정 · 지연 분해 · 측정기 튐 겹침 · Go GC 겹침 · 1분 p99 추세 · 안정성 4항목 · 메모리 ÷ 한도) · `--probe-check`(회차 사유 `probe-missing`) |
+| `scenarios/probe-ping.js` | ADR-011 저율 측정기 시나리오 — 고정 도착률 50/s `GET /actuator`(actuator 링크 목록 200 — DB를 거치지 않음. `/actuator/health/ping`은 이 앱에서 404 · `/actuator/health`는 DB 검사를 부른다) · 요청 시각 ms |
 | `scripts/run.sh` | 조건 하나 실행기(ADR-008 + 아래 '바뀐 점') |
 | `scripts/campaign.sh` | 확정 측정 캠페인 84회(아래) · `--dry-run` = 계획·순서·예상 시간만 |
 | `scripts/lib.sh` | ADR-008 + F 오버레이 내리기 · 대기 표본 출처 구분(`by_src`) · I/O 스냅숏 MultiXact(`pg_stat_slru`·`mxid_age`)·쿼터 테이블 통계 · 주입(`inject_drift`)·끝 쌍(`end_pairs`)·V7 덤프·마감 임박 셀 함수 |
@@ -52,6 +55,49 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 - GC 요약(`summarize.py --gc`)에 `full`(Full GC가 든 정지 수) · `k6_steady`(k6 60초 뒤 ~ 끝) · `heap_max_mb` · `heap_committed_max_mb`, 고정 셀 요약에 1초 꼬리(`sec_p99_max_ms` · `slow_secs_50ms` · `max_req_nz_ms` — 램프 밖, 코드 0 제외)가 더해졌다.
 - ADR-010 2차: `--app-gc zgc`(= `-XX:+UseZGC -XX:+ZGenerational` — compose `APP_JVM_OPTS`·`APP_JVM_OPTS2`) · ZGC는 수집기 = Z이고 세대형(로그에 Minor Collection)이 아니면 `gc-collector-mismatch`. GC 요약에 `stalls`·`stall_ms_max`(할당·재배치 멈춤 — ZGC가 할당을 못 따라갈 때 앱 스레드가 기다린 시간), ZGC 정지 = Z로 시작하는 safepoint, `zgc_generational`. 캠페인 `--set jvm-ladder`(G1·ZGC × 1g·2g·4g × 3회 = 18) · 비교 `compare.py --set jvm-ladder`(중앙값 [최소–최대] + 회차별 안정성 표 — 메모리 추세는 램프 뒤 첫 1분 → 끝 1분).
 - 캠페인 `--set jvm-baseline`: 앱 기본값 조건(default) × S4c4200 tmpfs × {1g-auto, 1g-g1, 1792m-auto, 2g-auto} × 1회(폴더 `<메모리>-<수집기>-jvm`) · 비교 `compare.py --set jvm-baseline`.
+
+## 측정 환경 꼬리 지연 손잡이 — ADR-011
+
+지정하지 않으면 compose 렌더(tmpfs 오버레이 포함)·계획(conditions.txt·order.txt)·실행이 이전과 같다. 모두 plan.json `condition`에 남고 이어서 실행 때 명령줄 값·바이너리 version·sha256(`k6_sha256`·`probe_k6_sha256`)과 대조한다(다르면 거부 · 회차 끝에 바뀌었으면 `k6-binary-changed`).
+
+| 손잡이 | 기본 | 하는 일 |
+|------|------|------|
+| `--k6-bin <경로>` | `k6`(시스템 v2.3.0) | 주 k6·예열 k6 바이너리. plan `k6_bin`·`k6_version` · meta `k6_version` = 그 바이너리의 `version` |
+| `--gctrace` | 끔 | 주 k6를 `GODEBUG=gctrace=1`로. stderr의 gc 줄마다 받은 순간의 PC epoch(소수 초)를 앞에 붙여 `k6-gctrace.log.gz` · 나머지 stderr는 이전처럼 `k6-stdout.log.gz`(stdout과 함께). 종료 코드 판정은 그대로(파이프의 k6 쪽). 줄 나누기(파이썬) 종료 코드·주 k6 끝 시각은 `gctrace-status.txt`. gc 줄이 없거나 · 줄 나누기 ≠ 0 · 마지막 gc 줄이 주 k6 끝 − 30초보다 이르면 `gctrace-missing` |
+| `--probes` · `--probe-k6-bin <경로>` | 끔 · `~/.local/opt/k6-v2.2.0/k6`(공식 tar.gz 체크섬 확인 뒤 푼 v2.2.0 — 바이너리 sha256 `9fced9ff…`) | 측정기 둘(아래). 실패 = `probe-missing`(하네스 실패 — 재측정 대상) |
+| `PROBE_IMAGE`(환경변수) | `grafana/k6:2.2.0` | 서버 측정기 이미지(Docker Hub 공식 태그 — 접두어 `v` 없음). **서버에 미리 받아 둔다**(compose `pull_policy: never` — 측정 중 내려받기 금지, 없으면 기동 실패) |
+| `--app-pretouch` | 끔 | 앱 JVM `-XX:+AlwaysPreTouch`(compose `APP_JVM_OPTS3` → `JAVA_TOOL_OPTIONS` 수집기 옵션 뒤). 기동 때 잡힌 힙만 건드린다(초기 힙 기본 = 한도의 1/64 — 4g면 64MB, 실측). `app-jvm-mismatch`의 기대 앞머리도 따른다 |
+| `--app-xms-full` | 끔 | 앱 JVM `-XX:InitialRAMPercentage=75`(compose `APP_JVM_OPTS4`) — 초기 힙 = 최대 힙. `--app-pretouch`와 함께 줘야 힙 전체를 미리 건드린다 |
+| `--s4c-steps N` | 12 | S4c 계획 구간 수(30초) — 1..83(계산: HOLD_TTL 3,600 − 램프 60 − 측정기 내림 최대 420(실패 경로 단계 시한 합) − IO 대기 11 − consistency 시한 600 ≥ 30 × 구간 — run.sh `S4C_STEPS_MAX`) |
+| `--seed-schedules N` | 200 | S4c 시드 회차 수(회차당 1만 석) — 1..1,000. 누적 요청(램프 (50 + 목표) ÷ 2 × 60 + 목표 × 구간 × 30)이 좌석보다 많으면 시작 전에 거부 |
+
+**측정기(`--probes` — ADR-011 §3)**: 같은 시나리오 `scenarios/probe-ping.js`(50/s · 시각 ms)를 두 곳에서 띄운다.
+- PC 측정기 = 주 k6와 다른 프로세스(`--probe-k6-bin`) → 서버 앱 8101 → `k6-probe-pc.csv.gz`·`probe-pc.log.gz`. 수집기 `timeline-client`는 이 프로세스(`probe-pc.pid`)를 빼고 주 k6를 고른다.
+- 서버 측정기 = `compose.probe.yml` `probe` 컨테이너(회차와 같은 -f 묶음 — `COMPOSE_EXTRA` 포함) → `http://app:8101` → 회차 끝 `docker cp` → `k6-probe-server.csv.gz`(서버 시계 — 분석이 clock-offset으로 옮긴다)·`probe-server.log.gz`.
+- 대상 = `GET /actuator`(actuator 링크 목록 200 — DB를 거치지 않음). `/actuator/health/ping`은 이 앱에서 404(스모크 smoke-adr011-probes · 로컬 기동 확인), `/actuator/health`는 DB 검사를 부른다.
+- 시작 = 시드 끝 → 첫 요청 맞춤 sleep 직전(PC는 배경 프로세스, 서버는 배경 ssh — 시한 `PROBE_UP_TIMEOUT_S` 120초, 넘으면 기동 rc 124 → `probe-missing` · 맞춤을 밀지 않는다) · 끝 = 주 k6가 끝나자마자 신호(SIGINT·SIGTERM → k6 정상 종료 105, CSV를 닫는다). 길이 = 램프 + 구간 × 30 + 180초(그보다 오래 돌면 스스로 끝난다).
+- 상태 `probe-status.json`(시작·끝 시각 · 종료 코드 · 수거) · 판정 `probe-check.json`(`tail.py --probe-check`: 종료 코드 0·105 · CSV 무결 · 창(램프 끝 ~ 주 k6 끝) 안 응답만으로 공백 ≤ 10초(창 시작 → 첫 응답 · 응답 사이 · 마지막 응답 → 창 끝) · 건수 ≥ 0.9 × 50/s × 창 · 200 아닌 응답 ≤ 1%). 도중에 끝나면 EXIT 트랩이 PC 측정기를 끈다.
+
+**캠페인 세트(ADR-011 §3 — 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정 = ABAB)**:
+
+| 세트 | 조건(폴더) | 회차 | 손잡이 | 기본 id |
+|------|------|------|------|------|
+| `k6ver`(E1) | `v220-k6ver` · `v230-k6ver` · `v230gc-k6ver`(2g — Go GC 기록은 v230gc만) | 3 | `--k6-bin` = `--k6-v220`(기본 `~/.local/opt/k6-v2.2.0/k6` — sha256 대조)·`--k6-v230`(기본 `k6`) · `--probes`(v230gc만 `--gctrace`) | `<날짜>-adr011-k6ver-<SHA>` |
+| `pretouch`(E2) | `none-pretouch` · `xms-pretouch`(`--app-xms-full`) · `pt-pretouch`(`--app-xms-full --app-pretouch`)(4g) | 3 | `--k6-bin`(캠페인 인자 — 필수) · `--probes` | `<날짜>-adr011-pretouch-<SHA>` |
+| `soak`(E3) | `2g-zgc-soak` | 2 | `--k6-bin`(필수) · `--probes --s4c-steps 60 --seed-schedules 800`(30분 · 800만 석) | `<날짜>-adr011-soak-<SHA>` |
+| `soakrc`(E3 대조 켜고 끄기) | `noc-soakrc`(`--cond A --cleanup schedule` — 앱 대조 C만 끔) · `c-soakrc`(default) | 1 | soak과 같음 + `--pg-tmpfs-size 12` · 순서 noc → c 고정 | `<날짜>-adr011-soakrc-<SHA>` |
+
+캠페인은 시작 전에 바이너리 version을 대조한다(k6ver: v2.2.0·v2.3.0 + v2.2.0 sha256 = 공식 빌드). `--probe-k6-bin`을 주면 조건 줄에 붙는다. 비교: 조건마다 `summarize.py` 뒤 `tail.py --set <세트> results/<id>` → `TAIL.md`·`tail.json`(정의 = 스크립트 머리말 — 느린 초는 ADR-010 log '느린 초 대조'와 같다). 판정 손잡이(환경변수 — 쓴 값은 결과 `knobs`): `TAIL_NULL`(26초 성분 귀무 — 기본 `ar` = AR(4) 스펙트럼 대리 계열 1000개) · `TAIL_SPIKE_FLOOR_MS`(측정기 튐 하한 20) · `TAIL_GC_STW_MS`(5)·`TAIL_GC_WALL_MS`(100 — Go GC 사건) · `TAIL_PERIOD_TOL_S`(1.5 — 주기 초). 겹침마다 최대 배수(1 ÷ 우연 비율)를 내고 2 미만이면 '판정 불가'.
+
+```bash
+k6/ADR-009/scripts/campaign.sh --set k6ver --sha <SHA> --dry-run
+k6/ADR-009/scripts/campaign.sh --set pretouch --sha <SHA> --k6-bin <E1에서 정한 k6>
+k6/ADR-009/scripts/campaign.sh --set soak --sha <SHA> --k6-bin <E1에서 정한 k6>
+k6/ADR-009/scripts/run.sh --sha <SHA> --worktree --cond default --cells S4c4200 --pg-preset tmpfs --app-mem 2g --app-gc zgc --probes --gctrace --reps 1 --id <id>   # 스모크
+python3 k6/ADR-009/scripts/tail.py --rep k6/ADR-009/results/<id>/L4/S4c4200/rep1   # 회차 하나 지표(스모크)
+```
+
+장시간(E3) 한계: S4c 앱 설정 HOLD_TTL 60m(run.sh `config_env` s4) — 구간 상한 100이 이것에 묶인다. `soak`은 tmpfs 6g·DB 메모리 8g 그대로다 — 30분 회차에서 끝 정합성 쿼리의 임시 파일이 6g를 넘겨 회차가 매번 실패했다(ADR-011 log 10-17). `soakrc`는 12g·14g(`--pg-tmpfs-size 12`)이고, 적용된 크기는 `tmpfs-size-mismatch`, 쿼리 뒤 공간은 `pg-storage-end.json`(기록만)으로 본다.
 
 ## 셀
 
