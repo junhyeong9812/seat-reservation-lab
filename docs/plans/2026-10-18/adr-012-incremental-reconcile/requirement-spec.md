@@ -66,7 +66,7 @@ seat-reservation-lab에서 ADR-011이 찾은 C(앱 안 대조)의 규모 한계�
 ## 4. 금지영역 (필수)
 
 - .164: `~/labs/seat-reservation-lab` · compose 프로젝트 seatlab · 포트 8101/8102/15432만. sudo 금지 · 다른 컨테이너·이미지·볼륨 · nvme0n1 금지.
-- **.158(새로 허용 — 범위 합의 필요)**: 경로 `~/labs/seat-reservation-lab-reconciler`(제안) · compose 프로젝트 `seatlab-reconciler`(제안) · 포트는 외부 앱 관리용 1개(제안 8103) · sudo 금지 · 스터디 노트 사이트의 컨테이너·이미지·볼륨·설정 금지. 처음에는 읽기 전용으로 사양(CPU·메모리·Docker·.164 DB 포트 도달)만 확인.
+- **.158(새로 허용 — 사용자 합의 2026-10-18 "158 범위도 제안대로")**: 경로 `~/labs/seat-reservation-lab-reconciler` · compose 프로젝트 `seatlab-reconciler` · 포트 8103(외부 앱 관리용)만 · sudo 금지 · 스터디 노트 사이트의 컨테이너·이미지·볼륨·설정 금지. 처음에는 읽기 전용으로 사양(CPU·메모리·Docker·.164 DB 포트 도달)만 확인.
 - .9 사용 안 함(이 ADR).
 - DB_PASSWORD·컨테이너 환경 전체 기록 금지 · credential grep 금지 · `deploy-study-note/docs/secrets.md` 읽지 않음.
 - main 직접 커밋 금지 · 코드 커밋에 docs 섞지 않음 · AI attribution 금지 · ADR-001~011 결과 폴더 무변경.
