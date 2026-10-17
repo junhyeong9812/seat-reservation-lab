@@ -33,6 +33,7 @@
 | 10-18 00:10 | 아카이브: issue/cross-cutting/reliability/silent-failure-vs-artifact ⓒ aeaba39b (④ 재측정 반복을 놓친 감시) | — |
 | 10-18 00:10 | 아카이브: issue/cross-cutting/testing/performance-measurement-validity ⓒ 61842b53 (① 생성기 호스트 오염·층별 측정기 · ⑤ GC 추적 관찰자 효과 · ⑥ AR 대리 계열 귀무 — 방안 비교 6·7·8) · ①의 Docker 기전(없는 바인드 경로 root 자동 생성)은 effective-uid-file-access 변형 A·silent-failure-vs-artifact 변형 D와 같은 원리·처방 → ⓑ 무변경(링크만) | — |
 | 10-18 00:10 | 아카이브 제외 1: `systemctl --user stop`에서 EXIT 트랩이 돌지 않아 서버 컨테이너가 남음(10-17 14:20) — 트랩이 왜 안 돌았는지(신호·systemd KillMode) 확인하지 않아 원인 미확정 → 카드로 쓰지 않음 · 테스트 `./gradlew test` 508 통과(실패 0 — 코드 변경은 주석 ADR 번호 3곳) · PR 본문 초안 scratchpad/pr-011.md | PR 정리 사용자 확인 대기 |
+| 10-18 00:30 | 사용자 확인(PR 전부 진행 · 아카이브 ff+push) → #8 병합(merge commit cf1e6644) · #9 대상 main으로 바꿔 병합(cbb8031c) · feat/adr-011-tail-latency push · **PR #10**(main 대상) 생성 · study-note main ff fa04bfc0 → 61842b53 push · worktree study-note-wt-archive-1017 제거 | PR #10 리뷰·병합 대기 |
 
 ## 읽기 전용 분석 (task 02 — 워커 Opus, 2026-10-16)
 
