@@ -10,7 +10,7 @@ import org.springframework.transaction.support.TransactionTemplate
 import java.time.Clock
 
 /**
- * ADR-000 기준선: 만료 배치(sweep). 만료 시각과 배치 실행 사이 좌석은 HELD로 남는다 — ADR-013(홀드 만료)에서 관측(번호 이동 전 ADR-004).
+ * ADR-000 기준선: 만료 배치(sweep). 만료 시각과 배치 실행 사이 좌석은 HELD로 남는다 — ADR-015(홀드 만료)에서 관측(번호 이동 전 ADR-004).
  * 틱 하나 = 트랜잭션 하나(지금과 같다). ADR-009: 틱 결과를 지표 `seat.hold.expiry.tick{outcome=ok|failed}`로 남기고,
  * 롤백되면 후보 A가 이 틱에 복구를 시도한 쌍을 독립 트랜잭션으로 skipped 기록한다(예외는 그대로 올린다).
  */

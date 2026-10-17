@@ -312,7 +312,7 @@ private fun assertSeatAvailable(jdbc: JdbcTemplate, command: HoldSeatCommand) {
  * (없으면 cnt 0으로 만들고 잠근다 — 같은 사용자 첫 요청들도 이 행에서 줄을 선다) → `cnt + 1 <= 최대`가 아니면 좌석을 다시 보고 매수 초과.
  * 행 잠금은 커밋까지 유지되고 그 사이 홀드 INSERT의 트리거가 cnt + 1을 쓰므로, 다음 요청은 늘어난 cnt를 본다. 에러 순서 = precheck(좌석 먼저).
  * 만료: 트리거가 홀드 DELETE마다 −1(행이 없으면 SR001 — 엄격, 0으로 자르지 않음. 마감 회차는 트리거가 건너뛴다 — V8). **이 방식에서만** 만료가 쿼터 행을 먼저(정렬 순서로) 잠근다 —
- * 확정(예약 INSERT 트리거로 쿼터 행 먼저)과 같은 잠금 순서가 되어 확정↔만료 교착을 없앤다(설계 §3b — 교착만 해결, 확정 원자성은 ADR-014).
+ * 확정(예약 INSERT 트리거로 쿼터 행 먼저)과 같은 잠금 순서가 되어 확정↔만료 교착을 없앤다(설계 §3b — 교착만 해결, 확정 원자성은 ADR-016).
  */
 @Component
 class CounterTriggerUserLimit(
