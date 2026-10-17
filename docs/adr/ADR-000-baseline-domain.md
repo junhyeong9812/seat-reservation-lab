@@ -7,6 +7,7 @@
 > 번호 이동(2026-10-04): 임계 구역 길이·락 보유 시간을 새 ADR-004로 넣으며 기존 ADR-004~010을 005~011로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-15, 6차): 앱 JVM GC·메모리 기준을 새 ADR-010으로 넣으며 기존 ADR-010~016을 011~017로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-16, 7차): 측정 환경 꼬리 지연 원인을 새 ADR-011로 넣으며 기존 ADR-011~017을 012~018로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-18, 8차): 카운터 증분 대조·Kafka/복제본 대조를 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
 > 번호 변경(2026-09-29): 구 ADR-002~009 → ADR-003~010. 새 ADR-002 = DB 기준선 보정(인덱스·커넥션 풀). 이 문서의 번호 참조는 새 번호로 갱신했다.
 
@@ -126,7 +127,7 @@ seat_hold (홀드)         reservation (예약)
 | 홀드 TTL | 5분 (README Load Profile 원본) | `seat.hold.ttl` |
 | 1인 최대 매수 | (사용자, 회차)당 2매 = 홀드 + 확정 예약 | `seat.hold.max-per-user` |
 | 만료 배치 주기 | 기본 10초 | `seat.hold.expiry-interval` |
-| 1회 선점 매수 | 1석 (연석은 ADR-016) | — |
+| 1회 선점 매수 | 1석 (연석은 ADR-018) | — |
 
 ## 5. DB 스키마 (Flyway `V1__init.sql`)
 
@@ -207,9 +208,9 @@ com.jun.labs.seatreservation
 | 같은 좌석 동시 선점 시 check-then-act | [ADR-003](ADR-003-same-seat-contention.md) (Q1(같은 좌석 1,000명 동시 선점)) |
 | 트랜잭션·락 안의 느린 작업(락 보유 시간) | [ADR-004](ADR-004-critical-section-hold-time.md) |
 | 같은 사용자 동시 요청 시 매수 COUNT 경합 | [ADR-005](ADR-005-per-user-limit.md) |
-| 저장된 `HELD`와 배치 만료의 지연 | [ADR-013](ADR-013-hold-expiry.md) (Q3(선점 후 결제 이탈)) |
-| 확정 시 2중 확인과 전환 사이 경합 | [ADR-014](ADR-014-confirm-atomicity.md) (Q6(결제 성공 + 선점 만료)) |
-| 결제는 성공했는데 확정 실패 | [ADR-015](ADR-015-confirm-failure-compensation.md) (Q6(결제 성공 + 선점 만료)) |
-| 연석 부분 선점 | [ADR-016](ADR-016-adjacent-seats.md) (Q2(연석 부분 선점)) |
-| 좌석맵 조회와 실제 상태 불일치 | [ADR-017](ADR-017-seat-map-query.md) (Q5(좌석맵↔실제 상태 불일치)) |
-| 오픈 정각 트래픽 폭주 | [ADR-018](ADR-018-open-spike.md) (Q4(오픈 정각 20만 명 유입)) |
+| 저장된 `HELD`와 배치 만료의 지연 | [ADR-015](ADR-015-hold-expiry.md) (Q3(선점 후 결제 이탈)) |
+| 확정 시 2중 확인과 전환 사이 경합 | [ADR-016](ADR-016-confirm-atomicity.md) (Q6(결제 성공 + 선점 만료)) |
+| 결제는 성공했는데 확정 실패 | [ADR-017](ADR-017-confirm-failure-compensation.md) (Q6(결제 성공 + 선점 만료)) |
+| 연석 부분 선점 | [ADR-018](ADR-018-adjacent-seats.md) (Q2(연석 부분 선점)) |
+| 좌석맵 조회와 실제 상태 불일치 | [ADR-019](ADR-019-seat-map-query.md) (Q5(좌석맵↔실제 상태 불일치)) |
+| 오픈 정각 트래픽 폭주 | [ADR-020](ADR-020-open-spike.md) (Q4(오픈 정각 20만 명 유입)) |

@@ -110,7 +110,7 @@ v1 §3에 §10 D3을 적용했다.
 
 ### 3b. 확정↔만료 경합 — 선점잠금은 '교착만' 해결한다 (E2 · M1 · §10 범위 밖)
 
-- 위험(§10, ADR-013로 넘김): 확정과 만료가 같은 홀드를 다룰 때 좌석 행을 잠그지 않고, version도 없다(F17). 그래서 서로의 커밋을 덮어쓸 수 있다. v1 실험 B2의 끝 상태 'CONFIRMED + AVAILABLE'이 이것이다. 이 위험은 **B 이전부터 있었다**.
+- 위험(§10, ADR-016으로 넘김): 확정과 만료가 같은 홀드를 다룰 때 좌석 행을 잠그지 않고, version도 없다(F17). 그래서 서로의 커밋을 덮어쓸 수 있다. v1 실험 B2의 끝 상태 'CONFIRMED + AVAILABLE'이 이것이다. 이 위험은 **B 이전부터 있었다**.
 - 실험 M1: v1 B2는 Hibernate가 DELETE의 영향 행 수를 확인하는 것(EntityDeleteAction의 행 수 기대값 1 → 다르면 StaleStateException → 롤백)을 빼고 흉내 냈다. M1은 이것을 넣어 6가지 경우를 비교했다(`exp2.py m1_confirm_vs_expire`).
   - 확정 C: 예약 INSERT → [flush] 좌석 UPDATE → 홀드 DELETE(1행 기대)
   - 만료 E: [counter-upsert는 감소, B는 선점잠금 또는 없음] → [flush] 좌석 UPDATE → 홀드 DELETE(1행 기대)
@@ -130,7 +130,7 @@ v1 §3에 §10 D3을 적용했다.
 1. 같은 홀드를 두 트랜잭션이 지우면 늦은 쪽의 DELETE가 0행이 되고 그 트랜잭션이 롤백된다. 이것이 있으면 여섯 경우 모두 불변식(좌석 RESERVED ⇔ CONFIRMED, cnt = 실제)이 지켜졌다.
    - 'CONFIRMED + AVAILABLE'은 이 확인이 없을 때(v1 B2) 생긴다.
    - 그래서 지금 정합을 지키는 것은 좌석 잠금이 아니라 **Hibernate의 DELETE 행 수 확인 하나**다.
-   - 실제 Hibernate에서 orphanRemoval DELETE가 행 수 기대값으로 실행되는지는 이 실험이 증명하지 않는다(SQL 흉내). 단방향 `@OneToMany @JoinColumn(nullable=false)`의 제거 순서와 null-out UPDATE 유무도 마찬가지다. `[구현 검증]` → ADR-013.
+   - 실제 Hibernate에서 orphanRemoval DELETE가 행 수 기대값으로 실행되는지는 이 실험이 증명하지 않는다(SQL 흉내). 단방향 `@OneToMany @JoinColumn(nullable=false)`의 제거 순서와 null-out UPDATE 유무도 마찬가지다. `[구현 검증]` → ADR-016.
 2. **B 선잠금은 교착(40P01, deadlock_timeout 1s 대기 뒤 만료 쪽 중단)만 없앤다.** 정합 문제는 해결하지도 만들지도 않는다.
 3. **B를 켜면 C-first에서 지는 쪽이 바뀐다.**
    - counter-upsert: 확정이 진다(StaleState → 500, 좌석 AVAILABLE).
@@ -446,7 +446,7 @@ v1 §5 표와 같다(지금 영향 0, 2026-12-31 10:00Z 시한, `schedule-closed
 
 ## [구현 검증] 이연 목록 (메인이 프로젝트 대장에 등재해야 유효)
 
-1. 실제 Hibernate에서 확정·만료 경합 때 orphanRemoval DELETE가 행 수 기대값(1)으로 실행되는지 — StaleState로 정합을 지키는가(§3b, ADR-013).
+1. 실제 Hibernate에서 확정·만료 경합 때 orphanRemoval DELETE가 행 수 기대값(1)으로 실행되는지 — StaleState로 정합을 지키는가(§3b, ADR-016).
 2. 마감 판정 `FOR SHARE`의 선점 처리량·p99 비용(S4c4200 마감 끔 대조 — §5, 마이크로벤치는 방향만).
 3. 부하 중 대조 한 바퀴 시간과 청크 최대(§4b — 부하 없는 S4c 끝 상태 15초).
 4. 정리 ①의 `EXISTS(seat_hold …)` 순차 스캔 시간과 회차 행 배타 잠금 보유 시간(§6).
