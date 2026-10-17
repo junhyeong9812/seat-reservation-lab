@@ -165,10 +165,10 @@ preset_env() {
     *) return 1 ;;
   esac
 }
-preset_env "$PG_PRESET" > /dev/null || { echo "--pg-preset one of: default nockpt buf512 tmpfs" >&2; exit 2; }
-# ADR-011 E3: tmpfs 크기는 tmpfs preset에서만 · 상한 20(서버 31GiB − 앱·측정기 여유)
-[[ "$PG_TMPFS_GB" =~ ^(0|[1-9][0-9]?)$ ]] && (( PG_TMPFS_GB <= 20 )) || { echo "--pg-tmpfs-size 1..20(GiB)" >&2; exit 2; }
+# ADR-011 E3: tmpfs 크기는 tmpfs preset에서만 · 상한 20(서버 31GiB − 앱·측정기 여유). preset_env가 산술로 쓰기 전에 검사한다
+[[ "$PG_TMPFS_GB" =~ ^(0|[1-9][0-9]?)$ ]] && (( PG_TMPFS_GB <= 20 )) || { echo "--pg-tmpfs-size 0..20(GiB — 0 = preset 값 6g)" >&2; exit 2; }
 (( PG_TMPFS_GB == 0 )) || [[ "$PG_PRESET" == tmpfs ]] || { echo "--pg-tmpfs-size는 --pg-preset tmpfs에서만" >&2; exit 2; }
+preset_env "$PG_PRESET" > /dev/null || { echo "--pg-preset one of: default nockpt buf512 tmpfs" >&2; exit 2; }
 if (( WORKTREE )); then
   [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]] || { echo "--worktree는 스모크 전용 — 캠페인에서는 커밋된 하네스만" >&2; exit 2; }
   (( ! RESUME )) || { echo "--worktree와 --resume은 함께 쓸 수 없다(작업트리 하네스는 이어서 잴 근거가 없다)" >&2; exit 2; }
@@ -699,6 +699,8 @@ run_rep() {  # 인자: level cell rep
   # 주입·마감 표본 배경 작업은 k6보다 먼저 끝난다(마지막 주입 +600초 · 마감 표본 +595초 < k6 약 1,000초) — 남았으면 기다린다(무음 유실 금지)
   local j; for j in "${bg_jobs[@]}"; do wait "$j" 2>/dev/null; done
   CONSISTENCY_TIMEOUT=$S4C_CONSISTENCY_S consistency "$grace" > "$dir/consistency.json" 2>>"$dir/errors.log"   # 600초 — S4c 구간 상한 계산(머리 S4C_STEPS_MAX)에 든다
+  # ADR-011 E3(리뷰 rv34): 끝 정합성 쿼리 뒤 저장 공간·메모리 최고치를 한 번 더(기록만 — 임시 파일 여유 확인. 넘치면 db-log-fatal·consistency 실패로 드러난다)
+  pg_storage > "$dir/pg-storage-end.json" 2>>"$dir/errors.log" || echo "pg_storage end failed" >> "$dir/errors.log"
   # ADR-009 회차 끝 수집: 앱(·F) 지표 · V7 기록 테이블 · 효과 셀 끝 쌍 상태 · 마감 임박 셀 정리 상태
   drift_snaps "$dir" end
   drift_db_dump > "$dir/drift-db.json" 2>>"$dir/errors.log" || echo "drift_db_dump failed" >> "$dir/errors.log"
@@ -1212,6 +1214,11 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     if jq -e '.fstype == "tmpfs"' "$dir/pg-storage.json" > /dev/null 2>&1 \
        && ! jq -e --argjson min "${TMPFS_MIN_AVAIL:-536870912}" '(.df_bytes.avail | type == "number") and .df_bytes.avail >= $min' "$dir/pg-storage.json" > /dev/null 2>&1; then
       reasons+=("tmpfs-low-space")
+    fi
+    # ADR-011 E3(리뷰 rv34): 적용된 크기가 요청(preset_env PG_TMPFS_SIZE·DB_MEM — GiB 정수)과 바이트까지 같은가(tmpfs size·memory.max는 정확히 맞는다 — 6g 회차 실측)
+    local want_t want_m; want_t=$(preset_env "$PG_PRESET" | tr ' ' '\n' | sed -n 's/^PG_TMPFS_SIZE=\([0-9]*\)g$/\1/p'); want_m=$(preset_env "$PG_PRESET" | tr ' ' '\n' | sed -n 's/^DB_MEM=\([0-9]*\)g$/\1/p')
+    if ! jq -e --argjson t "$(( want_t * 1073741824 ))" --arg m "$(( want_m * 1073741824 ))" '.df_bytes.size == $t and .cgroup.max == $m' "$dir/pg-storage.json" > /dev/null 2>&1; then
+      reasons+=("tmpfs-size-mismatch")
     fi
   else
     # 반대 방향(리뷰 rv8 A2): 디스크 preset인데 데이터 디렉터리가 tmpfs면(이전 tmpfs 볼륨을 이어 씀 등) disk-preset-on-tmpfs, 저장 위치를 못 읽었으면 storage-check-failed
