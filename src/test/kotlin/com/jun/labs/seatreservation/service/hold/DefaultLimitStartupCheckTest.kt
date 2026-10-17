@@ -40,6 +40,10 @@ class DefaultLimitStartupCheckTest {
             *extra,
         )
 
+    private val adr009OffArgs = arrayOf(
+        "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none",
+    )
+
     private fun causes(e: Throwable): List<Throwable> = generateSequence(e) { it.cause.takeIf { c -> c !== it } }.toList()
 
     @Test
@@ -69,7 +73,8 @@ class DefaultLimitStartupCheckTest {
 
     @Test
     fun `limit-strategy=none 명시 + 좌석 전략 pessimistic — 뜬다`() {
-        boot("--seat.hold.strategy=pessimistic", "--seat.hold.limit-strategy=none").use { ctx ->
+        // ADR-009 후보·정리 끔도 명시(기본값이 A·C·정리 ① 켬 — none과는 기동 검사가 거부한다. 이 테스트의 의미 = 전환 전 none 기준선)
+        boot("--seat.hold.strategy=pessimistic", "--seat.hold.limit-strategy=none", *adr009OffArgs).use { ctx ->
             val props = ctx.getBean(SeatHoldProperties::class.java)
             assertEquals(UserLimitStrategyType.NONE, props.limitStrategy)
         }

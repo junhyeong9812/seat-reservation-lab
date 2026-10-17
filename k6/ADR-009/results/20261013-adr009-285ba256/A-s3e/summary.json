@@ -1,0 +1,4613 @@
+{
+ "L4/S3e-a20": [
+  {
+   "rep": "rep1",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 1,
+    "started": "2026-10-13T11:01:12+09:00",
+    "ended": "2026-10-13T11:23:07+09:00",
+    "k6_started": "2026-10-13T11:02:01+09:00",
+    "k6_ended": "2026-10-13T11:17:08+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-upsert-precheck",
+    "limit_source": "default",
+    "injected_limit_strategy": null,
+    "harness": "sha:285ba256",
+    "cond": "A",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=1 DRIFT_EXTERNAL= DRIFT_C= DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0018,
+      "rtt_s": 0.001,
+      "at": 1791856921.2601438
+     },
+     "after": {
+      "offset_s": -0.0023,
+      "rtt_s": 0.0008,
+      "at": 1791857828.7974963
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 294,
+    "held": 0,
+    "reserved": 9706,
+    "hold_rows": 0,
+    "confirmed": 9706,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T02:22:43.083+00:00",
+    "v_counter_mismatch": 30,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12194,
+   "hold_409": 747213,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.641648,
+   "hold_p99": 1.8114376399999998,
+   "confirm_200": 9706,
+   "confirm_409": 0,
+   "session_confirmed": 9706,
+   "session_abandoned": 2488,
+   "session_gave_up": 183392,
+   "session_error": 0,
+   "iterations": 195586,
+   "dropped": 4515,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.66,
+    "t90": 1.7567,
+    "poll_ms_max": 1658,
+    "rehold": 2194,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1593,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1593,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1593,
+   "hikari_pending_max": 0,
+   "hikari_samples": 797,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": -0.00025,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.03954802259887006
+    ],
+    [
+     "IO:WALSync",
+     0.018832391713747645
+    ],
+    [
+     "CPU:-",
+     0.015065913370998116
+    ],
+    [
+     "LWLock:WALWrite",
+     0.0025109855618330196
+    ],
+    [
+     "Timeout:VacuumDelay",
+     0.0006277463904582549
+    ]
+   ],
+   "waits_samples": 1593,
+   "waits_top_all": {
+    "Client:ClientRead": 0.03954802259887006,
+    "IO:WALSync": 0.018832391713747645,
+    "CPU:-": 0.015065913370998116,
+    "LWLock:WALWrite": 0.0025109855618330196,
+    "Timeout:VacuumDelay": 0.0006277463904582549
+   },
+   "acquire_max_ms": 0.660921,
+   "acquire_mean_ms": 0.001010642191148252,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759407
+   ],
+   "borrow_per_hold": 1.0129008555359642,
+   "borrow_per_request": 1.0001183181145032,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 923.1322729587555,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1836673,
+     "wal_fpi": 1072,
+     "wal_bytes": 93987147,
+     "wal_buffers_full": 0,
+     "wal_write": 33401,
+     "wal_sync": 24899,
+     "wal_write_time": 308.26300000000003,
+     "wal_sync_time": 24969.399999999998,
+     "wal_sync_avg_ms": 1.0028274227880636,
+     "wal_write_avg_ms": 0.009229154815724082,
+     "wal_bytes_per_hold": 123.7638670699638,
+     "commits": 26366,
+     "commits_per_wal_sync": 1.0589180288364994
+    },
+    "io": {
+     "reads": 446,
+     "read_time": 1.385,
+     "writes": 1796,
+     "write_time": 25.762,
+     "writebacks": 1796,
+     "writeback_time": 5.2170000000000005,
+     "extends": 679,
+     "extend_time": 9.421999999999999,
+     "fsyncs": 250,
+     "fsync_time": 35.94,
+     "fsync_avg_ms": 0.14376,
+     "write_avg_ms": 0.014344097995545656
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 179487,
+     "checkpoint_sync_time": 39,
+     "buffers_checkpoint": 1796,
+     "buffers_backend": 1330,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 88856,
+      "write_sectors": 1095832,
+      "write_ms": 80341,
+      "io_ms": 27426,
+      "weighted_ms": 94676,
+      "flushes": 25412,
+      "flush_ms": 14335,
+      "write_wait_ms": 0.9041707931934816,
+      "flush_avg_ms": 0.5641035731150638,
+      "util_pct": 2.9709718534805645,
+      "aqu": 0.10255951695476041,
+      "write_mb": 561.065984
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 88856,
+      "write_sectors": 1095832,
+      "write_ms": 80341,
+      "io_ms": 27665,
+      "weighted_ms": 80341,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 0.9041707931934816,
+      "flush_avg_ms": null,
+      "util_pct": 2.9968619677145707,
+      "aqu": 0.08703086475624663,
+      "write_mb": 561.065984
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 94130,
+      "write_sectors": 1095832,
+      "write_ms": 88290,
+      "io_ms": 31214,
+      "weighted_ms": 88290,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 0.937958142993732,
+      "flush_avg_ms": null,
+      "util_pct": 3.381313915063893,
+      "aqu": 0.09564176509290419,
+      "write_mb": 561.065984
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 61,
+      "blks_hit": 60261,
+      "blks_read": 0,
+      "blks_written": 23,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 24,
+      "blks_hit": 60248,
+      "blks_read": 0,
+      "blks_written": 6,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 375,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 221,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2264122,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 49152,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12214,
+     "n_tup_upd": 2468,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 803,
+     "autovacuum_count": 2,
+     "n_dead_tup_end": 1896,
+     "bytes_end": 1351680
+    }
+   },
+   "io_wal_sync": 24899,
+   "io_wal_sync_avg_ms": 1.0028274227880636,
+   "io_wal_mb": 93.987147,
+   "io_wal_bytes_per_hold": 123.7638670699638,
+   "io_commits_per_wal_sync": 1.0589180288364994,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.14376,
+   "io_disk_write_wait_ms": 0.9041707931934816,
+   "io_disk_flush_avg_ms": 0.5641035731150638,
+   "io_disk_util_pct": 2.9709718534805645,
+   "io_disk_write_mb": 561.065984,
+   "io_wal_records": 1836673,
+   "io_wal_fpi": 1072,
+   "io_mxid_consumed": 49152,
+   "io_mx_slru_pages": 114,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759407,
+   "limit_acquire_mean_ms": 0.05498343754929834,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12194,
+   "limit_check_mean_ms": 7.912284730195178e-05,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12194,
+   "limit_span_mean_ms": 0.12436086878792849,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011648,
+   "redis_keys": 0,
+   "cond": "A",
+   "cleanup": "none",
+   "sales_close_check_n": 759407,
+   "sales_close_check_mean_ms": 0.07391923566677684,
+   "tick_failed": 0,
+   "tick_ok": 124,
+   "drift_repaired_metric": 30,
+   "reconcile_borrows_app": 0,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {},
+   "reconcile_all": {},
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.06716886377903328,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.04268675455116133
+      ],
+      [
+       "IO:WALSync",
+       0.018832391713747645
+      ],
+      [
+       "CPU:-",
+       0.003138731952291274
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.009416195856873822,
+     "top": [
+      [
+       "CPU:-",
+       0.008788449466415568
+      ],
+      [
+       "Timeout:VacuumDelay",
+       0.0006277463904582549
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "A",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T02:06:31.789171+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T02:12:01.780182+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 31.555,
+       "max": 31.564
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 31.555,
+       "max": 31.564
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 31.564,
+       "max": 31.567
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 31.564,
+       "max": 31.567
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     },
+     "H": {
+      "injected": 20,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.555,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.555,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.556,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.556,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.557,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.557,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.558,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.558,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.559,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.559,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.56,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.56,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300030,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.561,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.561,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300036,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300052,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.562,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.562,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300053,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.563,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.563,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300058,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.564,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.564,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300059,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.564,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.564,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300064,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.565,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.565,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300070,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.566,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.566,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300076,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.566,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.566,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300084,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.567,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.567,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300138,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300189,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300424,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300473,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300024,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300025,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300103,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300236,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300478,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300660,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300746,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390012,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.938,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.938,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390035,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.939,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.939,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390066,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.94,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.94,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390093,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.941,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.941,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390344,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.941,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.941,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390505,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.942,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.942,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390567,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.942,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.942,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390633,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.943,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.943,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390647,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.943,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.943,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390738,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.944,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.944,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390787,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.944,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.944,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390807,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.945,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.945,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391034,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.946,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.946,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391108,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.946,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.946,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391146,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.946,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.946,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 0,
+    "skipped_failure_by_reason": {},
+    "skipped_closed": 0,
+    "tick_failed": 0,
+    "tick_ok": 124,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {},
+    "end_missing": 0,
+    "mismatch_open_end": 30,
+    "injected_mismatch_end": 30,
+    "noninjected_mismatch": 0,
+    "reconcile": {},
+    "drift_log_rows_window": 30,
+    "drift_log_truncated": false,
+    "unexpected": []
+   }
+  },
+  {
+   "rep": "rep2",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 2,
+    "started": "2026-10-13T16:32:43+09:00",
+    "ended": "2026-10-13T16:54:14+09:00",
+    "k6_started": "2026-10-13T16:33:31+09:00",
+    "k6_ended": "2026-10-13T16:48:15+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-upsert-precheck",
+    "limit_source": "default",
+    "injected_limit_strategy": null,
+    "harness": "sha:285ba256",
+    "cond": "A",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=1 DRIFT_EXTERNAL= DRIFT_C= DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": -0.0029,
+      "rtt_s": 0.0009,
+      "at": 1791876811.2191536
+     },
+     "after": {
+      "offset_s": -0.0017,
+      "rtt_s": 0.0008,
+      "at": 1791877695.7992284
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 263,
+    "held": 0,
+    "reserved": 9737,
+    "hold_rows": 0,
+    "confirmed": 9737,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T07:53:50.205+00:00",
+    "v_counter_mismatch": 30,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12124,
+   "hold_409": 747543,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.648808,
+   "hold_p99": 1.8112357599999995,
+   "confirm_200": 9737,
+   "confirm_409": 0,
+   "session_confirmed": 9737,
+   "session_abandoned": 2387,
+   "session_gave_up": 183401,
+   "session_error": 0,
+   "iterations": 195525,
+   "dropped": 4576,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.66,
+    "t90": 1.7367,
+    "poll_ms_max": 1580,
+    "rehold": 2124,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1552,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1552,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1552,
+   "hikari_pending_max": 1,
+   "hikari_samples": 773,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": -0.0023,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.043170103092783504
+    ],
+    [
+     "IO:WALSync",
+     0.018685567010309278
+    ],
+    [
+     "CPU:-",
+     0.008376288659793814
+    ],
+    [
+     "LWLock:WALWrite",
+     0.0006443298969072165
+    ]
+   ],
+   "waits_samples": 1552,
+   "waits_top_all": {
+    "Client:ClientRead": 0.043170103092783504,
+    "IO:WALSync": 0.018685567010309278,
+    "CPU:-": 0.008376288659793814,
+    "LWLock:WALWrite": 0.0006443298969072165
+   },
+   "acquire_max_ms": 0.651784,
+   "acquire_mean_ms": 0.0014216033323240106,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759667
+   ],
+   "borrow_per_hold": 1.0129346147719989,
+   "borrow_per_request": 1.0001156739502264,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 900.0681858062744,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1838914,
+     "wal_fpi": 1075,
+     "wal_bytes": 94090619,
+     "wal_buffers_full": 0,
+     "wal_write": 33376,
+     "wal_sync": 24851,
+     "wal_write_time": 287.817,
+     "wal_sync_time": 25893.322999999997,
+     "wal_sync_avg_ms": 1.0419428996821052,
+     "wal_write_avg_ms": 0.008623471955896453,
+     "wal_bytes_per_hold": 123.85771528840927,
+     "commits": 26228,
+     "commits_per_wal_sync": 1.055410245060561
+    },
+    "io": {
+     "reads": 446,
+     "read_time": 1.5060000000000002,
+     "writes": 1801,
+     "write_time": 26.188000000000002,
+     "writebacks": 1801,
+     "writeback_time": 4.272,
+     "extends": 684,
+     "extend_time": 9.845,
+     "fsyncs": 251,
+     "fsync_time": 44.725,
+     "fsync_avg_ms": 0.17818725099601596,
+     "write_avg_ms": 0.014540810660744032
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 180281,
+     "checkpoint_sync_time": 47,
+     "buffers_checkpoint": 1801,
+     "buffers_backend": 1340,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 88022,
+      "write_sectors": 1125200,
+      "write_ms": 101041,
+      "io_ms": 28512,
+      "weighted_ms": 116362,
+      "flushes": 25371,
+      "flush_ms": 15321,
+      "write_wait_ms": 1.1479062052668652,
+      "flush_avg_ms": 0.6038784438926333,
+      "util_pct": 3.167760004144482,
+      "aqu": 0.1292813164991092,
+      "write_mb": 576.1024
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 88021,
+      "write_sectors": 1125200,
+      "write_ms": 101040,
+      "io_ms": 29823,
+      "weighted_ms": 101040,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.1479078856182048,
+      "flush_avg_ms": null,
+      "util_pct": 3.3134156356481785,
+      "aqu": 0.11225816176303256,
+      "write_mb": 576.1024
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 92953,
+      "write_sectors": 1125200,
+      "write_ms": 107369,
+      "io_ms": 30289,
+      "weighted_ms": 107369,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.1550891310662377,
+      "flush_avg_ms": null,
+      "util_pct": 3.3651894909347715,
+      "aqu": 0.11928985125034683,
+      "write_mb": 576.1024
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 66,
+      "blks_hit": 64923,
+      "blks_read": 0,
+      "blks_written": 26,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 25,
+      "blks_hit": 64903,
+      "blks_read": 0,
+      "blks_written": 7,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 376,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 222,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2260005,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 52445,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12145,
+     "n_tup_upd": 2357,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 804,
+     "autovacuum_count": 2,
+     "n_dead_tup_end": 1745,
+     "bytes_end": 1376256
+    }
+   },
+   "io_wal_sync": 24851,
+   "io_wal_sync_avg_ms": 1.0419428996821052,
+   "io_wal_mb": 94.090619,
+   "io_wal_bytes_per_hold": 123.85771528840927,
+   "io_commits_per_wal_sync": 1.055410245060561,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.17818725099601596,
+   "io_disk_write_wait_ms": 1.1479062052668652,
+   "io_disk_flush_avg_ms": 0.6038784438926333,
+   "io_disk_util_pct": 3.167760004144482,
+   "io_disk_write_mb": 576.1024,
+   "io_wal_records": 1838914,
+   "io_wal_fpi": 1075,
+   "io_mxid_consumed": 52445,
+   "io_mx_slru_pages": 124,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759667,
+   "limit_acquire_mean_ms": 0.05660101658753112,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12124,
+   "limit_check_mean_ms": 8.80960079181788e-05,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12125,
+   "limit_span_mean_ms": 0.12374274144329897,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011712,
+   "redis_keys": 0,
+   "cond": "A",
+   "cleanup": "none",
+   "sales_close_check_n": 759667,
+   "sales_close_check_mean_ms": 0.07628930181118833,
+   "tick_failed": 0,
+   "tick_ok": 122,
+   "drift_repaired_metric": 30,
+   "reconcile_borrows_app": 0,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {},
+   "reconcile_all": {},
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.06572164948453607,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.045103092783505154
+      ],
+      [
+       "IO:WALSync",
+       0.017396907216494846
+      ],
+      [
+       "CPU:-",
+       0.002577319587628866
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.005154639175257732,
+     "top": [
+      [
+       "CPU:-",
+       0.005154639175257732
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "A",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T07:38:01.713296+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T07:43:31.732173+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 32.222,
+       "max": 32.23
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 32.222,
+       "max": 32.23
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 32.231,
+       "max": 32.233
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 32.231,
+       "max": 32.233
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     },
+     "H": {
+      "injected": 20,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.222,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.222,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.224,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.224,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.225,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.225,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.225,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.225,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.226,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.226,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.227,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.227,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300035,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.228,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.228,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300051,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.229,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.229,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300055,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.23,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.23,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300059,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 32.23,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.23,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300062,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 32.231,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.231,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300065,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 32.232,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.232,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300072,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 32.232,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.232,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300074,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 32.233,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.233,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300078,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 32.233,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 32.233,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300227,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300255,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300544,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 301022,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300024,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300025,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300026,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300390,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300483,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300640,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300729,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 301205,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 389934,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.553,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.553,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 389983,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.553,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.553,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 389993,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.554,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.554,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390013,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.555,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.555,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390022,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.555,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.555,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390026,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.556,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.556,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390038,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.557,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.557,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390057,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.557,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.557,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390070,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.558,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.558,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390075,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 22.558,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.558,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390084,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 22.558,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.558,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390178,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 22.559,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.559,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390179,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 22.56,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.56,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390180,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 22.56,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.56,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390203,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 22.56,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 22.56,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 0,
+    "skipped_failure_by_reason": {},
+    "skipped_closed": 0,
+    "tick_failed": 0,
+    "tick_ok": 122,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {},
+    "end_missing": 0,
+    "mismatch_open_end": 30,
+    "injected_mismatch_end": 30,
+    "noninjected_mismatch": 0,
+    "reconcile": {},
+    "drift_log_rows_window": 30,
+    "drift_log_truncated": false,
+    "unexpected": []
+   }
+  },
+  {
+   "rep": "rep3",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 3,
+    "started": "2026-10-13T20:05:01+09:00",
+    "ended": "2026-10-13T20:26:44+09:00",
+    "k6_started": "2026-10-13T20:05:50+09:00",
+    "k6_ended": "2026-10-13T20:20:44+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-upsert-precheck",
+    "limit_source": "default",
+    "injected_limit_strategy": null,
+    "harness": "sha:285ba256",
+    "cond": "A",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=1 DRIFT_EXTERNAL= DRIFT_C= DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0056,
+      "rtt_s": 0.0027,
+      "at": 1791889550.2216022
+     },
+     "after": {
+      "offset_s": 0.0023,
+      "rtt_s": 0.0008,
+      "at": 1791890444.9663506
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 270,
+    "held": 0,
+    "reserved": 9730,
+    "hold_rows": 0,
+    "confirmed": 9730,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T11:26:19.261+00:00",
+    "v_counter_mismatch": 30,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12185,
+   "hold_409": 747402,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.644235,
+   "hold_p99": 1.8196963200000018,
+   "confirm_200": 9730,
+   "confirm_409": 0,
+   "session_confirmed": 9730,
+   "session_abandoned": 2455,
+   "session_gave_up": 183396,
+   "session_error": 0,
+   "iterations": 195581,
+   "dropped": 4520,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.6567,
+    "t90": 1.7567,
+    "poll_ms_max": 1563,
+    "rehold": 2185,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1570,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1570,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1570,
+   "hikari_pending_max": 0,
+   "hikari_samples": 781,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": 0.00395,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.03694267515923567
+    ],
+    [
+     "IO:WALSync",
+     0.016560509554140127
+    ],
+    [
+     "CPU:-",
+     0.007643312101910828
+    ],
+    [
+     "Timeout:VacuumDelay",
+     0.0006369426751592356
+    ]
+   ],
+   "waits_samples": 1570,
+   "waits_top_all": {
+    "Client:ClientRead": 0.03694267515923567,
+    "IO:WALSync": 0.016560509554140127,
+    "CPU:-": 0.007643312101910828,
+    "Timeout:VacuumDelay": 0.0006369426751592356
+   },
+   "acquire_max_ms": 0.6299520000000001,
+   "acquire_mean_ms": 0.0015484875650988359,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759587
+   ],
+   "borrow_per_hold": 1.0129280780213459,
+   "borrow_per_request": 1.00011698688577,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 910.2935287952423,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1837903,
+     "wal_fpi": 1100,
+     "wal_bytes": 94106367,
+     "wal_buffers_full": 0,
+     "wal_write": 33459,
+     "wal_sync": 24929,
+     "wal_write_time": 286.319,
+     "wal_sync_time": 25534.592,
+     "wal_sync_avg_ms": 1.0242926711861688,
+     "wal_write_avg_ms": 0.008557308945276308,
+     "wal_bytes_per_hold": 123.89149235044833,
+     "commits": 26333,
+     "commits_per_wal_sync": 1.0563199486541779
+    },
+    "io": {
+     "reads": 447,
+     "read_time": 1.4969999999999999,
+     "writes": 1855,
+     "write_time": 29.067999999999998,
+     "writebacks": 1855,
+     "writeback_time": 4.408,
+     "extends": 715,
+     "extend_time": 10.332999999999998,
+     "fsyncs": 249,
+     "fsync_time": 65.388,
+     "fsync_avg_ms": 0.26260240963855425,
+     "write_avg_ms": 0.015670080862533693
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 185496,
+     "checkpoint_sync_time": 68,
+     "buffers_checkpoint": 1855,
+     "buffers_backend": 1366,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 79431,
+      "write_sectors": 1062896,
+      "write_ms": 80354,
+      "io_ms": 28166,
+      "weighted_ms": 95483,
+      "flushes": 25437,
+      "flush_ms": 15129,
+      "write_wait_ms": 1.011620148304818,
+      "flush_avg_ms": 0.5947635334355467,
+      "util_pct": 3.094166783463485,
+      "aqu": 0.10489253958156781,
+      "write_mb": 544.202752
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 79431,
+      "write_sectors": 1062896,
+      "write_ms": 80354,
+      "io_ms": 28483,
+      "weighted_ms": 80354,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.011620148304818,
+      "flush_avg_ms": null,
+      "util_pct": 3.128990715521921,
+      "aqu": 0.08827262576099726,
+      "write_mb": 544.202752
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 84891,
+      "write_sectors": 1062896,
+      "write_ms": 89981,
+      "io_ms": 31433,
+      "weighted_ms": 89981,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.0599592418513153,
+      "flush_avg_ms": null,
+      "util_pct": 3.453062007548382,
+      "aqu": 0.09884833534858618,
+      "write_mb": 544.202752
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 62,
+      "blks_hit": 61605,
+      "blks_read": 0,
+      "blks_written": 23,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 24,
+      "blks_hit": 61587,
+      "blks_read": 0,
+      "blks_written": 6,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 376,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 222,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2263694,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 49972,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12207,
+     "n_tup_upd": 2448,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 775,
+     "autovacuum_count": 2,
+     "n_dead_tup_end": 1876,
+     "bytes_end": 1392640
+    }
+   },
+   "io_wal_sync": 24929,
+   "io_wal_sync_avg_ms": 1.0242926711861688,
+   "io_wal_mb": 94.106367,
+   "io_wal_bytes_per_hold": 123.89149235044833,
+   "io_commits_per_wal_sync": 1.0563199486541779,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.26260240963855425,
+   "io_disk_write_wait_ms": 1.011620148304818,
+   "io_disk_flush_avg_ms": 0.5947635334355467,
+   "io_disk_util_pct": 3.094166783463485,
+   "io_disk_write_mb": 544.202752,
+   "io_wal_records": 1837903,
+   "io_wal_fpi": 1100,
+   "io_mxid_consumed": 49972,
+   "io_mx_slru_pages": 115,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759587,
+   "limit_acquire_mean_ms": 0.054948535165820364,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12185,
+   "limit_check_mean_ms": 0.00010824324989741487,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12187,
+   "limit_span_mean_ms": 0.12304960474275868,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011712,
+   "redis_keys": 0,
+   "cond": "A",
+   "cleanup": "none",
+   "sales_close_check_n": 759587,
+   "sales_close_check_mean_ms": 0.07430810451469022,
+   "tick_failed": 0,
+   "tick_ok": 123,
+   "drift_repaired_metric": 30,
+   "reconcile_borrows_app": 0,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {},
+   "reconcile_all": {},
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.05732484076433121,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.040127388535031845
+      ],
+      [
+       "IO:WALSync",
+       0.01464968152866242
+      ],
+      [
+       "CPU:-",
+       0.0025477707006369425
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.0044585987261146496,
+     "top": [
+      [
+       "CPU:-",
+       0.003821656050955414
+      ],
+      [
+       "Timeout:VacuumDelay",
+       0.0006369426751592356
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "A",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T11:10:20.753953+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T11:15:50.753334+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 31.204,
+       "max": 31.213
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 31.204,
+       "max": 31.213
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "expiry-repair"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 31.213,
+       "max": 31.215
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 31.213,
+       "max": 31.215
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     },
+     "H": {
+      "injected": 20,
+      "detected": 0,
+      "repaired": 0,
+      "end_matched": 0,
+      "repaired_by": [],
+      "detect_s": null,
+      "repair_s": null
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.204,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.204,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.205,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.205,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.206,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.206,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.207,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.207,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300026,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.208,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.208,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300034,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.209,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.209,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300036,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.21,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.21,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300040,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.211,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.211,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300050,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.212,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.212,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300053,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 31.213,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.213,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300056,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.213,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.213,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300058,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.214,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.214,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300074,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.214,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.214,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300077,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.215,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.215,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300094,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 31.215,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 31.215,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300307,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300312,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300333,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300350,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300682,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 2,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300206,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300332,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300442,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300678,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 301068,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": null,
+      "detected_by": null,
+      "first_action": null,
+      "repaired_s": null,
+      "repaired_by": null,
+      "actions": [],
+      "end_cnt": 0,
+      "end_actual": 1,
+      "end_matched": false
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390081,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.588,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.588,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390097,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.589,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.589,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390170,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.589,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.589,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390191,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.59,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.59,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390193,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.59,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.59,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390296,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.591,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.591,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390510,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.591,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.591,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390570,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.592,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.592,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390655,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.592,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.592,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390685,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 21.593,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.593,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390802,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.593,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.593,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390850,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.594,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.594,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391084,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.594,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.594,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391109,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.595,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.595,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 391205,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 21.595,
+      "detected_by": "expiry-repair",
+      "first_action": "repaired",
+      "repaired_s": 21.595,
+      "repaired_by": "expiry-repair",
+      "actions": [
+       "expiry-repair:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 0,
+    "skipped_failure_by_reason": {},
+    "skipped_closed": 0,
+    "tick_failed": 0,
+    "tick_ok": 123,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {},
+    "end_missing": 0,
+    "mismatch_open_end": 30,
+    "injected_mismatch_end": 30,
+    "noninjected_mismatch": 0,
+    "reconcile": {},
+    "drift_log_rows_window": 30,
+    "drift_log_truncated": false,
+    "unexpected": []
+   }
+  }
+ ]
+}

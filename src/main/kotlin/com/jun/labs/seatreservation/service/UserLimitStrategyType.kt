@@ -18,6 +18,14 @@ enum class UserLimitStrategyType {
     COUNTER_UPSERT,
     /** ADR-007 — counter-upsert 앞에 잠금 없는 좌석 상태 선조회: 팔린 좌석은 쓰기 없이 거절, 에러 순서는 명세 순서(좌석 먼저) */
     COUNTER_UPSERT_PRECHECK,
+    /** ADR-009 후보 B — cnt는 DB 트리거(V8, db/migration-trigger)가 고치고, 앱은 쿼터 행을 잠가 한도만 판정한다. 에러 순서는 precheck와 같다(좌석 먼저) */
+    COUNTER_TRIGGER,
     SERIALIZABLE,
     SERIALIZABLE_RETRY,
+    ;
+
+    companion object {
+        /** cnt를 유지하는 방식(카운터 계열) — 판정기·배경 행 거부·기동 검사의 단일 출처(ADR-009 코드 루프 1 L1-14) */
+        val COUNTER_FAMILY: Set<UserLimitStrategyType> = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
+    }
 }

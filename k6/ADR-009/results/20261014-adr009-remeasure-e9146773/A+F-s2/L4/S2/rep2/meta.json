@@ -1,0 +1,160 @@
+{
+  "sha": "e9146773",
+  "level": 4,
+  "cell": "S2",
+  "rep": 2,
+  "started": "2026-10-14T21:39:49+09:00",
+  "ended": "2026-10-14T21:42:29+09:00",
+  "k6_started": "2026-10-14T21:41:55+09:00",
+  "k6_ended": "2026-10-14T21:41:57+09:00",
+  "ttl_s": 300,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:e9146773",
+  "cond": "A+F",
+  "cleanup": "none",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "USERS=100 PER_USER=10",
+  "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL=1 DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=none RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "io_settle_s": 11,
+  "pg_preset": "default",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": 0.0007,
+      "rtt_s": 0.0009,
+      "at": 1791981715.5267415
+    },
+    "after": {
+      "offset_s": 0.0007,
+      "rtt_s": 0.0011,
+      "at": 1791981718.0734606
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1791981629.110444,
+    "k6_start_epoch": 1791981715.554463,
+    "seed_to_k6_s": 86.444,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": 41,
+    "hold_reached_s": 41.786,
+    "hold_slept_s": 28.214,
+    "topup_s": 0.989,
+    "first_request_epoch": 1791981714.916123,
+    "first_request_source": "csv(1s)",
+    "seed_to_first_request_s": 85.806,
+    "k6_startup_s": -0.638,
+    "reconcile_phase": {
+      "passes": [
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": -47.412,
+          "end_rel_s": -47.407
+        }
+      ],
+      "completed_before_k6": 1,
+      "first_in_k6": null
+    },
+    "db_start_to_k6_s": 122.073,
+    "db_start_to_seed_s": 35.629,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T12:41:23.545826+00:00",
+          "last_autoanalyze": "2026-10-14T12:40:23.53854+00:00"
+        },
+        "seat_hold": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T12:40:23.51883+00:00",
+          "last_autoanalyze": "2026-10-14T12:41:23.543266+00:00"
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T12:40:23.539362+00:00",
+          "last_autoanalyze": "2026-10-14T12:41:23.545967+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "Serial",
+      "stops": 116,
+      "stop_ms_max": 86.930777,
+      "nested": 2,
+      "log_bytes": 138633,
+      "k6": {
+        "stops": 3,
+        "stop_ms_total": 36.305803999999995,
+        "stop_ms_max": 17.49854,
+        "nested": 0,
+        "gc_ids": 3,
+        "safepoint_other_max_ms": 0.030522
+      }
+    },
+    "reconciler": {
+      "collector": "Serial",
+      "stops": 109,
+      "stop_ms_max": 145.668947,
+      "nested": 2,
+      "log_bytes": 120655,
+      "k6": {
+        "stops": 0,
+        "stop_ms_total": 0,
+        "stop_ms_max": 0,
+        "nested": 0,
+        "gc_ids": 0,
+        "safepoint_other_max_ms": 0
+      }
+    }
+  }
+}

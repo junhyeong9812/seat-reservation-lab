@@ -1,0 +1,115 @@
+[2026-10-14 18:10:13] compose down (e9146773) (attempt 1)
+[2026-10-14 18:10:14] compose up (e9146773) HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL=1 DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=none RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4 (attempt 1)
+ Image seatlab-app Building 
+ Image seatlab-reconciler Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 997B done
+#1 DONE 0.0s
+
+#2 [reconciler internal] load build definition from Dockerfile
+#2 transferring dockerfile: 558B done
+#2 DONE 0.0s
+
+#3 [reconciler internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#3 DONE 1.2s
+
+#4 [app internal] load metadata for docker.io/library/eclipse-temurin:21-jdk
+#4 DONE 1.2s
+
+#5 [app internal] load .dockerignore
+#5 transferring context: 76B done
+#5 DONE 0.0s
+
+#6 [app build 1/7] FROM docker.io/library/eclipse-temurin:21-jdk@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4714783dd62eb
+#6 resolve docker.io/library/eclipse-temurin:21-jdk@sha256:f9bf7e9fe2f9bc4657537c1a7e20c768f0c3bafca41598263be4714783dd62eb 0.0s done
+#6 DONE 0.0s
+
+#7 [app stage-1 1/3] FROM docker.io/library/eclipse-temurin:21-jre@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef
+#7 resolve docker.io/library/eclipse-temurin:21-jre@sha256:ccbad9e7cb84c27092b12c40a4143e5733e050db9c3784d84f632dcf423fb2ef 0.0s done
+#7 DONE 0.0s
+
+#8 [reconciler internal] load build context
+#8 transferring context: 11.35kB done
+#8 DONE 0.0s
+
+#9 [app build 7/7] RUN ./gradlew --no-daemon -q bootJar
+#9 CACHED
+
+#10 [app build 6/7] COPY src src
+#10 CACHED
+
+#11 [app build 4/7] COPY gradle gradle
+#11 CACHED
+
+#12 [app build 2/7] WORKDIR /src
+#12 CACHED
+
+#13 [app build 5/7] RUN ./gradlew --no-daemon -q dependencies > /dev/null
+#13 CACHED
+
+#14 [app build 3/7] COPY gradlew settings.gradle.kts build.gradle.kts ./
+#14 CACHED
+
+#15 [app stage-1 2/3] WORKDIR /app
+#15 CACHED
+
+#16 [app stage-1 3/3] COPY --from=build /src/build/libs/seat-reservation-lab-0.0.1-SNAPSHOT.jar app.jar
+#16 CACHED
+
+#17 [app] exporting to image
+#17 exporting layers done
+#17 exporting manifest sha256:54afe1d6eb48a83bb5afdbc2bb46d59e5e86ede51188206b722bead873565263 done
+#17 exporting config sha256:3b53254540eeb4508aaefb3419d07a26d3c6b70f64cdabbf4bf38c0344a04ce4 0.0s done
+#17 exporting attestation manifest sha256:84cd9e97b582bf0df78c76bda97eb41418c4d5ccd5cc3cd44d2ab56021846c97
+#17 exporting attestation manifest sha256:84cd9e97b582bf0df78c76bda97eb41418c4d5ccd5cc3cd44d2ab56021846c97 0.1s done
+#17 exporting manifest list sha256:11778e0685d0758fb57f60b37d88745c4b999617d62581d888aff1c7b62eef68 0.0s done
+#17 naming to docker.io/library/seatlab-app:latest 0.0s done
+#17 unpacking to docker.io/library/seatlab-app:latest 0.0s done
+#17 DONE 0.2s
+
+#18 [reconciler] exporting to image
+#18 exporting layers done
+#18 exporting manifest sha256:afcf961c44a16daa2382db320dee7ea5761080f8c9f3081351731b2e6ab5dc93 0.0s done
+#18 exporting config sha256:fc5b56d1096b426b31996880242e46fa70ab25488a7a3a3d1c27af0a4e605c3e 0.0s done
+#18 exporting attestation manifest sha256:8f37b3f1f306d49abfd4faa3464c815959e4c24024abefc87a99ec601904b312 0.1s done
+#18 exporting manifest list sha256:005030fb63b65ca4f286c13bef38dc97f8325e14673ee15d1b2d1d52210f3fef 0.0s done
+#18 naming to docker.io/library/seatlab-reconciler:latest done
+#18 unpacking to docker.io/library/seatlab-reconciler:latest
+#18 unpacking to docker.io/library/seatlab-reconciler:latest 0.0s done
+#18 DONE 0.3s
+
+#19 [app] resolving provenance for metadata file
+#19 DONE 0.0s
+
+#20 [reconciler] resolving provenance for metadata file
+#20 DONE 0.0s
+ Image seatlab-app Built 
+ Image seatlab-reconciler Built 
+ Network seatlab_default Creating 
+ Network seatlab_default Created 
+ Volume seatlab_pgdata Creating 
+ Volume seatlab_pgdata Created 
+ Container seatlab-db-1 Creating 
+ Container seatlab-redis-1 Creating 
+ Container seatlab-redis-1 Created 
+ Container seatlab-db-1 Created 
+ Container seatlab-app-1 Creating 
+ Container seatlab-app-1 Created 
+ Container seatlab-reconciler-1 Creating 
+ Container seatlab-reconciler-1 Created 
+ Container seatlab-redis-1 Starting 
+ Container seatlab-db-1 Starting 
+ Container seatlab-redis-1 Started 
+ Container seatlab-db-1 Started 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-app-1 Starting 
+ Container seatlab-app-1 Started 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-reconciler-1 Starting 
+ Container seatlab-reconciler-1 Started 

@@ -1,0 +1,5206 @@
+{
+ "L4/S3e-a20": [
+  {
+   "rep": "rep1",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 1,
+    "started": "2026-10-13T12:08:02+09:00",
+    "ended": "2026-10-13T12:30:17+09:00",
+    "k6_started": "2026-10-13T12:09:25+09:00",
+    "k6_ended": "2026-10-13T12:24:20+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-trigger",
+    "limit_source": "injected",
+    "injected_limit_strategy": "counter-trigger",
+    "harness": "sha:285ba256",
+    "cond": "B+C",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_TRIGGER"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-trigger POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER=1 SALES_CLOSE_OFF= DRIFT_A= DRIFT_EXTERNAL= DRIFT_C=60s DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": -0.0005,
+      "rtt_s": 0.0011,
+      "at": 1791860965.9505079
+     },
+     "after": {
+      "offset_s": -0.0013,
+      "rtt_s": 0.0007,
+      "at": 1791861861.252288
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 270,
+    "held": 0,
+    "reserved": 9730,
+    "hold_rows": 0,
+    "confirmed": 9730,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T03:29:55.104+00:00",
+    "v_counter_mismatch": 0,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12124,
+   "hold_409": 747278,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.651376,
+   "hold_p99": 1.9255262999999994,
+   "confirm_200": 9730,
+   "confirm_409": 0,
+   "session_confirmed": 9730,
+   "session_abandoned": 2394,
+   "session_gave_up": 183405,
+   "session_error": 0,
+   "iterations": 195529,
+   "dropped": 4572,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.6733,
+    "t90": 1.75,
+    "poll_ms_max": 2605,
+    "rehold": 2124,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1572,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1572,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1572,
+   "hikari_pending_max": 0,
+   "hikari_samples": 782,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": -0.0009,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.03625954198473282
+    ],
+    [
+     "CPU:-",
+     0.017811704834605598
+    ],
+    [
+     "IO:WALSync",
+     0.017811704834605598
+    ],
+    [
+     "LWLock:WALWrite",
+     0.0006361323155216285
+    ]
+   ],
+   "waits_samples": 1572,
+   "waits_top_all": {
+    "Client:ClientRead": 0.03625954198473282,
+    "CPU:-": 0.017811704834605598,
+    "IO:WALSync": 0.017811704834605598,
+    "LWLock:WALWrite": 0.0006361323155216285
+   },
+   "acquire_max_ms": 0.627233,
+   "acquire_mean_ms": 0.0015203370793379343,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759402
+   ],
+   "borrow_per_hold": 1.0133381265785446,
+   "borrow_per_request": 1.000119615358612,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 910.6064460277557,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1910213,
+     "wal_fpi": 1086,
+     "wal_bytes": 98872916,
+     "wal_buffers_full": 0,
+     "wal_write": 33956,
+     "wal_sync": 24906,
+     "wal_write_time": 298.934,
+     "wal_sync_time": 27757.749,
+     "wal_sync_avg_ms": 1.1145004818116115,
+     "wal_write_avg_ms": 0.008803569325008836,
+     "wal_bytes_per_hold": 130.19838767872616,
+     "commits": 26592,
+     "commits_per_wal_sync": 1.0676945314382076
+    },
+    "io": {
+     "reads": 65,
+     "read_time": 0.35899999999999993,
+     "writes": 1926,
+     "write_time": 33.215,
+     "writebacks": 1926,
+     "writeback_time": 4.6,
+     "extends": 692,
+     "extend_time": 10.281999999999998,
+     "fsyncs": 265,
+     "fsync_time": 57.422000000000004,
+     "fsync_avg_ms": 0.2166867924528302,
+     "write_avg_ms": 0.01724558670820353
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 192705,
+     "checkpoint_sync_time": 60,
+     "buffers_checkpoint": 1926,
+     "buffers_backend": 1385,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 89335,
+      "write_sectors": 1109968,
+      "write_ms": 102712,
+      "io_ms": 29816,
+      "weighted_ms": 118736,
+      "flushes": 25424,
+      "flush_ms": 16022,
+      "write_wait_ms": 1.149739743661499,
+      "flush_avg_ms": 0.6301919446192574,
+      "util_pct": 3.2743014427432673,
+      "aqu": 0.13039222434450115,
+      "write_mb": 568.303616
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 89335,
+      "write_sectors": 1109968,
+      "write_ms": 102713,
+      "io_ms": 30045,
+      "weighted_ms": 102713,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.1497509374825097,
+      "flush_avg_ms": null,
+      "util_pct": 3.299449518621595,
+      "aqu": 0.1127962584144383,
+      "write_mb": 568.303616
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 94770,
+      "write_sectors": 1109968,
+      "write_ms": 111554,
+      "io_ms": 35501,
+      "weighted_ms": 111554,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.17710245858394,
+      "flush_avg_ms": null,
+      "util_pct": 3.898610662692136,
+      "aqu": 0.12250517277427639,
+      "write_mb": 568.303616
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 83,
+      "blks_hit": 82084,
+      "blks_read": 0,
+      "blks_written": 38,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 32,
+      "blks_hit": 82047,
+      "blks_read": 0,
+      "blks_written": 11,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 375,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 219,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2244532,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 65791,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12146,
+     "n_tup_upd": 34065,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 32518,
+     "autovacuum_count": 3,
+     "n_dead_tup_end": 767,
+     "bytes_end": 1474560
+    }
+   },
+   "io_wal_sync": 24906,
+   "io_wal_sync_avg_ms": 1.1145004818116115,
+   "io_wal_mb": 98.872916,
+   "io_wal_bytes_per_hold": 130.19838767872616,
+   "io_commits_per_wal_sync": 1.0676945314382076,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.2166867924528302,
+   "io_disk_write_wait_ms": 1.149739743661499,
+   "io_disk_flush_avg_ms": 0.6301919446192574,
+   "io_disk_util_pct": 3.2743014427432673,
+   "io_disk_write_mb": 568.303616,
+   "io_wal_records": 1910213,
+   "io_wal_fpi": 1086,
+   "io_mxid_consumed": 65791,
+   "io_mx_slru_pages": 164,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759402,
+   "limit_acquire_mean_ms": 0.08850004055296141,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12124,
+   "limit_check_mean_ms": 6.164722863741339e-05,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12126,
+   "limit_span_mean_ms": 0.10985393303645061,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011616,
+   "redis_keys": 0,
+   "cond": "B+C",
+   "cleanup": "none",
+   "sales_close_check_n": 759402,
+   "sales_close_check_mean_ms": 0.06972547483546264,
+   "tick_failed": 3,
+   "tick_ok": 120,
+   "drift_repaired_metric": 60,
+   "reconcile_borrows_app": 307,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {
+    "reconcile-app": {
+     "runs": 15,
+     "pass_s": {
+      "n": 15,
+      "p50": 0.033,
+      "max": 0.071
+     },
+     "chunk_ms_max": 13,
+     "borrows": 307,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12124,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 172,
+     "orphan_chunks": 30,
+     "chunk_ms_total": 343,
+     "orphan_ms_total": 54
+    }
+   },
+   "reconcile_all": {
+    "reconcile-app": {
+     "runs": 21,
+     "pass_s": {
+      "n": 21,
+      "p50": 0.034,
+      "max": 0.071
+     },
+     "chunk_ms_max": 13,
+     "borrows": 397,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12124,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 238,
+     "orphan_chunks": 36,
+     "chunk_ms_total": 459,
+     "orphan_ms_total": 97
+    }
+   },
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.06361323155216285,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.04198473282442748
+      ],
+      [
+       "IO:WALSync",
+       0.015267175572519083
+      ],
+      [
+       "CPU:-",
+       0.006361323155216285
+      ]
+     ]
+    },
+    "C": {
+     "sessions": 0.001272264631043257,
+     "top": [
+      [
+       "CPU:-",
+       0.001272264631043257
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.0076335877862595426,
+     "top": [
+      [
+       "CPU:-",
+       0.006361323155216285
+      ],
+      [
+       "IO:WALSync",
+       0.0006361323155216285
+      ],
+      [
+       "LWLock:WALWrite",
+       0.0006361323155216285
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "B+C",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T03:13:56.4795+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T03:19:26.476542+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 17.229,
+       "max": 17.23
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 46.932,
+       "max": 46.941
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 17.23,
+       "max": 27.265
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 46.942,
+       "max": 46.945
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 46.927,
+       "max": 46.931
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 46.927,
+       "max": 46.931
+      }
+     },
+     "H": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 46.917,
+       "max": 46.927
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 46.917,
+       "max": 46.927
+      }
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.674,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.674,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.676,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.676,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.678,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.678,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.679,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.679,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.681,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.681,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.682,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.682,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.683,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.683,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.684,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.684,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.685,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.685,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.686,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.686,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.688,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.688,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.689,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.689,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.69,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.69,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 16.691,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.691,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.692,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.692,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.694,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.694,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.695,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.695,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.697,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.697,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300037,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.698,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.698,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300040,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 16.699,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.699,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300041,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 16.7,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.7,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300046,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 16.701,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.701,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300048,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 16.702,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.702,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300049,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 16.702,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.702,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300052,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 16.703,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.703,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300225,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 16.704,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.704,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300352,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 16.705,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.705,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300360,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 16.706,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.706,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300430,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 16.707,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.707,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300432,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 16.708,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 16.708,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.917,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.917,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.919,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.919,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.92,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.92,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.921,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.921,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.922,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.922,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.923,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.923,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300024,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.924,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.924,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300025,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.925,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.925,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300026,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.926,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.926,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300027,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 46.927,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.927,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300234,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 46.927,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.927,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300395,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 46.928,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.928,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300465,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 46.929,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.929,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300467,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 46.93,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.93,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300547,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 46.931,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 46.931,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 389965,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.229,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.932,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390098,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.229,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.933,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390220,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.229,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.934,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390275,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.229,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.935,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390491,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.229,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.936,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390492,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.937,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390498,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.938,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390505,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.939,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390511,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.94,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390525,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.941,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390528,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 17.23,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.942,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390629,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 27.265,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.942,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390646,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 27.265,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.943,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390682,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 27.265,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.944,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390884,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 27.265,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 46.945,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:23514",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 41,
+    "skipped_failure_by_reason": {
+     "23514": 30,
+     "SR001": 11
+    },
+    "skipped_closed": 0,
+    "tick_failed": 3,
+    "tick_ok": 120,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {
+     "SR001": 1,
+     "23514": 2
+    },
+    "end_missing": 0,
+    "mismatch_open_end": 0,
+    "injected_mismatch_end": 0,
+    "noninjected_mismatch": 0,
+    "reconcile": {
+     "reconcile-app": {
+      "runs": 20,
+      "pass_s": {
+       "n": 20,
+       "p50": 0.035,
+       "max": 0.071
+      },
+      "chunk_ms_max": 13,
+      "borrows": 393,
+      "errors": 0,
+      "skipped_chunks": 0,
+      "found": 60,
+      "repaired": 60,
+      "false_positives": 0,
+      "skipped": 0,
+      "skipped_closed": 0,
+      "pairs_scanned_max": 12124,
+      "skipped_schedules_max": 0,
+      "skipped_pairs_quota_rows_max": 0,
+      "chunks": 237,
+      "orphan_chunks": 36,
+      "chunk_ms_total": 458,
+      "orphan_ms_total": 97
+     }
+    },
+    "drift_log_rows_window": 101,
+    "drift_log_truncated": false,
+    "tick_explained": 3,
+    "unexpected": []
+   }
+  },
+  {
+   "rep": "rep2",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 2,
+    "started": "2026-10-13T15:52:24+09:00",
+    "ended": "2026-10-13T16:14:37+09:00",
+    "k6_started": "2026-10-13T15:53:51+09:00",
+    "k6_ended": "2026-10-13T16:08:38+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-trigger",
+    "limit_source": "injected",
+    "injected_limit_strategy": "counter-trigger",
+    "harness": "sha:285ba256",
+    "cond": "B+C",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_TRIGGER"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-trigger POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER=1 SALES_CLOSE_OFF= DRIFT_A= DRIFT_EXTERNAL= DRIFT_C=60s DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0095,
+      "rtt_s": 0.0021,
+      "at": 1791874431.6659884
+     },
+     "after": {
+      "offset_s": 0.0053,
+      "rtt_s": 0.0008,
+      "at": 1791875319.4239008
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 269,
+    "held": 0,
+    "reserved": 9731,
+    "hold_rows": 0,
+    "confirmed": 9731,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T07:14:12.883+00:00",
+    "v_counter_mismatch": 0,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12189,
+   "hold_409": 747391,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.662817,
+   "hold_p99": 1.9113767299999995,
+   "confirm_200": 9731,
+   "confirm_409": 0,
+   "session_confirmed": 9731,
+   "session_abandoned": 2458,
+   "session_gave_up": 183422,
+   "session_error": 0,
+   "iterations": 195611,
+   "dropped": 4490,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.6667,
+    "t90": 1.7633,
+    "poll_ms_max": 840,
+    "rehold": 2189,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1558,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1558,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1558,
+   "hikari_pending_max": 23,
+   "hikari_samples": 778,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": 0.0074,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.0417201540436457
+    ],
+    [
+     "CPU:-",
+     0.017329910141206675
+    ],
+    [
+     "IO:WALSync",
+     0.01540436456996149
+    ],
+    [
+     "LWLock:WALWrite",
+     0.0038510911424903724
+    ]
+   ],
+   "waits_samples": 1558,
+   "waits_top_all": {
+    "Client:ClientRead": 0.0417201540436457,
+    "CPU:-": 0.017329910141206675,
+    "IO:WALSync": 0.01540436456996149,
+    "LWLock:WALWrite": 0.0038510911424903724
+   },
+   "acquire_max_ms": 0.674436,
+   "acquire_mean_ms": 0.0011021455169537657,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759580
+   ],
+   "borrow_per_hold": 1.013337633955607,
+   "borrow_per_request": 1.0001182876625967,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 903.8929953575134,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1916791,
+     "wal_fpi": 1118,
+     "wal_bytes": 99427068,
+     "wal_buffers_full": 0,
+     "wal_write": 33997,
+     "wal_sync": 24976,
+     "wal_write_time": 307.807,
+     "wal_sync_time": 26391.704,
+     "wal_sync_avg_ms": 1.0566825752722615,
+     "wal_write_avg_ms": 0.009053945936406155,
+     "wal_bytes_per_hold": 130.8974275257379,
+     "commits": 26643,
+     "commits_per_wal_sync": 1.0667440743113388
+    },
+    "io": {
+     "reads": 61,
+     "read_time": 0.3199999999999999,
+     "writes": 1976,
+     "write_time": 30.014,
+     "writebacks": 1976,
+     "writeback_time": 5.583,
+     "extends": 681,
+     "extend_time": 9.668000000000001,
+     "fsyncs": 264,
+     "fsync_time": 39.641000000000005,
+     "fsync_avg_ms": 0.15015530303030306,
+     "write_avg_ms": 0.015189271255060728
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 197608,
+     "checkpoint_sync_time": 43,
+     "buffers_checkpoint": 1976,
+     "buffers_backend": 1386,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 86945,
+      "write_sectors": 1091080,
+      "write_ms": 92356,
+      "io_ms": 27964,
+      "weighted_ms": 108071,
+      "flushes": 25491,
+      "flush_ms": 15714,
+      "write_wait_ms": 1.0622347461038588,
+      "flush_avg_ms": 0.616452865717312,
+      "util_pct": 3.09372903027526,
+      "aqu": 0.11956171864929109,
+      "write_mb": 558.63296
+     },
+     "nvme1n1p3": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 86945,
+      "write_sectors": 1091080,
+      "write_ms": 92356,
+      "io_ms": 28163,
+      "weighted_ms": 92356,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.0622347461038588,
+      "flush_avg_ms": null,
+      "util_pct": 3.1157449105865447,
+      "aqu": 0.10217581115723856,
+      "write_mb": 558.63296
+     },
+     "dm-0": {
+      "reads": 0,
+      "read_ms": 0,
+      "writes": 91958,
+      "write_sectors": 1091080,
+      "write_ms": 98247,
+      "io_ms": 31070,
+      "weighted_ms": 98247,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 1.0683899171360838,
+      "flush_avg_ms": null,
+      "util_pct": 3.4373537752343126,
+      "aqu": 0.10869317552476522,
+      "write_mb": 558.63296
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 88,
+      "blks_hit": 85157,
+      "blks_read": 0,
+      "blks_written": 43,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 34,
+      "blks_hit": 85141,
+      "blks_read": 0,
+      "blks_written": 13,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 376,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 220,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2234810,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 70292,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12209,
+     "n_tup_upd": 34185,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 32544,
+     "autovacuum_count": 3,
+     "n_dead_tup_end": 976,
+     "bytes_end": 1327104
+    }
+   },
+   "io_wal_sync": 24976,
+   "io_wal_sync_avg_ms": 1.0566825752722615,
+   "io_wal_mb": 99.427068,
+   "io_wal_bytes_per_hold": 130.8974275257379,
+   "io_commits_per_wal_sync": 1.0667440743113388,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.15015530303030306,
+   "io_disk_write_wait_ms": 1.0622347461038588,
+   "io_disk_flush_avg_ms": 0.616452865717312,
+   "io_disk_util_pct": 3.09372903027526,
+   "io_disk_write_mb": 558.63296,
+   "io_wal_records": 1916791,
+   "io_wal_fpi": 1118,
+   "io_mxid_consumed": 70292,
+   "io_mx_slru_pages": 178,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759580,
+   "limit_acquire_mean_ms": 0.09423044864135442,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12189,
+   "limit_check_mean_ms": 7.920895889736649e-05,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12189,
+   "limit_span_mean_ms": 0.10880601739273114,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.011584,
+   "redis_keys": 0,
+   "cond": "B+C",
+   "cleanup": "none",
+   "sales_close_check_n": 759580,
+   "sales_close_check_mean_ms": 0.07113992405013296,
+   "tick_failed": 2,
+   "tick_ok": 120,
+   "drift_repaired_metric": 60,
+   "reconcile_borrows_app": 309,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {
+    "reconcile-app": {
+     "runs": 15,
+     "pass_s": {
+      "n": 15,
+      "p50": 0.033,
+      "max": 0.067
+     },
+     "chunk_ms_max": 7,
+     "borrows": 309,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12189,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 174,
+     "orphan_chunks": 30,
+     "chunk_ms_total": 347,
+     "orphan_ms_total": 42
+    }
+   },
+   "reconcile_all": {
+    "reconcile-app": {
+     "runs": 21,
+     "pass_s": {
+      "n": 21,
+      "p50": 0.034,
+      "max": 0.067
+     },
+     "chunk_ms_max": 11,
+     "borrows": 399,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12189,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 240,
+     "orphan_chunks": 36,
+     "chunk_ms_total": 494,
+     "orphan_ms_total": 79
+    }
+   },
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.06675224646983312,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.044929396662387676
+      ],
+      [
+       "IO:WALSync",
+       0.014120667522464698
+      ],
+      [
+       "CPU:-",
+       0.004492939666238768
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.010269576379974325,
+     "top": [
+      [
+       "CPU:-",
+       0.010269576379974325
+      ]
+     ]
+    },
+    "C": {
+     "sessions": 0.0012836970474967907,
+     "top": [
+      [
+       "CPU:-",
+       0.0012836970474967907
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "B+C",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T06:58:22.193724+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T07:03:52.176754+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 23.727,
+       "max": 23.728
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 43.417,
+       "max": 43.427
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 23.728,
+       "max": 23.728
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 43.428,
+       "max": 43.431
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 43.412,
+       "max": 43.416
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 43.412,
+       "max": 43.416
+      }
+     },
+     "H": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 43.403,
+       "max": 43.411
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 43.403,
+       "max": 43.411
+      }
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.143,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.143,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.145,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.145,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.147,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.147,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.148,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.148,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.149,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.149,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.151,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.151,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.152,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.152,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.153,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.153,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.155,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.155,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.156,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.156,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.157,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.157,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 13.158,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.158,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.159,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.159,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.16,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.16,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.161,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.161,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300026,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.162,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.162,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300032,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 13.163,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.163,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300038,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.164,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.164,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300042,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.165,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.165,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300048,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.166,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.166,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300049,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 13.167,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.167,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300059,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 13.168,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.168,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300062,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 13.169,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.169,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300064,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 13.17,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.17,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300072,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 13.171,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.171,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300075,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 13.172,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.172,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300077,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 13.173,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.173,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300126,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 13.174,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.174,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300420,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 13.175,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.175,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300619,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 13.176,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 13.176,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.403,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.403,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.404,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.404,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.405,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.405,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.406,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.406,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.407,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.407,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.408,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.408,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.408,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.408,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.409,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.409,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.41,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.41,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300024,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 43.411,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.411,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300114,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 43.412,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.412,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300669,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 43.413,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.413,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300727,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 43.414,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.414,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300760,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 43.415,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.415,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300990,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 43.416,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 43.416,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390020,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.417,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390061,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.418,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390111,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.42,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390121,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.421,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390144,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.422,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390183,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.423,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390211,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.424,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390352,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.727,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.425,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390366,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.426,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390376,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.427,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390421,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.428,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390610,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.428,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390738,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.429,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390755,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.43,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390779,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 23.728,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 43.431,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:23514",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 30,
+    "skipped_failure_by_reason": {
+     "23514": 15,
+     "SR001": 15
+    },
+    "skipped_closed": 0,
+    "tick_failed": 2,
+    "tick_ok": 120,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {
+     "SR001": 1,
+     "23514": 1
+    },
+    "end_missing": 0,
+    "mismatch_open_end": 0,
+    "injected_mismatch_end": 0,
+    "noninjected_mismatch": 0,
+    "reconcile": {
+     "reconcile-app": {
+      "runs": 20,
+      "pass_s": {
+       "n": 20,
+       "p50": 0.034,
+       "max": 0.067
+      },
+      "chunk_ms_max": 11,
+      "borrows": 395,
+      "errors": 0,
+      "skipped_chunks": 0,
+      "found": 60,
+      "repaired": 60,
+      "false_positives": 0,
+      "skipped": 0,
+      "skipped_closed": 0,
+      "pairs_scanned_max": 12189,
+      "skipped_schedules_max": 0,
+      "skipped_pairs_quota_rows_max": 0,
+      "chunks": 239,
+      "orphan_chunks": 36,
+      "chunk_ms_total": 493,
+      "orphan_ms_total": 79
+     }
+    },
+    "drift_log_rows_window": 90,
+    "drift_log_truncated": false,
+    "tick_explained": 2,
+    "unexpected": []
+   }
+  },
+  {
+   "rep": "rep3",
+   "status": "ok",
+   "meta": {
+    "sha": "285ba256",
+    "level": 4,
+    "cell": "S3e-a20",
+    "rep": 3,
+    "started": "2026-10-13T19:24:36+09:00",
+    "ended": "2026-10-13T19:46:52+09:00",
+    "k6_started": "2026-10-13T19:26:02+09:00",
+    "k6_ended": "2026-10-13T19:40:54+09:00",
+    "ttl_s": 300,
+    "strategy": "pessimistic-nowait",
+    "pool": 10,
+    "apps": 1,
+    "delay_ms": 0,
+    "bg": 0,
+    "limit_strategy": "counter-trigger",
+    "limit_source": "injected",
+    "injected_limit_strategy": "counter-trigger",
+    "harness": "sha:285ba256",
+    "cond": "B+C",
+    "cleanup": "none",
+    "reconcile_interval": "60s",
+    "applied": {
+     "strategy": "PESSIMISTIC_NOWAIT",
+     "limit_strategy": "COUNTER_TRIGGER"
+    },
+    "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+    "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-trigger POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER=1 SALES_CLOSE_OFF= DRIFT_A= DRIFT_EXTERNAL= DRIFT_C=60s DRIFT_CLEANUP= RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+    "k6_exit": 0,
+    "status": "ok",
+    "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "io_settle_s": 11,
+    "pg_preset": "default",
+    "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+    "pg_applied": {
+     "checkpoint_timeout": "5min",
+     "max_wal_size": "1GB",
+     "shared_buffers": "128MB",
+     "log_checkpoints": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+    },
+    "clock_offset": {
+     "before": {
+      "offset_s": 0.0058,
+      "rtt_s": 0.0007,
+      "at": 1791887162.2133725
+     },
+     "after": {
+      "offset_s": 0.0059,
+      "rtt_s": 0.0028,
+      "at": 1791888055.6814566
+     }
+    }
+   },
+   "consistency": {
+    "grace_seconds": 20,
+    "max_per_user_limit": 2,
+    "seats": 10000,
+    "available": 269,
+    "held": 0,
+    "reserved": 9731,
+    "hold_rows": 0,
+    "confirmed": 9731,
+    "v_duplicate_hold_seats": 0,
+    "v_excess_hold_rows": 0,
+    "v_duplicate_confirmed_seats": 0,
+    "v_reserved_without_confirmed": 0,
+    "v_confirmed_on_unreserved_seat": 0,
+    "v_held_without_hold": 0,
+    "v_hold_on_unheld_seat": 0,
+    "v_stale_held_seats": 0,
+    "v_over_limit_users": 0,
+    "max_per_user": 1,
+    "checked_at": "2026-10-13T10:46:29.201+00:00",
+    "v_counter_mismatch": 0,
+    "counter_excluded_schedules": 0,
+    "counter_excluded_pairs": 0
+   },
+   "hold_201": 12150,
+   "hold_409": 747763,
+   "hold_other": 0,
+   "hold_error_rate": 0,
+   "confirm_error_rate": 0,
+   "hold_p50": 0.652193,
+   "hold_p99": 1.90962616,
+   "confirm_200": 9731,
+   "confirm_409": 0,
+   "session_confirmed": 9731,
+   "session_abandoned": 2419,
+   "session_gave_up": 183423,
+   "session_error": 0,
+   "iterations": 195573,
+   "dropped": 4527,
+   "ownership_gap": 0,
+   "curve": {
+    "t50": 0.6667,
+    "t90": 1.7467,
+    "poll_ms_max": 1541,
+    "rehold": 2150,
+    "duplicate": 0
+   },
+   "lock_waiting_max": 0,
+   "lock_waiting_samples": 1567,
+   "lock_wait_sessions_max": 0,
+   "lock_wait_sessions_samples": 1567,
+   "advisory_held_max": 0,
+   "advisory_held_samples": 1567,
+   "hikari_pending_max": 0,
+   "hikari_samples": 782,
+   "pg_preset": "default",
+   "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+   },
+   "clock_offset_s": 0.005849999999999999,
+   "waits_top": [
+    [
+     "Client:ClientRead",
+     0.04403318442884493
+    ],
+    [
+     "CPU:-",
+     0.014677728142948309
+    ],
+    [
+     "IO:WALSync",
+     0.012763241863433313
+    ]
+   ],
+   "waits_samples": 1567,
+   "waits_top_all": {
+    "Client:ClientRead": 0.04403318442884493,
+    "CPU:-": 0.014677728142948309,
+    "IO:WALSync": 0.012763241863433313
+   },
+   "acquire_max_ms": 0.5804910000000001,
+   "acquire_mean_ms": 0.001162019719677992,
+   "pool_timeouts": 0,
+   "hold_requests_per_app": [
+    759913
+   ],
+   "borrow_per_hold": 1.0133304733568185,
+   "borrow_per_request": 1.0001182364833612,
+   "borrow_confirm_source": "server",
+   "io": {
+    "elapsed_s": 908.440642118454,
+    "settings": {
+     "checkpoint_timeout": "300",
+     "fsync": "on",
+     "full_page_writes": "on",
+     "max_wal_size": "1024",
+     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+     "shared_buffers": "16384",
+     "synchronous_commit": "on",
+     "track_io_timing": "on",
+     "track_wal_io_timing": "on",
+     "wal_level": "replica",
+     "wal_sync_method": "fdatasync"
+    },
+    "devices": [
+     {
+      "name": "dm-0",
+      "type": "lvm"
+     },
+     {
+      "name": "nvme1n1",
+      "type": "disk"
+     },
+     {
+      "name": "nvme1n1p3",
+      "type": "part"
+     }
+    ],
+    "reset_changed": false,
+    "wal": {
+     "wal_records": 1910776,
+     "wal_fpi": 1128,
+     "wal_bytes": 99119636,
+     "wal_buffers_full": 0,
+     "wal_write": 33827,
+     "wal_sync": 24961,
+     "wal_write_time": 322.301,
+     "wal_sync_time": 24734.804,
+     "wal_sync_avg_ms": 0.9909380233163736,
+     "wal_write_avg_ms": 0.009527921482839152,
+     "wal_bytes_per_hold": 130.43550511703313,
+     "commits": 26609,
+     "commits_per_wal_sync": 1.0660229958735628
+    },
+    "io": {
+     "reads": 61,
+     "read_time": 0.31399999999999983,
+     "writes": 1974,
+     "write_time": 29.758999999999997,
+     "writebacks": 1974,
+     "writeback_time": 5.619,
+     "extends": 682,
+     "extend_time": 9.74,
+     "fsyncs": 265,
+     "fsync_time": 29.650000000000006,
+     "fsync_avg_ms": 0.11188679245283022,
+     "write_avg_ms": 0.015075481256332318
+    },
+    "bgwriter": {
+     "checkpoints_timed": 3,
+     "checkpoints_req": 0,
+     "checkpoint_write_time": 197611,
+     "checkpoint_sync_time": 31,
+     "buffers_checkpoint": 1974,
+     "buffers_backend": 1366,
+     "buffers_backend_fsync": 0,
+     "checkpoints": 3
+    },
+    "disk": {
+     "nvme1n1": {
+      "reads": 2,
+      "read_ms": 0,
+      "writes": 76284,
+      "write_sectors": 1038792,
+      "write_ms": 69803,
+      "io_ms": 26439,
+      "weighted_ms": 83909,
+      "flushes": 25484,
+      "flush_ms": 14106,
+      "write_wait_ms": 0.9150411619736774,
+      "flush_avg_ms": 0.5535237796264323,
+      "util_pct": 2.9103717705039167,
+      "aqu": 0.09236596879277324,
+      "write_mb": 531.861504
+     },
+     "nvme1n1p3": {
+      "reads": 2,
+      "read_ms": 0,
+      "writes": 76284,
+      "write_sectors": 1038792,
+      "write_ms": 69803,
+      "io_ms": 26683,
+      "weighted_ms": 69804,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 0.9150411619736774,
+      "flush_avg_ms": null,
+      "util_pct": 2.9372309827283942,
+      "aqu": 0.0768393627097301,
+      "write_mb": 531.861504
+     },
+     "dm-0": {
+      "reads": 2,
+      "read_ms": 0,
+      "writes": 81101,
+      "write_sectors": 1038792,
+      "write_ms": 76561,
+      "io_ms": 27238,
+      "weighted_ms": 76561,
+      "flushes": 0,
+      "flush_ms": 0,
+      "write_wait_ms": 0.9440204189837363,
+      "flush_avg_ms": null,
+      "util_pct": 2.9983246826652175,
+      "aqu": 0.08427738307861507,
+      "write_mb": 531.861504
+     }
+    },
+    "disk_main": "nvme1n1",
+    "slru": {
+     "CommitTs": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactMember": {
+      "blks_zeroed": 80,
+      "blks_hit": 77937,
+      "blks_read": 0,
+      "blks_written": 35,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "MultiXactOffset": {
+      "blks_zeroed": 31,
+      "blks_hit": 77923,
+      "blks_read": 0,
+      "blks_written": 11,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Notify": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Serial": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Subtrans": {
+      "blks_zeroed": 376,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 220,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "Xact": {
+      "blks_zeroed": 23,
+      "blks_hit": 2246357,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     },
+     "other": {
+      "blks_zeroed": 0,
+      "blks_hit": 0,
+      "blks_read": 0,
+      "blks_written": 0,
+      "blks_exists": 0,
+      "flushes": 0,
+      "truncates": 0
+     }
+    },
+    "mxid": {
+     "consumed": 64261,
+     "datminmxid_changed": false
+    },
+    "quota_table": {
+     "n_tup_ins": 12171,
+     "n_tup_upd": 34116,
+     "n_tup_del": 20,
+     "n_tup_hot_upd": 32492,
+     "autovacuum_count": 3,
+     "n_dead_tup_end": 639,
+     "bytes_end": 1302528
+    }
+   },
+   "io_wal_sync": 24961,
+   "io_wal_sync_avg_ms": 0.9909380233163736,
+   "io_wal_mb": 99.119636,
+   "io_wal_bytes_per_hold": 130.43550511703313,
+   "io_commits_per_wal_sync": 1.0660229958735628,
+   "io_checkpoints": 3,
+   "io_io_fsync_avg_ms": 0.11188679245283022,
+   "io_disk_write_wait_ms": 0.9150411619736774,
+   "io_disk_flush_avg_ms": 0.5535237796264323,
+   "io_disk_util_pct": 2.9103717705039167,
+   "io_disk_write_mb": 531.861504,
+   "io_wal_records": 1910776,
+   "io_wal_fpi": 1128,
+   "io_mxid_consumed": 64261,
+   "io_mx_slru_pages": 157,
+   "deadlocks": 0,
+   "limit_prepare_n": 0,
+   "limit_prepare_mean_ms": null,
+   "limit_prepare_max_ms": 0,
+   "limit_acquire_n": 759913,
+   "limit_acquire_mean_ms": 0.08959153312945035,
+   "limit_acquire_max_ms": 0,
+   "limit_check_n": 12150,
+   "limit_check_mean_ms": 8.734304526748972e-05,
+   "limit_check_max_ms": 0,
+   "limit_span_n": 12151,
+   "limit_span_mean_ms": 0.11124311768578718,
+   "limit_span_max_ms": 0,
+   "serialization_failures": 0,
+   "limit_retries": 0,
+   "redis_used_mb": 1.01168,
+   "redis_keys": 0,
+   "cond": "B+C",
+   "cleanup": "none",
+   "sales_close_check_n": 759913,
+   "sales_close_check_mean_ms": 0.07023785940627414,
+   "tick_failed": 2,
+   "tick_ok": 121,
+   "drift_repaired_metric": 60,
+   "reconcile_borrows_app": 308,
+   "reconcile_borrows_f": null,
+   "cleanup_borrows_app": 0,
+   "f_cpu_usage_end": null,
+   "reconcile_k6": {
+    "reconcile-app": {
+     "runs": 15,
+     "pass_s": {
+      "n": 15,
+      "p50": 0.033,
+      "max": 0.085
+     },
+     "chunk_ms_max": 12,
+     "borrows": 308,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12150,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 173,
+     "orphan_chunks": 30,
+     "chunk_ms_total": 384,
+     "orphan_ms_total": 40
+    }
+   },
+   "reconcile_all": {
+    "reconcile-app": {
+     "runs": 21,
+     "pass_s": {
+      "n": 21,
+      "p50": 0.037,
+      "max": 0.085
+     },
+     "chunk_ms_max": 16,
+     "borrows": 398,
+     "errors": 0,
+     "skipped_chunks": 0,
+     "found": 60,
+     "repaired": 60,
+     "false_positives": 0,
+     "skipped": 0,
+     "skipped_closed": 0,
+     "pairs_scanned_max": 12150,
+     "skipped_schedules_max": 0,
+     "skipped_pairs_quota_rows_max": 0,
+     "chunks": 239,
+     "orphan_chunks": 36,
+     "chunk_ms_total": 596,
+     "orphan_ms_total": 64
+    }
+   },
+   "cleanup_runs": 0,
+   "counter_excluded_schedules": 0,
+   "judge_excluded_pairs_quota_or_actual": 0,
+   "waits_by_src": {
+    "app": {
+     "sessions": 0.06445437141033823,
+     "top": [
+      [
+       "Client:ClientRead",
+       0.047223994894703254
+      ],
+      [
+       "IO:WALSync",
+       0.012125079770261647
+      ],
+      [
+       "CPU:-",
+       0.005105296745373325
+      ]
+     ]
+    },
+    "other": {
+     "sessions": 0.007019783024888321,
+     "top": [
+      [
+       "CPU:-",
+       0.007019783024888321
+      ]
+     ]
+    }
+   },
+   "mx_waits": 0,
+   "effect": {
+    "cond": "B+C",
+    "inject_plan": {
+     "rounds": [
+      {
+       "at_s": 270,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      {
+       "at_s": 600,
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      }
+     ],
+     "held_min_s": 250,
+     "exp_margin_s": 15
+    },
+    "rounds": [
+     {
+      "at_s": 270,
+      "ok": true,
+      "at": "2026-10-13T10:30:32.775355+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     },
+     {
+      "at_s": 600,
+      "ok": true,
+      "at": "2026-10-13T10:36:02.733351+00:00",
+      "counts": {
+       "D": 10,
+       "L1": 5,
+       "L2": 5,
+       "H": 10
+      },
+      "error": null
+     }
+    ],
+    "kinds": {
+     "D": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 24.883,
+       "max": 24.884
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 44.655,
+       "max": 44.665
+      }
+     },
+     "L1": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 24.884,
+       "max": 24.884
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 44.666,
+       "max": 44.67
+      }
+     },
+     "L2": {
+      "injected": 10,
+      "detected": 10,
+      "repaired": 10,
+      "end_matched": 10,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 10,
+       "p50": 44.649,
+       "max": 44.653
+      },
+      "repair_s": {
+       "n": 10,
+       "p50": 44.649,
+       "max": 44.653
+      }
+     },
+     "H": {
+      "injected": 20,
+      "detected": 20,
+      "repaired": 20,
+      "end_matched": 20,
+      "repaired_by": [
+       "reconcile-app"
+      ],
+      "detect_s": {
+       "n": 20,
+       "p50": 44.619,
+       "max": 44.648
+      },
+      "repair_s": {
+       "n": 20,
+       "p50": 44.619,
+       "max": 44.648
+      }
+     }
+    },
+    "pairs": [
+     {
+      "schedule_id": 1,
+      "user_id": 300000,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.335,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.335,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300001,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.338,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.338,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300002,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.339,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.339,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300003,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.34,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.34,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300004,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.342,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.342,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300005,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.343,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.343,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300006,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.344,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.344,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300007,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.345,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.345,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300008,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.346,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.346,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300009,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.347,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.347,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300010,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.348,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.348,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300011,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.349,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.349,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300012,
+      "kind": "H",
+      "round_s": 270,
+      "detected_s": 14.351,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.351,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300019,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.352,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.352,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300020,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.353,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.353,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300023,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.355,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.355,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300027,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.356,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.356,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300028,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.358,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.358,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300031,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.359,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.359,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300035,
+      "kind": "D",
+      "round_s": 270,
+      "detected_s": 14.36,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.36,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300041,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 14.361,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.361,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300045,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 14.362,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.362,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300058,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 14.363,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.363,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300061,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 14.364,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.364,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300064,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 14.366,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.366,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300072,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 14.367,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.367,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300074,
+      "kind": "L1",
+      "round_s": 270,
+      "detected_s": 14.368,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.368,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300197,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 14.369,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.369,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300508,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 14.37,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.37,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 301115,
+      "kind": "L2",
+      "round_s": 270,
+      "detected_s": 14.371,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 14.371,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300013,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.619,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.619,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300014,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.621,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.621,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300015,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.637,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.637,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300016,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.64,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.64,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300017,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.641,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.641,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300018,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.643,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.643,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300021,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.644,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.644,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300022,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.646,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.646,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300024,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.647,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.647,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300025,
+      "kind": "H",
+      "round_s": 600,
+      "detected_s": 44.648,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.648,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300136,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 44.649,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.649,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300334,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 44.649,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.649,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300342,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 44.65,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.65,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 300546,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 44.652,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.652,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 301037,
+      "kind": "L2",
+      "round_s": 600,
+      "detected_s": 44.653,
+      "detected_by": "reconcile-app",
+      "first_action": "repaired",
+      "repaired_s": 44.653,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 1,
+      "end_actual": 1,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390027,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.655,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390101,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.656,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390127,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.657,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390148,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.658,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390161,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.659,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390198,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.661,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390215,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.662,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390226,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.663,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390232,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.883,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.664,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390307,
+      "kind": "D",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.665,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390324,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.666,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390356,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.667,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390359,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.668,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390397,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.669,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     },
+     {
+      "schedule_id": 1,
+      "user_id": 390459,
+      "kind": "L1",
+      "round_s": 600,
+      "detected_s": 24.884,
+      "detected_by": "expiry-trigger",
+      "first_action": "skipped",
+      "repaired_s": 44.67,
+      "repaired_by": "reconcile-app",
+      "actions": [
+       "expiry-trigger:skipped:SR001",
+       "expiry-trigger:skipped:SR001",
+       "reconcile-app:repaired"
+      ],
+      "end_cnt": 0,
+      "end_actual": 0,
+      "end_matched": true
+     }
+    ],
+    "false_repairs": 0,
+    "false_repair_pairs": [],
+    "false_positives": 0,
+    "skipped_failure": 30,
+    "skipped_failure_by_reason": {
+     "SR001": 30
+    },
+    "skipped_closed": 0,
+    "tick_failed": 2,
+    "tick_ok": 121,
+    "stale_held_seats_end": 0,
+    "tick_failure_causes": {
+     "SR001": 2
+    },
+    "end_missing": 0,
+    "mismatch_open_end": 0,
+    "injected_mismatch_end": 0,
+    "noninjected_mismatch": 0,
+    "reconcile": {
+     "reconcile-app": {
+      "runs": 20,
+      "pass_s": {
+       "n": 20,
+       "p50": 0.042,
+       "max": 0.085
+      },
+      "chunk_ms_max": 16,
+      "borrows": 394,
+      "errors": 0,
+      "skipped_chunks": 0,
+      "found": 60,
+      "repaired": 60,
+      "false_positives": 0,
+      "skipped": 0,
+      "skipped_closed": 0,
+      "pairs_scanned_max": 12150,
+      "skipped_schedules_max": 0,
+      "skipped_pairs_quota_rows_max": 0,
+      "chunks": 238,
+      "orphan_chunks": 36,
+      "chunk_ms_total": 590,
+      "orphan_ms_total": 64
+     }
+    },
+    "drift_log_rows_window": 90,
+    "drift_log_truncated": false,
+    "tick_explained": 2,
+    "unexpected": []
+   }
+  }
+ ]
+}

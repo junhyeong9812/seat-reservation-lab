@@ -1,12 +1,14 @@
 # ADR-007: counter-upsert 처리량 벽 — 원인 진단과 기본 전환 판정
+> 번호 이동(2026-10-12, 5차): 운영 중 매수 방식 전환을 새 ADR-010으로 넣으며 기존 ADR-010~015를 011~016으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-12, 4차): 카운터 어긋남 탐지·격리·복구를 새 ADR-009로 넣으며 기존 ADR-009~014를 010~015로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-11, 3차): counter-upsert-precheck 기본 적용·검증을 새 ADR-008로 넣으며 기존 ADR-008~013을 009~014로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
-- 상태: 결정됨(Accepted) — 2026-10-11. 벽은 모든 방식이 같은 지점에서 겪는 쓰기 반감이고(디스크 12회 중 11회 — precheck S4 rep1의 256초 벽은 반감으로 설명되지 않음, §7.2) 원인은 C5(이 서버 저장 경로 — `nvme1n1`·호스트 쓰기 경로) **확인**(§7.2). 매수 제어 기본을 advisory-try → **counter-upsert-precheck**로 전환한다(§8, 사용자 결정). **적용 완료(2026-10-12, ADR-008)** — 기본값 none → counter-upsert-precheck · V6 백필 · 기본값 확정 측정 13회 합격. 코드 적용·검증은 별도 후속 **ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)
+- 상태: 결정됨(Accepted) — 2026-10-11. 벽은 모든 방식이 같은 지점에서 겪는 쓰기 반감이고(디스크 12회 중 11회 — precheck S4 rep1의 256초 벽은 반감으로 설명되지 않음, §7.2) 원인은 C5(이 서버 저장 경로 — `nvme1n1`·호스트 쓰기 경로) **확인**(§7.2). 매수 제어 기본을 advisory-try → **counter-upsert-precheck**로 전환한다(§8, 사용자 결정). **적용 완료(2026-10-12, ADR-008)** — 기본값 none → counter-upsert-precheck · V6 백필 · 기본값 확정 측정 13회 합격. 코드 적용·검증은 별도 후속 **ADR-008(counter-upsert-precheck 기본 적용·검증)** (번호 이동 2026-10-11·10-12 — 홀드 만료는 ADR-011)
 - 명세: `docs/plans/2026-10-09/adr-007-throughput-wall/requirement-spec.md`
 - 날짜: 2026-10-09
 - 선행: **ADR-006(counter-upsert 재비교 — 결정: advisory-try 유지, 벽 원인을 찾아 해결되면 counter-upsert로 전환)**, ADR-005(1인 매수 제어 — advisory-try 기본)
-- 후행: **ADR-008(counter-upsert-precheck 기본 적용·검증 — §8 결정의 코드 적용)** · ADR-009(홀드 만료 — counter 계열을 택하면 만료 배치가 카운터를 내리는 주체 · 쿼터 행 정리 설계) (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)
+- 후행: **ADR-008(counter-upsert-precheck 기본 적용·검증 — §8 결정의 코드 적용)** · ADR-009(카운터 어긋남 탐지·복구 — 쿼터 행 정리 설계) · ADR-011(홀드 만료 — counter 계열을 택하면 만료 배치가 카운터를 내리는 주체) (번호 이동 2026-10-11·10-12 — 홀드 만료는 ADR-011)
 
 ## 1. 문제
 
@@ -368,7 +370,7 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 **결정 (2026-10-11, 사용자): 매수 제어 기본을 advisory-try에서 counter-upsert-precheck로 전환한다.**
 
 - 기록: `docs/plans/2026-10-11/adr-007-fsync-fio/log.md` 10-11 10:4x 행("사용자 결정: advisory-try → counter-upsert-precheck 전환").
-- (결정 당시 2026-10-11) **미적용 — 코드 기본값은 아직 `none`이었다**(아래 '확인한 사실'). 적용은 새 ADR-008 (2026-10-11 번호 이동 — 홀드 만료는 ADR-009).
+- (결정 당시 2026-10-11) **미적용 — 코드 기본값은 아직 `none`이었다**(아래 '확인한 사실'). 적용은 새 ADR-008 (번호 이동 2026-10-11·10-12 — 홀드 만료는 ADR-011).
 - **적용 완료(2026-10-12)**: ADR-008 — 기본값 전환·V6 백필·기본값 확정 측정 13회 합격(ADR-008 §5). 아래 '확인한 사실'의 "아직 하지 않았다"는 결정 당시 상태다.
 
 **전환 규칙(ADR-006 §6 · 이 문서 §6)과의 관계** — 규칙은 **문자 그대로는 충족되지 않았다.**
@@ -378,7 +380,7 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 | 벽이 설정으로 사라지거나 계단 상한 밖으로 밀린다(운영에서 조정 가능) | **미충족.** 벽을 옮긴 것은 tmpfs뿐이고 tmpfs는 운영 설정이 아니다. PG 설정(체크포인트 없음·버퍼 512MB)으로는 안 밀렸다(§7.1 H1·H3) |
 | 고정 도착률에서도 지속 처리량이 none과 같다 | 충족. 디스크 S4c4200 none 2,895 · precheck 2,889/s, tmpfs 둘 다 4,200/s(§7.2 ①) |
 | 실패 시도의 쓰기 비용이 해소되거나 수용 가능 | 충족(precheck). S3-a20 WAL 24.6MB — none 86.5MB보다 적다(§7.1 H5) |
-| 쿼터 행 정리 설계를 함께 넣는다 | **미포함.** 새 ADR-009(홀드 만료)로 넘긴다 (2026-10-11 번호 이동 — 홀드 만료는 ADR-009) |
+| 쿼터 행 정리 설계를 함께 넣는다 | **미포함.** 새 ADR-009(카운터 어긋남 탐지·복구)로 넘긴다 (번호 이동 2026-10-11·10-12 — 홀드 만료는 ADR-011) |
 
 그래도 전환한 이유는 **벽이 방식이 아니라 저장 경로**라는 데 있다(사용자 판단, 2026-10-11). §7.1·§7.2로 벽은 세 방식 공통이고 방식과 무관함이 확인됐다. 규칙을 충족해서가 아니라 이 판단으로 전환한다.
 
@@ -397,7 +399,7 @@ private fun assertSeatAvailable(command: HoldSeatCommand) {
 확인한 사실(이 결정의 적용 범위):
 
 - **지금 코드 기본값은 advisory-try가 아니라 `none`이다**: `src/main/resources/application.yml:36` `limit-strategy: none` · `src/main/kotlin/com/jun/labs/seatreservation/service/SeatHoldProperties.kt:14` `UserLimitStrategyType.NONE`. ADR-005는 advisory-try를 기준으로 정했지만, 코드 적용은 제대로 확인할 때까지 미뤄 두었다(ADR-006·007이 그 확인 과정). 그래서 결정은 advisory-try → precheck, 코드 값은 none → precheck로 바뀐다(정정 2026-10-12 — 처음엔 '반영된 적이 없다'로 적어 누락처럼 읽혔다).
-- 그래서 이 결정의 적용은 **새 후속 ADR-008(counter-upsert-precheck 기본 적용·검증)** (2026-10-11 번호 이동 — 홀드 만료는 ADR-009)에서 한다. **아직 하지 않았다.** 범위(`docs/plans/NEXT.md` N1과 같다):
+- 그래서 이 결정의 적용은 **새 후속 ADR-008(counter-upsert-precheck 기본 적용·검증)** (번호 이동 2026-10-11·10-12 — 홀드 만료는 ADR-011)에서 한다. **아직 하지 않았다.** 범위(`docs/plans/NEXT.md` N1과 같다):
   - 설정·코드 기본값을 `counter-upsert-precheck`로
   - Flyway 백필: **`seat_hold` 행 전체(만료 전·후 구분 없음) + 확정 예약**으로 `user_hold_quota.cnt`를 채운다 (정정 2026-10-12 — 처음 적은 "유효(만료 전 HELD) 홀드"는 틀렸다. 만료 배치가 실제로 지운 홀드만큼 내리므로 판정기 `v_counter_mismatch`와 같은 정의여야 한다, ADR-008 §3)
   - 기존 테스트 전체 + 기본값 테스트

@@ -36,3 +36,11 @@ seat:
     limit-strategy: counter-upsert-precheck
     # 임계 구역 지연(ADR-004 실험 장치). 기본 0 = 기준선
     critical-section-delay: 0s
+    # 카운터 어긋남 후보·쿼터 행 정리(ADR-009). 기본 = ADR-009 결정(명세 §12) A 켬 · C 켬 · 정리 ① schedule (B·F는 기본 아님)
+    # 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 세 키를 끄고(false · false · none), counter-trigger(B)는 A를, counter는 정리를 끈다 — 기동 검사가 조합을 거부한다
+    counter-drift:
+      expiry-repair: true
+      reconcile:
+        enabled: true
+      cleanup:
+        mode: schedule

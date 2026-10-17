@@ -1,0 +1,204 @@
+{
+  "sha": "e9146773",
+  "level": 4,
+  "cell": "S4c4200",
+  "rep": 1,
+  "started": "2026-10-14T18:10:13+09:00",
+  "ended": "2026-10-14T18:21:33+09:00",
+  "k6_started": "2026-10-14T18:12:29+09:00",
+  "k6_ended": "2026-10-14T18:20:08+09:00",
+  "ttl_s": 3600,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:e9146773",
+  "cond": "A+F",
+  "cleanup": "none",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "START_RATE=4200 FACTOR=1 STEPS=12 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50",
+  "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL=1 DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=none RECONCILE_INTERVAL=60s APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "io_settle_s": 11,
+  "pg_preset": "default",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": 0.003,
+      "rtt_s": 0.0007,
+      "at": 1791969149.705027
+    },
+    "after": {
+      "offset_s": -0.0028,
+      "rtt_s": 0.0008,
+      "at": 1791969609.5252066
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1791969063.3348634,
+    "k6_start_epoch": 1791969149.732844,
+    "seed_to_k6_s": 86.398,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": 32,
+    "hold_reached_s": 32.047,
+    "hold_slept_s": 37.953,
+    "topup_s": 1.002,
+    "first_request_epoch": 1791969150.082,
+    "first_request_source": "setup_data.startedAt",
+    "seed_to_first_request_s": 86.747,
+    "k6_startup_s": 0.349,
+    "reconcile_phase": {
+      "passes": [
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": -57.603,
+          "end_rel_s": -57.532
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 2.47,
+          "end_rel_s": 2.501
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 62.502,
+          "end_rel_s": 63.232
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 123.233,
+          "end_rel_s": 124.964
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 184.965,
+          "end_rel_s": 187.241
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 247.245,
+          "end_rel_s": 250.097
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 310.1,
+          "end_rel_s": 313.447
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 373.451,
+          "end_rel_s": 377.477
+        },
+        {
+          "source": "reconcile-proc",
+          "start_rel_s": 437.48,
+          "end_rel_s": 441.138
+        }
+      ],
+      "completed_before_k6": 1,
+      "first_in_k6": {
+        "source": "reconcile-proc",
+        "start_rel_s": 2.47,
+        "end_rel_s": 2.501
+      }
+    },
+    "db_start_to_k6_s": 131.591,
+    "db_start_to_seed_s": 45.193,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T09:11:50.603647+00:00",
+          "last_autoanalyze": "2026-10-14T09:10:48.208758+00:00"
+        },
+        "seat_hold": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T09:10:48.182276+00:00",
+          "last_autoanalyze": "2026-10-14T09:10:48.188002+00:00"
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-14T09:10:48.209724+00:00",
+          "last_autoanalyze": "2026-10-14T09:11:50.604803+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "Serial",
+      "stops": 1128,
+      "stop_ms_max": 108.359893,
+      "nested": 7,
+      "log_bytes": 1243324,
+      "k6": {
+        "stops": 1015,
+        "stop_ms_total": 4726.411201,
+        "stop_ms_max": 108.359893,
+        "nested": 5,
+        "gc_ids": 1020,
+        "safepoint_other_max_ms": 0.108783
+      }
+    },
+    "reconciler": {
+      "collector": "Serial",
+      "stops": 110,
+      "stop_ms_max": 100.463185,
+      "nested": 2,
+      "log_bytes": 129313,
+      "k6": {
+        "stops": 0,
+        "stop_ms_total": 0,
+        "stop_ms_max": 0,
+        "nested": 0,
+        "gc_ids": 0,
+        "safepoint_other_max_ms": 0.099581
+      }
+    }
+  }
+}

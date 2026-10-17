@@ -24,6 +24,7 @@ class ApiExceptionHandler {
         ErrorCode.HOLD_LIMIT_EXCEEDED,
         ErrorCode.HOLD_EXPIRED,
         ErrorCode.SEAT_NOT_HELD,
+        ErrorCode.SCHEDULE_CLOSED,
         -> HttpStatus.CONFLICT
     }
 }

@@ -71,6 +71,7 @@ class SeatHoldPropertiesDefaultTest {
 
 /**
  * ADR-008 명세 §5 기본값 — 매수 방식 설정 없이(IntegrationTest 기본 컨텍스트 = application.yml 그대로) 뜬 앱.
+ * 단 ADR-009 축(A·C·정리)은 IntegrationTest가 끔 고정한다 — ADR-009 기본값 그대로의 기동은 Adr009DefaultBootTest·Adr009DefaultCycleTest.
  * 이 클래스는 limit-strategy를 덮어쓰지 않는다.
  */
 class PrecheckDefaultContextTest : IntegrationTest() {
