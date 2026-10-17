@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ADR-011 꼬리 지연 판정 지표(ADR-011 §4 가설 T1~T5) — 회차별·조건별 값만 낸다(성립·기각 판정은 메인 몫).
 
-    scripts/tail.py --set k6ver|pretouch|soak results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+    scripts/tail.py --set k6ver|pretouch|soak|soakrc results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
                                                                        (먼저 조건마다 summarize.py — 안정성 4항목·메모리는 summary.json을 쓴다)
     scripts/tail.py --rep <회차폴더>                                    → 회차 하나의 지표 JSON(표준 출력 — 스모크용, summary.json 없이 되는 것만)
     scripts/tail.py --probe-check <회차폴더>                            → probe-check.json · exit 0 = 두 측정기 정상(run.sh rep_status probe-missing)
@@ -466,7 +466,7 @@ def campaign(set_name, root):
     sys.path.insert(0, str(HERE))
     import compare as C   # noqa: E402 — 안정성 4항목·앱 메모리(jvm_rep) 재사용
     conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
-    expect = 2 if set_name == "soak" else 3
+    expect = {"soak": 2, "soakrc": 1}.get(set_name, 3)
     camp = C.Camp(root, expect_reps=expect)
     js = {"campaign": root.name, "set": set_name, "conds": {}}
     out = [f"# ADR-011 꼬리 지연 지표 — `{root.name}` (--set {set_name})\n",
@@ -598,7 +598,7 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--rep":
         print(json.dumps(rep_tail(argv[1]), ensure_ascii=False, indent=1, default=str))
         return 0
-    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak"):
+    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc"):
         return campaign(argv[1], argv[2])
     print(__doc__, file=sys.stderr)
     return 2

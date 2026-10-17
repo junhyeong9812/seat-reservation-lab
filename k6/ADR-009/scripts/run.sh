@@ -34,6 +34,7 @@
 #     [--app-xms-full]        앱 JVM에 -XX:InitialRAMPercentage=75(compose APP_JVM_OPTS4) — 초기 힙 = 최대 힙. pretouch와 함께 줘야 힙 전체를 미리 건드린다
 #     [--s4c-steps 12] [--seed-schedules 200]   S4c 계획 구간 수(30초 구간) · S4c 시드 회차 수(회차당 1만 석) — E3 장시간 = 60 · 800
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
+#     [--pg-tmpfs-size <GiB>]  ADR-011 E3(대조 켜고 끄기): tmpfs 크기 = <GiB>g · DB 메모리 = <GiB>+2g(지정 안 하면 0 = 6g·8g 그대로 — tmpfs preset만)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
 #   스모크 전용: --worktree — 앱은 <SHA> 그대로, 하네스(k6/ADR-009)는 작업트리에서(커밋 전 실증). meta·plan에 harness=worktree:<해시>로 남는다. 캠페인에서는 거부.
 #   주입·마감 손잡이(환경변수 — plan.json knobs에 남고 이어서 실행 때 대조한다, H-15): INJECT_ROUNDS="<초>:<D>,<L1>,<L2>,<H> …"(조건별 기본 — 아래 inject_rounds_default) ·
@@ -66,6 +67,7 @@ PG_PRESET=default       # ADR-007 조건 축: DB 설정(preset_env)
 APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(머리말)
 # ADR-011 손잡이(머리말): 주 k6 바이너리 · Go GC 기록 · 측정기 · AlwaysPreTouch · S4c 구간 수 · S4c 시드 회차 수
 K6_BIN=k6 GCTRACE=0 PROBES=0 APP_PRETOUCH=0 APP_XMS_FULL=0 S4C_STEPS=12 SEED_SCHEDULES=200
+PG_TMPFS_GB=0   # ADR-011 E3: tmpfs 크기(GiB) — 0 = preset 값(6g · DB 8g)
 # 측정기 k6 기본 = 안정 경로의 v2.2.0(공식 tar.gz sha256 b5a8003c… 확인 뒤 푼 바이너리 — 바이너리 sha256 9fced9ff…, ADR-011 log). 주 k6와 다른 바이너리
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6"
 WORKTREE=0   # 스모크 전용(머리말)
@@ -95,6 +97,7 @@ while (( $# )); do
     --app-xms-full) APP_XMS_FULL=1; COND_CLI+=" app_xms_full"; shift ;;
     --s4c-steps) S4C_STEPS="$2"; COND_CLI+=" s4c_steps"; shift 2 ;;
     --seed-schedules) SEED_SCHEDULES="$2"; COND_CLI+=" seed_schedules"; shift 2 ;;
+    --pg-tmpfs-size) PG_TMPFS_GB="$2"; COND_CLI+=" pg_tmpfs_gb"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -157,11 +160,15 @@ preset_env() {
     nockpt)  echo "PG_CHECKPOINT_TIMEOUT=1h PG_MAX_WAL_SIZE=16GB PG_SHARED_BUFFERS=128MB" ;;
     buf512)  echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=512MB" ;;
     # ADR-007 후속(디스크 원인 C5 — 2026-10-10 명세 §2): PG 설정은 default 그대로 + tmpfs 크기·DB 메모리 한도(compose.tmpfs.yml이 읽는다 — 대조 루프는 PG_* 세 키만 본다)
-    tmpfs)   echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g" ;;
+    tmpfs)   if (( PG_TMPFS_GB > 0 )); then echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=${PG_TMPFS_GB}g DB_MEM=$(( PG_TMPFS_GB + 2 ))g"
+             else echo "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=6g DB_MEM=8g"; fi ;;
     *) return 1 ;;
   esac
 }
 preset_env "$PG_PRESET" > /dev/null || { echo "--pg-preset one of: default nockpt buf512 tmpfs" >&2; exit 2; }
+# ADR-011 E3: tmpfs 크기는 tmpfs preset에서만 · 상한 20(서버 31GiB − 앱·측정기 여유)
+[[ "$PG_TMPFS_GB" =~ ^(0|[1-9][0-9]?)$ ]] && (( PG_TMPFS_GB <= 20 )) || { echo "--pg-tmpfs-size 1..20(GiB)" >&2; exit 2; }
+(( PG_TMPFS_GB == 0 )) || [[ "$PG_PRESET" == tmpfs ]] || { echo "--pg-tmpfs-size는 --pg-preset tmpfs에서만" >&2; exit 2; }
 if (( WORKTREE )); then
   [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]] || { echo "--worktree는 스모크 전용 — 캠페인에서는 커밋된 하네스만" >&2; exit 2; }
   (( ! RESUME )) || { echo "--worktree와 --resume은 함께 쓸 수 없다(작업트리 하네스는 이어서 잴 근거가 없다)" >&2; exit 2; }
@@ -216,6 +223,7 @@ if (( RESUME )); then
   P_APP_PRETOUCH="$(jq -r 'if .condition.app_pretouch then 1 else 0 end' "$OUT_ROOT/plan.json")"
   P_APP_XMS_FULL="$(jq -r 'if .condition.app_xms_full then 1 else 0 end' "$OUT_ROOT/plan.json")"
   P_S4C_STEPS="$(jq -r '.condition.s4c_steps // 12' "$OUT_ROOT/plan.json")"; P_SEED_SCHEDULES="$(jq -r '.condition.seed_schedules // 200' "$OUT_ROOT/plan.json")"
+  P_PG_TMPFS_GB="$(jq -r '.condition.pg_tmpfs_gb // 0' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -234,13 +242,14 @@ if (( RESUME )); then
       app_xms_full) [[ "$APP_XMS_FULL" == "$P_APP_XMS_FULL" ]] || { echo "resume: --app-xms-full ≠ 계획(app_xms_full=$P_APP_XMS_FULL)" >&2; exit 2; } ;;
       s4c_steps) [[ "$S4C_STEPS" == "$P_S4C_STEPS" ]] || { echo "resume: --s4c-steps $S4C_STEPS ≠ 계획 $P_S4C_STEPS" >&2; exit 2; } ;;
       seed_schedules) [[ "$SEED_SCHEDULES" == "$P_SEED_SCHEDULES" ]] || { echo "resume: --seed-schedules $SEED_SCHEDULES ≠ 계획 $P_SEED_SCHEDULES" >&2; exit 2; } ;;
+      pg_tmpfs_gb) [[ "$PG_TMPFS_GB" == "$P_PG_TMPFS_GB" ]] || { echo "resume: --pg-tmpfs-size $PG_TMPFS_GB ≠ 계획 $P_PG_TMPFS_GB" >&2; exit 2; } ;;
     esac
   done
   # 측정기 이미지는 환경변수 손잡이 — 명시했는데 계획과 다르면 거부(지정하지 않으면 위 기본값이 들어 있으므로 계획에 값이 있을 때만 대조)
   if [[ -n "${PROBE_IMAGE_ENV:-}" && "$PROBE_IMAGE_ENV" != "$P_PROBE_IMAGE" ]]; then echo "resume: PROBE_IMAGE=$PROBE_IMAGE_ENV ≠ 계획 $P_PROBE_IMAGE" >&2; exit 2; fi
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
   K6_BIN="$P_K6_BIN" GCTRACE="$P_GCTRACE" PROBES="$P_PROBES" PROBE_K6_BIN="$P_PROBE_K6_BIN" PROBE_IMAGE="$P_PROBE_IMAGE" APP_PRETOUCH="$P_APP_PRETOUCH" APP_XMS_FULL="$P_APP_XMS_FULL"
-  S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES"
+  S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES" PG_TMPFS_GB="$P_PG_TMPFS_GB"
   k6_versions || exit 2
   for k in k6_version probe_k6_version k6_sha256 probe_k6_sha256; do
     pv="$(jq -r --arg k "$k" '.condition[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -1351,8 +1360,8 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg applied_seat "$(jq -r '.configprops[]? | select(.prefix=="seat.hold") | .properties.strategy' "$dir/app-config.json" 2>/dev/null)" \
         --arg applied_lim "$(jq -r '.configprops[]? | select(.prefix=="seat.hold") | .properties.limitStrategy' "$dir/app-config.json" 2>/dev/null)" \
         --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$("$K6_BIN" version | head -1)" --arg k6bin "$K6_BIN" \
-        --argjson adr011 "$(jq -nc --argjson g "$GCTRACE" --argjson p "$PROBES" --argjson t "$APP_PRETOUCH" --argjson x "$APP_XMS_FULL" --argjson st "$S4C_STEPS" --argjson ss "$SEED_SCHEDULES" \
-                             '{gctrace: ($g == 1), probes: ($p == 1), app_pretouch: ($t == 1), app_xms_full: ($x == 1), s4c_steps: $st, seed_schedules: $ss}')" \
+        --argjson adr011 "$(jq -nc --argjson g "$GCTRACE" --argjson p "$PROBES" --argjson t "$APP_PRETOUCH" --argjson x "$APP_XMS_FULL" --argjson st "$S4C_STEPS" --argjson ss "$SEED_SCHEDULES" --argjson tg "$PG_TMPFS_GB" \
+                             '{gctrace: ($g == 1), probes: ($p == 1), app_pretouch: ($t == 1), app_xms_full: ($x == 1), s4c_steps: $st, seed_schedules: $ss, pg_tmpfs_gb: $tg}')" \
         --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
@@ -1380,14 +1389,14 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
   --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
   --arg k6bin "$K6_BIN" --arg k6ver "$K6_VERSION" --argjson gctrace "$GCTRACE" --argjson probes "$PROBES" --arg pbin "$PROBE_K6_BIN" --arg pver "$PROBE_K6_VERSION" \
   --arg k6sha "$K6_SHA256" --arg psha "$PROBE_K6_SHA256" \
-  --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" \
+  --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" --argjson pg_tmpfs_gb "$PG_TMPFS_GB" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
                limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay, app_mem:$app_mem, app_gc:$app_gc,
                k6_bin:$k6bin, k6_version:$k6ver, k6_sha256:$k6sha, probe_k6_sha256:(if $probes == 1 then $psha else null end), gctrace:($gctrace == 1), probes:($probes == 1), probe_k6_bin:$pbin,
                probe_k6_version:(if $probes == 1 then $pver else null end), probe_image:$pimage, probe_rate:$prate,
-               app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched},
+               app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched, pg_tmpfs_gb:$pg_tmpfs_gb},
     knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
     start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
                  judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",
