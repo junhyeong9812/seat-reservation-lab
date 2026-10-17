@@ -21,6 +21,8 @@
 | 10-17 14:30 | E2 재측정(20261017-adr011-pretouch-noes-c5117f4b) 분석: 9회 ok · 느린 초 none 0·0·0 · xms 0·0·0 · pt 3·0·0(rep1 서버형 2 · 1초 p99 최대 58.6ms) · 26초 성분 0/9 · 1초 p99 최대 none 5.1~23.9 · xms 6.4~8.4 · pt 6.7~58.6ms · 메모리 최대 ÷ 한도 none 76~77% · xms·pt 86~87% · 안정성 4항목 전부 ○ · **T4 기각**(판정 관측: 미리 건드림 서버형 [0–2]가 없음 [0–0]과 범위 겹침) — 대조(none)에 줄일 튐이 처음부터 없음 → ADR-010의 '4g ZGC 추가 튐'은 text-es 간섭(10-15 재부팅 뒤 측정)으로 보는 것이 자연스러움 | 결과 커밋 |
 | 10-17 15:10 | 사용자 "1번 진행하고 2번도 진행하자" → .164 `docker compose -p seatlab down -v`(컨테이너·볼륨 0 · 가용 29GiB) · E3는 권장안 A(있는 회차로 판정 — 2번 = E3 처리 항목, 권장안으로 해석) · 완료 회차 실제 5개 + 중단 1(rep2 — k6 창은 거의 다 돎) · summarize·tail(--set soak · --rep 6개): 안정성 4항목 ○(rep1) · 메모리 최대 1,892MiB = 한도 92.4%(< 95%) · 1분 p99 첫 5분 1.55 → 마지막 5분 1.49ms(−4%) → T5 미리 정한 기준은 통과 · **새 관측**: 6회 모두 느린 초 12~15, 거의 전부 서버형(waiting 중앙 57~71ms · 클라이언트 0.1ms) · 최대 135~206ms · **17~20분 뒤부터만** 나타남 · 26초 성분 없음 · ZGC 할당 정지 0 · 정지 최대 0.05ms → JVM 아님 · 원인 조사 워커(Opus, 읽기 전용) 시작 — 후보: tmpfs 6g가 차며 DB 컨테이너 메모리 8g 한도 압박 · WAL·checkpoint · autovacuum · 시나리오 후반 회차 · 호스트 CPU | 워커 회수 대기 |
 | 10-17 15:40 | 워커(Opus, 읽기 전용) 회수 — 패킷 요지: 후반 서버형 느린 초는 **앱 안 카운터 대조 바퀴(CounterReconciler · default reconcile.enabled · scheduleWithFixedDelay 60초 + 바퀴 14~27초 ≈ 80초 주기 · 앱 풀 공유) 진행 중에 몰림** — 후반 76개 중 72개(기대 23.2 · ×3.1), 6/6 회차 · 바퀴 일 ∝ seat_hold 행 수(매 바퀴 전체 훑기) · #19 바퀴(t0 + 약 17.6분 · 쌍 약 460만)에서 orphan 갈래 ms/청크 약 12 → 15.3 단절 + 병렬 쿼리 대기 표본 첫 등장(6/6 같은 바퀴) · DB 컨테이너 CPU 대조 중 338~384%/한도 400% · Hikari pending은 느린 초 근처에서만(결과 쪽) · 기각: 체크포인트(×0.92) · autovacuum(×0.73) · DB 메모리·tmpfs(부하 중 4.1GiB/8GiB, tmpfs는 k6 뒤 정합성 쿼리 pgsql_tmp가 채움) · JVM · 호스트 CPU 포화. 미확정: 병렬 계획 내용·전환 이유 · CPU 스로틀(nr_throttled 미수집) · 켜고 끄기 없음 · 주의: tail.py slow_rel_s는 k6 시작 기준(램프 60초 포함 — tail.py:343) · 메인 교차 확인: CounterDriftScheduling.kt:56 scheduleWithFixedDelay · rep1 drift-db.json #17~21 시작 간격 74~80초 · 쌍 395만 → 526만 · 바퀴 14.0 → 20.6초 | 사용자 보고 — 대조 끄기 소크 여부 |
+| 10-17 16:10 | 사용자 "1번으로 해보자" → 명세 task 07 추가(대조 켜고 끄기 · tmpfs 손잡이) · 하네스 42fda2dc: run.sh `--pg-tmpfs-size <GiB>`(0 = 6g·8g 그대로 · tmpfs preset만 · 상한 20 · resume 대조 · plan.json/meta pg_tmpfs_gb) · campaign.sh 세트 soakrc {noc(--cond A --cleanup schedule), c(default)} × 1 · tail.py soakrc(회차 1) · 불변식 확인: 기존 7세트(main·cost-remeasure·jvm-baseline·jvm-ladder·k6ver·pretouch·soak) dry-run을 결과 폴더에 대고 conditions.txt·order.txt 변경 0(CAMPAIGN.log DRY-RUN 줄만 — git restore) · preset_env 0 → 6g/8g 문자열 동일 · 12 → 12g/14g · bash -n·py_compile 통과 · 스모크 smoke-adr011-soakrc(noc · 12구간 · tmpfs 12) 시작 · 듀얼 리뷰 rv34(Opus ∥ codex) 시작 | 스모크·리뷰 대기 |
+| 10-17 20:06 | rv34 회수: codex 1(중간 — tmpfs 남은 공간을 정합성 쿼리 전에만 봄) · Opus 5(중간 1 적용 크기 미판정 · 낮음~중간 2 = codex와 같음 · 낮음 3 검증 순서 · 낮음 4 README · 낮음 5 설계 한계) → 1·2·3 수정 ae4f4a25(tmpfs-size-mismatch — 6g 회차 실측 값 대조 match·12 요청 대비 mismatch 확인 · pg-storage-end.json · 검증 이동) · 4 README 12c9516a · 5 ADR 한계로 기록 · codex post-fix 재점검 지적 없음 · 스모크 smoke-adr011-soakrc ok(tmpfs 12884901888 B · memory.max 15032385536 · cond A·schedule · 대조 바퀴 0) 52cde2a9 · **soakrc 시작 20:05**(20261017-adr011-soakrc-52cde2a9 · noc → c · 약 73분) · 감시는 re-measure 줄도 잡음 | 측정 대기 |
 
 ## 읽기 전용 분석 (task 02 — 워커 Opus, 2026-10-16)
 
@@ -50,6 +52,16 @@
 | HT-11 | p | codex post-fix | 수거 stop·rm 실패 무시 · EXIT 트랩 정리 · 구간 상한 여유 | 채택 | fixed | e4c24c2b |
 | HT-12 | p | 메인 스모크 2 | 사건 0건을 판정 불가로 표시 | 채택 — 겹침 없음 | fixed | a57f92e0 |
 - post-fix 재점검 종료(中 듀얼 1패스) — 신규 3 반영 · 추가 1(메인) — 수정 범위 작아 추가 재점검 없음.
+- review packet(하네스 42fda2dc — tmpfs 손잡이·soakrc): rv34 — `scratchpad/rv34`. Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| HT-13 | 1 | opus 1 | run.sh rep_status tmpfs 블록 — 적용 크기 미판정 | 채택 — tmpfs-size-mismatch | fixed | ae4f4a25 |
+| HT-14 | 1 | codex 1 + opus 2 | run.sh:694 → 701 정합성 쿼리 뒤 공간 미기록 | 채택 — pg-storage-end.json(기록만) | fixed | ae4f4a25 |
+| HT-15 | 1 | opus 3 | run.sh:168 검증 전 산술 | 채택 — 검증 이동·문구 0..20 | fixed | ae4f4a25 |
+| HT-16 | 1 | opus 4 | README.md:14·99 | 채택 | fixed | 12c9516a |
+| HT-17 | 1 | opus 5 | campaign.sh soakrc × 1 순서 고정 · noc counter-mismatch 가능 | 채택 — ADR 한계로 기록(앞선 soak 6회 = 켬 기준선 → noc → c 순서가 끔·되돌림) | open(문서) | — |
+- post-fix 재점검(codex) 지적 없음 — 종료.
 
 ## 생략한 검증
 
