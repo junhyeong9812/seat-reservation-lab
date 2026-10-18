@@ -350,6 +350,7 @@ STEADY_S, LATE_FROM_S = 1800, 900   # 정상 구간 = 정상 구간 첫 초부�
 GAP_MAX_S = 9                         # 창 안 빈 초 + 얇은 초가 이보다 많으면 그 창 값에 판정 불가 표시(값은 남긴다 — rv37)
 SAT_FRAC = 0.95                       # F 포화 표본 = CPU% ≥ 한도 × 100 × 이 값(ADR-012 §5 R1 판정 유효 조건)
 F_CPUS_DEFAULT = 1.0                  # compose.reconciler.yml cpus: ${RECONCILER_CPUS:-1} — 회차에 한도 기록이 없을 때의 가정
+A12_CONDS = {"control", "control-noclose", "A", "A+C", "A+F", "B", "B+C", "default"}   # run.sh CONDS — 이 밖의 cond는 결측 사유(기대 출처를 정할 수 없다)
 
 
 def iso_ts(x):
@@ -582,7 +583,9 @@ def rep_tail(d):
     out["a12_expect"] = {"cond": cond, "source": exp_src, "f_container": exp_f}
     if cond is None:
         miss.append("meta.json cond 없음 — 기대 대조 출처·F 컨테이너를 정할 수 없다")
-    limits = cpu_limits(d) if exp_f or cond is None else {}
+    elif cond not in A12_CONDS:
+        miss.append(f"meta.json cond {cond!r} 알 수 없음 — 기대 대조 출처·F 컨테이너를 정할 수 없다")
+    limits = cpu_limits(d) if exp_f or cond not in A12_CONDS else {}
     if off is None:
         out["notes"].append("clock-offset 없음 — docker stats·대조 바퀴(서버 시계)를 PC 시계로 옮길 수 없다(cpu_steady·rounds 없음)")
         miss.append("clock-offset 없음 — CPU·대조 바퀴 없음")
