@@ -21,6 +21,7 @@
 | 10-18 08:20 | post-fix 재점검(codex) 신규 2: RH-7 기각 · RH-8 메인 직접 수정·확인 | 하네스 리뷰 종료(듀얼 1루프 + 재점검 — 신규 실결함 1건 반영) · 다음: .164 스모크 |
 | 10-18 08:35 | PC 점검: 다른 컨테이너 ccle-postgres-1 하나(healthy, 2일 가동 — 재시작 반복 없음) · load 7.1(24코어) · 상위 CPU는 데스크톱·IDE · F 조건 스모크 시작(run.sh `--cond A+F --cleanup schedule` 12구간 · --probes · tmpfs 12 · d828ba00 · id smoke-adr012s1-f) | 대기 |
 | 10-18 13:23 | F 스모크 끝(13:10:44~13:22:29 · 상태 ok · rc 0): tail.py --rep — 기대 출처 reconcile-proc·F 컨테이너 · a12_missing·a12_warn 비어 있음 · F 한도 1코어(app-config.json NanoCpus에서 읽음) · F 바퀴 9(정상 구간 7 · 중앙 3.8초·최대 5.5초) · 바퀴 중 F CPU 평균 6.4%·최대 12.5%(포화 0) · 바퀴 중 DB CPU 215% 대 밖 148% · late_unavailable·steady_sparse는 스모크가 12구간(6분)이라 예상대로 | 하네스 검증 완료 → 1단계 캠페인 시작 |
+| 10-18 13:24 | task 04 1단계 캠페인 시작: `campaign.sh --set adr012s1 --sha ad36e72e --k6-bin ~/.local/opt/k6-v2.2.0/k6`(setsid 분리 · 시작 로그 results/adr012s1-launch.log) → results/20261018-adr012s1-ad36e72e · 9회 · 예상 326.7분(끝 약 18:51) | 측정 중 |
 
 ## 리뷰 ledger
 
