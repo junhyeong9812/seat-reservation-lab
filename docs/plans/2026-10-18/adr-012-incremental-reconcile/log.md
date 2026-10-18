@@ -35,3 +35,14 @@
 | RA-9 | 1 | opus M1~M9·L1~L5 | 인용 수치 · 안전망 비용 · R1 원인 분리 · 규칙 정의 · 순서 근거 · HOT 비용 · updated_at 못 보는 경로 · R2 하한 · R3 창 · M3만 성공 · 문구 · M3 안전망 주체 | 채택(M3 안전망 주체는 설계 task 05에서 source 값과 함께 정함) | fixed | 3d312998 |
 | RA-10 | 1 | codex M4 | 행 없음 갈래 후보 진입 불변식 | 채택 — §3-3 | fixed | 3d312998 |
 | RA-11 | p | codex post-fix | 최근 창 처리량·커서 · id 커밋 순서 · R7 예산 범위 · 고부하 2분 | 채택 | fixed | (이 커밋) |
+- review packet(1단계 하네스 1c9887a0 + README 2a6d1e53): rv37 — `scratchpad/rv37`(미러: k6/ADR-009 scripts·README·compose 2개 · ADR-011·012 · harness.diff · 표본 TAIL 2개). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RH-1 | 1 | codex H1 + opus M3 | compose.reconciler.yml:29 F cpus 1 — F JVM 포화 시 R1이 '유지' 쪽으로 기움 · 표에 F CPU 평균만 | 채택 — 조건은 ADR-009 구성 유지(바꾸면 C 대 F 외 변수 추가) · F CPU 최대·한도 95% 이상 표본 비율 표기 + ADR-012 §5 R1 판정 유효 조건·§7 한계 | open | |
+| RH-2 | 1 | opus M1 + codex M2 + opus L5 | tail.py:262-267·410 바퀴를 시작 시각 하나로 창 소속 · 창 기준 t0 대 ceil(t0) | 채택 — 창 경계 s_min으로 통일 · 수·중앙·최대는 창 안에서 시작하고 끝난 바퀴 · 끝을 넘은 바퀴는 따로 셈 · 바퀴 중/밖 분류는 창과 겹치는 모든 바퀴 | open | |
+| RH-3 | 1 | opus M2 + codex M3 + opus L7 | tail.py:223·393·400-405 F 표본·출처 없음이 '해당 없음'과 구별 안 됨 · source None 행 | 채택 — 조건별 기대 출처(SRC_OF)·F 컨테이너 · 없으면 사유(notes·상태 칸) · None 출처 경고 | open | |
+| RH-4 | 1 | codex M4 + opus L6 | tail.py:181·351 후반 창 공백을 0으로 셈 | 채택 — 후반 창 관측 초·thin 초 수 표기 · 빈 초 > 9(1%)면 late_unavailable 사유 | open | |
+| RH-5 | 1 | opus L4 | tail.py:266 docker stats·Hikari 시각 거침 · in_n·out_n 숨음 | 채택 — 표에 n 표기(시각 정밀도는 한계로 기록) | open | |
+| RH-6 | 1 | opus L8 | 기존 세트 회귀 바이트 비교 안 함 | 메인 재확인(soakrc 재생성 진행 중) | open | |
+
