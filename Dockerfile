@@ -5,8 +5,10 @@ WORKDIR /src
 COPY gradlew settings.gradle.kts build.gradle.kts ./
 COPY gradle gradle
 COPY main-app/build.gradle.kts main-app/
+COPY reconcile-core/build.gradle.kts reconcile-core/
 RUN ./gradlew --no-daemon -q :main-app:dependencies > /dev/null
 COPY main-app/src main-app/src
+COPY reconcile-core reconcile-core
 RUN ./gradlew --no-daemon -q :main-app:bootJar
 
 FROM eclipse-temurin:21-jre
