@@ -18,6 +18,7 @@
 | 10-18 04:30 | 1단계 하네스 워커(Opus) 위임(세트 adr012s1 · 후반 창 · 정상 구간 CPU · 바퀴 지표) · 사용자 "싯 리저베이션 랩 안에 별도 앱 프로젝트를 코틀린으로 올리고 기존 앱은 main-app 폴더로 옮겨 1개 깃에 2개" → 메인 확인: 하네스 compose 8개 `context: ../..`·루트 Dockerfile · run.sh 경로 검사(`src build.gradle.kts Dockerfile`) → 선택지 A(main-app 이동)·B(루트 유지) 제시 → 사용자 **A** · 시점 = 1단계 측정 뒤 · 명세 task 04b 추가(동작 무변경 리팩토링 — refactoring.md 순서) | 명세 갱신 |
 | 10-18 06:15 | 1단계 하네스 워커(Opus) 회수: 1c9887a0(campaign.sh·tail.py — 코드만) · 워커 확인: 기존 6폴더 TAIL.md diff 0 · 기존 세트 dry-run conditions·order diff 0 · soakrc c 회차 새 지표(C 바퀴 28 · 정상 구간 중앙 13.2초·최대 25.5초 · 바퀴 중 DB CPU 270% 대 밖 164%) · F는 합성 회차로만 확인 · 메인 확인: adr012s1 dry-run(9회 · 회전 noc c f / c f noc / f noc c · 326.7분) · f 줄 = c 줄에서 `--cond A+F --cleanup schedule`만 다름(run.sh:10·186 — F 별도 컨테이너 대조 60s) · README 표 초안 반영 · 해석 주의: F 컨테이너 한도 cpus 1·mem 1g(compose.reconciler.yml:29-30 — ADR-009와 같은 구성) · Hikari는 업무 앱 풀만 | 하네스 듀얼 리뷰 rv37(Opus ∥ codex) 시작 · soakrc TAIL 재생성 회귀 메인 재확인 중 |
 | 10-18 07:40 | rv37 반영 워커(Opus) 회수 584dbf4c(tail.py 하나 — RH-1~5) · 6폴더 사본 전·후 TAIL.md cmp 동일(sha 표 워커 보고) · 합성 f·fnostats·cnoruns로 포화·결측 사유 확인 · 메인 확인: 렌더 표 칸·`cpu_limits` NanoCpus 경로(tail.py:384-399) · 워커가 보수적으로 고른 것: 정상 구간 공백 기준도 9초 · 결측 회차도 조건 묶음에 남김(R1 판정에서 메인이 뺌 — ADR-012 판정 유효 조건) | post-fix 재점검(codex) |
+| 10-18 08:20 | post-fix 재점검(codex) 신규 2: RH-7 기각 · RH-8 메인 직접 수정·확인 | 하네스 리뷰 종료(듀얼 1루프 + 재점검 — 신규 실결함 1건 반영) · 다음: .164 스모크 |
 
 ## 리뷰 ledger
 
@@ -46,4 +47,5 @@
 | RH-4 | 1 | codex M4 + opus L6 | tail.py:181·351 후반 창 공백을 0으로 셈 | 채택 — 후반 창 관측 초·thin 초 수 표기 · 빈 초 > 9(1%)면 late_unavailable 사유 | fixed | 584dbf4c |
 | RH-5 | 1 | opus L4 | tail.py:266 docker stats·Hikari 시각 거침 · in_n·out_n 숨음 | 채택 — 표에 n 표기(시각 정밀도는 한계로 기록) | fixed | 584dbf4c |
 | RH-6 | 1 | opus L8 | 기존 세트 회귀 바이트 비교 안 함 | 메인 재확인 — soakrc 재생성 TAIL.md diff 0·tail.json 추가만(1c9887a0) · 수정 뒤 워커 6폴더 사본 전·후 cmp 동일(584dbf4c) | fixed | 584dbf4c |
-
+| RH-7 | p | codex post-fix | tail.py:383 NanoCpus 0을 1코어로 처리 | 기각 — num(0)은 참이라 0 갈래('한도 없음')로 감(tail.py:94·387-389) · 기록 없이 RECONCILER_CPUS 바꾸는 경우는 run.sh app_config가 늘 기록하고 캠페인이 바꾸지 않음 | rejected | |
+| RH-8 | p | codex post-fix | tail.py:580 알 수 없는 cond 값이면 결측 검사 건너뜀 | 채택 — A12_CONDS(run.sh CONDS) 밖이면 a12_missing · 합성 'A+F '로 사유 확인 · 기존 세트 TAIL.md는 a12 사유를 쓰지 않음(렌더 경로 adr012s1만) | fixed | (HEAD) |
