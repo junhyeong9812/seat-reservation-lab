@@ -17,6 +17,7 @@
 | 10-18 04:05 | 사용자 ".164 말고 .9랑 .158 두 서버로 테스트" → .9 읽기 전용 점검(사용자 요청 — 이름·사양만): Ryzen 5 3550H 4코어 8스레드 · 메모리 15GiB(가용 약 12) · NVMe 512GB(여유 384G) · Docker 29.1.3 · 컨테이너 6개(다른 서비스) · `~/labs` 없음 · .158까지 RTT 0.26ms → 보고: 두 서버 모두 DB 14GB + 앱 2GB를 못 담고(전체 15GiB) · L4(앱 4 + DB 4 CPU)가 빠듯 · 다른 서비스와 상호 간섭 → 선택지(역할 분리 · .164 유지) 제시 → 사용자 '.164 측정 + .158 외부 앱'(명세 그대로) | 명세 변경 없음 · .9는 이 ADR에서 더 쓰지 않음 |
 | 10-18 04:30 | 1단계 하네스 워커(Opus) 위임(세트 adr012s1 · 후반 창 · 정상 구간 CPU · 바퀴 지표) · 사용자 "싯 리저베이션 랩 안에 별도 앱 프로젝트를 코틀린으로 올리고 기존 앱은 main-app 폴더로 옮겨 1개 깃에 2개" → 메인 확인: 하네스 compose 8개 `context: ../..`·루트 Dockerfile · run.sh 경로 검사(`src build.gradle.kts Dockerfile`) → 선택지 A(main-app 이동)·B(루트 유지) 제시 → 사용자 **A** · 시점 = 1단계 측정 뒤 · 명세 task 04b 추가(동작 무변경 리팩토링 — refactoring.md 순서) | 명세 갱신 |
 | 10-18 06:15 | 1단계 하네스 워커(Opus) 회수: 1c9887a0(campaign.sh·tail.py — 코드만) · 워커 확인: 기존 6폴더 TAIL.md diff 0 · 기존 세트 dry-run conditions·order diff 0 · soakrc c 회차 새 지표(C 바퀴 28 · 정상 구간 중앙 13.2초·최대 25.5초 · 바퀴 중 DB CPU 270% 대 밖 164%) · F는 합성 회차로만 확인 · 메인 확인: adr012s1 dry-run(9회 · 회전 noc c f / c f noc / f noc c · 326.7분) · f 줄 = c 줄에서 `--cond A+F --cleanup schedule`만 다름(run.sh:10·186 — F 별도 컨테이너 대조 60s) · README 표 초안 반영 · 해석 주의: F 컨테이너 한도 cpus 1·mem 1g(compose.reconciler.yml:29-30 — ADR-009와 같은 구성) · Hikari는 업무 앱 풀만 | 하네스 듀얼 리뷰 rv37(Opus ∥ codex) 시작 · soakrc TAIL 재생성 회귀 메인 재확인 중 |
+| 10-18 07:40 | rv37 반영 워커(Opus) 회수 584dbf4c(tail.py 하나 — RH-1~5) · 6폴더 사본 전·후 TAIL.md cmp 동일(sha 표 워커 보고) · 합성 f·fnostats·cnoruns로 포화·결측 사유 확인 · 메인 확인: 렌더 표 칸·`cpu_limits` NanoCpus 경로(tail.py:384-399) · 워커가 보수적으로 고른 것: 정상 구간 공백 기준도 9초 · 결측 회차도 조건 묶음에 남김(R1 판정에서 메인이 뺌 — ADR-012 판정 유효 조건) | post-fix 재점검(codex) |
 
 ## 리뷰 ledger
 
@@ -39,10 +40,10 @@
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
-| RH-1 | 1 | codex H1 + opus M3 | compose.reconciler.yml:29 F cpus 1 — F JVM 포화 시 R1이 '유지' 쪽으로 기움 · 표에 F CPU 평균만 | 채택 — 조건은 ADR-009 구성 유지(바꾸면 C 대 F 외 변수 추가) · F CPU 최대·한도 95% 이상 표본 비율 표기 + ADR-012 §5 R1 판정 유효 조건·§7 한계 | open | |
-| RH-2 | 1 | opus M1 + codex M2 + opus L5 | tail.py:262-267·410 바퀴를 시작 시각 하나로 창 소속 · 창 기준 t0 대 ceil(t0) | 채택 — 창 경계 s_min으로 통일 · 수·중앙·최대는 창 안에서 시작하고 끝난 바퀴 · 끝을 넘은 바퀴는 따로 셈 · 바퀴 중/밖 분류는 창과 겹치는 모든 바퀴 | open | |
-| RH-3 | 1 | opus M2 + codex M3 + opus L7 | tail.py:223·393·400-405 F 표본·출처 없음이 '해당 없음'과 구별 안 됨 · source None 행 | 채택 — 조건별 기대 출처(SRC_OF)·F 컨테이너 · 없으면 사유(notes·상태 칸) · None 출처 경고 | open | |
-| RH-4 | 1 | codex M4 + opus L6 | tail.py:181·351 후반 창 공백을 0으로 셈 | 채택 — 후반 창 관측 초·thin 초 수 표기 · 빈 초 > 9(1%)면 late_unavailable 사유 | open | |
-| RH-5 | 1 | opus L4 | tail.py:266 docker stats·Hikari 시각 거침 · in_n·out_n 숨음 | 채택 — 표에 n 표기(시각 정밀도는 한계로 기록) | open | |
-| RH-6 | 1 | opus L8 | 기존 세트 회귀 바이트 비교 안 함 | 메인 재확인(soakrc 재생성 진행 중) | open | |
+| RH-1 | 1 | codex H1 + opus M3 | compose.reconciler.yml:29 F cpus 1 — F JVM 포화 시 R1이 '유지' 쪽으로 기움 · 표에 F CPU 평균만 | 채택 — 조건은 ADR-009 구성 유지(바꾸면 C 대 F 외 변수 추가) · F CPU 최대·한도 95% 이상 표본 비율 표기 + ADR-012 §5 R1 판정 유효 조건·§7 한계 | fixed | 584dbf4c |
+| RH-2 | 1 | opus M1 + codex M2 + opus L5 | tail.py:262-267·410 바퀴를 시작 시각 하나로 창 소속 · 창 기준 t0 대 ceil(t0) | 채택 — 창 경계 s_min으로 통일 · 수·중앙·최대는 창 안에서 시작하고 끝난 바퀴 · 끝을 넘은 바퀴는 따로 셈 · 바퀴 중/밖 분류는 창과 겹치는 모든 바퀴 | fixed | 584dbf4c |
+| RH-3 | 1 | opus M2 + codex M3 + opus L7 | tail.py:223·393·400-405 F 표본·출처 없음이 '해당 없음'과 구별 안 됨 · source None 행 | 채택 — 조건별 기대 출처(SRC_OF)·F 컨테이너 · 없으면 사유(notes·상태 칸) · None 출처 경고 | fixed | 584dbf4c |
+| RH-4 | 1 | codex M4 + opus L6 | tail.py:181·351 후반 창 공백을 0으로 셈 | 채택 — 후반 창 관측 초·thin 초 수 표기 · 빈 초 > 9(1%)면 late_unavailable 사유 | fixed | 584dbf4c |
+| RH-5 | 1 | opus L4 | tail.py:266 docker stats·Hikari 시각 거침 · in_n·out_n 숨음 | 채택 — 표에 n 표기(시각 정밀도는 한계로 기록) | fixed | 584dbf4c |
+| RH-6 | 1 | opus L8 | 기존 세트 회귀 바이트 비교 안 함 | 메인 재확인 — soakrc 재생성 TAIL.md diff 0·tail.json 추가만(1c9887a0) · 수정 뒤 워커 6폴더 사본 전·후 cmp 동일(584dbf4c) | fixed | 584dbf4c |
 
