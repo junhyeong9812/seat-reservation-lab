@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ADR-011 꼬리 지연 판정 지표(ADR-011 §4 가설 T1~T5) — 회차별·조건별 값만 낸다(성립·기각 판정은 메인 몫).
 
-    scripts/tail.py --set k6ver|pretouch|soak|soakrc results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+    scripts/tail.py --set k6ver|pretouch|soak|soakrc|adr012s1 results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+                                                                       (adr012s1 = ADR-012 1단계 — 아래 'ADR-012' 지표 표 4·5를 더한다)
                                                                        (먼저 조건마다 summarize.py — 안정성 4항목·메모리는 summary.json을 쓴다)
     scripts/tail.py --rep <회차폴더>                                    → 회차 하나의 지표 JSON(표준 출력 — 스모크용, summary.json 없이 되는 것만)
     scripts/tail.py --probe-check <회차폴더>                            → probe-check.json · exit 0 = 두 측정기 정상(run.sh rep_status probe-missing)
@@ -37,6 +38,12 @@
     안정성 4항목(ADR-010 §9) = compare.jvm_rep 값 그대로: ① 정상 구간 Full GC 0·앱 스레드 멈춤 0 ② GC 정지 최대 < 10ms ③ 에러율 0·코드 0 비율 0·성공 RPS ÷ 4,200 > 0.995
     ④ 앱 메모리 램프 뒤 첫 1분 → 마지막 1분 < 10%. 앱 메모리 최대 ÷ 한도 = docker stats 최대 MiB ÷ (app-jvm.json mem_bytes ÷ 1 MiB).
   - 조건 묶음 값 = ok 회차만(겹침·기대는 합한 값으로 배수 — 회차별 값은 회차 표). 손으로 채우지 않는다 — 없으면 '누락'.
+  - ADR-012 1단계(ADR-012 §4 창 정의 · 하네스 ①②⑦ — 회차 결과 late · cpu_steady · rounds, 표는 --set adr012s1에서만):
+    정상 구간 = 정상 구간 첫 초(t0의 올림)부터 1,800초 · 후반 = 그 900초 이상 1,800초 미만(정상 구간이 1,800초 미만이면 late = null · late_unavailable 사유).
+    ① 후반 느린 초 · 후반 서버형 느린 초(위 정의 그대로) · 후반 1초 p99 최대(초마다 hold 응답(코드 0 제외) 정렬 값[int(n × 0.99)], 계획 도착률 절반 미만 초 제외 — summarize와 같다).
+    ② 정상 구간 컨테이너 CPU% 평균(docker stats — 서버 시각 − 시계 차가 [t0, 주 k6 끝] 안인 표본만 · 100% = 1코어) · 표본 수 · 표본 간격 최대(결측 판단).
+    ⑦ 대조 바퀴(drift-db reconcile_runs — 출처별: reconcile-app = 앱 안 C · reconcile-proc = F): 바퀴 시간 = finished − started, 시작이 정상 구간 [t0, t0 + 1800)·
+    후반 [t0 + 900, t0 + 1800)에 든 바퀴의 수·중앙값·최대. 바퀴 중 대 밖: Hikari(업무 앱 풀) pending > 0 표본 비율 · 컨테이너 CPU% 평균(정상 구간 표본만).
 측정기 정상(--probe-check — 두 측정기 모두): 기동·종료 코드(PC 0·105 · 강제 종료 아님 / 서버 기동 0 · 종료 0·105 · 수거 0) · CSV gzip 무결 ·
   창(램프 끝 t0 ~ 주 k6 끝) 안 응답만으로 — 공백 ≤ 10초(창 시작 → 첫 응답 · 응답 사이 · 마지막 응답 → 창 끝 모두) · 건수 ≥ 0.9 × 도착률 × 창 길이 · 코드 200 아닌 비율 ≤ 1%.
 """
@@ -97,11 +104,12 @@ def ramp_end(d):
 
 
 # ---- 원시 읽기 ----------------------------------------------------------------------------------------
-def main_csv(d, t0):
+def main_csv(d, t0, keep=None):
     """주 k6 CSV(hold) → 초별 {n, n10, mx, comp(최대 응답 요청의 waiting·blocked·sending·receiving)} · 분별 응답 목록(코드 0 제외, s ≥ t0).
+    keep = (lo, hi)면 lo ≤ s < hi인 초의 응답 목록(배정밀도 — summarize 1초 p99와 같은 값)도 secv에 모은다(ADR-012 후반 창).
     한 요청의 행은 http_req_duration 다음에 blocked·connecting·tls·sending·waiting·receiving이 붙어 온다(k6 CSV — 요청 한 묶음)."""
     from array import array
-    per, mins, last = {}, {}, None
+    per, mins, last, secv = {}, {}, None, {}
     s_min = math.ceil(t0)
     comp_idx = {"http_req_blocked": 0, "http_req_sending": 1, "http_req_waiting": 2, "http_req_receiving": 3}
     with gzip.open(d / "k6-requests.csv.gz", "rt", newline="") as f:
@@ -120,6 +128,8 @@ def main_csv(d, t0):
                 e["mx"] = dur
                 e["comp"] = (c[4], c[2], c[3], c[5])   # waiting, blocked, sending, receiving
             mins.setdefault((s - s_min) // 60, array("f")).append(dur)
+            if keep is not None and keep[0] <= s < keep[1]:
+                secv.setdefault(s, array("d")).append(dur)
         for line in f:
             if not line.startswith("http_req_"):
                 continue
@@ -140,7 +150,7 @@ def main_csv(d, t0):
                 cur[2 + comp_idx[m]] = float(c[i_val])
         if cur is not None:
             close(cur)
-    return per, mins, last
+    return per, mins, last, secv
 
 
 def probe_csv(path, shift=0.0):
@@ -326,6 +336,118 @@ def minute_trend(mins):
     return out
 
 
+# ---- ADR-012 1단계 지표(ADR-012 §4 '창 정의'·'측정 전에 하네스에 필요한 것' ①②⑦ · §5 R1 판정표) -----------------------
+STEADY_S, LATE_FROM_S = 1800, 900   # 정상 구간 = 정상 구간 첫 초부터 1,800초 · 후반 = 그 900초 이상 1,800초 미만(ADR-012 §4 — 바꾸면 ADR과 함께)
+
+
+def iso_ts(x):
+    from datetime import datetime
+    return datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp()
+
+
+def late_window(per, secv, slow, server, s_min, steady_n, thin):
+    """후반 창 [s_min + 900, s_min + 1800) — 느린 초 · 서버형 느린 초(decomp와 같은 정의) · 1초 p99 최대(summarize와 같은 계산: 초마다 hold 응답(코드 0 제외)
+    정렬 값[int(n × 0.99)], 계획 도착률 절반 미만인 초(thin)는 뺌). 정상 구간이 1,800초 미만이면 None + 사유."""
+    if steady_n < STEADY_S:
+        return None, f"정상 구간 {steady_n}초 < {STEADY_S}초 — 후반 창 판정 불가"
+    lo, hi = s_min + LATE_FROM_S, s_min + STEADY_S
+    p = {s: p99(v.tolist()) for s, v in secv.items() if lo <= s < hi and len(v) >= thin}
+    mx = max(p, key=p.get) if p else None
+    return {"window_rel_s": [LATE_FROM_S, STEADY_S], "secs": sum(1 for s in range(lo, hi) if s in per), "secs_thin": sum(1 for s, v in secv.items() if lo <= s < hi and len(v) < thin),
+            "thin_min_n": thin, "slow_secs": sum(1 for s in slow if lo <= s < hi), "server_slow_secs": sum(1 for s in server if lo <= s < hi),
+            "sec_p99_max_ms": p[mx] if mx is not None else None, "sec_p99_max_rel_s": (mx - s_min) if mx is not None else None}, None
+
+
+def server_stats(d, off):
+    """timeline-server.jsonl(서버에서 찍은 'date -Is' 줄 + docker stats 줄들) → [(PC 시각, {컨테이너 이름: CPU%})] — 시각 = 서버 시각 − 시계 차(compare.cpu와 같다)."""
+    out, cur = [], None
+    p = d / "timeline-server.jsonl"
+    if not p.exists():
+        return None
+    for line in p.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "t" in row:
+            cur = (iso_ts(row["t"]) - off, {})
+            out.append(cur)
+            continue
+        if cur is None or "Name" not in row:
+            continue
+        try:
+            cur[1][row["Name"]] = float(str(row.get("CPUPerc", "")).rstrip("%"))
+        except ValueError:
+            pass
+    return out
+
+
+def steady_cpu(stats, t0, t1, containers):
+    """정상 구간 [t0, 주 k6 끝] 안 docker stats 표본만 — 컨테이너별 CPU% 평균·표본 수(100% = 1코어) · 표본 간격 최대(창 시작 → 첫 표본 · 사이 · 마지막 → 창 끝 — 결측 판단용)."""
+    win = [x for x in stats if t0 <= x[0] <= t1]
+    ts_ = [x[0] for x in win]
+    res = {"window": [t0, t1], "samples": len(win), "head_gap_s": (ts_[0] - t0) if ts_ else None, "tail_gap_s": (t1 - ts_[-1]) if ts_ else None,
+           "max_inner_gap_s": max((b - a for a, b in zip(ts_, ts_[1:])), default=None), "containers": {}}
+    for k, name in containers.items():
+        v = [x[1][name] for x in win if name in x[1]]
+        if v or k != "f":   # F 컨테이너는 있을 때만(없는 조건에 '0 표본'을 남기지 않는다)
+            res["containers"][k] = {"mean": statistics.mean(v) if v else None, "n": len(v), "missing": len(win) - len(v)}
+    return res
+
+
+def _dist(xs):
+    return {"n": len(xs), "median_s": statistics.median(xs) if xs else None, "max_s": max(xs) if xs else None}
+
+
+def recon_rounds(d, off, t0, stats, containers):
+    """drift-db.json reconcile_runs → 출처(source — reconcile-app = 앱 안 C · reconcile-proc = F)별 바퀴 시간(finished − started, DB 시계 차이라 보정 불필요).
+    바퀴 = 시작 시각(DB 시각 − 시계 차 → PC 시계)이 정상 구간 [t0, t0 + 1800) · 후반 [t0 + 900, t0 + 1800)에 든 것.
+    바퀴 중 대 바퀴 밖(정상 구간 [t0, t0 + 1800) 안의 표본만): Hikari pending > 0 표본 비율(timeline-hikari.jsonl — PC 'date -Is' 초 단위 → 표본 = [T, T+1)이 바퀴 [시작, 끝]과 겹치면 바퀴 중) ·
+    docker stats 컨테이너별 CPU% 평균(표본 시각이 바퀴 [시작, 끝] 안이면 바퀴 중). Hikari는 업무 앱 풀만 잰다(F 컨테이너 풀은 없음)."""
+    db = load(d / "drift-db.json")
+    if db is None or not isinstance(db.get("reconcile_runs"), list):
+        return None
+    w0, w1, l0 = t0, t0 + STEADY_S, t0 + LATE_FROM_S
+    runs = {}
+    for r in db["reconcile_runs"]:
+        try:
+            a, b = iso_ts(r["started_at"]) - off, iso_ts(r["finished_at"]) - off
+        except (KeyError, TypeError, ValueError):
+            continue
+        runs.setdefault(r.get("source"), []).append((a, b))
+    hik = []
+    hp = d / "timeline-hikari.jsonl"
+    if hp.exists():
+        for line in hp.read_text().splitlines():
+            try:
+                row = json.loads(line)
+                t = iso_ts(row["t"])
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            if w0 <= t < w1 and num(row.get("pending")):
+                hik.append((t, row["pending"]))
+    sw = [x for x in (stats or []) if w0 <= x[0] < w1]
+    out = {}
+    for src, rr in sorted(runs.items(), key=lambda x: str(x[0])):
+        st = [(a, b) for a, b in rr if w0 <= a < w1]
+        lt = [(a, b) for a, b in st if a >= l0]
+        hin = [p for t, p in hik if any(t < b and t + 1 > a for a, b in st)]
+        hout = [p for t, p in hik if not any(t < b and t + 1 > a for a, b in st)]
+        cin = [x for x in sw if any(a <= x[0] <= b for a, b in st)]
+        cout = [x for x in sw if not any(a <= x[0] <= b for a, b in st)]
+        cpu = {}
+        for k, name in containers.items():
+            vi, vo = [x[1][name] for x in cin if name in x[1]], [x[1][name] for x in cout if name in x[1]]
+            if vi or vo:
+                cpu[k] = {"in_mean": statistics.mean(vi) if vi else None, "in_n": len(vi), "out_mean": statistics.mean(vo) if vo else None, "out_n": len(vo)}
+        out[src] = {"total": len(rr), "steady": _dist([b - a for a, b in st]), "late": _dist([b - a for a, b in lt]),
+                    "steady_dur_s": [round(b - a, 3) for a, b in st],
+                    "hikari": {"in_n": len(hin), "in_pending_share": (sum(1 for p in hin if p > 0) / len(hin)) if hin else None,
+                               "out_n": len(hout), "out_pending_share": (sum(1 for p in hout if p > 0) / len(hout)) if hout else None},
+                    "cpu": cpu}
+    return out
+
+
 def rep_tail(d):
     """회차 하나의 ADR-011 지표(원시 파일만 — summary.json 불필요)."""
     d = Path(d)
@@ -336,8 +458,8 @@ def rep_tail(d):
     if t0 is None or not (d / "k6-requests.csv.gz").exists():
         out["notes"].append("k6-summary startedAt 또는 k6-requests.csv.gz 없음")
         return out
-    per, mins, last = main_csv(d, t0)
     s_min = math.ceil(t0)
+    per, mins, last, secv = main_csv(d, t0, keep=(s_min + LATE_FROM_S, s_min + STEADY_S))
     steady = list(range(s_min, (last or s_min) + 1))
     slow = sorted(s for s in steady if s in per and per[s]["mx"] > SLOW_MS)
     k6_start = int(load(d / "k6-summary.json")["setup_data"]["startedAt"] / 1000)
@@ -385,6 +507,20 @@ def rep_tail(d):
                        "stw_max_ms": max(stw) if stw else None, "wall_med_ms": statistics.median(wl) if wl else None, "overlap": ov,
                        "overlap_all": overlap(slow, steady, [(t - (w or 0) / 1000, t) for t, w, _ in allg])}
     out["minute"] = minute_trend(mins)
+    # ADR-012 1단계(위 'ADR-012' 함수들) — ① 후반 창 ② 정상 구간 CPU ⑦ 대조 바퀴
+    rates = (load(d / "k6-summary.json") or {}).get("stage_rates") or []
+    out["late"], why = late_window(per, secv, slow, server, s_min, len(steady), (min(rates) / 2) if rates else 0)
+    if why:
+        out["late_unavailable"] = why
+    sys.path.insert(0, str(HERE))
+    from compare import CONTAINERS   # noqa: E402 — app·f(seatlab-reconciler-1)·db 이름 한 곳
+    if off is None:
+        out["notes"].append("clock-offset 없음 — docker stats·대조 바퀴(서버 시계)를 PC 시계로 옮길 수 없다(cpu_steady·rounds 없음)")
+        out["cpu_steady"] = out["rounds"] = None
+    else:
+        stats = server_stats(d, off)
+        out["cpu_steady"] = steady_cpu(stats, t0, t1, CONTAINERS) if stats is not None and num(t1) else None
+        out["rounds"] = recon_rounds(d, off, t0, stats, CONTAINERS)
     return out
 
 
@@ -466,13 +602,14 @@ def campaign(set_name, root):
     sys.path.insert(0, str(HERE))
     import compare as C   # noqa: E402 — 안정성 4항목·앱 메모리(jvm_rep) 재사용
     conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
-    expect = {"soak": 2, "soakrc": 1}.get(set_name, 3)
+    expect = {"soak": 2, "soakrc": 1, "adr012s1": 3}.get(set_name, 3)
     camp = C.Camp(root, expect_reps=expect)
     js = {"campaign": root.name, "set": set_name, "conds": {}}
     out = [f"# ADR-011 꼬리 지연 지표 — `{root.name}` (--set {set_name})\n",
            "> `k6/ADR-009/scripts/tail.py`가 회차 원시 파일(주 k6·측정기 CSV · gctrace · clock-offset)과 summary.json(안정성·메모리)에서 산출. 정의는 스크립트 머리말. "
            "값만 낸다 — 가설 T1~T5의 성립·기각 판정은 담지 않는다. 조건 묶음 = ok 회차만.\n"]
     per_rep_rows, cond_rows, stab_rows = [], [], []
+    a12_cond, a12_rep, a12_rcond, a12_rrep = [], [], [], []   # ADR-012 1단계(adr012s1에서만 표로)
     for c in conds:
         folder_reps = sorted(p for p in (root / c / "L4" / "S4c4200").glob("rep*") if p.is_dir() and "." not in p.name)
         summ_reps = {r.get("rep"): r for r in ((camp.summ.get(c) or {}).get("L4/S4c4200") or [])}
@@ -521,6 +658,8 @@ def campaign(set_name, root):
                           sum(1 for t in ok if num(_get(t, "period", "p")) and _get(t, "period", "p") <= P_SIG),
                           rng(("decomp", "server_type")), rng(("decomp", "aperiodic_server_slow")), pool("probes", "pc", "overlap"), rng(("probes", "pc", "spikes")),
                           pool("probes", "server", "overlap"), rng(("probes", "server", "spikes")), pool("gogc", "overlap")])
+        if set_name == "adr012s1":
+            _a12_rows(c, reps, ok, a12_cond, a12_rep, a12_rcond, a12_rrep)
     out.append("## 1. 조건별(ok 회차) — 값 = 중앙값 [최소–최대] · 겹침 = 합한 겹침/느린 초(우연 기대 · 배수)\n")
     table(out, ["조건", "n(ok)", "느린 초", "26초 성분 p(24~31초)", "p ≤ 0.05 회차 수", "서버형 느린 초", "주기 없는 서버형(T4)", "PC 측정기 겹침", "PC 측정기 튐 수", "서버 측정기 겹침",
                 "서버 측정기 튐 수", "Go GC 겹침"], cond_rows)
@@ -530,6 +669,18 @@ def campaign(set_name, root):
     out.append("## 3. 안정성(ADR-010 §9 4항목) · 앱 메모리 · 1분 p99 추세\n")
     table(out, ["조건", "회차", "상태", "① Full GC·앱 멈춤 0", "② 정지 최대 < 10ms", "③ 에러·코드 0·RPS", "④ 메모리 추세 < 10%", "메모리 추세 %", "앱 메모리 최대 MiB",
                 "한도 MiB", "최대 ÷ 한도 %", "분 수", "첫 5분 p99 ms", "마지막 5분 p99 ms", "증가 %", "순위 상관", "1초 p99 최대 ms", "> 50ms 초(summarize)"], stab_rows)
+    if set_name == "adr012s1":
+        out.append("## 4. ADR-012 1단계 — 후반 꼬리 · 정상 구간 CPU(조건별 ok 회차 — 중앙값 [최소–최대])\n")
+        out.append("> 후반 = 정상 구간 900초 이상 1,800초 미만 · CPU = docker stats 평균 %(100% = 1코어, 정상 구간 [t0, 주 k6 끝]) · F = seatlab-reconciler-1. 정의는 스크립트 머리말 'ADR-012'.\n")
+        table(out, A12_HEAD, a12_cond)
+        out.append("## 5. ADR-012 1단계 — 대조 바퀴(R1 — 조건·출처별 ok 회차 — 중앙값 [최소–최대])\n")
+        out.append("> 출처 reconcile-app = 앱 안 C · reconcile-proc = F. 바퀴 = 시작이 정상 구간(후반)에 든 것 · 바퀴 시간 = finished − started(초). "
+                   "바퀴 중/밖 = 정상 구간 표본 중 바퀴 [시작, 끝]에 든 것/아닌 것 — Hikari는 업무 앱 풀.\n")
+        table(out, A12_RHEAD, a12_rcond or [["(대조 바퀴 없음)"] + [""] * (len(A12_RHEAD) - 1)])
+        out.append("## 6. ADR-012 1단계 — 회차별\n")
+        table(out, ["조건", "회차", "상태"] + A12_HEAD[2:], a12_rep)
+        rh = ["조건", "회차", "상태", "출처"] + A12_RHEAD[3:]
+        table(out, rh, a12_rrep or [["(대조 바퀴 없음)"] + [""] * (len(rh) - 1)])
     out.append("## 누락·의심\n")
     out += [f"- {n}" for n in camp.notes] or ["- 자동 점검에서 걸린 항목 없음"]
     js["notes"] = camp.notes
@@ -537,6 +688,60 @@ def campaign(set_name, root):
     (root / "tail.json").write_text(json.dumps(js, ensure_ascii=False, indent=1, default=str))
     print(root / "TAIL.md")
     return 0
+
+
+A12_HEAD = ["조건", "n(ok)", "후반 느린 초", "후반 서버형 느린 초", "후반 1초 p99 최대 ms", "앱 CPU %", "DB CPU %", "F CPU %", "CPU 표본 수", "표본 간격 최대 s"]
+A12_RHEAD = ["조건", "출처", "n(ok)", "바퀴 수(전체)", "바퀴 수(정상)", "바퀴 시간 중앙 s(정상)", "바퀴 시간 최대 s(정상)", "바퀴 수(후반)", "바퀴 시간 중앙 s(후반)",
+             "바퀴 시간 최대 s(후반)", "pending > 0 비율 바퀴 중", "pending > 0 비율 바퀴 밖", "DB CPU % 바퀴 중", "DB CPU % 바퀴 밖", "앱 CPU % 바퀴 중", "앱 CPU % 바퀴 밖", "F CPU % 바퀴 중", "F CPU % 바퀴 밖"]
+
+
+def _gap(t):
+    c = t.get("cpu_steady") or {}
+    g = [x for x in (c.get("head_gap_s"), c.get("max_inner_gap_s"), c.get("tail_gap_s")) if num(x)]
+    return max(g) if g else None
+
+
+def _a12_vals(t):
+    g = lambda *k: _get(t, *k)
+    return [g("late", "slow_secs"), g("late", "server_slow_secs"), g("late", "sec_p99_max_ms"), g("cpu_steady", "containers", "app", "mean"),
+            g("cpu_steady", "containers", "db", "mean"), g("cpu_steady", "containers", "f", "mean"), g("cpu_steady", "samples"), _gap(t)]
+
+
+A12_D = [0, 0, 1, 1, 1, 1, 0, 1]
+
+
+def _a12_rvals(r):
+    g = lambda *k: _get(r, *k)
+    return [g("total"), g("steady", "n"), g("steady", "median_s"), g("steady", "max_s"), g("late", "n"), g("late", "median_s"), g("late", "max_s"),
+            g("hikari", "in_pending_share"), g("hikari", "out_pending_share"), g("cpu", "db", "in_mean"), g("cpu", "db", "out_mean"),
+            g("cpu", "app", "in_mean"), g("cpu", "app", "out_mean"), g("cpu", "f", "in_mean"), g("cpu", "f", "out_mean")]
+
+
+A12_RD = [0, 0, 2, 2, 0, 2, 2, 3, 3, 1, 1, 1, 1, 1, 1]
+
+
+def _a12_rows(c, reps, ok, cond_rows, rep_rows, rcond_rows, rrep_rows):
+    """ADR-012 1단계 표 행(조건별·회차별) — 조건 묶음 = ok 회차만(위 표와 같은 규칙). late가 null이면 사유를 회차 행 상태 칸에 붙인다."""
+    vals = [_a12_vals(t) for t in ok]
+    cond_rows.append([c, len(ok)] + [_rngd([v[i] for v in vals], A12_D[i]) for i in range(len(A12_D))])
+    for t in reps:
+        st = (t["status"] or "누락") + (f' · {t["late_unavailable"]}' if t.get("late_unavailable") else "")
+        rep_rows.append([c, Path(t["dir"]).name, st] + [fx(v, A12_D[i]) for i, v in enumerate(_a12_vals(t))])
+    srcs = sorted({s for t in reps for s in ((t.get("rounds") or {}).keys())}, key=str)
+    for src in srcs:
+        rv = [_a12_rvals((t.get("rounds") or {}).get(src)) for t in ok]
+        rcond_rows.append([c, src, len(ok)] + [_rngd([v[i] for v in rv], A12_RD[i]) for i in range(len(A12_RD))])
+        for t in reps:
+            rrep_rows.append([c, Path(t["dir"]).name, t["status"] or "누락", src] + [fx(v, A12_RD[i]) for i, v in enumerate(_a12_rvals((t.get("rounds") or {}).get(src)))])
+
+
+def _rngd(vals, d):
+    """_rng와 같은 모양(중앙값 [최소–최대] · 누락 수)에 소수 자리 d를 고정한 것(ADR-012 표 — CPU·ms 값이 정수로 뭉개지지 않게)."""
+    v = [x for x in vals if num(x)]
+    if not v:
+        return "누락"
+    s = fx(statistics.median(v), d) if len(v) == 1 else f"{fx(statistics.median(v), d)} [{fx(min(v), d)}–{fx(max(v), d)}]"
+    return s + (f" · 누락 {len(vals) - len(v)}" if len(v) < len(vals) else "")
 
 
 def _get(x, *k):
@@ -598,7 +803,7 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--rep":
         print(json.dumps(rep_tail(argv[1]), ensure_ascii=False, indent=1, default=str))
         return 0
-    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc"):
+    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc", "adr012s1"):
         return campaign(argv[1], argv[2])
     print(__doc__, file=sys.stderr)
     return 2
