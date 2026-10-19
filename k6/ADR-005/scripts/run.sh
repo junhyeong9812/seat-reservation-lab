@@ -82,7 +82,7 @@ if (( RESUME )); then
   # 이어서 실행: 계획·셀·회차는 기존 plan.json 그대로. 측정 대상(앱·시나리오·compose)이 계획의 SHA와 같을 때만 허용한다
   [[ -f "$OUT_ROOT/plan.json" ]] || { echo "resume: $OUT_ROOT/plan.json 없음" >&2; exit 2; }
   PLAN_SHA="$(jq -r .sha "$OUT_ROOT/plan.json")"
-  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore settings.gradle.kts main-app reconcile-core reconciler-app k6/ADR-005/scenarios k6/ADR-005/compose.yml k6/ADR-005/compose.two-apps.yml k6/ADR-005/nginx.conf; then
+  if ! git -C "$REPO_ROOT" diff --quiet "$PLAN_SHA" "$SHA" -- src build.gradle.kts Dockerfile .dockerignore settings.gradle.kts gradle gradlew main-app reconcile-core reconciler-app k6/ADR-005/scenarios k6/ADR-005/compose.yml k6/ADR-005/compose.two-apps.yml k6/ADR-005/nginx.conf; then
     echo "resume: 측정 대상이 계획($PLAN_SHA)과 다르다 — 이어서 잴 수 없음" >&2; exit 2
   fi
   LEVELS="$(jq -r '.levels|join(" ")' "$OUT_ROOT/plan.json")"; REPS="$(jq -r .reps "$OUT_ROOT/plan.json")"

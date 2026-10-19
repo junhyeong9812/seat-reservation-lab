@@ -379,9 +379,10 @@ SH
 # 인자: sha compose파일... (compose 파일은 로컬 경로 — 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 사본) → 한 줄 JSON {"sha","files","application_yml","spring_config","reasons"}
 limit_config_check() {
   local sha="$1"; shift
-  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf res=src/main/resources
+  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf res=src/main/resources core=()
   # 저장소 구조(task 04b): 그 SHA에 main-app/src/main/resources가 있으면 그쪽(새 구조), 없으면 src/main/resources(옛 구조)
-  [[ -n "$(git -C "$REPO_ROOT" ls-tree -d --name-only "$sha" -- main-app/src/main/resources 2>/dev/null)" ]] && res=main-app/src/main/resources
+  [[ -n "$(git -C "$REPO_ROOT" ls-tree -d --name-only "$sha" -- main-app/src/main/resources 2>/dev/null)" ]] && res=main-app/src/main/resources core=(reconcile-core/src/main/resources)
+  # 새 구조: reconcile-core도 main-app 런타임 classpath에 올라가므로 그 자원(application*)도 같이 본다(04b 리뷰)
   strip() { case "$1" in *.properties) grep -vE '^[[:space:]]*[#!]' ;; *) sed -E 's/(^|[[:space:]])#.*$//' ;; esac; }
   while IFS= read -r f; do
     [[ "$(basename "$f")" =~ ^application.*\.(ya?ml|properties)$ ]] || continue
@@ -396,7 +397,7 @@ limit_config_check() {
     elif (( n > 0 )); then
       reasons+=("limit-set-by-profile")
     fi
-  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res") || return 1
+  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res" "${core[@]}") || return 1
   [[ "$files" != "[]" ]] || return 1   # 설정 파일을 하나도 못 찾으면 확인 실패(조용히 통과하지 않게)
   [[ "$app_ok" == true ]] || reasons+=("limit-default-not-precheck")
   for cf in "$@"; do

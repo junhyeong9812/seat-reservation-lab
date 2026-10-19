@@ -68,3 +68,7 @@ tasks.bootJar {
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileKotlin") {
     compilerOptions.moduleName = "seat-reservation-lab"
 }
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions.moduleName = "seat-reservation-lab_test"
+}
+base { archivesName = "seat-reservation-lab" }   // plain jar 이름도 이동 전과 같게
