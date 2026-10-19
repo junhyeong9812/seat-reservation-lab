@@ -77,6 +77,19 @@
 6. 결제는 성공했는데 그 사이 선점이 만료됐다면?
 7. 테스트가 끝났을 때 좌석 상태는 정말 정확한가?
 
+## 저장소 구조
+
+Gradle 다중 프로젝트(한 git) — 루트는 묶음(settings·플러그인 버전·Gradle wrapper)만 둔다(ADR-012 task 04b, 2026-10-19).
+
+| 폴더 | 내용 |
+|---|---|
+| `main-app/` | 업무 앱(좌석 선점·확정·만료·카운터 대조 C·F). 측정 이미지(루트 `Dockerfile`)가 빌드하는 앱 — jar 이름은 그대로 `seat-reservation-lab-0.0.1-SNAPSHOT.jar` |
+| `reconcile-core/` | 탐지·복구 공통 모듈(ADR-012 — 두 앱이 같은 코드를 의존). 지금은 골격 — 대조 코드 추출은 ADR-012 task 05 설계에서 |
+| `reconciler-app/` | 외부 대조 앱(ADR-012 M3) 골격 |
+
+- 테스트: `./gradlew test` · jar: `./gradlew :main-app:bootJar`
+- 하네스(k6/ADR-001~009)는 그 SHA의 루트 Dockerfile로 빌드한다 — 구조 변경 전 SHA는 옛 구조(`src/`)로, 이후 SHA는 새 구조로 그대로 배포된다. 이어서 실행 검사와 설정 정적 검사는 SHA마다 구조를 보고 경로를 고른다.
+
 ## Architecture
 
 ```

@@ -30,7 +30,7 @@ ADR-007의 `fio-disk.sh`(디스크 원인 후속 전용)와 ADR-007 `campaign.sh
    환경변수 줄 전체(`env` — `SEAT_HOLD_LIMIT_STRATEGY`·relaxed 이름·`SPRING_APPLICATION_JSON` 키·`JAVA_TOOL_OPTIONS`의 `-D…`·`SPRING_CONFIG_*` 포함) ·
    명령줄(`cmd` — `.Path`·`.Args`·`.Config.Entrypoint`·`.Config.Cmd`) · `SPRING_CONFIG_`로 시작하는 환경변수 수(`spring_config`).
    **값은 기록하지 않는다**(`DB_PASSWORD`가 들어 있다). 세는 일은 서버에서 하고 숫자만 받는다.
-   **설정 파일 정적 검사(`limit-config.json`)** — 회차 전에 한 번, 측정 대상 앱 SHA의 `src/main/resources` 아래 `application*.{yml,yaml,properties}`(하위 폴더 포함, 주석 제외)와
+   **설정 파일 정적 검사(`limit-config.json`)** — 회차 전에 한 번, 측정 대상 앱 SHA의 `src/main/resources`(ADR-012 저장소 구조 변경 뒤 SHA는 `main-app/src/main/resources`) 아래 `application*.{yml,yaml,properties}`(하위 폴더 포함, 주석 제외)와
    실제로 띄울 compose 파일을 본다: 매수 방식은 `application.yml`만 정할 수 있고 그 값은 `counter-upsert-precheck`여야 한다(프로필 `loadtest` 등이 덮으면 '기본값'을 잰 것이 아니다).
    같은 파일들(application.yml 포함)에 다른 설정을 끌어오는 키(`spring.config.import`·`spring.config.location`·`additional-location`·`spring.profiles.active`·`include`·`group.*`)가 있어도 사유다(`spring-config-import`).
    **캠페인(`campaign.sh`)에서는** 이 검사가 실패하거나 사유가 하나라도 있으면 `run.sh`가 배포 전에 exit 6으로 멈추고 캠페인 전체가 멈춘다(재측정 없음).
