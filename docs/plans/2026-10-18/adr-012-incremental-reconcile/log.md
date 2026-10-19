@@ -51,6 +51,7 @@
 | 10-20 01:02 | task 04c 캠페인 시작: `campaign.sh --set adr012r8 --sha 8c7207b2 --k6-bin ~/.local/opt/k6-v2.2.0/k6`(setsid 분리 · results/adr012r8-launch.log) → results/20261020-adr012r8-8c7207b2 · 9회 · 계획 326.7분(1단계 실측 회당 약 40.5분 → 끝 약 07:10) | 측정 중 |
 | 10-20 01:20 | task 05 설계 초안 워커(Opus) 회수 b521b7ea(ADR-012 §4.2 · 11 하위 절) · 사용자 결정 3: 새 테이블 counter_safety_run·counter_app_inject = **선택 위치 V10으로 만든다**(명세 'V9 = 열만' 범위 확장 — 재합의) · M3 안전망 = **외부 앱** · 외부 앱 한도 = **F와 같게 CPU 1·1g** · 설계가 찾은 고정 문구 문제 4(§2.1 30초 재읽기 · §2.1 복구 미룸 · 명세 §5 고르는 규칙 낡음 · 명세 §0 S3e 안전망 주기) — §4.2에 판단 기록 | 설계 선검증(듀얼) |
 | 10-20 07:01 | R8 캠페인 끝(01:02~07:01 · 9/9 exit 0 · 비정상 회차 0 · 회당 약 40분) | 집계(summarize 3 병렬 → tail.py --set adr012r8) |
+| 10-20 08:30 | §4.2 설계 선검증 rv41 회수(Opus 높음 0·중간 5·낮음 7 · codex 높음 4·중간 5·낮음 1) → 사용자 결정 2: 불변식 1 = **조건부 보장 + 안전망**(60초·재시작·상한 밖은 안전망 + 기록) · 2' = **7셀(M0 추가)** → 명세 §0·§2·§5 재합의 행 · 수정 워커(Opus) 위임(§4.2 기계 수정 + §3-1·§2.3·§4 표 재합의 줄 + §4.2.12 설계 선검증 기록) | 진행 |
 
 ## 리뷰 ledger
 
@@ -115,3 +116,4 @@
 | RC-3 | 1 | opus L1 | CounterReconciler.kt:503-506 읽기 전용을 고정하는 테스트 없음 | 기록 — ADR §4.1 해석 주의 · 스모크 때 pg_stat_activity로 확인 | open | |
 | RC-4 | 1 | opus L2·L3 | fetch size 왕복 · JPA 트랜잭션 비용이 모양 효과를 가릴 수 있음 | 기록 — ADR §4.1 해석 주의(R8 기각 시 먼저 가름) | fixed | 7bf6dee6 |
 | RC-5 | 1 | opus L4 | 바깥 트랜잭션 안 runOnce → RC 합류 | 기록 — 지금 호출처 스케줄러뿐 | fixed | 7bf6dee6 |
+- review packet(§4.2 설계 a8626d42): rv41 — 미러(ADR-012 · 명세 · main-app/src/main · k6/ADR-009 lib·run·summarize·compose · reconcile-core·reconciler-app · Dockerfile). Opus ∥ codex. 발견별 판단 정본 = ADR-012 §4.2.12(수정 워커가 작성 · 메인 확인).
