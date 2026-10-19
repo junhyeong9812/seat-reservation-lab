@@ -48,6 +48,7 @@
 | 10-20 00:47 | EXPLAIN(부하 4.5분 · 회차 1 쿼터 1만 행 · 사용자 1,000명 청크): one-shot 2.57ms·버퍼 4,753 · split ⓐ0.20+ⓑ1.00+ⓒ0.005ms(버퍼 약 4,534) · group ⓐ0.20+ⓑ1.22ms(약 4,531) — 읽는 대상·버퍼 같음(설계대로) · 홀드는 셋 다 idx_seat_hold_user_id · 청크 모두 ≪ 200ms · **새 한계: S4c는 확정 예약이 없어 reservation이 비어 있다 — R8은 홀드 쪽 비용만 비교** · reconciler 세션 표본 idle·xid 없음(탐지 중 표본 아님 — 약한 근거) | — |
 | 10-20 00:51 | split 스모크 통과(rc 0 · 상태 ok · reconciler-config detectShape SPLIT · plan reconcile_shape split · 바퀴 9(reconcile-proc) · 오류·건너뛴 청크 0 · 정합성 위반 0 · 앱 ERROR 0 · 끝에서 두 번째 바퀴 쌍 146만·① 2,268ms·청크 최대 30ms·② 1,719ms) → group 스모크 시작 | 대기 |
 | 10-20 01:02 | group 스모크 통과(rc 0 · ok · detectShape GROUP · 바퀴 9 · 오류·건너뛴 청크 0 · 정합성 위반 0 · 앱·reconciler ERROR 0 · 끝에서 두 번째 바퀴 쌍 147만·① 2,704ms·청크 최대 4ms·② 1,644ms) · .164 seatlab 컨테이너 0 · PC 점검(ccle-postgres-1 healthy · load 4.4/24) · ADR-012 §7-10 한계(예약 없음 — 홀드 쪽만 비교 · EXPLAIN 값) | adr012r8 캠페인 시작 |
+| 10-20 01:02 | task 04c 캠페인 시작: `campaign.sh --set adr012r8 --sha 8c7207b2 --k6-bin ~/.local/opt/k6-v2.2.0/k6`(setsid 분리 · results/adr012r8-launch.log) → results/20261020-adr012r8-8c7207b2 · 9회 · 계획 326.7분(1단계 실측 회당 약 40.5분 → 끝 약 07:10) | 측정 중 |
 
 ## 리뷰 ledger
 
