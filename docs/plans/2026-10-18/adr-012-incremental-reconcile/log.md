@@ -37,6 +37,7 @@
 | 10-19 11:47 | R8 설계 재점검(codex) 신규 2(중간 fetch size · 낮음 명세 문구) → 반영 · 설계 문서 리뷰 종료(선검증 + 재점검) · blind 테스트 워커(Opus) 진행 중 | 구현 워커는 blind 테스트 회수 뒤 |
 | 10-19 11:51 | 04b 스모크 통과(633c8b7d · 새 구조 이미지 빌드·기동 · 11:38~11:50 · 상태 ok · 정합성 위반 10항목 0 · 대조 바퀴 9(reconcile-app) · 오류 0 · 설정 검사 사유 없음 · 앱 ERROR 로그 0 · 정리 뒤 seatlab 컨테이너·볼륨 0) | **task 04b 완료**(테스트 508 · 산출물 동일 · 하네스 계획 동일 · 리뷰 종료 · 스모크) |
 | 10-19 12:20 | blind 테스트 워커(Opus) 회수 e9c22570(DetectShapeEquivalenceTest.kt 1파일 — 4클래스(one-shot·split·group·기본) × 7: 바인딩 · 동등성(쌍·복구) · 바퀴 카운터(chunks 6·borrows 19 등) · 어긋남 0 k 배수 · 한 스냅샷(seat_hold 잠금 사이 커밋 — 갈라진 스냅샷이면 오탐) + 문장 모양 · 복구 RC(FOR UPDATE 사이 커밋 → 오탐 판정) · 실패(pg_cancel_backend → 청크 통째 버림)) · 지금은 컴파일 실패(손잡이 없음 — 예상) · 워커가 임시 stub으로 one-shot 7/7 green·split/group 손잡이 무시 구현을 3개가 가름 확인 · 못 고정: 읽기 전용 여부·toIntExact 넘침 → 구현 워커(Opus) 위임(코드 main-app + 하네스 run.sh·campaign adr012r8·tail.py ①② 시간 열) | 구현 대기 |
+| 10-19 13:40 | 04c 구현 워커(Opus) 회수: 9984c08f(손잡이·enum) · 0e7f59cf(split·group — 탐지 전용 RR 읽기 전용 템플릿 · ⓐⓑⓒ · ANY · 흘려 읽기 fetchSize k · toIntExact · 청크 통째 버림) · 28533a59(run.sh --reconcile-shape A+F만 · RECONCILE_DETECT_SHAPE · plan/meta · 이어서 대조 · 설정 대조 detectShape) · 890ea938(campaign adr012r8 — f 줄 = adr012s1 f 바이트 같음) · 1ebdc0a4(tail.py ①② 갈래 시간 8열 · 탐지 모양 열) · 워커 검증: 전체 536(508+28)/0/0/0 · blind 28 첫 실행부터 green(단언·typealias 무변경) + 재실행 2회 · 기존 9세트 dry-run diff 0 · 미지정 compose 렌더·plan·meta 같음 · soakrc·adr012s1 TAIL.md 바이트 같음 · 메인 확인: diff 읽음(ONE_SHOT 경로 무변경 · 분기 1곳) · 로컬 XML은 마지막 blind 재실행만 남아 있어 전체 테스트 다시 돌림 · 워커 미완: tail에 F 메모리 열 없음 | 코드 듀얼 리뷰 rv40(Opus ∥ codex) + 전체 테스트 진행 |
 
 ## 리뷰 ledger
 
@@ -92,3 +93,12 @@
 | RD-8 | 1 | opus L1·L2·L4 + codex L | 경계(빈 청크·커서·없는 사용자 0·expires_at)·int 넘침·문서 불일치 | 채택 — §4.1 경계 규칙 · toIntExact · 명세 ① 범위로 통일 | fixed | (이 커밋) |
 | RD-9 | p | codex 재점검 | ADR §4.1 split fetch size 없음 → pgJDBC 전체 수신 | 채택 — fetch size = 청크 크기(트랜잭션 안 커서) | fixed | (이 커밋) |
 | RD-10 | p | codex 재점검 L | 명세 §0 R8 행이 옛 설계(범위·core) | 채택 — 갱신 | fixed | (이 커밋) |
+- review packet(04c 구현 1e7a5746..1ebdc0a4): rv40 — 미러(impl.diff · drift 코드 · SeatHoldProperties · 자원 · drift 테스트 · k6/ADR-009 scripts·compose). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RC-1 | 1 | codex L | run.sh:119 `--reconcile-shape ""`가 기본으로 조용히 감 | 채택 — 빈 값 거부(exit 2 확인) | fixed | 7bf6dee6 |
+| RC-2 | 1 | codex L + opus L5 | compose.reconciler.yml:24 미지정 시 compose 미설정 경고 · 바깥 셸 값이 샐 수 있음 | 기각 — 빈 값을 늘 넣으면 meta.json app_env가 바뀌어 '미지정 = 렌더 그대로'가 깨진다 · 새는 값은 reconciler-config-mismatch가 잡음 | rejected | |
+| RC-3 | 1 | opus L1 | CounterReconciler.kt:503-506 읽기 전용을 고정하는 테스트 없음 | 기록 — ADR §4.1 해석 주의 · 스모크 때 pg_stat_activity로 확인 | open | |
+| RC-4 | 1 | opus L2·L3 | fetch size 왕복 · JPA 트랜잭션 비용이 모양 효과를 가릴 수 있음 | 기록 — ADR §4.1 해석 주의(R8 기각 시 먼저 가름) | fixed | 7bf6dee6 |
+| RC-5 | 1 | opus L4 | 바깥 트랜잭션 안 runOnce → RC 합류 | 기록 — 지금 호출처 스케줄러뿐 | fixed | 7bf6dee6 |

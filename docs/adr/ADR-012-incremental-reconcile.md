@@ -123,6 +123,7 @@ ADR-015(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 - **`chunk_ms`의 뜻**: 청크 하나의 벽시계 시간 = 트랜잭션 시작·끝(isolation 설정 왕복 포함) + 세 조회 + 앱 집계. 트랜잭션 왕복도 '모양의 비용'에 넣는다(선검증 M2).
 - **복구·기록은 그대로**: 어긋난 쌍은 지금처럼 `repairOne`(→ `PairRepair`). 바퀴 기록 열은 더하지 않는다 — 모양은 회차 설정(`reconciler-config.json`의 `detectShape`)으로 남는다.
 - **하네스**: run.sh `--reconcile-shape one-shot|split|group` — F 조건(A+F)에서만 받고 다른 조건이면 거부 · 지정할 때만 F의 `SPRING_APPLICATION_JSON`에 키를 넣는다(지정하지 않으면 렌더·계획 그대로) · 기대 설정 검사(`reconciler-config-mismatch`)에 `detectShape`를 더한다(지정한 값과 다르면 회차 사유 — 조용히 one-shot으로 돌지 않게). 세트 `adr012r8` = {f, f-split, f-group} × 3(1단계와 같은 30분 구성 · 회차마다 1칸 회전).
+- **해석 주의(코드 리뷰 rv40)**: 앱의 트랜잭션 매니저는 JPA(`JpaTransactionManager`)라 `split`·`group` 청크마다 Hibernate 세션 생성 · 격리 수준 설정·원복 왕복 2회 · COMMIT이 붙는다(청크당 약 1.5ms 규모에서 무시 못 함). `split`은 fetch size = k라 행이 여러 번에 나뉘어 온다. 둘 다 '모양의 비용'에 들어간다 — **R8이 기각되면 이 몫(트랜잭션 왕복)을 먼저 갈라 본다**(예: 첫 문장에 `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`). 읽기 전용 여부와 fetch size는 blind 테스트가 고정하지 않는다(동작은 리뷰로 확인 — 스모크 때 `pg_stat_activity`로 한 번 본다). `runOnce`를 바깥 트랜잭션 안에서 부르면 탐지 트랜잭션이 거기 합류해 READ COMMITTED로 돈다 — 지금 호출처는 스케줄러뿐.
 - **측정 전 확인(스모크)**: 시드 데이터에서 세 모양의 청크 하나씩 `EXPLAIN (ANALYZE, BUFFERS)`로 읽은 행·버퍼·시간을 log에 고정하고, 청크 ≤ 200ms를 본다.
 
 ## 5. 가설 (측정 전 고정)
