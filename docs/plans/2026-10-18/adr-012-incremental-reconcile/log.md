@@ -33,6 +33,7 @@
 | 10-19 09:40 | 04b 리뷰 rv38 회수(Opus ∥ codex — 신규 높음·중간 0 · 낮음 5) → e538236a(테스트 모듈 이름·plain jar 이름 고정 · 설정 검사에 reconcile-core 자원 · 이어서 검사에 gradle·gradlew — wrapper는 첫 커밋 뒤 안 바뀜) · 테스트 508/0/0/0 · 로컬 bootJar classes 140·lib 95 sha256이 이동 전 이미지 jar와 같음(+ reconcile-core jar) · 설정 검사: 옛 SHA 3파일·새 SHA 3파일 · 참조 없는 임시 커밋(core에 application-core.yml)에서 core 파일 잡음·사유 limit-set-by-profile · codex 재점검 신규 1(set -u 옛 bash 빈 배열 — 중간) → 633c8b7d `${core[@]+…}` · set -u 옛·새 SHA 확인 · 기록할 예외: jar 색인 파일 3개(MANIFEST 줄 순서 · classpath.idx · layers.idx)는 다름 — 실행 java -jar 영향 없음 | 리뷰 종료 · .164 스모크 대기(도달 불가) |
 | 10-19 11:38 | 사용자 ".164 켰어 진행하자" · .164 확인(부팅 1분): 남은 seatlab 컨테이너 3개(Exited — app 143·db·redis)·볼륨 seatlab_pgdata → 우리 프로젝트 것만 docker rm·volume rm(남은 0) · 실패한 스모크 폴더는 smoke-04b-default-unreachable로 이름 바꿈 · 스모크 다시(633c8b7d · 11:38:15 deploy 바로 시작) | 대기 |
 | 10-19 11:45 | 04c 설계 메모(ADR-012 §4.1 · §7-9): 1단계 바퀴 기록으로 갈래별 시간 확인(c rep1 마지막 바퀴 — ① 12.6초 · ② 5.9초) · 범위 = ① 쿼터 청크만(② 반조인은 쿼터 키 약 770만 쌍이 앱 메모리에 필요 — F 1g에 안 맞음) · 메인 확인: seat_hold 인덱스는 user_id 단일(V2:7) · reservation은 (schedule_id, user_id)(V2:11) → split·group 홀드 범위는 다른 회차 홀드까지 읽음 · 인덱스 추가는 안 함(스키마 변경) · 한 스냅샷 = 청크당 읽기 전용 REPEATABLE READ 1개(빌림 1) | 설계 선검증(듀얼) → blind 테스트 → 구현 |
+| 10-19 12:00 | R8 설계 선검증 rv39 회수(Opus 높음 1·중간 5·낮음 4 · codex 높음 1·중간 3·낮음 1) → 전부 채택: ADR-012 §4.1 다시 씀(ⓑⓒ `user_id = ANY(U)` · 탐지 전용 RR 템플릿 · 경계·실패 규칙 · chunk_ms 정의 · 하네스 거부·기대 설정 · 스모크 EXPLAIN) · §5 R8 기각 조건·판정(주 지표 ① chunk_ms_total) · §7-9 · 명세 §2·§5 | 설계 문서 리뷰 = 선검증 + 듀얼 1패스 — post-fix 재점검 1회 |
 
 ## 리뷰 ledger
 
@@ -74,3 +75,15 @@
 | RS-4 | 1 | opus L | lib.sh:364-366·382-384 설정 검사가 main-app만 | 채택 — core 자원 포함 | fixed | e538236a |
 | RS-5 | 1 | opus L | run.sh 이어서 검사 목록에 wrapper 없음(전부터) | 채택 | fixed | e538236a |
 | RS-6 | p | codex 재점검 M | lib.sh:379·400 set -u 옛 bash 빈 배열 | 채택 | fixed | 633c8b7d |
+- review packet(R8 설계 선검증 457ae7dd — ADR-012 §4.1·§5 R8·§7-9 · 명세 §2 R8): rv39 — 미러(ADR-012 · 명세 · drift 코드 · 마이그레이션 · run.sh · compose.reconciler). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RD-1 | 1 | opus H1 + codex M(인덱스) | ADR §4.1 홀드 user_id 범위 (a,b]는 다른 회차·다른 사용자 홀드까지 읽음 — 인덱스 부재를 잼 | 채택 — `user_id = ANY(청크 사용자 k명)`로 읽는 대상을 one-shot과 같게 | fixed | (이 커밋) |
+| RD-2 | 1 | codex H + opus M5 | split 결과 행 상한 없음 → F 1g 넘칠 수 있음 | 채택 — RD-1로 U 밖 사용자 없음 + 흘려 읽기(목록 안 쌓음) · 메모리 = k명 카운터 | fixed | (이 커밋) |
+| RD-3 | 1 | opus M1 | 공유 tx 격리 수준 바꾸면 복구도 RR | 채택 — 탐지 전용 템플릿 · 복구 격리 그대로 테스트 | fixed | (이 커밋) |
+| RD-4 | 1 | codex M + opus L3 | 세 조회 중간 실패 처리 없음 | 채택 — 청크 통째로 버림 · 지금 경로 | fixed | (이 커밋) |
+| RD-5 | 1 | codex M + opus M3 | 바퀴 중 DB CPU로 ① 몫 못 가름 · 읽은 행 수 기록 곳 없음 | 채택 — 주 지표 ① chunk_ms_total · 보조 DB CPU · ② 시간 겹침을 유효 조건으로 · 읽은 행은 스모크 EXPLAIN | fixed | (이 커밋) |
+| RD-6 | 1 | opus M2 | RR 트랜잭션 왕복 비용 | 채택 — chunk_ms 정의에 포함 명시 | fixed | (이 커밋) |
+| RD-7 | 1 | opus M4 + codex L | 손잡이가 안 먹으면 조용히 one-shot | 채택 — 기대 설정 검사에 detectShape · F 아닌 조건 거부 · 지정할 때만 키 | fixed | (이 커밋) |
+| RD-8 | 1 | opus L1·L2·L4 + codex L | 경계(빈 청크·커서·없는 사용자 0·expires_at)·int 넘침·문서 불일치 | 채택 — §4.1 경계 규칙 · toIntExact · 명세 ① 범위로 통일 | fixed | (이 커밋) |
