@@ -34,6 +34,7 @@
 | 10-19 11:38 | 사용자 ".164 켰어 진행하자" · .164 확인(부팅 1분): 남은 seatlab 컨테이너 3개(Exited — app 143·db·redis)·볼륨 seatlab_pgdata → 우리 프로젝트 것만 docker rm·volume rm(남은 0) · 실패한 스모크 폴더는 smoke-04b-default-unreachable로 이름 바꿈 · 스모크 다시(633c8b7d · 11:38:15 deploy 바로 시작) | 대기 |
 | 10-19 11:45 | 04c 설계 메모(ADR-012 §4.1 · §7-9): 1단계 바퀴 기록으로 갈래별 시간 확인(c rep1 마지막 바퀴 — ① 12.6초 · ② 5.9초) · 범위 = ① 쿼터 청크만(② 반조인은 쿼터 키 약 770만 쌍이 앱 메모리에 필요 — F 1g에 안 맞음) · 메인 확인: seat_hold 인덱스는 user_id 단일(V2:7) · reservation은 (schedule_id, user_id)(V2:11) → split·group 홀드 범위는 다른 회차 홀드까지 읽음 · 인덱스 추가는 안 함(스키마 변경) · 한 스냅샷 = 청크당 읽기 전용 REPEATABLE READ 1개(빌림 1) | 설계 선검증(듀얼) → blind 테스트 → 구현 |
 | 10-19 12:00 | R8 설계 선검증 rv39 회수(Opus 높음 1·중간 5·낮음 4 · codex 높음 1·중간 3·낮음 1) → 전부 채택: ADR-012 §4.1 다시 씀(ⓑⓒ `user_id = ANY(U)` · 탐지 전용 RR 템플릿 · 경계·실패 규칙 · chunk_ms 정의 · 하네스 거부·기대 설정 · 스모크 EXPLAIN) · §5 R8 기각 조건·판정(주 지표 ① chunk_ms_total) · §7-9 · 명세 §2·§5 | 설계 문서 리뷰 = 선검증 + 듀얼 1패스 — post-fix 재점검 1회 |
+| 10-19 11:47 | R8 설계 재점검(codex) 신규 2(중간 fetch size · 낮음 명세 문구) → 반영 · 설계 문서 리뷰 종료(선검증 + 재점검) · blind 테스트 워커(Opus) 진행 중 | 구현 워커는 blind 테스트 회수 뒤 |
 
 ## 리뷰 ledger
 
@@ -87,3 +88,5 @@
 | RD-6 | 1 | opus M2 | RR 트랜잭션 왕복 비용 | 채택 — chunk_ms 정의에 포함 명시 | fixed | (이 커밋) |
 | RD-7 | 1 | opus M4 + codex L | 손잡이가 안 먹으면 조용히 one-shot | 채택 — 기대 설정 검사에 detectShape · F 아닌 조건 거부 · 지정할 때만 키 | fixed | (이 커밋) |
 | RD-8 | 1 | opus L1·L2·L4 + codex L | 경계(빈 청크·커서·없는 사용자 0·expires_at)·int 넘침·문서 불일치 | 채택 — §4.1 경계 규칙 · toIntExact · 명세 ① 범위로 통일 | fixed | (이 커밋) |
+| RD-9 | p | codex 재점검 | ADR §4.1 split fetch size 없음 → pgJDBC 전체 수신 | 채택 — fetch size = 청크 크기(트랜잭션 안 커서) | fixed | (이 커밋) |
+| RD-10 | p | codex 재점검 L | 명세 §0 R8 행이 옛 설계(범위·core) | 채택 — 갱신 | fixed | (이 커밋) |
