@@ -300,7 +300,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 
 **만료 A와의 관계**: A는 만료 트랜잭션 안에서 `PairRepair`(감소 예정 수 포함 — `ExpiryCounters.kt:72-74`)를 쓴다. 안전망·증분은 쌍마다 자기 트랜잭션에서 같은 `PairRepair`를 쓴다. 같은 쿼터 행 `FOR UPDATE`가 직렬화한다 — 늦은 쪽은 앞쪽 커밋 뒤 값으로 다시 센다(§3-2). 안전망의 쿼터 행 잠금은 한 번에 하나라 만료 틱의 정렬 잠금과 교착하지 않는다(지금 C와 같음).
 
-**저장(새 테이블)**: `db/migration-incremental/V10__counter_safety_run.sql`(선택 위치 — 증분 또는 안전망 셀만 더한다. 기동 검사가 확인). **명세 §2는 'V9 = 쿼터 열만'으로 정했다 — 이 테이블은 명세 밖이라 사용자 합의가 필요하다**(대안: 테이블 없이 `counter_reconcile_run` 기존 열 + 지표 + 로그만 — R7의 '실행 DB 시간 · 복구 시간'과 최근 창 적체를 회차 끝 DB에서 못 읽는다).
+**저장(새 테이블)**: `db/migration-incremental/V10__counter_safety_run.sql`(선택 위치 — 증분 또는 안전망 셀만 더한다. 기동 검사가 확인). 명세 §2는 'V9 = 쿼터 열만'이었다 — **사용자 합의 2026-10-20: '만든다 — 선택 위치 V10'**(명세 §0·§2 재합의 행 · 고르지 않은 대안: 테이블 없이 `counter_reconcile_run` 기존 열 + 지표 + 로그만 — R7의 '실행 DB 시간 · 복구 시간'과 최근 창 적체를 회차 끝 DB에서 못 읽는다).
 
 | 열 | 뜻 |
 |---|---|

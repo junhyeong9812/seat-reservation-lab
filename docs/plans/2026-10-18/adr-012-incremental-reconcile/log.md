@@ -49,6 +49,8 @@
 | 10-20 00:51 | split 스모크 통과(rc 0 · 상태 ok · reconciler-config detectShape SPLIT · plan reconcile_shape split · 바퀴 9(reconcile-proc) · 오류·건너뛴 청크 0 · 정합성 위반 0 · 앱 ERROR 0 · 끝에서 두 번째 바퀴 쌍 146만·① 2,268ms·청크 최대 30ms·② 1,719ms) → group 스모크 시작 | 대기 |
 | 10-20 01:02 | group 스모크 통과(rc 0 · ok · detectShape GROUP · 바퀴 9 · 오류·건너뛴 청크 0 · 정합성 위반 0 · 앱·reconciler ERROR 0 · 끝에서 두 번째 바퀴 쌍 147만·① 2,704ms·청크 최대 4ms·② 1,644ms) · .164 seatlab 컨테이너 0 · PC 점검(ccle-postgres-1 healthy · load 4.4/24) · ADR-012 §7-10 한계(예약 없음 — 홀드 쪽만 비교 · EXPLAIN 값) | adr012r8 캠페인 시작 |
 | 10-20 01:02 | task 04c 캠페인 시작: `campaign.sh --set adr012r8 --sha 8c7207b2 --k6-bin ~/.local/opt/k6-v2.2.0/k6`(setsid 분리 · results/adr012r8-launch.log) → results/20261020-adr012r8-8c7207b2 · 9회 · 계획 326.7분(1단계 실측 회당 약 40.5분 → 끝 약 07:10) | 측정 중 |
+| 10-20 01:20 | task 05 설계 초안 워커(Opus) 회수 b521b7ea(ADR-012 §4.2 · 11 하위 절) · 사용자 결정 3: 새 테이블 counter_safety_run·counter_app_inject = **선택 위치 V10으로 만든다**(명세 'V9 = 열만' 범위 확장 — 재합의) · M3 안전망 = **외부 앱** · 외부 앱 한도 = **F와 같게 CPU 1·1g** · 설계가 찾은 고정 문구 문제 4(§2.1 30초 재읽기 · §2.1 복구 미룸 · 명세 §5 고르는 규칙 낡음 · 명세 §0 S3e 안전망 주기) — §4.2에 판단 기록 | 설계 선검증(듀얼) |
+| 10-20 07:01 | R8 캠페인 끝(01:02~07:01 · 9/9 exit 0 · 비정상 회차 0 · 회당 약 40분) | 집계(summarize 3 병렬 → tail.py --set adr012r8) |
 
 ## 리뷰 ledger
 
