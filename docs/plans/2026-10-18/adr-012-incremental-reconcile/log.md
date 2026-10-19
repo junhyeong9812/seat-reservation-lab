@@ -29,6 +29,8 @@
 | 10-19 00:10 | 사용자 "4b 시작하자" → task 04b 워커(Opus) 위임 — refactoring.md 고정 순서(이동 전 테스트 508 baseline · jar 클래스·리소스 목록 baseline 선행) · 소단위 커밋(main-app 이동 → reconcile-core 추출 → reconciler-app 골격 → 하네스 경로 검사) · 메인 확인 사실: Dockerfile이 루트 `src`·`build.gradle.kts`를 복사 · 하네스 run.sh 8개 경로 검사(`-- src build.gradle.kts Dockerfile .dockerignore`) · lib.sh 2개(ADR-008·009) `ls-tree -- src/main/resources` — SHA마다 구조가 다를 수 있어 구조 인식으로 · .164 스모크는 메인 몫(.164 켜질 때) | 워커 진행 중 |
 | 10-19 01:20 | 04b 워커(Opus) 회수: 1f434209(main-app 이동 — git mv · 루트 build 플러그인만 · Dockerfile `:main-app:bootJar` · jar 이름·kotlin moduleName 고정) · b82970dc(reconcile-core 골격 — 이동 0) · 90c9cd00(reconciler-app 골격) · 6c081c2d(run.sh 8 경로 목록 + main-app·reconcile-core·reconciler-app·settings · lib.sh 2 구조 인식) · 검증(워커): 이동 전 baseline 508/0/0/0 → 단계마다 508 · 테스트 이름 diff 0 · 이미지 jar 클래스 128 이름·sha256 diff 0 · 자원 12 diff 0 · lib 목록 reconcile-core jar 1개 추가만 · ADR-009 9세트 dry-run diff 0 · 옛 SHA archive 빌드 = baseline · 메인 확인: XML 97 suites 508/0/0/0 · Dockerfile · settings · **계획과 다름: drift 5클래스를 core로 못 옮김**(SeatHoldProperties · internal sqlStateOf · SalesCloseGate · JPA SeatHold · 역의존) — 워커가 멈추고 보고 | 사용자 결정 필요(core 추출 시점·방식) |
 | 10-19 01:35 | 사용자 'core 추출은 05 설계 때 함께' → 명세 §0 행·task 04b·04c·05 · ADR-012 §2.2 행 · README 저장소 구조 절 · k6/ADR-008 README 경로 주 | 04b 듀얼 리뷰 + .164 스모크 |
+| 10-19 09:18 | 04b 스모크(run.sh default · adde49d4 · id smoke-04b-default) **실패 — .164 도달 불가**: 01:40쯤 띄웠으나 러너 로그 첫 줄이 09:13:09(deploy) — 그 사이 지연 원인 미확인 · 09:13 이후 ssh 22 시간 초과 · 상태 pre-k6-overrun · compose down 3회 실패(확인 불가) · 09:18 ping 100% 손실 · codex 04b 리뷰: 낮음 1(plain jar 이름 main-app-…-plain.jar — 저장소 안 소비자 없음 확인) | .164 다시 켜지면: 남은 seatlab 컨테이너·볼륨 확인 후 스모크 재실행 |
+| 10-19 09:40 | 04b 리뷰 rv38 회수(Opus ∥ codex — 신규 높음·중간 0 · 낮음 5) → e538236a(테스트 모듈 이름·plain jar 이름 고정 · 설정 검사에 reconcile-core 자원 · 이어서 검사에 gradle·gradlew — wrapper는 첫 커밋 뒤 안 바뀜) · 테스트 508/0/0/0 · 로컬 bootJar classes 140·lib 95 sha256이 이동 전 이미지 jar와 같음(+ reconcile-core jar) · 설정 검사: 옛 SHA 3파일·새 SHA 3파일 · 참조 없는 임시 커밋(core에 application-core.yml)에서 core 파일 잡음·사유 limit-set-by-profile · codex 재점검 신규 1(set -u 옛 bash 빈 배열 — 중간) → 633c8b7d `${core[@]+…}` · set -u 옛·새 SHA 확인 · 기록할 예외: jar 색인 파일 3개(MANIFEST 줄 순서 · classpath.idx · layers.idx)는 다름 — 실행 java -jar 영향 없음 | 리뷰 종료 · .164 스모크 대기(도달 불가) |
 
 ## 리뷰 ledger
 
@@ -60,3 +62,13 @@
 | RH-7 | p | codex post-fix | tail.py:383 NanoCpus 0을 1코어로 처리 | 기각 — num(0)은 참이라 0 갈래('한도 없음')로 감(tail.py:94·387-389) · 기록 없이 RECONCILER_CPUS 바꾸는 경우는 run.sh app_config가 늘 기록하고 캠페인이 바꾸지 않음 | rejected | |
 | RH-8 | p | codex post-fix | tail.py:580 알 수 없는 cond 값이면 결측 검사 건너뜀 | 채택 — A12_CONDS(run.sh CONDS) 밖이면 a12_missing · 합성 'A+F '로 사유 확인 · 기존 세트 TAIL.md는 a12 사유를 쓰지 않음(렌더 경로 adr012s1만) | fixed | e0d85bfa |
 | RH-9 | 3 | codex 재점검(e0d85bfa) | — | 신규 없음 | closed | |
+- review packet(04b 1f434209..6c081c2d): rv38 — 미러(빌드 파일·Dockerfile·.dockerignore·k6 scripts·OLD-*·refactor.diff — 이름만 바뀐 소스 제외). Opus(옛·새 worktree 실효 Gradle 설정·bootJar 비교) ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RS-1 | 1 | codex L | main-app/build.gradle.kts:64 plain jar 이름 main-app-… | 채택 — base.archivesName | fixed | e538236a |
+| RS-2 | 1 | opus L | main-app/build.gradle.kts:68-70 compileTestKotlin 모듈 이름 | 채택 | fixed | e538236a |
+| RS-3 | 1 | opus L | jar 색인 3개 다름 — '이미지 jar 동일' 주장 정밀화 | 채택 — 기록(클래스·자원 동일, 색인 3개 다름) | fixed | (기록) |
+| RS-4 | 1 | opus L | lib.sh:364-366·382-384 설정 검사가 main-app만 | 채택 — core 자원 포함 | fixed | e538236a |
+| RS-5 | 1 | opus L | run.sh 이어서 검사 목록에 wrapper 없음(전부터) | 채택 | fixed | e538236a |
+| RS-6 | p | codex 재점검 M | lib.sh:379·400 set -u 옛 bash 빈 배열 | 채택 | fixed | 633c8b7d |
