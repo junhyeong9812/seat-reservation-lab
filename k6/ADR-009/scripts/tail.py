@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """ADR-011 꼬리 지연 판정 지표(ADR-011 §4 가설 T1~T5) — 회차별·조건별 값만 낸다(성립·기각 판정은 메인 몫).
 
-    scripts/tail.py --set k6ver|pretouch|soak|soakrc|adr012s1 results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+    scripts/tail.py --set k6ver|pretouch|soak|soakrc|adr012s1|adr012r8 results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
                                                                        (adr012s1 = ADR-012 1단계 — 아래 'ADR-012' 지표 표 4·5를 더한다)
+                                                                       (adr012r8 = ADR-012 R8 — 같은 표 + 대조 바퀴 표에 ①·② 갈래 시간 열 · 회차 표에 탐지 모양)
                                                                        (먼저 조건마다 summarize.py — 안정성 4항목·메모리는 summary.json을 쓴다)
     scripts/tail.py --rep <회차폴더>                                    → 회차 하나의 지표 JSON(표준 출력 — 스모크용, summary.json 없이 되는 것만)
     scripts/tail.py --probe-check <회차폴더>                            → probe-check.json · exit 0 = 두 측정기 정상(run.sh rep_status probe-missing)
@@ -50,6 +51,9 @@
        모두 창 안([시작, 끝] ⊂ [창 시작, 창 끝)) — 수·중앙값·최대. 창 경계에 걸친 바퀴(창과 겹치지만 안에 다 들지 않음)는 crossing으로 수만 따로.
        바퀴 중 대 밖: 정상 구간 표본(Hikari·docker stats) 중 그 출처의 어느 바퀴(경계에 걸친 것 포함)와 겹치면 바퀴 중 — Hikari(업무 앱 풀) pending > 0 표본 비율 ·
        컨테이너 CPU% 평균·최대(F는 포화 비율도) · 표본 수(in_n·out_n).
+    R8(--set adr012r8 — ADR-012 §4.1·§5 'R8 판정' 주 지표): 같은 창 안 바퀴(시작·끝 모두 창 안 — 위 ⑦과 같은 바퀴)마다 ① 쿼터 청크 시간 chunk_ms_total ·
+       ② 행 없음 갈래 시간 orphan_ms_total(drift-db reconcile_runs 열 — 앱이 잰 벽시계 ms) → 창별 중앙값·최대(값 없는 바퀴는 빼고 n에 안 셈). 회차 표 '탐지 모양' =
+       회차 reconciler-config.json의 counterDrift.reconcile.detectShape(없으면 '누락' — run.sh reconciler-config-mismatch가 셀과 같은지 본다).
     결측 사유(a12_missing — 빈 칸으로 두지 않는다): 기대 출처 = 회차 meta.json cond → summarize.RECONCILE_SOURCE(A = 없음 · default = reconcile-app · A+F = reconcile-proc) ·
     기대 컨테이너 = 앱·DB(늘) + F(cond A+F). 기대 출처 바퀴 0(정상 구간 — 안·걸침 모두) · drift-db 없음 · 기대 컨테이너 표본 0 · 시계 차·docker stats 없음이면 사유 한 줄씩.
     a12_warn: 출처 없는 바퀴 행(표에 'None' 행으로 두지 않고 뺀다) · 기대하지 않은 출처·F 표본.
@@ -443,6 +447,11 @@ def _dist(xs):
     return {"n": len(xs), "median_s": statistics.median(xs) if xs else None, "max_s": max(xs) if xs else None}
 
 
+def _dist_ms(xs):
+    v = [x for x in xs if num(x)]
+    return {"n": len(v), "median_ms": statistics.median(v) if v else None, "max_ms": max(v) if v else None}
+
+
 def recon_rounds(d, off, s_min, stats, containers, limits):
     """drift-db.json reconcile_runs → 출처(source — reconcile-app = 앱 안 C · reconcile-proc = F)별 바퀴 시간(finished − started, DB 시계 차이라 보정 불필요) · 경고 목록.
     시각 = DB 시각 − 시계 차 → PC 시계. 창 = 정상 구간 [s_min, s_min + 1800) · 후반 [s_min + 900, s_min + 1800). 창 안 바퀴 = 시작·끝 모두 창 안 · 경계에 걸친 바퀴 = crossing(수만).
@@ -453,7 +462,7 @@ def recon_rounds(d, off, s_min, stats, containers, limits):
     if db is None or not isinstance(db.get("reconcile_runs"), list):
         return None, []
     w0, w1, l0 = s_min, s_min + STEADY_S, s_min + LATE_FROM_S
-    runs, nosrc, bad = {}, 0, 0
+    runs, nosrc, bad, ms = {}, 0, 0, {}
     for r in db["reconcile_runs"]:
         try:
             a, b = iso_ts(r["started_at"]) - off, iso_ts(r["finished_at"]) - off
@@ -464,6 +473,7 @@ def recon_rounds(d, off, s_min, stats, containers, limits):
             nosrc += 1
             continue
         runs.setdefault(r["source"], []).append((a, b))
+        ms.setdefault(r["source"], {})[(a, b)] = (r.get("chunk_ms_total"), r.get("orphan_ms_total"))   # R8 ①·② 갈래 시간(바퀴 기록 열)
     warns = ([f"drift-db reconcile_runs 출처(source) 없는 바퀴 {nosrc}행 — 뺐다"] if nosrc else []) + \
             ([f"drift-db reconcile_runs 시각(started_at·finished_at) 못 읽은 바퀴 {bad}행 — 뺐다"] if bad else [])
     hik = []
@@ -502,7 +512,9 @@ def recon_rounds(d, off, s_min, stats, containers, limits):
                     "steady_dur_s": [round(b - a, 3) for a, b in st],
                     "hikari": {"in_n": len(hin), "in_pending_share": (sum(1 for p in hin if p > 0) / len(hin)) if hin else None,
                                "out_n": len(hout), "out_pending_share": (sum(1 for p in hout if p > 0) / len(hout)) if hout else None},
-                    "stats_samples": {"in_n": len(cin), "out_n": len(cout)}, "cpu": cpu}
+                    "stats_samples": {"in_n": len(cin), "out_n": len(cout)}, "cpu": cpu,
+                    "branch_ms": {k: {"steady": _dist_ms([ms[src][x][i] for x in st]), "late": _dist_ms([ms[src][x][i] for x in lt])}
+                                  for i, k in enumerate(("chunk", "orphan"))}}
     return out, warns
 
 
@@ -699,7 +711,7 @@ def campaign(set_name, root):
     sys.path.insert(0, str(HERE))
     import compare as C   # noqa: E402 — 안정성 4항목·앱 메모리(jvm_rep) 재사용
     conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
-    expect = {"soak": 2, "soakrc": 1, "adr012s1": 3}.get(set_name, 3)
+    expect = {"soak": 2, "soakrc": 1, "adr012s1": 3, "adr012r8": 3}.get(set_name, 3)
     camp = C.Camp(root, expect_reps=expect)
     js = {"campaign": root.name, "set": set_name, "conds": {}}
     out = [f"# ADR-011 꼬리 지연 지표 — `{root.name}` (--set {set_name})\n",
@@ -755,8 +767,8 @@ def campaign(set_name, root):
                           sum(1 for t in ok if num(_get(t, "period", "p")) and _get(t, "period", "p") <= P_SIG),
                           rng(("decomp", "server_type")), rng(("decomp", "aperiodic_server_slow")), pool("probes", "pc", "overlap"), rng(("probes", "pc", "spikes")),
                           pool("probes", "server", "overlap"), rng(("probes", "server", "spikes")), pool("gogc", "overlap")])
-        if set_name == "adr012s1":
-            _a12_rows(c, reps, ok, a12_cond, a12_rep, a12_rcond, a12_rrep, camp.notes)
+        if set_name in A12_SETS:
+            _a12_rows(c, reps, ok, a12_cond, a12_rep, a12_rcond, a12_rrep, camp.notes, r8=set_name == "adr012r8")
     out.append("## 1. 조건별(ok 회차) — 값 = 중앙값 [최소–최대] · 겹침 = 합한 겹침/느린 초(우연 기대 · 배수)\n")
     table(out, ["조건", "n(ok)", "느린 초", "26초 성분 p(24~31초)", "p ≤ 0.05 회차 수", "서버형 느린 초", "주기 없는 서버형(T4)", "PC 측정기 겹침", "PC 측정기 튐 수", "서버 측정기 겹침",
                 "서버 측정기 튐 수", "Go GC 겹침"], cond_rows)
@@ -766,21 +778,25 @@ def campaign(set_name, root):
     out.append("## 3. 안정성(ADR-010 §9 4항목) · 앱 메모리 · 1분 p99 추세\n")
     table(out, ["조건", "회차", "상태", "① Full GC·앱 멈춤 0", "② 정지 최대 < 10ms", "③ 에러·코드 0·RPS", "④ 메모리 추세 < 10%", "메모리 추세 %", "앱 메모리 최대 MiB",
                 "한도 MiB", "최대 ÷ 한도 %", "분 수", "첫 5분 p99 ms", "마지막 5분 p99 ms", "증가 %", "순위 상관", "1초 p99 최대 ms", "> 50ms 초(summarize)"], stab_rows)
-    if set_name == "adr012s1":
-        out.append("## 4. ADR-012 1단계 — 후반 꼬리 · 정상 구간 CPU(조건별 ok 회차 — 중앙값 [최소–최대])\n")
+    if set_name in A12_SETS:
+        r8 = set_name == "adr012r8"
+        lab = "ADR-012 R8(1단계 보강 — 탐지 모양)" if r8 else "ADR-012 1단계"
+        out.append(f"## 4. {lab} — 후반 꼬리 · 정상 구간 CPU(조건별 ok 회차 — 중앙값 [최소–최대])\n")
         out.append("> 후반 = 정상 구간 첫 초 s_min(t0의 올림) + 900초 이상 1,800초 미만 · 빈 초 = 응답 0인 초 · 얇은 초 = 계획 도착률 절반 미만(빈 + 얇은 > %d초면 회차 상태에 판정 불가 사유) · "
                    "CPU = docker stats 평균 %%(100%% = 1코어, 정상 구간 [t0, 주 k6 끝]) · F = seatlab-reconciler-1 · F 포화 = 표본 CPU %% ≥ 한도 × 100 × %g(한도 출처 = 회차 표 'F 한도 출처'). "
                    "정의는 스크립트 머리말 'ADR-012'.\n" % (GAP_MAX_S, SAT_FRAC))
         table(out, A12_HEAD + ["결측·주의(회차)"], a12_cond)
-        out.append("## 5. ADR-012 1단계 — 대조 바퀴(R1 — 조건·출처별 ok 회차 — 중앙값 [최소–최대])\n")
+        out.append(f"## 5. {lab} — 대조 바퀴({'R8 주 지표 = 후반 ① 시간' if r8 else 'R1'} — 조건·출처별 ok 회차 — 중앙값 [최소–최대])\n")
         out.append("> 출처 reconcile-app = 앱 안 C · reconcile-proc = F. 바퀴 수(안) = 시작·끝 모두 창(정상 구간 [s_min, s_min + 1800) · 후반 [s_min + 900, s_min + 1800)) 안 — "
                    "중앙·최대도 이것만 · 걸침 = 창 경계에 걸친 바퀴 수 · 바퀴 시간 = finished − started(초). "
                    "바퀴 중/밖 = 정상 구간 표본 중 그 출처의 어느 바퀴(걸침 포함) [시작, 끝]과 겹친 것/아닌 것 — 표본 칸은 그 수(CPU = docker stats 표본) · Hikari는 업무 앱 풀. "
-                   "기대 출처(회차 meta.json cond)는 바퀴가 없어도 행을 두고 상태 칸에 사유를 적는다.\n")
-        table(out, A12_RHEAD, a12_rcond or [["(대조 바퀴 없음)"] + [""] * (len(A12_RHEAD) - 1)])
-        out.append("## 6. ADR-012 1단계 — 회차별\n")
-        table(out, ["조건", "회차", "상태"] + A12_HEAD[2:] + ["F 한도 출처"], a12_rep)
-        rh = ["조건", "회차", "상태", "출처"] + A12_RHEAD[3:]
+                   "기대 출처(회차 meta.json cond)는 바퀴가 없어도 행을 두고 상태 칸에 사유를 적는다."
+                   + (" ① = chunk_ms_total(쿼터 청크) · ② = orphan_ms_total(행 없음 갈래) — 바퀴 기록 열(ms), 창 안 바퀴의 중앙·최대." if r8 else "") + "\n")
+        rhead = A12_RHEAD + (A12_R8_HEAD if r8 else [])
+        table(out, rhead, a12_rcond or [["(대조 바퀴 없음)"] + [""] * (len(rhead) - 1)])
+        out.append(f"## 6. {lab} — 회차별\n")
+        table(out, ["조건", "회차", "상태"] + A12_HEAD[2:] + ["F 한도 출처"] + (["탐지 모양(reconciler-config)"] if r8 else []), a12_rep)
+        rh = ["조건", "회차", "상태", "출처"] + rhead[3:]
         table(out, rh, a12_rrep or [["(대조 바퀴 없음)"] + [""] * (len(rh) - 1)])
     out.append("## 누락·의심\n")
     out += [f"- {n}" for n in camp.notes] or ["- 자동 점검에서 걸린 항목 없음"]
@@ -825,6 +841,22 @@ def _a12_rvals(r):
 
 
 A12_RD = [0, 0, 0, 2, 2, 0, 0, 2, 2, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 3]
+A12_SETS = ("adr012s1", "adr012r8")
+# R8(--set adr012r8 — 머리말 'R8'): 대조 바퀴 표 끝에 ①·② 갈래 시간 열
+A12_R8_HEAD = ["① 시간 중앙 ms(정상)", "① 시간 최대 ms(정상)", "① 시간 중앙 ms(후반)", "① 시간 최대 ms(후반)",
+               "② 시간 중앙 ms(정상)", "② 시간 최대 ms(정상)", "② 시간 중앙 ms(후반)", "② 시간 최대 ms(후반)"]
+A12_R8_RD = [1] * len(A12_R8_HEAD)
+
+
+def _a12_r8vals(r):
+    g = lambda *k: _get(r, *k)
+    return [g("branch_ms", b, w, m) for b in ("chunk", "orphan") for w in ("steady", "late") for m in ("median_ms", "max_ms")]
+
+
+def _detect_shape(t):
+    p = (load(Path(t["dir"]) / "reconciler-config.json") or {}).get("configprops") or []
+    v = [_get(x, "properties", "counterDrift", "reconcile", "detectShape") for x in p if isinstance(x, dict) and x.get("prefix") == "seat.hold"]
+    return v[0] if v and v[0] else "누락"
 
 
 def _a12_why(t):
@@ -844,7 +876,7 @@ def _rounds_of(t, src):
     return None if r is None else (r.get(src) or NO_RUNS)
 
 
-def _a12_rows(c, reps, ok, cond_rows, rep_rows, rcond_rows, rrep_rows, notes):
+def _a12_rows(c, reps, ok, cond_rows, rep_rows, rcond_rows, rrep_rows, notes, r8=False):
     """ADR-012 1단계 표 행(조건별·회차별) — 조건 묶음 = ok 회차만(위 표와 같은 규칙). 사유(_a12_why)는 회차 행 상태 칸 · 조건 행 '결측·주의' 칸 · 누락·의심 목록에 —
     빈 칸으로 두지 않는다. 기대 출처(a12_expect)는 바퀴가 0이어도 행을 만든다(바퀴 수 0 + 상태 칸 사유). F를 기대하지 않는 회차(cond ≠ A+F)의 F 열은 '—'."""
     exp_f = lambda t: _get(t, "a12_expect", "f_container") is not False
@@ -860,16 +892,18 @@ def _a12_rows(c, reps, ok, cond_rows, rep_rows, rcond_rows, rrep_rows, notes):
         st = " · ".join([t["status"] or "누락"] + why[name])
         lim = _get(t, "cpu_steady", "containers", "f", "limit_source")
         rep_rows.append([c, name, st] + dash([fx(v, A12_D[i]) for i, v in enumerate(_a12_vals(t))], A12_F, not exp_f(t))
-                        + [lim or ("—" if not exp_f(t) else "누락(F 표본 없음)")])
+                        + [lim or ("—" if not exp_f(t) else "누락(F 표본 없음)")] + ([_detect_shape(t) if exp_f(t) else "—"] if r8 else []))
         notes += [f"{c} {name} ADR-012: {w}" for w in why[name]] + [f"{c} {name} ADR-012 주의: {w}" for w in t.get("a12_warn") or []]
     srcs = sorted({s for t in reps for s in ((t.get("rounds") or {}).keys())} | {_get(t, "a12_expect", "source") for t in reps if _get(t, "a12_expect", "source")})
     for src in srcs:
         rv = [_a12_rvals(_rounds_of(t, src)) for t in ok]
-        rcond_rows.append([c, src, len(ok)] + dash([_rngd([v[i] for v in rv], A12_RD[i]) for i in range(len(A12_RD))], A12_RF, no_f))
+        rcond_rows.append([c, src, len(ok)] + dash([_rngd([v[i] for v in rv], A12_RD[i]) for i in range(len(A12_RD))], A12_RF, no_f)
+                          + ([_rngd([_a12_r8vals(_rounds_of(t, src))[i] for t in ok], A12_R8_RD[i]) for i in range(len(A12_R8_RD))] if r8 else []))
         for t in reps:
             name = Path(t["dir"]).name
             rrep_rows.append([c, name, " · ".join([t["status"] or "누락"] + why[name]), src]
-                             + dash([fx(v, A12_RD[i]) for i, v in enumerate(_a12_rvals(_rounds_of(t, src)))], A12_RF, not exp_f(t)))
+                             + dash([fx(v, A12_RD[i]) for i, v in enumerate(_a12_rvals(_rounds_of(t, src)))], A12_RF, not exp_f(t))
+                             + ([fx(v, A12_R8_RD[i]) for i, v in enumerate(_a12_r8vals(_rounds_of(t, src)))] if r8 else []))
 
 
 def _rngd(vals, d):
@@ -940,7 +974,7 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--rep":
         print(json.dumps(rep_tail(argv[1]), ensure_ascii=False, indent=1, default=str))
         return 0
-    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc", "adr012s1"):
+    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc", "adr012s1", "adr012r8"):
         return campaign(argv[1], argv[2])
     print(__doc__, file=sys.stderr)
     return 2
