@@ -103,7 +103,7 @@ while (( $# )); do
     --s4c-steps) S4C_STEPS="$2"; COND_CLI+=" s4c_steps"; shift 2 ;;
     --seed-schedules) SEED_SCHEDULES="$2"; COND_CLI+=" seed_schedules"; shift 2 ;;
     --pg-tmpfs-size) PG_TMPFS_GB="$2"; COND_CLI+=" pg_tmpfs_gb"; shift 2 ;;
-    --reconcile-shape) RECONCILE_SHAPE="$2"; COND_CLI+=" reconcile_shape"; shift 2 ;;
+    --reconcile-shape) [[ -n "${2:-}" ]] || { echo "--reconcile-shape one-shot|split|group(빈 값 불가)" >&2; exit 2; }; RECONCILE_SHAPE="$2"; COND_CLI+=" reconcile_shape"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
