@@ -379,7 +379,7 @@ limit_config_check() {
     elif (( n > 0 )); then
       reasons+=("limit-set-by-profile")
     fi
-  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res" "${core[@]}") || return 1
+  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res" ${core[@]+"${core[@]}"}) || return 1
   [[ "$files" != "[]" ]] || return 1   # 설정 파일을 하나도 못 찾으면 확인 실패(조용히 통과하지 않게)
   [[ "$app_ok" == true ]] || reasons+=("limit-default-not-precheck")
   for cf in "$@"; do
