@@ -33,6 +33,10 @@
 #     [--app-pretouch]        앱 JVM에 -XX:+AlwaysPreTouch(compose APP_JVM_OPTS3) — 기동 때 잡힌 힙만 건드린다(초기 힙 기본 = 한도의 1/64 → 4g면 64MB, 실측)
 #     [--app-xms-full]        앱 JVM에 -XX:InitialRAMPercentage=75(compose APP_JVM_OPTS4) — 초기 힙 = 최대 힙. pretouch와 함께 줘야 힙 전체를 미리 건드린다
 #     [--s4c-steps 12] [--seed-schedules 200]   S4c 계획 구간 수(30초 구간) · S4c 시드 회차 수(회차당 1만 석) — E3 장시간 = 60 · 800
+#     ADR-012 R8 손잡이(지정하지 않으면 이전과 같은 렌더·계획·실행):
+#     [--reconcile-shape one-shot|split|group]   --cond A+F에서만 — F 컨테이너 SPRING_APPLICATION_JSON에 counter-drift.reconcile.detect-shape
+#                             (compose.reconciler.yml RECONCILE_DETECT_SHAPE) · plan.json condition.reconcile_shape · meta reconcile_shape ·
+#                             reconciler-config.json의 detectShape가 이 값(지정 안 하면 ONE_SHOT)이 아니면 reconciler-config-mismatch
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #     [--pg-tmpfs-size <GiB>]  ADR-011 E3(대조 켜고 끄기): tmpfs 크기 = <GiB>g · DB 메모리 = <GiB>+2g(지정 안 하면 0 = 6g·8g 그대로 — tmpfs preset만)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
@@ -68,6 +72,7 @@ APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(
 # ADR-011 손잡이(머리말): 주 k6 바이너리 · Go GC 기록 · 측정기 · AlwaysPreTouch · S4c 구간 수 · S4c 시드 회차 수
 K6_BIN=k6 GCTRACE=0 PROBES=0 APP_PRETOUCH=0 APP_XMS_FULL=0 S4C_STEPS=12 SEED_SCHEDULES=200
 PG_TMPFS_GB=0   # ADR-011 E3: tmpfs 크기(GiB) — 0 = preset 값(6g · DB 8g)
+RECONCILE_SHAPE=""   # ADR-012 R8: F의 탐지 모양(머리말) — 빈 값 = 지정 안 함(키 없음 · 앱 기본 one-shot)
 # 측정기 k6 기본 = 안정 경로의 v2.2.0(공식 tar.gz sha256 b5a8003c… 확인 뒤 푼 바이너리 — 바이너리 sha256 9fced9ff…, ADR-011 log). 주 k6와 다른 바이너리
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6"
 WORKTREE=0   # 스모크 전용(머리말)
@@ -98,6 +103,7 @@ while (( $# )); do
     --s4c-steps) S4C_STEPS="$2"; COND_CLI+=" s4c_steps"; shift 2 ;;
     --seed-schedules) SEED_SCHEDULES="$2"; COND_CLI+=" seed_schedules"; shift 2 ;;
     --pg-tmpfs-size) PG_TMPFS_GB="$2"; COND_CLI+=" pg_tmpfs_gb"; shift 2 ;;
+    --reconcile-shape) RECONCILE_SHAPE="$2"; COND_CLI+=" reconcile_shape"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -112,6 +118,7 @@ CONDS="control control-noclose A A+C A+F B B+C default"
 (( RESUME )) && [[ -z "$COND" ]] && COND=control   # 이어서 실행은 계획에서 복원(아래)
 [[ " $CONDS " == *" $COND "* ]] || { echo "--cond one of: $CONDS" >&2; exit 2; }
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
+[[ -z "$RECONCILE_SHAPE" || "$RECONCILE_SHAPE" =~ ^(one-shot|split|group)$ ]] || { echo "--reconcile-shape one-shot|split|group" >&2; exit 2; }
 [[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
 [[ "$APP_GC" =~ ^(auto|g1|zgc)$ ]] || { echo "--app-gc auto|g1|zgc" >&2; exit 2; }
 # ADR-011: S4c 구간 수 상한 = 계산 — 첫 홀드(k6 첫 요청)가 만료되기 전(S4c 앱 설정 HOLD_TTL 60m = 3,600초 — config_env s4)에 회차 끝 판정(consistency)까지 끝나야 한다
@@ -187,6 +194,8 @@ set_cond() {
   RECONCILE_INTERVAL=60s   # 명세 §11 R3 — 비용·효과 셀 모두 60초
 }
 set_cond
+# ADR-012 R8: 탐지 모양은 F 컨테이너 손잡이 — A+F 밖에서 받으면 조용히 버리지 않고 거부(이어서 실행은 계획 복원 뒤 아래에서 다시 본다)
+(( RESUME )) || [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F ]] || { echo "--reconcile-shape는 --cond A+F에서만(F 컨테이너의 탐지 모양) — cond=$COND" >&2; exit 2; }
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-009(results 제외)가 SHA와 다르면 거부한다.
 # 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
@@ -224,6 +233,8 @@ if (( RESUME )); then
   P_APP_XMS_FULL="$(jq -r 'if .condition.app_xms_full then 1 else 0 end' "$OUT_ROOT/plan.json")"
   P_S4C_STEPS="$(jq -r '.condition.s4c_steps // 12' "$OUT_ROOT/plan.json")"; P_SEED_SCHEDULES="$(jq -r '.condition.seed_schedules // 200' "$OUT_ROOT/plan.json")"
   P_PG_TMPFS_GB="$(jq -r '.condition.pg_tmpfs_gb // 0' "$OUT_ROOT/plan.json")"
+  # ADR-012 R8 손잡이가 없는 옛 계획 = 지정 안 함(빈 값)
+  P_RECONCILE_SHAPE="$(jq -r '.condition.reconcile_shape // ""' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -243,13 +254,14 @@ if (( RESUME )); then
       s4c_steps) [[ "$S4C_STEPS" == "$P_S4C_STEPS" ]] || { echo "resume: --s4c-steps $S4C_STEPS ≠ 계획 $P_S4C_STEPS" >&2; exit 2; } ;;
       seed_schedules) [[ "$SEED_SCHEDULES" == "$P_SEED_SCHEDULES" ]] || { echo "resume: --seed-schedules $SEED_SCHEDULES ≠ 계획 $P_SEED_SCHEDULES" >&2; exit 2; } ;;
       pg_tmpfs_gb) [[ "$PG_TMPFS_GB" == "$P_PG_TMPFS_GB" ]] || { echo "resume: --pg-tmpfs-size $PG_TMPFS_GB ≠ 계획 $P_PG_TMPFS_GB" >&2; exit 2; } ;;
+      reconcile_shape) [[ "$RECONCILE_SHAPE" == "$P_RECONCILE_SHAPE" ]] || { echo "resume: --reconcile-shape $RECONCILE_SHAPE ≠ 계획 ${P_RECONCILE_SHAPE:-(지정 안 함)}" >&2; exit 2; } ;;
     esac
   done
   # 측정기 이미지는 환경변수 손잡이 — 명시했는데 계획과 다르면 거부(지정하지 않으면 위 기본값이 들어 있으므로 계획에 값이 있을 때만 대조)
   if [[ -n "${PROBE_IMAGE_ENV:-}" && "$PROBE_IMAGE_ENV" != "$P_PROBE_IMAGE" ]]; then echo "resume: PROBE_IMAGE=$PROBE_IMAGE_ENV ≠ 계획 $P_PROBE_IMAGE" >&2; exit 2; fi
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
   K6_BIN="$P_K6_BIN" GCTRACE="$P_GCTRACE" PROBES="$P_PROBES" PROBE_K6_BIN="$P_PROBE_K6_BIN" PROBE_IMAGE="$P_PROBE_IMAGE" APP_PRETOUCH="$P_APP_PRETOUCH" APP_XMS_FULL="$P_APP_XMS_FULL"
-  S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES" PG_TMPFS_GB="$P_PG_TMPFS_GB"
+  S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES" PG_TMPFS_GB="$P_PG_TMPFS_GB" RECONCILE_SHAPE="$P_RECONCILE_SHAPE"
   k6_versions || exit 2
   for k in k6_version probe_k6_version k6_sha256 probe_k6_sha256; do
     pv="$(jq -r --arg k "$k" '.condition[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -265,6 +277,7 @@ if (( RESUME )); then
   done
   set_cond
   [[ "$LIMIT_STRATEGY" == "$(jq -r .condition.limit_strategy "$OUT_ROOT/plan.json")" ]] || { echo "resume: 계획의 limit_strategy가 조건 $COND의 기대값과 다르다" >&2; exit 2; }
+  [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F ]] || { echo "resume: 계획의 reconcile_shape $RECONCILE_SHAPE는 A+F에서만 — cond=$COND" >&2; exit 2; }
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
   echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
 else
@@ -309,7 +322,7 @@ cond_env() {
   fi
   echo "LIMIT_TRIGGER=$([[ "$LIMIT_STRATEGY" == counter-trigger ]] && echo 1) SALES_CLOSE_OFF=$([[ "$COND" == control-noclose ]] && echo 1)" \
        "DRIFT_A=$a DRIFT_EXTERNAL=$( ((HAS_F)) && echo 1) DRIFT_C_ENABLED=$c DRIFT_C=$ci" \
-       "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL"
+       "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL${RECONCILE_SHAPE:+ RECONCILE_DETECT_SHAPE=$RECONCILE_SHAPE}"
 }
 # ADR-007 후속 tmpfs preset: DB 볼륨을 tmpfs로(오버레이). compose_down은 오버레이 없이도 같은 볼륨(pgdata)을 지운다(down -v)
 [[ "$PG_PRESET" == tmpfs ]] && export COMPOSE_EXTRA="${COMPOSE_EXTRA:-} -f k6/ADR-009/compose.tmpfs.yml"
@@ -1244,7 +1257,9 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     [[ -n "$cfg_got" && "$cfg_got" == "$cfg_want" ]] || { reasons+=("cond-config-mismatch"); echo "$(date -Is) cond-config want=$cfg_want got=${cfg_got:-없음}" >> "$dir/errors.log"; }
   fi
   # F: 대조 컨테이너 설정(대조 켬 · 주기 60s · A 끔 · 정리 끔 — ADR-009 기본값 전환 뒤에는 application-reconciler.yml이 A·정리를 끈다) — 못 읽었으면 같은 사유
-  if (( HAS_F )) && ! jq -e '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false and .counterDrift.cleanup.mode == "NONE"' "$dir/reconciler-config.json" > /dev/null 2>&1; then
+  # ADR-012 R8: 탐지 모양 = --reconcile-shape(지정 안 하면 앱 기본 ONE_SHOT — configprops는 enum 이름) — 조용히 one-shot으로 돌지 않게
+  local want_shape; want_shape="$(tr 'a-z-' 'A-Z_' <<< "${RECONCILE_SHAPE:-one-shot}")"
+  if (( HAS_F )) && ! jq -e --arg ds "$want_shape" '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false and .counterDrift.cleanup.mode == "NONE" and .counterDrift.reconcile.detectShape == $ds' "$dir/reconciler-config.json" > /dev/null 2>&1; then
     reasons+=("reconciler-config-mismatch")
   fi
   # 트리거(V8) ⇔ B: pg_trigger 두 이름(seat_hold_quota·reservation_quota)이 B·B+C면 둘 다, 그 밖은 없어야 한다
@@ -1369,7 +1384,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg status "$status" --argjson k6_exit "$k6_exit" --arg k6 "$("$K6_BIN" version | head -1)" --arg k6bin "$K6_BIN" \
         --argjson adr011 "$(jq -nc --argjson g "$GCTRACE" --argjson p "$PROBES" --argjson t "$APP_PRETOUCH" --argjson x "$APP_XMS_FULL" --argjson st "$S4C_STEPS" --argjson ss "$SEED_SCHEDULES" --argjson tg "$PG_TMPFS_GB" \
                              '{gctrace: ($g == 1), probes: ($p == 1), app_pretouch: ($t == 1), app_xms_full: ($x == 1), s4c_steps: $st, seed_schedules: $ss, pg_tmpfs_gb: $tg}')" \
-        --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" \
+        --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg rshape "$RECONCILE_SHAPE" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
         --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
@@ -1384,7 +1399,8 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           applied:{strategy:$applied_seat, limit_strategy:$applied_lim},
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6, k6_bin:$k6bin, adr011:$adr011,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
-          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}' > "$dir/meta.json"
+          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}
+          + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
 }
 
@@ -1396,14 +1412,15 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
   --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
   --arg k6bin "$K6_BIN" --arg k6ver "$K6_VERSION" --argjson gctrace "$GCTRACE" --argjson probes "$PROBES" --arg pbin "$PROBE_K6_BIN" --arg pver "$PROBE_K6_VERSION" \
   --arg k6sha "$K6_SHA256" --arg psha "$PROBE_K6_SHA256" \
-  --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" --argjson pg_tmpfs_gb "$PG_TMPFS_GB" \
+  --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" --argjson pg_tmpfs_gb "$PG_TMPFS_GB" --arg rshape "$RECONCILE_SHAPE" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
-    condition:{cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
+    condition:({cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
                limit_source:(if $cond == "B" or $cond == "B+C" then "injected" else "default" end), pg_preset:$pg, strategy:$strategy, pool:$pool, apps:$apps, delay_ms:$delay, app_mem:$app_mem, app_gc:$app_gc,
                k6_bin:$k6bin, k6_version:$k6ver, k6_sha256:$k6sha, probe_k6_sha256:(if $probes == 1 then $psha else null end), gctrace:($gctrace == 1), probes:($probes == 1), probe_k6_bin:$pbin,
                probe_k6_version:(if $probes == 1 then $pver else null end), probe_image:$pimage, probe_rate:$prate,
-               app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched, pg_tmpfs_gb:$pg_tmpfs_gb},
+               app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched, pg_tmpfs_gb:$pg_tmpfs_gb}
+               + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)),
     knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
     start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
                  judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",
