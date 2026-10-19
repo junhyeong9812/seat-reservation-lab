@@ -1,0 +1,126 @@
+[2026-10-20 04:22:17] compose down (8c7207b2) (attempt 1)
+[2026-10-20 04:22:18] compose up (8c7207b2) HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=12g DB_MEM=14g LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL=1 DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=schedule RECONCILE_INTERVAL=60s APP_MEM=2g APP_JVM_OPTS=-XX:+UseZGC APP_JVM_OPTS2=-XX:+ZGenerational APP_JVM_OPTS3= APP_JVM_OPTS4= APP_CPUS=4 DB_CPUS=4 (attempt 1)
+ Image seatlab-reconciler Building 
+ Image seatlab-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 997B done
+#1 DONE 0.0s
+
+#2 [reconciler internal] load build definition from Dockerfile
+#2 transferring dockerfile: 931B done
+#2 DONE 0.0s
+
+#3 [app internal] load metadata for docker.io/library/eclipse-temurin:21-jdk
+#3 DONE 1.0s
+
+#4 [reconciler internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#4 DONE 1.0s
+
+#5 [app internal] load .dockerignore
+#5 transferring context: 107B done
+#5 DONE 0.0s
+
+#6 [reconciler build  1/11] FROM docker.io/library/eclipse-temurin:21-jdk@sha256:23cc5734ff46e776f51ce66eb9ee08444fd47caabec0a95b7eb6e94be2d3696d
+#6 resolve docker.io/library/eclipse-temurin:21-jdk@sha256:23cc5734ff46e776f51ce66eb9ee08444fd47caabec0a95b7eb6e94be2d3696d 0.0s done
+#6 DONE 0.0s
+
+#7 [reconciler stage-1 1/3] FROM docker.io/library/eclipse-temurin:21-jre@sha256:227118764cccd3c3294617061aaa93a08309c63a395eefa83e6b35032992ea99
+#7 resolve docker.io/library/eclipse-temurin:21-jre@sha256:227118764cccd3c3294617061aaa93a08309c63a395eefa83e6b35032992ea99 0.0s done
+#7 DONE 0.0s
+
+#8 [app internal] load build context
+#8 transferring context: 12.89kB done
+#8 DONE 0.0s
+
+#9 [app build  4/11] COPY gradle gradle
+#9 CACHED
+
+#10 [app build  5/11] COPY main-app/build.gradle.kts main-app/
+#10 CACHED
+
+#11 [app build  2/11] WORKDIR /src
+#11 CACHED
+
+#12 [app build  7/11] COPY reconciler-app/build.gradle.kts reconciler-app/
+#12 CACHED
+
+#13 [app build  9/11] COPY main-app/src main-app/src
+#13 CACHED
+
+#14 [app build  8/11] RUN ./gradlew --no-daemon -q :main-app:dependencies > /dev/null
+#14 CACHED
+
+#15 [app build 10/11] COPY reconcile-core reconcile-core
+#15 CACHED
+
+#16 [app build  6/11] COPY reconcile-core/build.gradle.kts reconcile-core/
+#16 CACHED
+
+#17 [app stage-1 2/3] WORKDIR /app
+#17 CACHED
+
+#18 [app build 11/11] RUN ./gradlew --no-daemon -q :main-app:bootJar
+#18 CACHED
+
+#19 [app build  3/11] COPY gradlew settings.gradle.kts build.gradle.kts ./
+#19 CACHED
+
+#20 [app stage-1 3/3] COPY --from=build /src/main-app/build/libs/seat-reservation-lab-0.0.1-SNAPSHOT.jar app.jar
+#20 CACHED
+
+#21 [reconciler] exporting to image
+#21 exporting layers done
+#21 exporting manifest sha256:4c2477fc670e580dad996d7caea702af850863daffa8389718635faaaf9efcd0 done
+#21 exporting config sha256:e593e81b5c25dbae325f68bb669ebc7ee4059c942956ac2bb754868f414d5c3b done
+#21 exporting attestation manifest sha256:cd25c465c5fa045ac73a7920765efd6a3961c924597b1f7dfa2292b055e1e501 0.0s done
+#21 exporting manifest list sha256:fe9fe76f614404b99cad158dd03be54b71c1e4b595ea8deec9cd62dc242bdbbb 0.0s done
+#21 naming to docker.io/library/seatlab-reconciler:latest
+#21 naming to docker.io/library/seatlab-reconciler:latest done
+#21 unpacking to docker.io/library/seatlab-reconciler:latest done
+#21 DONE 0.1s
+
+#22 [app] exporting to image
+#22 exporting layers done
+#22 exporting manifest sha256:c62e23010085c0fb7ca90a309689b4aafc5b28cb6a99c21fc504976176674d21 done
+#22 exporting config sha256:282805aa1b9baff912a46535bf4cca8a4a11d1768a7f27c55f71dceb352a91c9 done
+#22 exporting attestation manifest sha256:b12f0bcb4905334abf64587349e4d320eefc91f6e6259b81cc49c4ca1d60c85f 0.0s done
+#22 exporting manifest list sha256:b5fbd301f5d6b89f81e0d7f5dc8a75b7e257cb45f117bda5f1673d6d6c99e4be 0.0s done
+#22 naming to docker.io/library/seatlab-app:latest done
+#22 unpacking to docker.io/library/seatlab-app:latest done
+#22 DONE 0.1s
+
+#23 [app] resolving provenance for metadata file
+#23 DONE 0.0s
+
+#24 [reconciler] resolving provenance for metadata file
+#24 DONE 0.0s
+ Image seatlab-app Built 
+ Image seatlab-reconciler Built 
+ Network seatlab_default Creating 
+ Network seatlab_default Created 
+ Volume seatlab_pgdata Creating 
+ Volume seatlab_pgdata Created 
+ Container seatlab-db-1 Creating 
+ Container seatlab-redis-1 Creating 
+ Container seatlab-redis-1 Created 
+ Container seatlab-db-1 Created 
+ Container seatlab-app-1 Creating 
+ Container seatlab-app-1 Created 
+ Container seatlab-reconciler-1 Creating 
+ Container seatlab-reconciler-1 Created 
+ Container seatlab-redis-1 Starting 
+ Container seatlab-db-1 Starting 
+ Container seatlab-redis-1 Started 
+ Container seatlab-db-1 Started 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-app-1 Starting 
+ Container seatlab-app-1 Started 
+ Container seatlab-db-1 Waiting 
+ Container seatlab-redis-1 Waiting 
+ Container seatlab-redis-1 Healthy 
+ Container seatlab-db-1 Healthy 
+ Container seatlab-reconciler-1 Starting 
+ Container seatlab-reconciler-1 Started 
