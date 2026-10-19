@@ -1,12 +1,16 @@
 package com.jun.labs.seatreservation.service.impl.drift
 
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.SeatHoldProperties.DetectShape
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.PreparedStatementCreator
+import org.springframework.jdbc.core.RowCallbackHandler
 import org.springframework.stereotype.Component
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import java.sql.Timestamp
 import java.time.Clock
@@ -59,6 +63,7 @@ data class ReconcileRun(
  * 어긋나 보인 쌍마다: [CounterRepairProbe] → 트랜잭션 하나(`SET LOCAL lock_timeout`) 안에서 [PairRepair](잠근 뒤 다시 세어 맞으면 오탐).
  * 실패하면 롤백 뒤 **새 트랜잭션**으로 skipped(reason = SQLSTATE)를 쓴다 — 다음 바퀴가 다시 탐지한다(설계 §1a).
  * 커넥션은 앱 풀을 공유한다(명세 §10 D8). 빌릴 때마다 `seat.hold.counter.reconcile.borrows` +1 — 자동 커밋 문장 1개 = 1, 트랜잭션 1개 = 1.
+ * ①의 탐지 모양은 손잡이 `detect-shape`(ADR-012 R8 · §4.1) — split·group은 청크마다 탐지 전용 트랜잭션 하나([detectTx]), 복구는 [tx](READ COMMITTED) 그대로.
  */
 @Component
 class CounterReconciler(
@@ -71,6 +76,15 @@ class CounterReconciler(
     private val meters: MeterRegistry,
     private val clock: Clock,
 ) {
+    /**
+     * split·group 탐지 전용(ADR-012 §4.1 · 선검증 M1): 읽기 전용 REPEATABLE READ — 청크의 세 조회가 한 스냅샷을 본다.
+     * 주입받은 [tx](앱 공용 — 복구 트랜잭션)는 바꾸지 않는다(복구는 READ COMMITTED여야 잠근 뒤 최신 값을 본다).
+     */
+    private val detectTx = TransactionTemplate(requireNotNull(tx.transactionManager) { "TransactionTemplate에 트랜잭션 매니저가 없다" }).apply {
+        isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
+        isReadOnly = true
+    }
+
     private class Observation(val scheduleId: Long, val userId: Long, val cnt: Int?, var actual: Int)
 
     private class Pass {
@@ -132,7 +146,12 @@ class CounterReconciler(
         val skippedPairs = schedules.sumOf { it.third }
 
         val found = LinkedHashMap<Pair<Long, Long>, Observation>()
-        open.forEach { s -> scanQuotaRows(pass, s, cfg.chunkSize, found) }
+        open.forEach { s ->
+            when (cfg.detectShape) {
+                DetectShape.ONE_SHOT -> scanQuotaRows(pass, s, cfg.chunkSize, found)
+                DetectShape.SPLIT, DetectShape.GROUP -> scanQuotaRowsApp(pass, s, cfg.chunkSize, cfg.detectShape, found)
+            }
+        }
         if (open.isNotEmpty()) scanOrphans(pass, now, cfg.orphanChunkSize, found)
 
         // 쌍 복구 — 정렬 순서(만료 A와 같은 잠금 순서)
@@ -196,6 +215,83 @@ class CounterReconciler(
             if (scanned < k) return
             after = (head["last_user"] as Number).toLong()
         }
+    }
+
+    /**
+     * ① split·group(ADR-012 §4.1) — 청크마다 [detectTx] 하나(빌림 1): ⓐ 쿼터 행 k개(keyset) ⓑ 그 k명의 홀드 ⓒ 그 k명의 CONFIRMED 예약을 읽고 앱이 센다.
+     * 청크 경계·카운터는 one-shot과 같다 — ⓐ가 0행이면 ⓑⓒ 없이 청크 1개로 세고 회차 끝, 다음 커서 = ⓐ의 마지막 user_id.
+     * 어느 조회·집계든 실패하면 그 청크는 통째로 버린다(어긋남을 [found]에 넣는 것은 트랜잭션이 끝난 뒤) — 실패 경로는 one-shot과 같다.
+     */
+    private fun scanQuotaRowsApp(pass: Pass, scheduleId: Long, k: Int, shape: DetectShape, found: MutableMap<Pair<Long, Long>, Observation>) {
+        var after = Long.MIN_VALUE
+        while (true) {
+            val t0 = System.nanoTime()
+            val chunk = try {
+                pass.borrow { detectTx.execute { detectChunk(scheduleId, after, k, shape) }!! }
+            } catch (e: Exception) {
+                pass.fail("chunk", skipChunk = true, "쿼터 청크(${shape.name.lowercase()}) — 회차 $scheduleId 의 남은 청크를 건너뛴다(user_id > $after)", e)
+                return
+            } finally {
+                // chunk_ms = 트랜잭션 시작·끝 + 세 조회 + 앱 집계(§4.1 — 선검증 M2)
+                val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+                meters.timer("seat.hold.counter.reconcile.chunk").record(System.nanoTime() - t0, TimeUnit.NANOSECONDS)
+                pass.chunkMsTotal += ms
+                pass.chunkMsMax = maxOf(pass.chunkMsMax, ms)
+            }
+            pass.chunks++
+            pass.pairsScanned += chunk.scanned
+            chunk.mismatches.forEach { found[scheduleId to it.userId] = it }
+            if (chunk.scanned < k) return
+            after = chunk.lastUser
+        }
+    }
+
+    private class DetectedChunk(val scanned: Int, val lastUser: Long, val mismatches: List<Observation>)
+
+    /** 탐지 트랜잭션 안 — ⓐ ⓑ ⓒ + 집계. 메모리는 청크의 사용자 k명 카운터뿐(ⓑⓒ는 U 밖 사용자를 돌려주지 않는다). */
+    private fun detectChunk(scheduleId: Long, after: Long, k: Int, shape: DetectShape): DetectedChunk {
+        val users = LongArray(k)
+        val cnts = IntArray(k)
+        var scanned = 0
+        jdbc.query(QUOTA_KEYSET_SQL, RowCallbackHandler { rs ->
+            users[scanned] = rs.getLong(1)
+            cnts[scanned] = rs.getInt(2)
+            scanned++
+        }, scheduleId, after, k)
+        if (scanned == 0) return DetectedChunk(0, after, emptyList())
+
+        val index = HashMap<Long, Int>(scanned * 2)
+        for (i in 0 until scanned) index[users[i]] = i
+        val actual = LongArray(scanned)
+        val (holdSql, reservationSql) = when (shape) {
+            DetectShape.SPLIT -> SPLIT_HOLD_SQL to SPLIT_RESERVATION_SQL
+            DetectShape.GROUP -> GROUP_HOLD_SQL to GROUP_RESERVATION_SQL
+            DetectShape.ONE_SHOT -> error("one-shot은 이 경로를 쓰지 않는다")
+        }
+        val ids = users.copyOf(scanned).toTypedArray()
+        for (sql in listOf(holdSql, reservationSql)) {
+            jdbc.query(
+                PreparedStatementCreator { con ->
+                    con.prepareStatement(sql).apply {
+                        // split은 행을 커서로 흘려 읽는다(pgJDBC 기본 = 결과 전체를 한 번에 받음 — 트랜잭션 안이라 커서가 성립한다)
+                        if (shape == DetectShape.SPLIT) fetchSize = k
+                        setLong(1, scheduleId)
+                        setArray(2, con.createArrayOf("bigint", ids))
+                    }
+                },
+                RowCallbackHandler { rs ->
+                    val i = index[rs.getLong(1)] ?: error("ⓑⓒ가 청크 밖 사용자 ${rs.getLong(1)}를 돌려줬다")
+                    actual[i] += if (shape == DetectShape.GROUP) rs.getLong(2) else 1L
+                },
+            )
+        }
+        val mismatches = ArrayList<Observation>()
+        for (i in 0 until scanned) {
+            // 실제 값은 int로 — 넘치면 오류(one-shot의 `::int`와 같은 실패 → 청크 버림)
+            val a = Math.toIntExact(actual[i])
+            if (cnts[i] != a) mismatches += Observation(scheduleId, users[i], cnts[i], a)
+        }
+        return DetectedChunk(scanned, users[scanned - 1], mismatches)
     }
 
     /** ② 행 없음 쌍 — 홀드·CONFIRMED 예약의 id 범위 청크. 열린 회차 조건은 바퀴 시작 시각 그대로(두 갈래 모두). */
@@ -329,6 +425,20 @@ class CounterReconciler(
             SELECT (SELECT max(user_id) FROM q) AS last_user, (SELECT count(*) FROM q) AS scanned, d.user_id, d.cnt, d.actual
             FROM (SELECT 1) one LEFT JOIN (SELECT * FROM x WHERE cnt <> actual) d ON true
         """.trimIndent()
+
+        /** R8 ⓐ(split·group 공통) — 회차의 쿼터 행 keyset k개. 파라미터: 회차, after, k */
+        private val QUOTA_KEYSET_SQL = """
+            SELECT user_id, cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id > ? ORDER BY user_id LIMIT ?
+        """.trimIndent()
+
+        /** R8 ⓑⓒ split — 행 그대로(사용자별로 앱이 센다). 홀드는 expires_at으로 거르지 않는다(one-shot과 같음). 파라미터: 회차, U(bigint[]) */
+        private val SPLIT_HOLD_SQL = "SELECT user_id FROM seat_hold WHERE schedule_id = ? AND user_id = ANY(?)"
+        private val SPLIT_RESERVATION_SQL = "SELECT user_id FROM reservation WHERE schedule_id = ? AND user_id = ANY(?) AND status = 'CONFIRMED'"
+
+        /** R8 ⓑⓒ group — 같은 조건의 사용자별 개수 */
+        private val GROUP_HOLD_SQL = "SELECT user_id, count(*) FROM seat_hold WHERE schedule_id = ? AND user_id = ANY(?) GROUP BY user_id"
+        private val GROUP_RESERVATION_SQL =
+            "SELECT user_id, count(*) FROM reservation WHERE schedule_id = ? AND user_id = ANY(?) AND status = 'CONFIRMED' GROUP BY user_id"
 
         /** 설계 `orphan-v2.sql` + 열린 회차 조건(명세 §11 N1) — 파라미터: id 하한, id 상한(미포함), now */
         private val ORPHAN_HOLD_SQL = """
