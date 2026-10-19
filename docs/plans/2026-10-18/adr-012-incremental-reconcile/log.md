@@ -36,6 +36,7 @@
 | 10-19 12:00 | R8 설계 선검증 rv39 회수(Opus 높음 1·중간 5·낮음 4 · codex 높음 1·중간 3·낮음 1) → 전부 채택: ADR-012 §4.1 다시 씀(ⓑⓒ `user_id = ANY(U)` · 탐지 전용 RR 템플릿 · 경계·실패 규칙 · chunk_ms 정의 · 하네스 거부·기대 설정 · 스모크 EXPLAIN) · §5 R8 기각 조건·판정(주 지표 ① chunk_ms_total) · §7-9 · 명세 §2·§5 | 설계 문서 리뷰 = 선검증 + 듀얼 1패스 — post-fix 재점검 1회 |
 | 10-19 11:47 | R8 설계 재점검(codex) 신규 2(중간 fetch size · 낮음 명세 문구) → 반영 · 설계 문서 리뷰 종료(선검증 + 재점검) · blind 테스트 워커(Opus) 진행 중 | 구현 워커는 blind 테스트 회수 뒤 |
 | 10-19 11:51 | 04b 스모크 통과(633c8b7d · 새 구조 이미지 빌드·기동 · 11:38~11:50 · 상태 ok · 정합성 위반 10항목 0 · 대조 바퀴 9(reconcile-app) · 오류 0 · 설정 검사 사유 없음 · 앱 ERROR 로그 0 · 정리 뒤 seatlab 컨테이너·볼륨 0) | **task 04b 완료**(테스트 508 · 산출물 동일 · 하네스 계획 동일 · 리뷰 종료 · 스모크) |
+| 10-19 12:20 | blind 테스트 워커(Opus) 회수 e9c22570(DetectShapeEquivalenceTest.kt 1파일 — 4클래스(one-shot·split·group·기본) × 7: 바인딩 · 동등성(쌍·복구) · 바퀴 카운터(chunks 6·borrows 19 등) · 어긋남 0 k 배수 · 한 스냅샷(seat_hold 잠금 사이 커밋 — 갈라진 스냅샷이면 오탐) + 문장 모양 · 복구 RC(FOR UPDATE 사이 커밋 → 오탐 판정) · 실패(pg_cancel_backend → 청크 통째 버림)) · 지금은 컴파일 실패(손잡이 없음 — 예상) · 워커가 임시 stub으로 one-shot 7/7 green·split/group 손잡이 무시 구현을 3개가 가름 확인 · 못 고정: 읽기 전용 여부·toIntExact 넘침 → 구현 워커(Opus) 위임(코드 main-app + 하네스 run.sh·campaign adr012r8·tail.py ①② 시간 열) | 구현 대기 |
 
 ## 리뷰 ledger
 
