@@ -102,3 +102,5 @@ fun hold(command: HoldSeatCommand, loadSeat: ((seatId: Long, scheduleId: Long) -
 - **리뷰**: 측정 전 R1~R9·N1~N5, 결과 문서 듀얼 1패스 D1~D14 + post-fix N1·N2 — 전부 fixed.
 - **아카이브**: 사용자 범위 확인 후 7건 처리(신규 1 · 방안 비교 5 · 무변경 1) — study-note archive/2026-10-06, push 대기.
 - 커밋: 67bf919 · bfd18d1 · 6815c38 · 7a52c18c · d07ef510 · (이 마감 커밋)
+
+> 시각 주(2026-10-19 사후 대조 검토): 이 log 타임라인의 일부 행 시각이 대화 기록·커밋 시각과 몇 시간씩 어긋난다. log는 발생 시점 기록이라 고치지 않는다 — 해당 ADR의 의사결정 기록이 대화 기록 시각을 기준으로 쓰고 어긋난 행을 적어 두었다(그 ADR의 '검토 기록' 표).
