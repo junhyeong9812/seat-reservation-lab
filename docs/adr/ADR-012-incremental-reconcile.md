@@ -102,6 +102,25 @@ ADR-015(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 - **앱 경로 주입**(새 — loadtest 프로필에서만 켜지는 손잡이 · 기본 꺼짐): 앱의 선점·만료 경로 안에서 일부 쌍의 cnt를 일부러 틀리게 쓴다(버그 흉내 — 등록·updated_at 표시는 정상 경로 그대로 남는다). 기대: ⓐ·ⓑ·ⓒ 모두 증분 경로로 잡음.
 - **측정 전에 하네스에 필요한 것**(없으면 그 가설은 판정 불가): ① 후반 창 서버형 느린 초·1초 p99 최대(tail.py) ② 정상 구간 DB·앱 컨테이너 CPU 평균(docker stats — 램프 제외, 결측 표본 수 기록) ③ 증분 바퀴마다 `counter_reconcile_run` 1행 + 새 source 값(방식·주기별) — 안전망과 구분 ④ `counter_drift_log.source`로 주입 쌍별 첫 탐지 출처·시각 → effect.json 경로별 탐지 시간 ⑤ summarize 허용 출처·`borrow_per_request` 차감에 증분 빌림 추가 ⑥ M3: .158 외부 앱 컨테이너 CPU·풀 표본 ⑦ C 바퀴 중 Hikari pending(1단계 R1) ⑧ `pg_stat_user_tables.n_tup_hot_upd`·updated_at 인덱스 크기(R5). 1단계에 필요한 ①②⑦은 1단계 전에, 나머지는 구현과 함께 넣는다.
 
+### 4.1 R8 설계 (task 04c — 측정 전 고정)
+
+**1단계에서 확인한 사실**(`counter_reconcile_run` — c rep1 마지막 바퀴, 쌍 767만): 바퀴 약 23초 = ① 쿼터 행 청크 12.6초(청크 8,474개 · 청크당 약 1.5ms) + ② 행 없음 갈래 5.9초(청크 768개 · 청크당 약 8ms) + 복구·기록. 두 갈래 모두 바퀴 비용에 크게 든다.
+
+**바꾸는 범위 = ① 쿼터 행 청크만.** ②는 '쿼터 행이 없는 쌍'을 찾는 반조인(`NOT EXISTS`)이다. 앱으로 옮기려면 열린 회차의 쿼터 키 전체(약 770만 쌍)를 앱 메모리에 들고 있어야 해서 F 컨테이너(메모리 1g)에 맞지 않는다 — ②는 지금 그대로 두고, 바퀴 기록의 `chunk_ms_total`(①)·`orphan_ms_total`(②)로 갈래별 시간을 따로 본다.
+
+**모양 3가지**(손잡이 `seat.hold.counter-drift.reconcile.detect-shape` = `one-shot`(기본 — 지금) | `split` | `group`). 청크 경계는 셋 다 같다 — 회차 s의 쿼터 행을 PK keyset으로 k개(지금과 같음):
+
+| 모양 | 청크마다 DB에 보내는 것 | 앱이 하는 것 |
+|---|---|---|
+| `one-shot` | 지금 `CHUNK_SQL` 한 문장(쿼터 행마다 홀드·확정 예약 상관 서브쿼리) | 어긋난 행만 받는다 |
+| `split` | 쿼터 행 k개(user_id, cnt) · 홀드 `SELECT user_id FROM seat_hold WHERE schedule_id = s AND user_id > a AND user_id <= b` · 확정 예약 같은 범위 `SELECT user_id … status = 'CONFIRMED'` — 행 그대로 | 사용자별로 세어 쿼터 행과 비교 |
+| `group` | 쿼터 행 k개 · 홀드·확정 예약 같은 범위 `… GROUP BY user_id`(개수만) | 세 결과를 합쳐 비교 |
+
+- **한 스냅샷**: `split`·`group`은 청크의 세 조회를 읽기 전용 `REPEATABLE READ` 트랜잭션 하나에서 읽는다(빌림 1 — 지금 한 문장 = 빌림 1과 같다). 그래서 같은 스냅샷이면 `one-shot`과 **같은 어긋난 쌍 집합**을 낸다 — 쿼터 행이 있는 쌍만(범위 안에서 쿼터 행이 없는 사용자의 홀드는 무시 — ②가 맡는다).
+- **인덱스 사실**: `seat_hold`에는 `(schedule_id, user_id)` 인덱스가 없다(V2 — `user_id` 단일 인덱스만). 그래서 `split`·`group`의 홀드 범위 조회는 `user_id` 범위로 읽고 회차를 거른다 — 범위 안 사용자들의 **다른 회차 홀드까지** 읽는다(사용자 id 분포에 따라 읽는 행이 늘 수 있다). `reservation`은 `(schedule_id, user_id)` 인덱스가 있다. 이 ADR은 인덱스를 더하지 않는다(스키마 변경이 비교를 흐린다) — 결과가 나쁘면 인덱스 부재 몫을 `EXPLAIN (ANALYZE, BUFFERS)` 한 번으로 갈라 적는다(한계 §7).
+- **복구·기록은 그대로**: 어긋난 쌍은 지금처럼 `repairOne`(→ `PairRepair`). 바퀴 기록 열 의미 그대로(`chunks`·`pairs_scanned`·`chunk_ms_*`). 모양은 바퀴 기록에 열을 더하지 않고 회차 설정(`reconciler-config.json`)으로 남는다.
+- **하네스**: run.sh `--reconcile-shape one-shot|split|group`(F 컨테이너 환경변수 — 지정하지 않으면 렌더·계획 그대로) · 세트 `adr012r8` = {f, f-split, f-group} × 3(1단계와 같은 30분 구성 · 회차마다 1칸 회전).
+
 ## 5. 가설 (측정 전 고정)
 
 | # | 가설 | 틀렸다고 판정할 관측 |
@@ -150,3 +169,4 @@ ADR-015(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 6. 여러 앱 인스턴스는 범위 밖(ADR-009 '대조는 1대에서만' 제약 유지).
 7. 측정은 S4c4200 tmpfs 한 부하와 S3e뿐이다 — S4c는 TTL 60분이라 30분 안에 만료(A)가 없다. 만료가 많은 부하에서의 증분 비용은 ADR-015에서 본다.
 8. docker stats·Hikari 표본은 약 10~13초 간격이고 시각이 초 단위다 — 바퀴(13~25초) 하나에 '바퀴 중' 표본이 1~2개뿐이라 바퀴 중/밖 비교는 표본 수와 함께 본다. Hikari는 업무 앱 풀만 잰다(F 풀 대기는 관측하지 않음).
+9. R8은 ① 쿼터 행 청크만 바꾼다 — ② 행 없음 갈래(반조인)는 앱 메모리에 쿼터 키 전체가 필요해 그대로 둔다. `seat_hold`에 `(schedule_id, user_id)` 인덱스가 없어 `split`·`group`의 홀드 범위 조회는 다른 회차 홀드까지 읽는다 — R8 결과는 '지금 스키마에서'의 판정이다.

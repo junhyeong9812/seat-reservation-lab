@@ -31,6 +31,8 @@
 | 10-19 01:35 | 사용자 'core 추출은 05 설계 때 함께' → 명세 §0 행·task 04b·04c·05 · ADR-012 §2.2 행 · README 저장소 구조 절 · k6/ADR-008 README 경로 주 | 04b 듀얼 리뷰 + .164 스모크 |
 | 10-19 09:18 | 04b 스모크(run.sh default · adde49d4 · id smoke-04b-default) **실패 — .164 도달 불가**: 01:40쯤 띄웠으나 러너 로그 첫 줄이 09:13:09(deploy) — 그 사이 지연 원인 미확인 · 09:13 이후 ssh 22 시간 초과 · 상태 pre-k6-overrun · compose down 3회 실패(확인 불가) · 09:18 ping 100% 손실 · codex 04b 리뷰: 낮음 1(plain jar 이름 main-app-…-plain.jar — 저장소 안 소비자 없음 확인) | .164 다시 켜지면: 남은 seatlab 컨테이너·볼륨 확인 후 스모크 재실행 |
 | 10-19 09:40 | 04b 리뷰 rv38 회수(Opus ∥ codex — 신규 높음·중간 0 · 낮음 5) → e538236a(테스트 모듈 이름·plain jar 이름 고정 · 설정 검사에 reconcile-core 자원 · 이어서 검사에 gradle·gradlew — wrapper는 첫 커밋 뒤 안 바뀜) · 테스트 508/0/0/0 · 로컬 bootJar classes 140·lib 95 sha256이 이동 전 이미지 jar와 같음(+ reconcile-core jar) · 설정 검사: 옛 SHA 3파일·새 SHA 3파일 · 참조 없는 임시 커밋(core에 application-core.yml)에서 core 파일 잡음·사유 limit-set-by-profile · codex 재점검 신규 1(set -u 옛 bash 빈 배열 — 중간) → 633c8b7d `${core[@]+…}` · set -u 옛·새 SHA 확인 · 기록할 예외: jar 색인 파일 3개(MANIFEST 줄 순서 · classpath.idx · layers.idx)는 다름 — 실행 java -jar 영향 없음 | 리뷰 종료 · .164 스모크 대기(도달 불가) |
+| 10-19 11:38 | 사용자 ".164 켰어 진행하자" · .164 확인(부팅 1분): 남은 seatlab 컨테이너 3개(Exited — app 143·db·redis)·볼륨 seatlab_pgdata → 우리 프로젝트 것만 docker rm·volume rm(남은 0) · 실패한 스모크 폴더는 smoke-04b-default-unreachable로 이름 바꿈 · 스모크 다시(633c8b7d · 11:38:15 deploy 바로 시작) | 대기 |
+| 10-19 11:45 | 04c 설계 메모(ADR-012 §4.1 · §7-9): 1단계 바퀴 기록으로 갈래별 시간 확인(c rep1 마지막 바퀴 — ① 12.6초 · ② 5.9초) · 범위 = ① 쿼터 청크만(② 반조인은 쿼터 키 약 770만 쌍이 앱 메모리에 필요 — F 1g에 안 맞음) · 메인 확인: seat_hold 인덱스는 user_id 단일(V2:7) · reservation은 (schedule_id, user_id)(V2:11) → split·group 홀드 범위는 다른 회차 홀드까지 읽음 · 인덱스 추가는 안 함(스키마 변경) · 한 스냅샷 = 청크당 읽기 전용 REPEATABLE READ 1개(빌림 1) | 설계 선검증(듀얼) → blind 테스트 → 구현 |
 
 ## 리뷰 ledger
 
