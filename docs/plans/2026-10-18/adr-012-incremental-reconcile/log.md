@@ -66,6 +66,7 @@
 | 10-20 11:49 | 06g 하네스 워커(Opus) 회수 7fcfaaff(run.sh A+I·A+X · --incremental·--incremental-interval·--inject-app · Flyway 조합 · 회차 사유 5종 · lib.sh path='db' 주입 기록·V10 덤프·db_schema·quota_hot · external_app_* stub · campaign adr012s2 24회 14.5h·adr012s2x 21회 12.7h(--m2-cell 필수)·adr012eff 30회 11.5h · summarize effect R4·R6·보장 밖·R7·R2 · tail 7절 · actsnap) · 워커 검증: 기존 10세트 dry-run 같음 · run.sh 48조건 plan·compose config 같음 · TAIL 3캠페인 같음 · postgres:16 임시 컨테이너로 SQL 확인 · 메인 판단 2: ① 효과 세트를 M2(adr012eff 6셀)·M3(adr012effx 4셀)로 나눔(M2 효과를 .158 전에 측정) ② 앱 주입기는 시드 초기화 때 주입 상태·counter_app_inject를 비우고 예열 사용자 범위(900000~)를 주입하지 않음 → 앱·하네스 후속 수정 · 06g 듀얼 리뷰 rv44(Opus ∥ codex) | 진행 |
 | 10-20 11:59 | rv44 회수(Opus 높음 1·중간 1·낮음 4 · codex 높음 2·중간 1) → 메인 판단: 증분·안전망 셀 = split(§8.4) · noc·M0 = 기본(현재 방식) · 효과 세트 M2/M3 분리 → 하네스 수정 워커(Opus — k6만) ∥ 앱 수정 워커(rv43 진행 중 — 이어서 RG-1 주입기) | 진행 |
 | 10-20 12:11 | 하네스 수정 워커(Opus) 회수 d4db5504(효과 세트 M2 adr012eff 18회 · M3 adr012effx 12회 · 증분·안전망 셀 split · 효과 tmpfs 12) · e7e73325(R4 적체 기준 = 주입 전 마지막 안전망 실행 · R7 기록 짝 safety-record-missing · retry_overflow · R6 판정 불가 · 예상 담당 열) · 워커 검증: 기존 10세트 dry-run 20/20 바이트 같음 · 새 세트 계획표 · 거부 경로 · 합성 점검 수정 전·후 다름 · 워커가 찾은 R7 ① 허용식 불일치(ADR rv43 줄 미반영) → 메인 직접 e72be453(탐지 몫 max(예산+청크, 열린 회차+예산/2+3×청크) · db_ms_open 필수) | 앱 수정 워커 대기 |
+| 10-20 12:18 | rv43 수정 워커(Opus) 회수 522aade4·f12ff82c·b6d1c3f4·3095d072·be674516·c58511d4·48318a1e·379b6824(지적 1~3·5~8) · RF-4 멈춤(테스트 7클래스가 '증분만' 조합으로 기동) · 전체 648 중 1 실패 = RecentWindowTest 14(예산 5ms가 강제 첫 블록에서 끝남 — 기준 커밋에서도 단독 실패, 앞선 전체 실행에선 통과 = 시간 민감) · 메인: ADR §4.2.6 kind 표에 retry_overflow · §4.2.13 #7 '더 넓게' 정정 · #21을 '다시 읽기에도 3회 규칙'으로 정정(§4.2.5와 맞춤) · 메인 판단: RF-4 = 7클래스에 '안전망 켜되 안 돌게' 속성만 + 기동 실패 검사 · 테스트 14 = 예산 전제만 수정 · RG-1 = 시드 초기화 때 주입 상태·counter_app_inject 비움 + 예열 사용자(≥900000) 제외 → 워커(Opus) | 진행 |
 
 ## 리뷰 ledger
 
@@ -143,14 +144,14 @@
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
-| RF-1 | 1 | codex H + opus L5 | IncrementalReconciler.kt:297 ⓑⓒ 재시도 상한 넘침 무기록 | 채택 — gap 행·지표 | open | |
-| RF-2 | 1 | opus M1 + codex M | IncrementalReconciler.kt:183-190 기록 INSERT 실패 시 gap 유실 | 채택 | open | |
-| RF-3 | 1 | opus M2 | SafetyNetReconciler.kt:457·484·572 갈래별 강제 첫 블록 대 허용식 | 채택 — 허용식 + 강제 블록 ≤ 3 × chunk_ms_max(R7 rv43 줄 · 테스트 12) | open | |
+| RF-1 | 1 | codex H + opus L5 | IncrementalReconciler.kt:297 ⓑⓒ 재시도 상한 넘침 무기록 | 채택 — gap 행·지표 | fixed | 522aade4~379b6824 |
+| RF-2 | 1 | opus M1 + codex M | IncrementalReconciler.kt:183-190 기록 INSERT 실패 시 gap 유실 | 채택 | fixed | 522aade4~379b6824 |
+| RF-3 | 1 | opus M2 | SafetyNetReconciler.kt:457·484·572 갈래별 강제 첫 블록 대 허용식 | 채택 — 허용식 + 강제 블록 ≤ 3 × chunk_ms_max(R7 rv43 줄 · 테스트 12) | fixed | 522aade4~379b6824 |
 | RF-4 | 1 | opus M3 | HoldStrategyStartupCheck.kt:158 증분만 켜고 안전망·C 끔 | 채택 — 기동 실패(테스트 사용 여부 먼저) | open | |
-| RF-5 | 1 | codex M + opus L2 | IncrementalSchemaCheck.kt:39-41 트리거 스키마 무시 | 채택 | open | |
-| RF-6 | 1 | opus L1 | IncrementalReconciler.kt:365 접속 중 자기 역할 세션을 숨은 세션으로 | 채택 | open | |
-| RF-7 | 1 | opus L3 | SafetyNetReconciler.kt:586-588 전체 커서·다시 읽기 3회 규칙·기록 | 채택 | open | |
-| RF-8 | 1 | opus L4·L6 | 주석 2곳 | 채택 | open | |
+| RF-5 | 1 | codex M + opus L2 | IncrementalSchemaCheck.kt:39-41 트리거 스키마 무시 | 채택 | fixed | 522aade4~379b6824 |
+| RF-6 | 1 | opus L1 | IncrementalReconciler.kt:365 접속 중 자기 역할 세션을 숨은 세션으로 | 채택 | fixed | 522aade4~379b6824 |
+| RF-7 | 1 | opus L3 | SafetyNetReconciler.kt:586-588 전체 커서·다시 읽기 3회 규칙·기록 | 채택 | fixed | 522aade4~379b6824 |
+| RF-8 | 1 | opus L4·L6 | 주석 2곳 | 채택 | fixed | 522aade4~379b6824 |
 - review packet(06g 7fcfaaff): rv44 — 미러(k6/ADR-009 scripts·compose · ADR-012 · 마이그레이션 · reconcile-core). Opus(앱 이름 전수 대조 · 기존 10세트 dry-run 직접 재확인) ∥ codex.
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |

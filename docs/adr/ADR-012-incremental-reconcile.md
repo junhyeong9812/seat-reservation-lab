@@ -384,7 +384,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 |---|---|
 | `id` BIGSERIAL · `at` TIMESTAMPTZ | 기록 DB 시각(`now()` — 쓰는 문장의 시각) |
 | `source` VARCHAR(30) | 증분 source(4.2.6 표) |
-| `kind` VARCHAR(30) | `window_clamped` · `restart` · `memory_overflow` · `after_commit_error` · `hidden_sessions`(보수 하한을 쓴 틱 — 놓침이 아니라 비용 기록) |
+| `kind` VARCHAR(30) | `window_clamped` · `restart` · `memory_overflow` · `after_commit_error` · `hidden_sessions`(보수 하한을 쓴 틱 — 놓침이 아니라 비용 기록) · `retry_overflow`(rv43 — ⓑⓒ 재시도 쌍이 memory-cap을 넘어 버려짐 · 첫 쌍과 버린 수) |
 | `from_at` · `to_at` TIMESTAMPTZ | 보장 밖 구간(clamp = `[o, 하한)` · restart = 기동 전 마지막 틱 뒤 ~ 첫 하한 — 앞 틱 시각을 모르면 NULL · overflow = 10초 요약 구간) |
 | `schedule_id` · `user_id` BIGINT | 첫 쌍(있으면) |
 | `pairs` INT | 쌍 수(overflow·등록 예외) |
@@ -540,7 +540,7 @@ blind 테스트 워커(Opus — 계약만 보고 21파일·89 테스트 작성, 
 | 4 | memory_overflow 행 시점 | 넘침 뒤 첫 틱에 1행(그 사이 넘친 쌍 수·첫 쌍) |
 | 5 | db_ms_recent와 reread | 열을 나눈다 — `db_ms_reread` 따로, `db_ms_recent`에는 넣지 않음. 앞 절반 예산 = recent + reread |
 | 6 | 실행 시작 표본 | `sample_count`·`sample_db_ms`에 넣고 `db_ms_total`에는 넣지 않음 |
-| 7 | 맞는 표본이 없을 때 `id_at(T)` | 가장 오래된 표본의 id(더 넓게 다시 읽음) + 행 `sample_short=true`. 표본이 하나도 없으면 다시 읽기 갈래를 건너뛰고 같은 표시 |
+| 7 | 맞는 표본이 없을 때 `id_at(T)` | 가장 오래된 표본의 id + 행 `sample_short=true`(rv43 정정: 하한이 실제 `id_at(T − 130초)`보다 커서 구역이 **더 좁다** — 처음 문구 '더 넓게'는 틀렸다. 빠진 늦은 커밋은 전체 커서 몫). 표본이 하나도 없으면 다시 읽기 갈래를 건너뛰고 같은 표시 |
 | 8 | 최근 창 청크 끝 | head(그 실행 시작의 max id)에서 자른다 |
 | 9 | 청크 3회 연속 실패 | 그 청크를 건너뛰고 `recent_skip_*` 열 + WARN + 지표 · 그 실행의 최근 창 갈래는 거기서 멈춤 |
 | 10 | 예산 확인 시점 | 청크 끝에서만 — 갈래마다 실행당 청크 최소 1개(진행이 멈추지 않게) |
@@ -554,7 +554,7 @@ blind 테스트 워커(Opus — 계약만 보고 21파일·89 테스트 작성, 
 | 18 | 기동 실패 메시지 | 막은 대상 손잡이 키를 포함(테스트는 키워드 목록으로 단언) |
 | 19 | (06 구현 중) 최근 창 하한 B에 맞는 표본이 없을 때 | 0(건너뛰지 않음) + `sample_short` — #7의 '가장 오래된 표본'은 다시 읽기 하한 전용(B에 쓰면 시드 초기화 직후 새 데이터를 통째로 건너뜀) |
 | 20 | (06 구현 중) ⓑⓒ에서 탐지 청크 실패·복구 skipped·회차 조회 실패한 쌍 | ⓐ처럼 메모리에 들고 다음 틱 후보에 더함(상한 memory-cap) — 하한이 이미 앞으로 가 창이 다시 읽지 않기 때문 |
-| 21 | (06 구현 중) 안전망 예산 블록 단위 | (가) 행 없음 조회 1블록 · (나) '쌍 조회 + 첫 탐지 청크'가 1블록, 이후 탐지 청크마다 1블록 · 3회 연속 실패 건너뛰기는 최근 창·전체 커서만(다시 읽기는 실행마다 다시 계산) |
+| 21 | (06 구현 중) 안전망 예산 블록 단위 | (가) 행 없음 조회 1블록 · (나) '쌍 조회 + 첫 탐지 청크'가 1블록, 이후 탐지 청크마다 1블록 · 3회 연속 실패 건너뛰기는 최근 창·전체 커서·**다시 읽기 모두**(rv43 정정 — §4.2.5 커서 전진 규칙 '다시 읽기에도 같은 규칙'과 맞춤: 계속 실패하는 청크가 기록 없이 창 밖으로 밀려나지 않게) · 전체 커서 ①(사용자 keyset)은 건너뛴 범위를 `recent_skip_*`(id 열)에 넣지 않고 WARN + `skipped_chunks`로 남긴다 |
 | 22 | (06 구현 중) 증분·안전망과 매수 방식 | 카운터 계열 매수 방식에서만(C 기동 검사와 같은 규칙) · 증분 틱은 A 필수(counter-trigger 예외 없음 — #2) |
 | 23 | (06 구현 중) `record_ms` | `counter_reconcile_run` INSERT만 — 복구 트랜잭션 안 `counter_drift_log` INSERT는 따로 잴 수 없어 `repair_ms`에 든다 |
 | 24 | (06 구현 검증 — `[구현 검증]` 12) PostgreSQL 16에서 권한 없는 다른 역할 세션 | state·xact_start·**backend_type**까지 NULL로 보인다 → 숨은 세션 수 h = `(backend_type = 'client backend' OR backend_type IS NULL) AND state IS NULL` |
