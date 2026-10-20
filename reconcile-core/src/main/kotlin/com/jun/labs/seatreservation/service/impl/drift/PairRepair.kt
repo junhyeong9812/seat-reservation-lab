@@ -35,8 +35,8 @@ object DriftSource {
     const val RECONCILE_PROC = "reconcile-proc"
 }
 
-/** skipped 사유 — SQLSTATE, 없으면 예외 종류(열 폭 40). */
-internal fun skipReason(e: Throwable): String = (sqlStateOf(e) ?: e::class.simpleName ?: "unknown").take(40)
+/** skipped 사유 — SQLSTATE, 없으면 예외 종류(열 폭 40). main-app의 만료 A(ExpiryCounters)도 부르므로 `public`(ADR-012 §4.2.1). */
+fun skipReason(e: Throwable): String = (sqlStateOf(e) ?: e::class.simpleName ?: "unknown").take(40)
 
 /**
  * 쌍 단위 복구(명세 §2 복구 불변식 · 설계 §1): **현재 트랜잭션 안에서** 쿼터 행을 `FOR UPDATE`로 잠근 뒤(행이 없으면 cnt 0으로 만들고 잠근다),

@@ -2,7 +2,6 @@ package com.jun.labs.seatreservation.service.impl.drift
 
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
-import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.PreparedStatementCreator
@@ -358,7 +357,7 @@ class CounterReconciler(
                     val startsAt = jdbc.queryForList(
                         "SELECT starts_at FROM product_schedule WHERE id = ? FOR SHARE", Timestamp::class.java, o.scheduleId,
                     ).singleOrNull()
-                    if (startsAt == null || SalesCloseGate.isClosed(startsAt.toInstant(), clock.instant())) {
+                    if (startsAt == null || ScheduleClosure.isClosed(startsAt.toInstant(), clock.instant())) {
                         DriftOutcome(source, o.scheduleId, o.userId, kind, o.cnt, o.actual, DriftAction.SKIPPED, SKIP_CLOSED).also(recorder::insert)
                     } else {
                         repair.repairInCurrentTx(source, o.scheduleId, o.userId, kind)
