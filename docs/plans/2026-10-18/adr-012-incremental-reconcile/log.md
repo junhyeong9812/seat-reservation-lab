@@ -69,6 +69,7 @@
 | 10-20 12:18 | rv43 수정 워커(Opus) 회수 522aade4·f12ff82c·b6d1c3f4·3095d072·be674516·c58511d4·48318a1e·379b6824(지적 1~3·5~8) · RF-4 멈춤(테스트 7클래스가 '증분만' 조합으로 기동) · 전체 648 중 1 실패 = RecentWindowTest 14(예산 5ms가 강제 첫 블록에서 끝남 — 기준 커밋에서도 단독 실패, 앞선 전체 실행에선 통과 = 시간 민감) · 메인: ADR §4.2.6 kind 표에 retry_overflow · §4.2.13 #7 '더 넓게' 정정 · #21을 '다시 읽기에도 3회 규칙'으로 정정(§4.2.5와 맞춤) · 메인 판단: RF-4 = 7클래스에 '안전망 켜되 안 돌게' 속성만 + 기동 실패 검사 · 테스트 14 = 예산 전제만 수정 · RG-1 = 시드 초기화 때 주입 상태·counter_app_inject 비움 + 예열 사용자(≥900000) 제외 → 워커(Opus) | 진행 |
 | 10-20 13:01 | 남은 3건 워커(Opus) 회수: 24e45d44(증분만 조합 기동 실패 · 7클래스 안전망 켬·1h 속성만 · 금지 조합 테스트 1) · b9eee5e1(테스트 14 — 예산만 올리면 전체 커서가 매 실행 한 바퀴 돌아 다시 읽기를 증명 못 함(실측) → 별도 클래스·예산 200ms·앞 회차 채움 300,000행·전제 단언 3 추가 · 기존 단언 문구 그대로 · 반대 확인 reread=1ms면 실패) · 921d9367(주입기 시드 초기화·예열 사용자 제외 + 테스트 2 · 반대 확인) · 전체 651/0/0 · 증분 패키지 2회 115/0 · 메인: 테스트 14 처리 수용 · ADR §4.2.2 rv43 검사·조합표 행 · §4.2.7 예열·시드 초기화 | 재점검(codex) → 06f |
 | 10-20 13:47 | 재점검 rv45(codex — rv43·rv44 수정분 전체) **신규 없음** → 앱·하네스 리뷰 종료 · 06f 워커(Opus) 회수 c7596003(reconciler-app 본체 · 기동 검사 · 스케줄러 · configprops 비밀번호 가림 · blind 동등성 테스트) · b7779d96(Dockerfile · compose — 프로젝트 seatlab-reconciler · 8103 · cpus 1 · 1g · DB 값은 셸 env 필수) · 4cd1b7bf(lib.sh external_app_* 실구현 · run.sh A+X 순서·표본·사유 · campaign 연속 실패 집계) · 워커 검증: main-app 651/0 · reconciler-app 6/0 · 로컬 이미지 빌드 373MB · postgres:16 로컬 스모크(V10 없으면 실패 · health UP 22초 · inc-ext-trg-1s 61틱 · safety-ext · actuator 3개만) · 가짜 ssh로 하네스 함수 · 14세트 dry-run 57파일 같음 · 남은 것: db_sampler by_src에 외부 앱 'X' 분류 없음 · summarize 외부 앱 시계 차·self_record 연결 · .158 이미지 정리 · 06f 듀얼 리뷰 rv46 | 진행 |
+| 10-20 13:51 | 06f 리뷰 rv46 회수(Opus 높음 0·중간 2·낮음 6 · codex 높음 1·중간 3·낮음 1) — 원격 명령 전수: prune·패턴 image rm·-p 없는 down·sudo 없음 · 메인 판단: 배포를 ADR §4.2.8대로(PC 빌드 + docker save·ssh load · compose 파일만 동기화 — 앞 브리핑의 'git archive 배포'는 메인 실수) · 비밀번호 잔여 위험(컨테이너 env) 기록 → 수정 워커(Opus) | 진행 |
 
 ## 리뷰 ledger
 
@@ -167,4 +168,18 @@
 | RG-7 | 1 | opus L | campaign.sh:204 효과 세트 tmpfs 12 없음 | 채택 | fixed | d4db5504·e7e73325 |
 | RG-8 | 1 | opus L | summarize.py:1995 self_record 하한 | 채택 — 표에 '하한' 표시 | fixed | d4db5504·e7e73325 |
 | RG-9 | 1 | opus L | inc_effect 전체 커서만 잡는 D·L1·H에 120초 기준 | 채택 — 쌍별 '예상 탐지 갈래' 열(R4 규칙 무변경) · 스모크에서 바퀴 시간 확인 | fixed | d4db5504·e7e73325 |
+- review packet(06f 63576c13..3ae06c2a): rv46 — 미러(reconciler-app · reconcile-core · k6/ADR-009/scripts · ADR-012 · 명세 · Dockerfile · settings · ext.diff 932줄). Opus(원격 명령 전수 목록 · 비밀번호 흐름) ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RX-1 | 1 | opus M1 | lib.sh:496-511,521 배포가 ADR §4.2.8(PC 빌드 + save·load)과 다름 — .158에서 빌드(기반 이미지 pull·빌드 캐시) | 채택 — ADR대로 되돌림(원인: 메인 브리핑이 'git archive로 배포'라 적음 — 브리핑 실수) | open | |
+| RX-2 | 1 | codex H + opus L4 | lib.sh:468-469,521 EXT_DB_USERNAME·SERVER_HOST 따옴표 주입 | 채택 — 형식 검증 | open | |
+| RX-3 | 1 | opus M2 | lib.sh:566 docker logs --since PC 시각 | 채택 — --since 제거 | open | |
+| RX-4 | 1 | codex M | run.sh:1485 .158 표본 공백 검사에 시계 차 미전달 | 채택 | open | |
+| RX-5 | 1 | codex M | lib.sh:560·run.sh:1486 docker stats 실패를 시각 행이 가림 | 채택 | open | |
+| RX-6 | 1 | codex M | run.sh:890 회차 끝 외부 앱 down 실패가 사유에 없음 | 채택 — external-down-failed | open | |
+| RX-7 | 1 | opus L3 | lib.sh:518 env 키 화이트리스트 없음 | 채택 | open | |
+| RX-8 | 1 | opus L5 | read -r에 IFS= 없음 | 채택 | open | |
+| RX-9 | 1 | opus L8 + codex L | 비밀번호가 컨테이너 env·docker inspect·config.v2.json(root 전용)에 남음 · compose config 평문 | 잔여 위험 기록 — env 방식(ADR §4.2.8 ③)의 불가피한 경로 · 하네스는 Env를 읽는 inspect·원격 compose config를 쓰지 않음 · 사용자에게 알림 | open | |
+| RX-10 | 1 | opus L6·L7 | 포트 검사 127.0.0.1만 · .158 이미지 정리 경로 없음 | 기록 — 포트는 실패가 드러남 · 정리 명령(프로젝트 태그 한정) 문서화 | open | |
 
