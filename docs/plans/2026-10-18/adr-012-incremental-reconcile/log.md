@@ -61,6 +61,8 @@
 | 10-20 11:10 | 메인 전체 테스트(7b6d66e5 --rerun) 결과 확인 · rv42 리뷰 종료(Opus 낮음 3 기록 · codex 신규 없음) → **task 06a 완료** | 06b 착수 |
 | 10-20 11:15 | 06b~06e 한 워커(Opus)로 묶음 — blind 테스트 공용 도우미가 모든 이음새를 참조해 06b만으로는 컴파일 불가 · 슬라이스마다 커밋·536 유지 → 이음새가 모두 생기면 blind 89 투입(이음새 이름·계약 상수 줄만 고칠 수 있음 — 그 밖은 멈추고 보고) ∥ 06g 하네스 워커(Opus — k6/ADR-009만 · gradle 안 돌림 · 세트 adr012s2·adr012s2x·adr012eff · 집계 R4~R7·effect.json) | 진행 |
 | 10-20 13:00 | 06b~06e 워커(Opus) 회수: 97af1361(06b 손잡이·V9 2곳·V10 3테이블·기동 검사) · b0c670c4(06c ChunkDetector·QuotaSelector·PairRepairRunner·IncrementalReconciler·창·메모리 집합·ⓒ 문장·스케줄러) · 0b83c1e7(06d 안전망) · b668176d(06e 주입·후보 시각·숨은 세션 SQL) · 50faccc5(blind 투입 — 원본과 바이트 같음) · 조각마다 536/0/0 · blind 112 중 107 통과·5 실패(재실행 2회 같음) → 메인 확인: 5개 모두 테스트 전제 오류(틱 뒤 기록 조회가 빌림 1 더함 · 1인 한도 2인데 시드 cnt 3·5 · 같은 행 2·3번째 대기자는 pg_blocking_pids에 앞 대기자) → d79dc3d7 전제만 수정(단언 무변경) · 워커 판단 6건 → ADR §4.2.13 #19~24 · configprops 기존 18키 무변경·새 23키는 incremental·safetyNet·injectApp 아래만 · 전체 테스트 재실행 + 코드 듀얼 리뷰 rv43(Opus ∥ codex) | 진행 |
+| 10-20 11:35 | 메인 전체 테스트(d79dc3d7 --rerun): suites 143 · **648/0/0/0** · rv43 회수(codex 높음 1·중간 2 · Opus 중간 3·낮음 6 — 겹침 정리 8건) → 수정 워커(Opus) | 진행 |
+| 10-20 11:35 | 기록 주: 이 log의 '10-20 11:15'·'10-20 13:00' 행 시각은 추정으로 적었다(실제 각각 약 10:45·11:20 — 셸 date 기준). 이후 행은 date로 확인해 적는다 | — |
 
 ## 리뷰 ledger
 
@@ -134,4 +136,16 @@
 | RE-2 | 1 | opus L | dry-run 10세트 같음은 약한 증거(이번 diff가 k6를 안 건드림) | 기록 — 하네스 렌더 보존의 실제 근거는 configprops 비교(Opus가 평탄화 diff로 재확인 — 다른 것은 Testcontainers 포트뿐) | closed | |
 | RE-3 | 1 | opus L | SeatReservationApplication.kt:21-22 /actuator/beans에 reconcileProperties 새 빈 | 기록 — §3-4 범위 밖(하네스는 metrics만) | closed | |
 | RE-4 | 1 | codex | — | 신규 없음(미러에 git·산출물이 없어 수치 재검증은 Opus 몫) | closed | |
+- review packet(06b~06e 0be75d84..d79dc3d7): rv43 — 미러(main-app/src · reconcile-core · ADR-012 · 명세 · impl.diff 5,821줄). Opus ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RF-1 | 1 | codex H + opus L5 | IncrementalReconciler.kt:297 ⓑⓒ 재시도 상한 넘침 무기록 | 채택 — gap 행·지표 | open | |
+| RF-2 | 1 | opus M1 + codex M | IncrementalReconciler.kt:183-190 기록 INSERT 실패 시 gap 유실 | 채택 | open | |
+| RF-3 | 1 | opus M2 | SafetyNetReconciler.kt:457·484·572 갈래별 강제 첫 블록 대 허용식 | 채택 — 허용식 + 강제 블록 ≤ 3 × chunk_ms_max(R7 rv43 줄 · 테스트 12) | open | |
+| RF-4 | 1 | opus M3 | HoldStrategyStartupCheck.kt:158 증분만 켜고 안전망·C 끔 | 채택 — 기동 실패(테스트 사용 여부 먼저) | open | |
+| RF-5 | 1 | codex M + opus L2 | IncrementalSchemaCheck.kt:39-41 트리거 스키마 무시 | 채택 | open | |
+| RF-6 | 1 | opus L1 | IncrementalReconciler.kt:365 접속 중 자기 역할 세션을 숨은 세션으로 | 채택 | open | |
+| RF-7 | 1 | opus L3 | SafetyNetReconciler.kt:586-588 전체 커서·다시 읽기 3회 규칙·기록 | 채택 | open | |
+| RF-8 | 1 | opus L4·L6 | 주석 2곳 | 채택 | open | |
 
