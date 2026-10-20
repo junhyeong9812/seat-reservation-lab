@@ -59,6 +59,7 @@
 | 10-20 09:40 | blind 테스트 워커(Opus) 회수 — scratchpad/blind06 21파일·89 테스트(타입 검사 통과 · 미실행 — 구현 없음) · 이음새 가정 S1~S8 · 계약 모호점 18 → 메인이 ADR §4.2.13 계약 명확화로 고정(1초 경계 · ⓐ+counter-trigger 불가 · gap source · 열 분리 · id_at 표본 없음 등) | 06a 대기 · 이후 06b~ 구현 워커에 §4.2.13 + 이음새 전달 |
 | 10-20 10:35 | task 06a 워커(Opus) 회수: 1e8b484a(sqlStateOf → core public) · d0a8b372(ScheduleClosure) · b841c8b1(ReconcileProperties·DetectShape — @Bean 바인딩 · R8 blind 테스트 별칭 1줄) · 7b6d66e5(CounterReconciler·PairRepair git mv · skipReason public · core 빌드 plugin.spring·BOM platform) · 워커 검증: 커밋마다 536/0/0/0 · configprops seat.hold 바이트 같음 3경우 · dry-run 10세트 같음 · jar 차이 = §4.2.1 이름 · classpath.idx 순서만 · ChunkDetector·PairRepairRunner 분리는 미착수 → **메인 판단: 06c·06d에서 호출처와 함께** · 메인: 로컬 XML이 3건뿐(워커 임시 테스트 흔적) → 전체 다시 실행 중 · 06a 듀얼 리뷰 rv42(Opus ∥ codex) | 리뷰 대기 |
 | 10-20 11:10 | 메인 전체 테스트(7b6d66e5 --rerun) 결과 확인 · rv42 리뷰 종료(Opus 낮음 3 기록 · codex 신규 없음) → **task 06a 완료** | 06b 착수 |
+| 10-20 11:15 | 06b~06e 한 워커(Opus)로 묶음 — blind 테스트 공용 도우미가 모든 이음새를 참조해 06b만으로는 컴파일 불가 · 슬라이스마다 커밋·536 유지 → 이음새가 모두 생기면 blind 89 투입(이음새 이름·계약 상수 줄만 고칠 수 있음 — 그 밖은 멈추고 보고) ∥ 06g 하네스 워커(Opus — k6/ADR-009만 · gradle 안 돌림 · 세트 adr012s2·adr012s2x·adr012eff · 집계 R4~R7·effect.json) | 진행 |
 
 ## 리뷰 ledger
 
