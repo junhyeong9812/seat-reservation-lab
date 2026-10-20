@@ -1414,6 +1414,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
       python3 "$SUMMARIZE" --runs-in-window "$dir" "$SAFETY_SOURCE" "$k6_started" "$k6_ended" 60 2>>"$dir/errors.log" || reasons+=("reconcile-missing")
     fi
     jq -e '(.safety_runs | type == "array") and (.inc_gaps | type == "array") and (.app_inject | type == "array")' "$dir/drift-db.json" > /dev/null 2>&1 || reasons+=("drift-db-failed")
+    # R7 기록 짝(summarize 머리말 'R7 기록 짝'): k6 구간 안전망 counter_reconcile_run마다 같은 run_id의 counter_safety_run + 필수 열 — 없으면 R7 판정 불가(결과 사유)
+    python3 "$SUMMARIZE" --safety-pair-check "$dir" "$SAFETY_SOURCE" "$k6_started" "$k6_ended" 2>>"$dir/errors.log" || reasons+=("safety-record-missing")
     if jq -e '[.reconcile_runs[] | (.errors + .skipped_chunks)] | add // 0 | . > 0' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
     # 증분·안전망 지표 errors 증가(k6 직전 → 회차 끝 — actsnap incremental·safety, 업무 앱만: A+X 외부 앱 지표는 task 07) > 0이면 reconcile-errors(바퀴 기록 errors는 위 공통 검사)
     if (( HAS_I )) && jq -e --slurpfile b "$dir/drift-before.json" \

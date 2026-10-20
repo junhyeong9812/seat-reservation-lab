@@ -43,6 +43,24 @@ ADR-009 추가
   제외 쌍 두 정의(L2-9): 판정기 counter_excluded_pairs = 마감 회차의 (쿼터 행 ∪ 실제 값 쌍) 수 · 대조 바퀴 skipped_pairs = 마감 회차의 쿼터 행 수 — 표에서 이름을 나눠 적는다.
   마감 제외(L3-4): 대조 복구 트랜잭션이 마감을 확인해 쓰지 않은 쌍(counter_drift_log reason=closed · counter_reconcile_run.skipped_closed)은 실패 skipped와 따로 센다.
 
+ADR-012 추가(효과 effect.json — inc_effect · 안전망 R7 — safety_r7. 판정 규칙(ADR-012 §5)은 바꾸지 않고, 규칙이 읽는 값의 정의만 여기 둔다)
+  R4 '그 시점 최근 창 적체'(backlog_at): 주입 쌍의 기준 시각 t = counter_app_inject.tx_started_at(주입 트랜잭션 시작 — DB 시계, 없으면 주입 시각) ·
+            t 이전(db_started_at ≤ t)에 시작한 안전망 실행 중 **가장 늦은 것 하나**가 기록한 적체 상태로 본다 — 적체 = (hold_head − recent_hold_cursor) +
+            (res_head − recent_res_cursor) > 0 · 경계 건너뜀(recent_skip_ids > 0) · 다시 읽기 남김(reread_left > 0) 중 하나라도. t 이전 실행이 없으면 t 뒤 첫 실행을 쓰고
+            쌍에 r4_backlog_ref = 'no-prior-run'을 남긴다(있으면 'prior'). 실행이 하나도 없으면 판정 불가(basis safety-no-runs). 주입 **뒤** 실행의 적체는 보지 않는다.
+  R4 예상 담당(expected_catcher — 기록만, 위반을 어느 갈래 몫으로 볼지 가르는 자료 · R4 기준은 그대로): 앱 경로(AH·AL·AE) = recent(주입 트랜잭션의 홀드가 새 id) ·
+            DB 직접 주입 중 행 시각이 있는 D·L1(injected.json held_at): 행 나이(기준 실행 시작 − held_at) > 최근 창 2시간 = full-cursor · 기준 실행(위 backlog_at과 같은 실행)의
+            recent_cursor_age_s ≥ 행 나이(커서가 아직 그 행 앞) = recent · 행 나이 ≤ 다시 읽기 130초 = reread · 그 밖 = full-cursor. L2·H는 주입기가 행 시각을 남기지 않아 None(사유).
+  R6(첫 후보 출처): counter_app_inject 행이 없는 쌍(--inject-app 없이 돈 S3e L1·L2·H — path='db' 행 없음)은 r6_ok = None(판정 불가 — undecidable로 셈)이지 위반이 아니다.
+  보장 밖(out_of_guarantee): counter_inc_gap kind window_clamped · restart · memory_overflow·after_commit_error(ⓐ) · retry_overflow(ⓑⓒ — 재시도 쌍이 memory-cap을 넘어 버려짐:
+            그 행의 첫 쌍이 이 쌍이거나, 이 쌍이 버린 시각 to_at(+1초) 전에 이미 증분 후보였고(first_candidate_at) 그때까지 복구되지 않았으면 '보장 밖 가능' — 버린 쌍 목록이 없어 보수적).
+  앱 경로 주입 쌍: 예열 사용자(scenarios/warmup.js — user_id ∈ [WARMUP_USER_MIN 900000, 1000000))는 앱이 고르지 않는다(main-app — 시드 초기화 때 주입기 상태도 비움).
+            k6 전 주입(app_inject_before_k6)과 예열 사용자 주입(app_inject_warmup_users)은 쌍에서 빼고 세며, > 0이면 unexpected.
+  R7 기록 짝(safety_pairing): 안전망 출처(safety-app|safety-ext)의 counter_reconcile_run 행(창 안 — started_at, 기록 앱 시계)마다 같은 run_id의 counter_safety_run 행이 있고
+            필수 열(db_started_at · budget_ms · db_ms_total · chunk_ms_max · repair_ms_max · record_ms · wall_ms · repair_pairs)이 값이어야 한다. 짝 없음·필수 열 없음이 하나라도 있거나
+            창 안 실행이 0이면 R7 = 판정 불가(undecidable에 사유 — runs 0을 '위반 없음'으로 읽지 않는다). 회차 사유 safety-record-missing(run.sh — --safety-pair-check).
+            자기 기록 INSERT(지표 safety.self_record MAX — 최근 약 2분 창)는 회차 최대의 **하한**이다 — 허용식에 그대로 더하고 표에 '하한'으로 적는다.
+
 ADR-006 추가 지표
   요청당 커넥션 빌림 = Hikari 획득(hikaricp.connections.acquire) COUNT 증가분 ÷ 선점 요청(http.server.requests hold URI) COUNT 증가분 (k6 직전·직후 — run.sh after_k6).
   서버 I/O = io-before.json · io-after.json(lib.sh io_snapshot — k6 직전·직후, 각각 통계 반영 대기 IO_SETTLE_S 뒤) 차분. io_delta 참고.
@@ -1017,13 +1035,17 @@ def effect(rep_dir, cond, inc_src=None, safety_src=None, inject_app="0"):
     pairs = {}
     for rnd in inj.get("rounds") or []:
         for x in rnd.get("pairs") or []:
-            pairs[(x["schedule_id"], x["user_id"])] = {"kind": x["kind"], "round_s": rnd.get("at_s"), "injected_at": rnd["at_epoch"]}
-    app_collide, app_pre = 0, 0
+            pairs[(x["schedule_id"], x["user_id"])] = {"kind": x["kind"], "round_s": rnd.get("at_s"), "injected_at": rnd["at_epoch"],
+                                                       "held_at": _tsn(x.get("held_at"))}   # ADR-012 예상 담당(D·L1 행 시각 — 머리말)
+    app_collide, app_pre, app_warm = 0, 0, 0
     if inc:   # ADR-012 앱 경로 주입(쌍마다 한 번 — 첫 행). S3e 쌍과 겹치면(하네스가 고르지 않게 했다) 앞선 주입을 두고 센다
         for a in sorted((r for r in db.get("app_inject") or [] if r.get("path") in ("hold", "expiry")), key=lambda r: (ts(r["at"]), r["id"])):
             k = (a["schedule_id"], a["user_id"])
             if k0 is not None and ts(a["at"]) < k0 - 1:   # k6 전(예열·시드 전 — 시드 TRUNCATE는 V10 표를 비우지 않는다) 주입은 쌍에서 빼고 센다
                 app_pre += 1
+                continue
+            if WARMUP_USER_MIN <= (a["user_id"] or 0) < WARMUP_USER_END:   # 예열 사용자(머리말) — 앱이 고르지 않아야 한다. k6 뒤라도 쌍에서 빼고 센다
+                app_warm += 1
                 continue
             if k in pairs:
                 app_collide += 1
@@ -1177,7 +1199,9 @@ def effect(rep_dir, cond, inc_src=None, safety_src=None, inject_app="0"):
                 un.append(f"{cond}: 앱 경로 주입이 S3e 주입 쌍과 겹침 {app_collide}")
             if app_pre:
                 un.append(f"{cond}: 앱 경로 주입 {app_pre}건이 k6 전(예열 등) — max-pairs를 k6 전에 썼다")
-        out["app_inject_before_k6"], out["app_inject_collide"] = app_pre, app_collide
+            if app_warm:
+                un.append(f"{cond}: 앱 경로 주입 {app_warm}건이 예열 사용자(user_id ≥ {WARMUP_USER_MIN}) — 앱이 예열 사용자를 고르지 않아야 한다")
+        out["app_inject_before_k6"], out["app_inject_collide"], out["app_inject_warmup_users"] = app_pre, app_collide, app_warm
         out.update(inc_effect(per, pairs, db, inc, inc_src, safety_src, str(inject_app) == "1"))
         if str(inject_app) == "1" and out.get("db_untracked"):
             un.append(f"{cond}: S3e 주입 쌍 {out['db_untracked']}개에 counter_app_inject path='db' 행이 없다")
@@ -1194,6 +1218,8 @@ def effect(rep_dir, cond, inc_src=None, safety_src=None, inject_app="0"):
 APP_KINDS = ("AH", "AL", "AE")   # 앱 경로 주입 종류(§4.2.7 — 선점 +1 · 선점 −1 · 만료 +1)
 APP_INJECT_MAX = 60               # §4.2.7 max-pairs 기본값(하네스는 키를 넣지 않는다 — inc-config-check가 configprops와 대조)
 SAFETY_INTERVAL_S = 60            # §4.2.5 safety-net.interval 기본 1m(하네스는 키를 넣지 않는다)
+SAFETY_REREAD_S, SAFETY_RECENT_S = 130, 7200   # §4.2.5 reread 130s · recent-window 2h 기본값(예상 담당 — 기록만)
+WARMUP_USER_MIN, WARMUP_USER_END = 900000, 1000000   # scenarios/warmup.js 예열 사용자 900000 + [0, 100000) — 앱 경로 주입이 고르지 않는다(머리말)
 # §2.3 증분 경로로 '봄'인 주입 종류(방식별) — 앱 경로 주입은 셋 다, DB 직접 값 변경(L1·L2·H)은 트리거만, D(행 삭제)는 어느 방식도 못 봄(안전망 몫)
 INC_VISIBLE = {"mem": set(APP_KINDS), "trg": set(APP_KINDS) | {"L1", "L2", "H"}, "stmt": set(APP_KINDS)}
 INC_SOURCE_RE = re.compile(r"^inc-(app|ext)-(mem|trg|stmt)-([1-9][0-9]*)s$")
@@ -1220,10 +1246,15 @@ def _tsn(x):
     return ts(x) if isinstance(x, str) and x else None
 
 
-def out_of_guarantee(tx_started, at, key, gaps, method):
+RETRY_OVERFLOW_SLACK_S = 1.0   # retry_overflow to_at = 앱 시계(Instant.now — 업무 앱은 서버 시계) · first_candidate_at·repaired = DB/앱 시계 — 1초 여유(보수 쪽)
+
+
+def out_of_guarantee(tx_started, at, key, gaps, method, cand_at=None, repaired_at=None):
     """보장 밖 분류(§4.2.3 겹침 상한 · §4.2.2 ⓐ 보장 밖 · 사용자 결정 D1 · rv41 재점검 codex M-a) — 그 셀 증분 source의 counter_inc_gap 행 기준. 반환 = 걸린 kind 목록.
       window_clamped: 주입 트랜잭션 시작 시각 tx_started ∈ [from_at(o), to_at(하한)) · restart: tx_started < to_at(첫 하한) 그리고 (from_at 없음 또는 ≥ from_at) ·
       memory_overflow·after_commit_error(ⓐ): 그 행의 첫 쌍이 이 쌍이거나 주입 시각 at ∈ [from_at, to_at](10초 요약 구간 — 넘친 쌍 목록이 없어 보수적으로 '보장 밖 가능').
+      retry_overflow(ⓑⓒ — rv43: 실패해 다시 볼 쌍이 memory-cap을 넘어 버려짐, from_at = to_at = 버린 시각): 그 행의 첫 쌍이 이 쌍이거나, 이 쌍이 버린 시각(+ 여유) 전에
+        이미 증분 후보였고(cand_at = first_candidate_at — 후보였던 쌍만 재시도 집합에 든다) 그때까지 복구되지 않았으면(repaired_at 없음 또는 그 뒤) '보장 밖 가능'(버린 쌍 목록이 없어 보수적).
       hidden_sessions는 비용 기록(보수 하한 — 놓침 아님)이라 보지 않는다. tx_started가 없으면(기록 없음) 시각 조건은 at으로 대신한다."""
     t = tx_started if tx_started is not None else at
     hit = []
@@ -1236,18 +1267,49 @@ def out_of_guarantee(tx_started, at, key, gaps, method):
         elif k in ("memory_overflow", "after_commit_error") and method == "mem" and (
                 (g.get("schedule_id"), g.get("user_id")) == key or (f0 is not None and t1 is not None and f0 <= at <= t1)):
             hit.append(k)
+        elif k == "retry_overflow" and method in ("trg", "stmt") and t1 is not None and (
+                (g.get("schedule_id"), g.get("user_id")) == key
+                or (cand_at is not None and cand_at <= t1 + RETRY_OVERFLOW_SLACK_S and (repaired_at is None or repaired_at > t1 - RETRY_OVERFLOW_SLACK_S))):
+            hit.append(k)
     return sorted(set(hit))
 
 
-def recent_backlog(sruns, at, interval_s=SAFETY_INTERVAL_S):
-    """주입 시각 at(DB 시계) 무렵 최근 창 적체(§5 R4 '그 시점 최근 창 적체') — 안전망 실행 중 시작(db_started_at)이 [at − 주기 − 10초, at + 2 × 주기]인 것에서
-    적체 = (hold_head − recent_hold_cursor) + (res_head − recent_res_cursor) > 0 · 경계 건너뜀(recent_skip_ids > 0) · 다시 읽기 남김(reread_left > 0) 중 하나라도.
-    그 창에 실행이 없으면 None(판정 불가)."""
-    win = [r for r in sruns if _tsn(r.get("db_started_at")) is not None and at - interval_s - 10 <= _tsn(r["db_started_at"]) <= at + 2 * interval_s]
-    if not win:
-        return None
-    lag = lambda r: sum(max(0, (r.get(h) or 0) - (r.get(c) or 0)) for h, c in (("hold_head", "recent_hold_cursor"), ("res_head", "recent_res_cursor")))
-    return any(lag(r) > 0 or (r.get("recent_skip_ids") or 0) > 0 or (r.get("reread_left") or 0) > 0 for r in win)
+def backlog_at(sruns, t):
+    """기준 시각 t(주입 트랜잭션 시작 — DB 시계) 시점 최근 창 적체(§5 R4 '그 시점 최근 창 적체' — 정의는 머리말 'ADR-012 추가'):
+    db_started_at ≤ t인 안전망 실행 중 가장 늦은 것 하나(없으면 t 뒤 첫 실행 — ref 'no-prior-run')가 기록한 적체
+    = (hold_head − recent_hold_cursor) + (res_head − recent_res_cursor) > 0 · 경계 건너뜀(recent_skip_ids > 0) · 다시 읽기 남김(reread_left > 0) 중 하나라도.
+    반환 (적체 bool | None, ref 'prior' | 'no-prior-run' | None, 그 실행 행 | None) — 실행이 하나도 없으면 (None, None, None)(판정 불가)."""
+    rs = sorted((r for r in sruns if _tsn(r.get("db_started_at")) is not None), key=lambda r: (_tsn(r["db_started_at"]), r.get("run_id") or 0))
+    prior = [r for r in rs if _tsn(r["db_started_at"]) <= t]
+    if prior:
+        r, ref = prior[-1], "prior"
+    else:
+        after = [r for r in rs if _tsn(r["db_started_at"]) > t]
+        if not after:
+            return None, None, None
+        r, ref = after[0], "no-prior-run"
+    lag = sum(max(0, (r.get(h) or 0) - (r.get(c) or 0)) for h, c in (("hold_head", "recent_hold_cursor"), ("res_head", "recent_res_cursor")))
+    return (lag > 0 or (r.get("recent_skip_ids") or 0) > 0 or (r.get("reread_left") or 0) > 0), ref, r
+
+
+def expected_catcher(kind, held_at, ref_run):
+    """R4 예상 담당(기록만 — 정의는 머리말 'ADR-012 추가'): recent | reread | full-cursor | None, 사유. ref_run = backlog_at이 고른 실행(행 나이 기준 시각 = 그 실행 시작)."""
+    if kind in APP_KINDS:
+        return "recent", "앱 경로 — 주입 트랜잭션의 홀드 행이 새 id"
+    if held_at is None:
+        return None, "행 시각 없음(L2·H — 주입기가 행 시각을 남기지 않는다)"
+    t = _tsn((ref_run or {}).get("db_started_at"))
+    if t is None:
+        return None, "기준 안전망 실행 없음"
+    age = t - held_at
+    if age > SAFETY_RECENT_S:
+        return "full-cursor", f"행 나이 {age:.0f}s > 최근 창 {SAFETY_RECENT_S}s"
+    cage = ref_run.get("recent_cursor_age_s")
+    if isinstance(cage, (int, float)) and cage >= age:
+        return "recent", f"기준 실행 최근 창 커서 나이 {cage:.0f}s ≥ 행 나이 {age:.0f}s(커서가 아직 그 행 앞)"
+    if age <= SAFETY_REREAD_S:
+        return "reread", f"행 나이 {age:.0f}s ≤ 다시 읽기 {SAFETY_REREAD_S}s"
+    return "full-cursor", f"행 나이 {age:.0f}s > 다시 읽기 {SAFETY_REREAD_S}s · 최근 창 커서가 이미 지나감(커서 나이 {cage if cage is not None else '없음'})"
 
 
 def inc_effect(per, pairs, db, inc, inc_src, safety_src, inject_app):
@@ -1255,8 +1317,10 @@ def inc_effect(per, pairs, db, inc, inc_src, safety_src, inject_app):
     inc_visible(§2.3 — 그 방식의 증분이 볼 수 있는 종류) · out_of_guarantee(counter_inc_gap kind 목록) · R4(복구 시간 기준·통과) · R6(증분 후보가 됐나).
       R4 기준(§5 R4 + 재합의 D1): 증분 '봄'이고 보장 안 = 주기 + 10초 · 그 밖(안전망 몫 · 보장 밖) — 주입 쌍은 모두 회차 안에서 생긴 행의 쌍이라 최근 2시간 창 안:
         적체 없음 = 2 × 안전망 주기(120초) · 적체 있음 = 2 × 그 회차 전체 한 바퀴 시간(counter_safety_run lap_completed 행의 lap_seconds 최대 — 없으면 판정 불가).
+        적체 = backlog_at(tx_started_at 이전 마지막 실행 — 없으면 뒤 첫 실행, r4_backlog_ref 'no-prior-run'). 예상 담당 expected_catcher(기록만 — R4 기준을 바꾸지 않는다).
         복구 시간 = 주입(DB 시계) → 첫 repaired(counter_drift_log.at — 기록한 앱의 시계: 업무 앱은 서버 시계 · 외부 앱은 .158 시계라 시계 차(⑥ — task 07) 보정 전).
       R6(rv41 반영): '봄'이고 보장 안인 쌍의 first_candidate_source = 그 셀 증분 source여야 한다. 보장 밖 쌍은 R4·R6 계산에서 빼고 수를 센다.
+        counter_app_inject 행이 없는 쌍(--inject-app 없이 돈 S3e L1·L2·H 등)은 r6_ok = None(판정 불가 — r6.undecidable)이지 위반이 아니다.
     판정 값만 낸다 — unexpected(회차 사유)에 넣지 않는다(가설 판정은 메인 몫)."""
     ai = db.get("app_inject") or []
     gaps = [g for g in db.get("inc_gaps") or [] if g.get("source") == inc_src]
@@ -1278,12 +1342,14 @@ def inc_effect(per, pairs, db, inc, inc_src, safety_src, inject_app):
         inj_at = pairs[k]["injected_at"]
         tx = _tsn((a or {}).get("tx_started_at"))
         fc = _tsn((a or {}).get("first_candidate_at"))
-        oog = out_of_guarantee(tx, inj_at, k, gaps, inc["method"])
+        rep_at = inj_at + x["repaired_s"] if x["repaired_s"] is not None else None
+        oog = out_of_guarantee(tx, inj_at, k, gaps, inc["method"], cand_at=fc, repaired_at=rep_at)
         visible = x["kind"] in vis
+        bl, bref, brun = backlog_at(sruns, tx if tx is not None else inj_at)
+        catcher, catcher_why = expected_catcher(x["kind"], pairs[k].get("held_at"), brun)
         if visible and not oog:
             limit, basis = inc["interval_s"] + 10, "inc"
         else:
-            bl = recent_backlog(sruns, inj_at)
             if bl is None:
                 limit, basis = None, "safety-no-runs"
             elif not bl:
@@ -1294,17 +1360,25 @@ def inc_effect(per, pairs, db, inc, inc_src, safety_src, inject_app):
                   "first_candidate_at": (a or {}).get("first_candidate_at"), "first_candidate_source": (a or {}).get("first_candidate_source"),
                   "first_candidate_s": round(fc - inj_at, 3) if fc is not None else None, "inc_visible": visible, "out_of_guarantee": oog,
                   "r4_limit_s": limit, "r4_basis": basis,
+                  "r4_backlog_ref": bref if basis.startswith("safety") else None, "r4_backlog_run": (brun or {}).get("run_id") if basis.startswith("safety") else None,
+                  "expected_catcher": catcher, "expected_catcher_why": catcher_why,
                   "r4_ok": (x["repaired_s"] is not None and x["repaired_s"] <= limit) if limit is not None else None,
-                  "r6_ok": ((a or {}).get("first_candidate_source") == inc_src) if (visible and not oog and x["kind"] != "D") else None})
+                  "r6_ok": (((a or {}).get("first_candidate_source") == inc_src) if a is not None else None) if (visible and not oog and x["kind"] != "D") else None,
+                  "r6_undecidable": a is None and visible and not oog and x["kind"] != "D"})
     judged = [x for x in per if not x["out_of_guarantee"]]
     r4 = {"pairs": len(per), "out_of_guarantee": sum(1 for x in per if x["out_of_guarantee"]),
           "violations": sum(1 for x in per if x["r4_ok"] is False), "undecidable": sum(1 for x in per if x["r4_ok"] is None),
           "by_basis": {b: sum(1 for x in per if x["r4_basis"] == b) for b in sorted({x["r4_basis"] for x in per})},
-          "violation_pairs": [[x["schedule_id"], x["user_id"], x["kind"], x["repaired_s"], x["r4_limit_s"], x["r4_basis"]] for x in per if x["r4_ok"] is False][:50],
+          "violation_pairs": [[x["schedule_id"], x["user_id"], x["kind"], x["repaired_s"], x["r4_limit_s"], x["r4_basis"], x["expected_catcher"]] for x in per if x["r4_ok"] is False][:50],
+          "backlog_no_prior_run": sum(1 for x in per if x["r4_backlog_ref"] == "no-prior-run"),
+          "by_catcher": {str(c): sum(1 for x in per if x["expected_catcher"] == c) for c in sorted({x["expected_catcher"] for x in per}, key=str)},
+          "violations_by_catcher": {str(c): sum(1 for x in per if x["r4_ok"] is False and x["expected_catcher"] == c)
+                                    for c in sorted({x["expected_catcher"] for x in per if x["r4_ok"] is False}, key=str)},
           "lap_max_s": lap_max, "safety_runs": len(sruns),
           "clock_note": None if inc["where"] == "app" else "외부 앱 복구 시각(.158 시계) — 시계 차 보정 전(⑥ task 07)"}
     r6_set = [x for x in judged if x["r6_ok"] is not None]
     r6 = {"judged": len(r6_set), "violations": sum(1 for x in r6_set if not x["r6_ok"]),
+          "undecidable": sum(1 for x in judged if x["r6_undecidable"]),
           "excluded_out_of_guarantee": sum(1 for x in per if x["out_of_guarantee"] and x["kind"] in vis and x["kind"] != "D"),
           "violation_pairs": [[x["schedule_id"], x["user_id"], x["kind"], x["first_candidate_source"]] for x in r6_set if not x["r6_ok"]][:50],
           "track_inject": inject_app}
@@ -1354,16 +1428,63 @@ R7_CHUNK_MS, R7_TREND_X, R7_TREND_MS = 500, 2.0, 200   # §5 R7 ④ 청크 > 500
 R2_TREND_X, R2_TREND_MS = 2.0, 20                      # §5 R2 — 2배 이상 그리고 +20ms 이상
 
 
-def safety_r7(sruns, knobs, self_record_ms, w0=None, w1=None):
+R7_REQUIRED = ("budget_ms", "db_ms_total", "chunk_ms_max", "repair_ms_max", "record_ms", "wall_ms", "repair_pairs")   # + db_started_at(시각) — 머리말 'R7 기록 짝'
+
+
+def safety_pairing(sruns, rruns, ssrc, w0=None, w1=None):
+    """R7 기록 짝(머리말 'ADR-012 추가'): 안전망 출처 ssrc의 counter_reconcile_run 행(started_at이 [w0, w1) — 기록 앱 시계, 창이 없으면 전부)마다
+    같은 run_id의 counter_safety_run 행 + 필수 열(R7_REQUIRED는 수 · db_started_at은 시각). 반환 {reconcile_runs, missing, incomplete, orphan_safety, *_ids}.
+    orphan_safety = 창 안(db_started_at) 안전망 행인데 같은 id의 counter_reconcile_run(ssrc)이 없는 것 — 기록만."""
+    by_id = {}
+    for r in sruns or []:
+        by_id.setdefault(r.get("run_id"), r)
+    rr = [r for r in rruns or [] if r.get("source") == ssrc and _tsn(r.get("started_at")) is not None
+          and (w0 is None or w0 <= _tsn(r["started_at"]) < w1)]
+    miss = [r.get("id") for r in rr if r.get("id") not in by_id]
+    bad = [r.get("id") for r in rr if r.get("id") in by_id
+           and (_tsn(by_id[r["id"]].get("db_started_at")) is None or any(not isinstance(by_id[r["id"]].get(k), (int, float)) for k in R7_REQUIRED))]
+    ids = {r.get("id") for r in rruns or [] if r.get("source") == ssrc}
+    orphan = [r.get("run_id") for r in sruns or [] if r.get("run_id") not in ids and _tsn(r.get("db_started_at")) is not None
+              and (w0 is None or w0 <= _tsn(r["db_started_at"]) < w1)]
+    return {"reconcile_runs": len(rr), "missing": len(miss), "incomplete": len(bad), "orphan_safety": len(orphan),
+            "missing_ids": miss[:20], "incomplete_ids": bad[:20], "orphan_ids": orphan[:20]}
+
+
+def safety_pair_check(rep_dir, ssrc, k6_started, k6_ended):
+    """run.sh safety-record-missing(머리말 'R7 기록 짝') — k6 구간(PC 시계 + 시계 차)의 안전망 실행이 모두 짝·필수 열을 갖췄으면 exit 0. drift-db.json을 못 읽으면 1."""
+    db = load(Path(rep_dir) / "drift-db.json")
+    if not isinstance(db, dict) or not isinstance(db.get("safety_runs"), list) or not isinstance(db.get("reconcile_runs"), list):
+        print("safety-pair-check: drift-db.json safety_runs·reconcile_runs 없음", file=sys.stderr)
+        return 1
+    off, _ = clock_off(rep_dir)
+    w0, w1 = ts(k6_started) + (off or 0), ts(k6_ended) + (off or 0)
+    p = safety_pairing(db["safety_runs"], db["reconcile_runs"], ssrc, w0, w1)
+    print(f"safety-pair-check: {ssrc} {p}", file=sys.stderr)
+    return 0 if p["missing"] == 0 and p["incomplete"] == 0 else 1
+
+
+def safety_r7(sruns, knobs, self_record_ms, w0=None, w1=None, rruns=None, ssrc=None):
     """R7(rv41 반영 허용식 — §5 R7 행) — counter_safety_run 실행마다(db_started_at이 [w0, w1) 안인 것만 — DB 시계):
       ① db_ms_total > budget_ms + chunk_ms_max + repair-budget + repair_ms_max + record_ms + 자기 기록 INSERT(지표 seat.hold.counter.safety.self_record 최대값) ·
       ② wall_ms > wall-cap · ③ repair_pairs > repair-cap · ④ chunk_ms_max > 500 · ⑤ 첫 5분([w0, w0 + 300)) 대비 마지막 5분([w1 − 300, w1)) 실행당 db_ms_total 중앙값
-      2배 이상 그리고 +200ms 이상. 창이 없으면 ⑤는 실행 시각 첫·끝 300초. 기록만: sample_db_ms · 이월(carry_in·out·dropped) · reread_left · 갈래별 청크 수 · 바퀴 · 적체 · 건너뜀."""
+      2배 이상 그리고 +200ms 이상. 창이 없으면 ⑤는 실행 시각 첫·끝 300초. 기록만: sample_db_ms · 이월(carry_in·out·dropped) · reread_left · 갈래별 청크 수 · 바퀴 · 적체 · 건너뜀.
+      판정 불가(undecidable — 사유 문자열, 판정 가능이면 None): 창 안 실행 0(no-safety-runs) · rruns·ssrc가 주어졌으면 기록 짝(safety_pairing)의 짝 없음·필수 열 없음
+      (safety-record-missing). 판정 불가여도 셀 수 있는 값은 그대로 낸다(위반 수를 '없음'으로 읽지 않게 undecidable을 함께 본다).
+      self_record_ms는 회차 최대의 하한(머리말) — self_record_is_lower_bound."""
+    pairing = safety_pairing(sruns, rruns, ssrc, w0, w1) if rruns is not None and ssrc else None
+    why = []
+    if pairing and (pairing["missing"] or pairing["incomplete"]):
+        why.append(f"safety-record-missing(짝 없음 {pairing['missing']} · 필수 열 없음 {pairing['incomplete']} / 안전망 실행 {pairing['reconcile_runs']})")
     rs = sorted((r for r in sruns if _tsn(r.get("db_started_at")) is not None), key=lambda r: _tsn(r["db_started_at"]))
     if w0 is not None:
         rs = [r for r in rs if w0 <= _tsn(r["db_started_at"]) < w1]
+    part = [r for r in rs if not all(isinstance(r.get(k), (int, float)) for k in R7_REQUIRED)]
+    if part and pairing is None:   # 짝 검사가 없어도 필수 열 없는 행을 조용히 빼지 않는다
+        why.append(f"safety-record-missing(필수 열 없음 {len(part)})")
+    rs = [r for r in rs if r not in part]
     if not rs:
-        return {"runs": 0}
+        why.append("no-safety-runs(창 안 counter_safety_run 실행 0)")
+        return {"runs": 0, "undecidable": " · ".join(why), "pairing": pairing, "self_record_ms": self_record_ms, "self_record_is_lower_bound": True}
     sr = self_record_ms or 0
     tol = lambda r: (r.get("budget_ms") or 0) + (r.get("chunk_ms_max") or 0) + knobs["repairBudget"] + (r.get("repair_ms_max") or 0) + (r.get("record_ms") or 0) + sr
     v1 = [r for r in rs if (r.get("db_ms_total") or 0) > tol(r)]
@@ -1379,7 +1500,8 @@ def safety_r7(sruns, knobs, self_record_ms, w0=None, w1=None):
     num = lambda k: [r.get(k) for r in rs if isinstance(r.get(k), (int, float))]
     lag = [max(0, (r.get("hold_head") or 0) - (r.get("recent_hold_cursor") or 0)) + max(0, (r.get("res_head") or 0) - (r.get("recent_res_cursor") or 0)) for r in rs]
     st = lambda xs: {"median": med(xs), "max": max(xs) if xs else None}
-    return {"runs": len(rs), "self_record_ms": self_record_ms,
+    return {"runs": len(rs), "self_record_ms": self_record_ms, "self_record_is_lower_bound": True,
+            "undecidable": " · ".join(why) or None, "pairing": pairing,
             "v1_db_over_tol": len(v1), "v2_wall_over_cap": len(v2), "v3_pairs_over_cap": len(v3), "v4_chunk_over_500": len(v4),
             "v5_trend": trend, "first5_db_ms": first, "last5_db_ms": last,
             "v1_runs": [[r.get("run_id"), r.get("db_ms_total"), round(tol(r), 1)] for r in v1][:20],
@@ -2008,7 +2130,7 @@ def a12_inc_record(rep_dir, meta, db, window, off, snaps):
     srec = self_record_max_ms(snaps) if meta.get("cond") == "A+I" else None
     w0, w1 = (window[0] + off, window[1] + off) if window else (None, None)
     return {"sources": expected_sources(meta), "knobs": knobs, "knob_source": ksrc,
-            "r7_k6": safety_r7(db.get("safety_runs") or [], knobs, srec, w0, w1),
+            "r7_k6": safety_r7(db.get("safety_runs") or [], knobs, srec, w0, w1, db.get("reconcile_runs") or [], ssrc),
             "r2_k6": inc_r2(db.get("reconcile_runs"), src, w0, w1) if src and w0 is not None else None,
             "safety_source": ssrc, "gaps": gap_counts(db.get("inc_gaps") or [], src),
             "self_record_note": None if srec is not None else ("외부 앱 지표(task 07)" if meta.get("cond") == "A+X" else "self_record 지표 없음 — 허용식에 0")}
@@ -2224,17 +2346,20 @@ def main(root):
         lines.extend(["## ADR-012 2단계 — 증분 틱 · 안전망(R7 — k6 구간) · 보장 밖 기록(회차별)", "",
                       "> 증분 = 그 셀 source의 counter_reconcile_run(틱 수 · 틱 ms 중앙/최대 · R2 첫 5분 → 마지막 5분 중앙 ms — k6 구간 기준, 30분 판정은 tail.py). "
                       "R7 = counter_safety_run 실행(①허용식 초과 · ②벽시계 > wall-cap · ③복구 쌍 > repair-cap · ④청크 > 500ms · ⑤추세 — summarize.safety_r7). "
+                      "R7 판정 불가 = 창 안 실행 0 · 기록 짝 없음(safety-record-missing — 머리말) — 그 회차의 ①~⑤ 수는 '위반 없음'으로 읽지 않는다. "
+                      "자기 기록 INSERT ms = 지표 safety.self_record MAX(최근 약 2분 창)의 스냅숏 최대 — 회차 최대의 **하한**. "
                       "보장 밖 = counter_inc_gap 종류별 행 수(쌍 수).", "",
-                      "| 셀 | 회차 | status | 증분 source | 틱 수 · ms 중앙/최대 | R2 첫5 → 끝5 ms | 안전망 실행 | R7 ①·②·③·④ · ⑤ | db_ms 중앙/최대 | 청크 최대 ms | 바퀴(완료) · 적체 최대 id | 이월 최대 · 넘침 | 보장 밖(kind 행·쌍) |",
-                      "|" + "---|" * 13])
+                      "| 셀 | 회차 | status | 증분 source | 틱 수 · ms 중앙/최대 | R2 첫5 → 끝5 ms | 안전망 실행 | R7 판정 불가 | R7 ①·②·③·④ · ⑤ | db_ms 중앙/최대 | 청크 최대 ms | 자기 기록 INSERT ms(하한) | 바퀴(완료) · 적체 최대 id | 이월 최대 · 넘침 | 보장 밖(kind 행·쌍) |",
+                      "|" + "---|" * 15])
         for (level, cell), r in a12:
             a = r["a12_inc"]
             r2, r7 = a.get("r2_k6") or {}, a.get("r7_k6") or {}
             gp = "; ".join(f"{k} {v['rows']}·{v['pairs']}" for k, v in sorted((a.get("gaps") or {}).items())) or "0"
             lines.append(f"| {cell} | {r['rep']} | {r['status']} | {(a.get('sources') or ['-'])[0]} | {f(r2.get('ticks'))} · {f(r2.get('tick_ms_median'), 1)}/{f(r2.get('tick_ms_max'), 1)} | "
-                         f"{f(r2.get('first5_ms'), 1)} → {f(r2.get('last5_ms'), 1)}{' 반증' if r2.get('violation') else ''} | {f(r7.get('runs'))} | "
+                         f"{f(r2.get('first5_ms'), 1)} → {f(r2.get('last5_ms'), 1)}{' 반증' if r2.get('violation') else ''} | {f(r7.get('runs'))} | {r7.get('undecidable') or '-'} | "
                          f"{f(r7.get('v1_db_over_tol'))}·{f(r7.get('v2_wall_over_cap'))}·{f(r7.get('v3_pairs_over_cap'))}·{f(r7.get('v4_chunk_over_500'))} · {'반증' if r7.get('v5_trend') else '-'} | "
                          f"{f((r7.get('db_ms_total') or {}).get('median'), 1)}/{f((r7.get('db_ms_total') or {}).get('max'), 1)} | {f((r7.get('chunk_ms_max') or {}).get('max'), 1)} | "
+                         f"{('≥ ' + f(r7.get('self_record_ms'), 1)) if r7.get('self_record_ms') is not None else '없음'} | "
                          f"{f(r7.get('laps_completed'))} · {f((r7.get('lag_ids') or {}).get('max'))} | {f(r7.get('carry_out_max'))} · {f(r7.get('carry_dropped'))} | {gp} |")
         lines.append("")
     cls = [(k, r) for k, reps in cells.items() for r in reps if r.get("close")]
@@ -2302,6 +2427,8 @@ if __name__ == "__main__":
         sys.exit(pre_k6_finish(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--gc":
         sys.exit(gc_report(sys.argv[2]))
+    if len(sys.argv) == 6 and sys.argv[1] == "--safety-pair-check":   # ADR-012: <회차> <안전망 source> <k6 시작> <k6 끝>
+        sys.exit(safety_pair_check(*sys.argv[2:]))
     if len(sys.argv) in (6, 7) and sys.argv[1] == "--runs-in-window":
         sys.exit(runs_in_window(*sys.argv[2:]))
     main(sys.argv[1])
