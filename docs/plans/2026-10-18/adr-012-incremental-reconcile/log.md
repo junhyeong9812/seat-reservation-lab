@@ -63,6 +63,7 @@
 | 10-20 13:00 | 06b~06e 워커(Opus) 회수: 97af1361(06b 손잡이·V9 2곳·V10 3테이블·기동 검사) · b0c670c4(06c ChunkDetector·QuotaSelector·PairRepairRunner·IncrementalReconciler·창·메모리 집합·ⓒ 문장·스케줄러) · 0b83c1e7(06d 안전망) · b668176d(06e 주입·후보 시각·숨은 세션 SQL) · 50faccc5(blind 투입 — 원본과 바이트 같음) · 조각마다 536/0/0 · blind 112 중 107 통과·5 실패(재실행 2회 같음) → 메인 확인: 5개 모두 테스트 전제 오류(틱 뒤 기록 조회가 빌림 1 더함 · 1인 한도 2인데 시드 cnt 3·5 · 같은 행 2·3번째 대기자는 pg_blocking_pids에 앞 대기자) → d79dc3d7 전제만 수정(단언 무변경) · 워커 판단 6건 → ADR §4.2.13 #19~24 · configprops 기존 18키 무변경·새 23키는 incremental·safetyNet·injectApp 아래만 · 전체 테스트 재실행 + 코드 듀얼 리뷰 rv43(Opus ∥ codex) | 진행 |
 | 10-20 11:35 | 메인 전체 테스트(d79dc3d7 --rerun): suites 143 · **648/0/0/0** · rv43 회수(codex 높음 1·중간 2 · Opus 중간 3·낮음 6 — 겹침 정리 8건) → 수정 워커(Opus) | 진행 |
 | 10-20 11:35 | 기록 주: 이 log의 '10-20 11:15'·'10-20 13:00' 행 시각은 추정으로 적었다(실제 각각 약 10:45·11:20 — 셸 date 기준). 이후 행은 date로 확인해 적는다 | — |
+| 10-20 11:49 | 06g 하네스 워커(Opus) 회수 7fcfaaff(run.sh A+I·A+X · --incremental·--incremental-interval·--inject-app · Flyway 조합 · 회차 사유 5종 · lib.sh path='db' 주입 기록·V10 덤프·db_schema·quota_hot · external_app_* stub · campaign adr012s2 24회 14.5h·adr012s2x 21회 12.7h(--m2-cell 필수)·adr012eff 30회 11.5h · summarize effect R4·R6·보장 밖·R7·R2 · tail 7절 · actsnap) · 워커 검증: 기존 10세트 dry-run 같음 · run.sh 48조건 plan·compose config 같음 · TAIL 3캠페인 같음 · postgres:16 임시 컨테이너로 SQL 확인 · 메인 판단 2: ① 효과 세트를 M2(adr012eff 6셀)·M3(adr012effx 4셀)로 나눔(M2 효과를 .158 전에 측정) ② 앱 주입기는 시드 초기화 때 주입 상태·counter_app_inject를 비우고 예열 사용자 범위(900000~)를 주입하지 않음 → 앱·하네스 후속 수정 · 06g 듀얼 리뷰 rv44(Opus ∥ codex) | 진행 |
 
 ## 리뷰 ledger
 
