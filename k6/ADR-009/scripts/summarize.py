@@ -1428,7 +1428,7 @@ R7_CHUNK_MS, R7_TREND_X, R7_TREND_MS = 500, 2.0, 200   # §5 R7 ④ 청크 > 500
 R2_TREND_X, R2_TREND_MS = 2.0, 20                      # §5 R2 — 2배 이상 그리고 +20ms 이상
 
 
-R7_REQUIRED = ("budget_ms", "db_ms_total", "chunk_ms_max", "repair_ms_max", "record_ms", "wall_ms", "repair_pairs")   # + db_started_at(시각) — 머리말 'R7 기록 짝'
+R7_REQUIRED = ("budget_ms", "db_ms_total", "db_ms_open", "chunk_ms_max", "repair_ms_max", "record_ms", "wall_ms", "repair_pairs")   # + db_started_at(시각) — 머리말 'R7 기록 짝'
 
 
 def safety_pairing(sruns, rruns, ssrc, w0=None, w1=None):
@@ -1486,7 +1486,10 @@ def safety_r7(sruns, knobs, self_record_ms, w0=None, w1=None, rruns=None, ssrc=N
         why.append("no-safety-runs(창 안 counter_safety_run 실행 0)")
         return {"runs": 0, "undecidable": " · ".join(why), "pairing": pairing, "self_record_ms": self_record_ms, "self_record_is_lower_bound": True}
     sr = self_record_ms or 0
-    tol = lambda r: (r.get("budget_ms") or 0) + (r.get("chunk_ms_max") or 0) + knobs["repairBudget"] + (r.get("repair_ms_max") or 0) + (r.get("record_ms") or 0) + sr
+    # R7 ① 탐지 몫(ADR-012 §5 R7 rv43 줄): max(예산 + chunk_ms_max, db_ms_open + 예산/2 + 3 × chunk_ms_max) — 갈래(다시 읽기·최근 창·전체 커서)마다 첫 블록 강제
+    det = lambda r: max((r.get("budget_ms") or 0) + (r.get("chunk_ms_max") or 0),
+                        (r.get("db_ms_open") or 0) + (r.get("budget_ms") or 0) / 2 + 3 * (r.get("chunk_ms_max") or 0))
+    tol = lambda r: det(r) + knobs["repairBudget"] + (r.get("repair_ms_max") or 0) + (r.get("record_ms") or 0) + sr
     v1 = [r for r in rs if (r.get("db_ms_total") or 0) > tol(r)]
     v2 = [r for r in rs if (r.get("wall_ms") or 0) > knobs["wallCap"]]
     v3 = [r for r in rs if (r.get("repair_pairs") or 0) > knobs["repairCap"]]
