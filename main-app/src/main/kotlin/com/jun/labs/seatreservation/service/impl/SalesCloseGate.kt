@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.service.impl
 import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.impl.drift.ScheduleClosure
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
@@ -71,7 +72,7 @@ class SalesCloseGate(
     }
 
     companion object {
-        /** 마감 = now >= starts_at (시작 정각에는 이미 마감). */
-        fun isClosed(startsAt: Instant, now: Instant): Boolean = !now.isBefore(startsAt)
+        /** 마감 = now >= starts_at (시작 정각에는 이미 마감). 판정식은 core [ScheduleClosure] 한 곳(ADR-012 §4.2.1). */
+        fun isClosed(startsAt: Instant, now: Instant): Boolean = ScheduleClosure.isClosed(startsAt, now)
     }
 }
