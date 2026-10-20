@@ -35,6 +35,8 @@ fun IncrementalTestBase.bulkPairs(scheduleId: Long, from: Long, to: Long, cnt: I
  *   db_ms_total ≤ budget + chunk_ms_max + repair-budget + repair_ms_max + record_ms · repair_pairs ≤ repair-cap ·
  *   db_ms_total = 열린 회차 조회 + 다시 읽기 + 최근 창 + 전체 + 복구 + 기록 · 다시 읽기는 최근 창 몫(앞 절반) · 최근 창이 앞 절반을 먼저 ·
  *   다 보면 남은 예산은 전체 커서로 · 표본 DB 시간은 sample_db_ms에만.
+ * (rv43 — §4.2.13 #5/#10 반영) 허용식의 탐지 몫 = max(budget + chunk_ms_max, db_ms_open + budget/2 + 3 × chunk_ms_max) — 갈래(다시 읽기 · 최근 창 · 전체)마다
+ *   실행당 첫 블록은 예산과 무관하게 돈다(#10). 합계는 #5 한 읽기만: db_ms_reread는 db_ms_recent에 들지 않는 따로 열.
  * 예산을 30ms로 줄이고 청크를 작게 해 예산이 실제로 멈추게 한다.
  */
 @TestPropertySource(
@@ -51,18 +53,19 @@ class SafetyBudgetTest : IncrementalTestBase() {
     private fun assertBudgetRow(r: Map<String, Any?>) {
         assertEquals(30L, r.long("budget_ms"), "$r")
         val total = r.long("db_ms_total")
+        // (rv43 — §4.2.13 #5/#10 반영) 갈래마다 첫 블록 강제(≤ 3 × chunk_ms_max) — 탐지 몫 = max(budget + c, open + budget/2 + 3c) · +5 = 항마다 ms 내림(1ms 미만씩)
+        val budget = r.long("budget_ms")
+        val c = r.long("chunk_ms_max")
+        val detection = maxOf(budget + c, r.long("db_ms_open") + budget / 2 + 3 * c)
         assertTrue(
-            total <= r.long("budget_ms") + r.long("chunk_ms_max") + repairBudgetMs + r.long("repair_ms_max") + r.long("record_ms") + 1,
+            total <= detection + repairBudgetMs + r.long("repair_ms_max") + r.long("record_ms") + 5,
             "R7 허용식 위반: $r",
         )
         assertTrue(r.long("repair_pairs") <= repairCap, "$r")
-        // 합계 = 갈래 합. db_ms_reread가 db_ms_recent에 들어 있는지(최근 창 몫에 듦)는 계약이 열 뜻만 정한다 — 두 읽기 모두 허용(모호 — 보고)
-        val parts = r.long("db_ms_open") + r.long("db_ms_recent") + r.long("db_ms_full") + r.long("repair_ms") + r.long("record_ms")
+        // (rv43 — §4.2.13 #5/#10 반영) 합계 = 갈래 합 — #5: db_ms_reread는 따로 열(db_ms_recent에 넣지 않음) · 한 읽기만 허용
+        val parts = r.long("db_ms_open") + r.long("db_ms_reread") + r.long("db_ms_recent") + r.long("db_ms_full") + r.long("repair_ms") + r.long("record_ms")
         val tol = 6L                      // 블록마다 ms 반올림
-        assertTrue(
-            abs(total - parts) <= tol || abs(total - (parts + r.long("db_ms_reread"))) <= tol,
-            "db_ms_total ≠ 열린 회차 + (다시 읽기) + 최근 창 + 전체 + 복구 + 기록: $r",
-        )
+        assertTrue(abs(total - parts) <= tol, "db_ms_total ≠ 열린 회차 + 다시 읽기 + 최근 창 + 전체 + 복구 + 기록: $r")
         assertTrue(r.long("wall_ms") >= 0 && r.long("sample_db_ms") >= 0, "$r")
         assertEquals(SAFETY_APP, r["run_source"], "같은 run_id의 counter_reconcile_run 1행(source safety-app): $r")
     }
