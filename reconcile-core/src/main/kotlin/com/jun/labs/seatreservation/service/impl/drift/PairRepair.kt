@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.service.impl.drift
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.sql.Timestamp
@@ -35,6 +36,14 @@ object DriftSource {
     const val RECONCILE_PROC = "reconcile-proc"
 }
 
+/**
+ * 쿼터 행을 쓴 뒤 부르는 이음새(ADR-012 §4.2.1 · §4.2.2 ⓐ) — 업무 앱의 메모리 집합(ⓐ)이 빈을 둔다. 빈이 없으면(외부 앱) 아무것도 하지 않는다.
+ * 트랜잭션 안에서 불리면 구현이 커밋 뒤에만 등록한다(§3-1).
+ */
+fun interface QuotaChangeListener {
+    fun changed(scheduleId: Long, userId: Long)
+}
+
 /** skipped 사유 — SQLSTATE, 없으면 예외 종류(열 폭 40). main-app의 만료 A(ExpiryCounters)도 부르므로 `public`(ADR-012 §4.2.1). */
 fun skipReason(e: Throwable): String = (sqlStateOf(e) ?: e::class.simpleName ?: "unknown").take(40)
 
@@ -48,7 +57,12 @@ fun skipReason(e: Throwable): String = (sqlStateOf(e) ?: e::class.simpleName ?: 
 class PairRepair(
     private val jdbc: JdbcTemplate,
     private val recorder: CounterDriftRecorder,
+    /** ⓒ(method=stmt)면 복구 UPDATE가 `updated_at = now()`를 함께 쓴다(ADR-012 §4.2.2 ⓒ 4) — 아니면 지금 문장 그대로 */
+    properties: ReconcileProperties,
+    private val listener: ObjectProvider<QuotaChangeListener>,
 ) {
+    private val updateSql = if (properties.incremental.method == IncrementalMethod.STMT) UPDATE_CNT_STMT_SQL else UPDATE_CNT_SQL
+
     /**
      * @param excludeHoldIds 실제 값에서 뺄 홀드(A: 이번 틱에 지울 홀드 — flush 전이라 아직 행이 있다)
      * @param pendingDecrement 이 트랜잭션이 곧 반영할 감소량(A: 지울 홀드 수, C·F: 0). 잠근 cnt = 실제 + 이 값이면 어긋남이 아니었다(오탐).
@@ -80,8 +94,10 @@ class PairRepair(
         }
         val actual = actualOf(jdbc, scheduleId, userId, excludeHoldIds)
         if (locked != actual) {
-            jdbc.update("UPDATE user_hold_quota SET cnt = ? WHERE schedule_id = ? AND user_id = ?", actual, scheduleId, userId)
+            jdbc.update(updateSql, actual, scheduleId, userId)
         }
+        // 쿼터 행을 썼으면(INSERT 또는 UPDATE) 증분 등록 이음새 — 메모리 집합은 커밋 뒤에만 넣는다(§4.2.2 ⓐ 등록 지점 표)
+        if (inserted || locked != actual) listener.ifAvailable { it.changed(scheduleId, userId) }
         val action = if (locked == actual + pendingDecrement) DriftAction.FALSE_POSITIVE else DriftAction.REPAIRED
         val outcome = DriftOutcome(
             source = source, scheduleId = scheduleId, userId = userId, kind = kind,
@@ -96,6 +112,10 @@ class PairRepair(
     ).singleOrNull()
 
     companion object {
+        private const val UPDATE_CNT_SQL = "UPDATE user_hold_quota SET cnt = ? WHERE schedule_id = ? AND user_id = ?"
+        /** ⓒ 앱 문장(ADR-012 §4.2.2 ⓒ 4) — V9 문장 위치의 열이 있어야 한다(기동 검사) */
+        private const val UPDATE_CNT_STMT_SQL = "UPDATE user_hold_quota SET cnt = ?, updated_at = now() WHERE schedule_id = ? AND user_id = ?"
+
         /** 실제 값 = 홀드 행 + CONFIRMED 예약(판정기·V6와 같은 정의) — 한 문장(한 스냅숏). */
         fun actualOf(jdbc: JdbcTemplate, scheduleId: Long, userId: Long, excludeHoldIds: Collection<Long> = emptyList()): Int {
             // id는 Long이라 리터럴로 넣어도 주입 위험이 없다(배열 바인딩을 피한다)

@@ -10,6 +10,8 @@ import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
+import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
+import com.jun.labs.seatreservation.service.impl.drift.MemoryChangedPairs
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.jdbc.core.JdbcTemplate
@@ -124,19 +126,21 @@ class AdvisoryTryEarlyUserLimit(policy: HoldLimitPolicy, properties: SeatHoldPro
  * 남는 틈: 마감 경계에서 이 INSERT(열림)와 트랜잭션 안 판정(마감) 사이에 시각이 넘어가면 마감 회차에 cnt 0 행이 남을 수 있다 — 그 회차는
  * 판정기·대조에서 빠지고 정리 ①이 지운다(정리를 허용하는 방식이면).
  */
-private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand, salesClose: SalesCloseGate) {
+private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand, salesClose: SalesCloseGate, changes: MemoryChangedPairs? = null) {
     val exists = jdbc.queryForList(
         "SELECT 1 FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", command.scheduleId, command.userId,
     ).isNotEmpty()
     if (exists) return
     if (!salesClose.enabled) {
-        jdbc.update(
+        val inserted = jdbc.update(
             "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
             command.scheduleId, command.userId,
         )
+        // ADR-012 ⓐ 등록 지점 — 자동 커밋(이미 커밋됨)이라 바로 넣는다. method ≠ memory면 아무것도 하지 않는다
+        if (inserted == 1) changes?.changed(command.scheduleId, command.userId)
         return
     }
-    jdbc.update(
+    val inserted = jdbc.update(
         """
         INSERT INTO user_hold_quota (schedule_id, user_id)
         SELECT ?, ? WHERE EXISTS (SELECT 1 FROM product_schedule WHERE id = ? AND starts_at > ?)
@@ -144,6 +148,7 @@ private fun ensureQuotaRow(jdbc: JdbcTemplate, command: HoldSeatCommand, salesCl
         """.trimIndent(),
         command.scheduleId, command.userId, command.scheduleId, Timestamp.from(salesClose.now()),
     )
+    if (inserted == 1) changes?.changed(command.scheduleId, command.userId)
 }
 
 /** L3 — (회차, 사용자) 쿼터 행 `FOR UPDATE`: 같은 사용자의 다음 요청은 행 락을 기다린 뒤 센다. */
@@ -222,16 +227,17 @@ class CounterUserLimit(
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
     private val salesClose: SalesCloseGate,
+    private val changes: MemoryChangedPairs,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
     override val hasPrepare = true
-    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command, salesClose)
+    /** ADR-012 ⓒ(method=stmt)면 `updated_at = now()`를 함께 쓰는 별도 문장 — 아니면 지금 문자열 그대로(§4.2 공통 원칙 ②) */
+    private val incrementSql = if (properties.counterDrift.reconcile.incremental.method == IncrementalMethod.STMT) COUNTER_INC_STMT_SQL else COUNTER_INC_SQL
+    override fun prepare(command: HoldSeatCommand) = ensureQuotaRow(jdbc, command, salesClose, changes)
     override fun acquire(command: HoldSeatCommand): Boolean {
-        val updated = jdbc.update(
-            "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?",
-            command.scheduleId, command.userId, properties.maxPerUser,
-        )
+        val updated = jdbc.update(incrementSql, command.scheduleId, command.userId, properties.maxPerUser)
         if (updated == 0) limitExceeded()
+        changes.changed(command.scheduleId, command.userId) // ⓐ 등록(커밋 뒤) — method ≠ memory면 바로 돌아온다
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -251,10 +257,13 @@ class CounterUpsertUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
+    private val changes: MemoryChangedPairs,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT
+    private val upsertSql = upsertSqlFor(properties)
     override fun acquire(command: HoldSeatCommand): Boolean {
-        if (!upsertQuota(jdbc, command, properties.maxPerUser)) limitExceeded()
+        if (!upsertQuota(jdbc, upsertSql, command, properties.maxPerUser)) limitExceeded()
+        changes.changed(command.scheduleId, command.userId)
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -262,14 +271,28 @@ class CounterUpsertUserLimit(
 }
 
 /** 한 문장 upsert — true = 올렸다(통과), false = 상한(0행). counter-upsert·counter-upsert-precheck 공용. */
-private fun upsertQuota(jdbc: JdbcTemplate, command: HoldSeatCommand, maxPerUser: Int): Boolean = jdbc.update(
-    """
+private fun upsertQuota(jdbc: JdbcTemplate, sql: String, command: HoldSeatCommand, maxPerUser: Int): Boolean =
+    jdbc.update(sql, command.scheduleId, command.userId, maxPerUser) == 1
+
+private val UPSERT_SQL = """
     INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
     ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1
     WHERE user_hold_quota.cnt + 1 <= ?
-    """.trimIndent(),
-    command.scheduleId, command.userId, maxPerUser,
-) == 1
+""".trimIndent()
+
+/** ADR-012 ⓒ 2 — DO UPDATE 갈래만 `updated_at = now()`(INSERT 갈래는 열 기본값) */
+private val UPSERT_STMT_SQL = """
+    INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (?, ?, 1)
+    ON CONFLICT (schedule_id, user_id) DO UPDATE SET cnt = user_hold_quota.cnt + 1, updated_at = now()
+    WHERE user_hold_quota.cnt + 1 <= ?
+""".trimIndent()
+
+private fun upsertSqlFor(properties: SeatHoldProperties) =
+    if (properties.counterDrift.reconcile.incremental.method == IncrementalMethod.STMT) UPSERT_STMT_SQL else UPSERT_SQL
+
+private const val COUNTER_INC_SQL = "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?"
+/** ADR-012 ⓒ 1 */
+private const val COUNTER_INC_STMT_SQL = "UPDATE user_hold_quota SET cnt = cnt + 1, updated_at = now() WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?"
 
 /**
  * ADR-007 — counter-upsert 앞에 **잠금 없는** 좌석 상태 선조회를 둔다. ADR-006 S3에서 실패 시도(대부분 이미 팔린 좌석)마다
@@ -283,14 +306,17 @@ class CounterUpsertPrecheckUserLimit(
     private val properties: SeatHoldProperties,
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
+    private val changes: MemoryChangedPairs,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK
+    private val upsertSql = upsertSqlFor(properties)
     override fun acquire(command: HoldSeatCommand): Boolean {
         assertSeatAvailable(jdbc, command)
-        if (!upsertQuota(jdbc, command, properties.maxPerUser)) {
+        if (!upsertQuota(jdbc, upsertSql, command, properties.maxPerUser)) {
             assertSeatAvailable(jdbc, command) // 선조회 뒤 팔렸으면 좌석 불가가 먼저
             limitExceeded()
         }
+        changes.changed(command.scheduleId, command.userId)
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -321,6 +347,7 @@ class CounterTriggerUserLimit(
     private val counters: ExpiryCounters,
     private val clock: Clock,
     private val salesClose: SalesCloseGate,
+    private val changes: MemoryChangedPairs,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_TRIGGER
 
@@ -344,6 +371,7 @@ class CounterTriggerUserLimit(
             assertSeatAvailable(jdbc, command) // 잠금을 기다린 사이 팔렸으면 좌석 불가가 먼저
             limitExceeded()
         }
+        changes.changed(command.scheduleId, command.userId) // 행 증가는 트리거가 같은 트랜잭션에서 — ⓐ 등록(커밋 뒤)
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -368,6 +396,7 @@ class CounterTriggerUserLimit(
                 val n = byPair.getValue(s to u)
                 if (cnt == null) counters.noteTriggerAttempt(s, u, null)
                 else if (cnt < n) counters.noteTriggerAttempt(s, u, cnt)
+                changes.changed(s, u) // 트리거가 감소한다 — ⓐ 등록(커밋 뒤)
             }
         }
     }

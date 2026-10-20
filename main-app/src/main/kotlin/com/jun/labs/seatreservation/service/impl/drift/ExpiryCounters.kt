@@ -24,7 +24,13 @@ class ExpiryCounters(
     private val repair: PairRepair,
     private val recorder: CounterDriftRecorder,
     tx: TransactionTemplate,
+    private val changes: MemoryChangedPairs,
 ) {
+    /** ADR-012 ⓒ 3(method=stmt) — 감소 문장이 `updated_at = now()`를 함께 쓴다. 아니면 지금 문자열 그대로 */
+    private val stmt = properties.counterDrift.reconcile.incremental.method == IncrementalMethod.STMT
+    private val guardSql = if (stmt) GUARD_STMT_SQL else GUARD_SQL
+    private val legacySql = if (stmt) LEGACY_STMT_SQL else LEGACY_SQL
+
     /** skipped 기록용 — 롤백된 만료 트랜잭션과 독립(REQUIRES_NEW: 호출 시점에 바깥 트랜잭션이 없어도 같은 동작). */
     private val independentTx = TransactionTemplate(tx.transactionManager!!).apply {
         propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
@@ -44,11 +50,9 @@ class ExpiryCounters(
         byPair.keys.sortedWith(compareBy({ it.first }, { it.second })).forEach { key ->
             val holds = byPair.getValue(key)
             val n = holds.size
-            val updated = jdbc.update(
-                "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ? AND cnt >= ?",
-                n, key.first, key.second, n,
-            )
+            val updated = jdbc.update(guardSql, n, key.first, key.second, n)
             if (updated == 0) repairPair(key.first, key.second, holds)
+            else changes.changed(key.first, key.second) // ⓐ 등록(커밋 뒤) — 복구 갈래는 PairRepair가 등록한다
         }
     }
 
@@ -79,13 +83,11 @@ class ExpiryCounters(
     private fun legacyDecrement(expired: List<SeatHold>) {
         // 실제로 지운 홀드에서 센다 — 만료 대상 조회를 따로 하면 그 사이 확정된 홀드까지 내릴 수 있다
         expired.groupingBy { it.scheduleId to it.userId }.eachCount().forEach { (key, n) ->
-            val updated = jdbc.update(
-                "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?",
-                n, key.first, key.second,
-            )
+            val updated = jdbc.update(legacySql, n, key.first, key.second)
             // 카운터 행이 없으면 카운터가 이미 어긋난 것 — 조용히 넘기지 않는다(cnt < 0은 CHECK 제약이 막는다)
             // 한계: 어긋난 쌍 하나가 이 만료 배치 트랜잭션 전체를 실패시킨다 — 후보 A(expiry-repair)를 켜면 그 쌍만 복구한다(ADR-009)
             check(updated == 1) { "카운터 행 없음: 회차 ${key.first} 사용자 ${key.second}" }
+            changes.changed(key.first, key.second)
         }
     }
 
@@ -131,5 +133,9 @@ class ExpiryCounters(
 
     companion object {
         private val log = LoggerFactory.getLogger(ExpiryCounters::class.java)
+        private const val GUARD_SQL = "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ? AND cnt >= ?"
+        private const val GUARD_STMT_SQL = "UPDATE user_hold_quota SET cnt = cnt - ?, updated_at = now() WHERE schedule_id = ? AND user_id = ? AND cnt >= ?"
+        private const val LEGACY_SQL = "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?"
+        private const val LEGACY_STMT_SQL = "UPDATE user_hold_quota SET cnt = cnt - ?, updated_at = now() WHERE schedule_id = ? AND user_id = ?"
     }
 }

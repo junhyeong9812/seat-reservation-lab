@@ -9,6 +9,7 @@ import com.jun.labs.seatreservation.domain.repository.ReservationRepository
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.ConfirmReservationResult
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
+import com.jun.labs.seatreservation.service.impl.drift.MemoryChangedPairs
 import com.jun.labs.seatreservation.service.impl.limit.ActiveUserLimit
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -25,6 +26,7 @@ class ConfirmReservationService(
     private val reservationRepository: ReservationRepository,
     private val clock: Clock,
     private val userLimit: ActiveUserLimit,
+    private val changes: MemoryChangedPairs,
 ) : ConfirmReservationUseCase {
 
     @Transactional
@@ -47,6 +49,8 @@ class ConfirmReservationService(
                 createdAt = now,
             ),
         )
+        // ADR-012 ⓐ: 확정은 실제 값 쪽만 바꾼다(쿼터 행 그대로) — 앱 경로라 그 쌍을 등록한다(§2.3 '앱 경로면 봄'). method ≠ memory면 아무것도 안 함
+        changes.changed(seat.scheduleId, command.userId)
         return ConfirmReservationResult(
             reservationId = reservation.id!!,
             seatId = seat.id!!,
