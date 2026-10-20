@@ -1,0 +1,45 @@
+# 외부 대조 앱(ADR-012 §4.2.8) — 증분(ⓑⓒ) + 안전망만. 방식(incremental.method)은 기본값을 두지 않는다(none → 기동 실패):
+# 업무 앱과 같은 값을 하네스가 넣는다(SPRING_APPLICATION_JSON — 두 앱 비교는 하네스 incremental-config-mismatch).
+spring:
+  application:
+    name: seat-reservation-reconciler
+  # 기본값을 두지 않는다 — 비밀번호는 환경 변수로만(파일·이미지에 남기지 않는다)
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      # 증분 1 · 안전망 1 · 여유 2(동시 빌림은 스레드 2개뿐 — §4.2.8)
+      maximum-pool-size: 4
+      # pg_stat_activity에서 업무 앱(seatlab-app)·F(seatlab-reconciler)와 가른다 — 하네스 DB_URL의 ApplicationName과 같은 값
+      data-source-properties:
+        ApplicationName: seatlab-reconciler-ext
+  # 스키마는 업무 앱이 만든다 — 같은 IncrementalSchemaCheck로 확인만 한다(기동 검사)
+  flyway:
+    enabled: false
+
+server:
+  port: 8103
+
+# actuator만 연다(앱 엔드포인트 없음) — health · configprops · metrics
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, configprops, metrics
+  endpoint:
+    configprops:
+      show-values: always
+    health:
+      show-details: never
+
+seat:
+  hold:
+    counter-drift:
+      reconcile:
+        # 전체 대조 C는 업무 앱만 — 켜면 기동 실패(§4.2.13 #14)
+        enabled: false
+        incremental:
+          enabled: true
+        safety-net:
+          enabled: true
