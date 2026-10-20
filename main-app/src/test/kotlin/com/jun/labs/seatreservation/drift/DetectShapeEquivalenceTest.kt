@@ -41,7 +41,7 @@ import kotlin.test.assertTrue
  * 손잡이를 무시해도 정답은 맞으므로, 손잡이가 실제로 쓰였다는 것은 바인딩 단언 + 잠금 대기 중인 탐지 문장의 모양(pg_stat_activity)으로 따로 본다.
  * 대조 스케줄러는 끔(IntegrationTest의 PIN_C_OFF 그대로) — 백그라운드 바퀴가 잠금·빌림 단언에 끼지 않는다. runOnce를 직접 부른다.
  */
-typealias DetectShape = SeatHoldProperties.DetectShape
+typealias DetectShape = com.jun.labs.seatreservation.service.impl.drift.DetectShape
 
 /** 테스트가 켤 때만 움직이는 이음새 — 켜지 않으면 아무것도 하지 않는다. */
 class ArmedRepairProbe : CounterRepairProbe {

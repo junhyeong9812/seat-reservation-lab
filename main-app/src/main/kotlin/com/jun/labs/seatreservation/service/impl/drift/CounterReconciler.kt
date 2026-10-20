@@ -1,7 +1,5 @@
 package com.jun.labs.seatreservation.service.impl.drift
 
-import com.jun.labs.seatreservation.service.SeatHoldProperties
-import com.jun.labs.seatreservation.service.SeatHoldProperties.DetectShape
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
@@ -69,7 +67,7 @@ data class ReconcileRun(
 class CounterReconciler(
     private val jdbc: JdbcTemplate,
     private val tx: TransactionTemplate,
-    private val properties: SeatHoldProperties,
+    private val properties: ReconcileProperties,
     private val repair: PairRepair,
     private val recorder: CounterDriftRecorder,
     private val probe: ObjectProvider<CounterRepairProbe>,
@@ -117,7 +115,7 @@ class CounterReconciler(
     }
 
     fun runOnce(source: String): ReconcileRun {
-        val cfg = properties.counterDrift.reconcile
+        val cfg = properties
         val pass = Pass()
         val startedAt = clock.instant()
         val now = Timestamp.from(startedAt)
