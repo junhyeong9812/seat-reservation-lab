@@ -492,7 +492,7 @@ ext_inputs_ok() {
 #   값은 공백·따옴표·셸 특수문자 없는 글자만
 ext_kv_ok() { [[ "$1" =~ ^(INC_METHOD|INC_INTERVAL|INC_TRACK|DETECT_SHAPE|RECONCILER_JVM_OPTS[234]?|RECONCILER_CPUS|RECONCILER_MEM)=[A-Za-z0-9:+._=-]*$ ]]; }
 # '같은 이미지' 지문(라벨 SHA + 층 diff ID) — docker image inspect --format(Env를 찍지 않는다)
-EXT_IMAGE_FMT='{{index .Config.Labels "org.seatlab.sha"}} {{json .RootFS.Layers}}'
+EXT_IMAGE_FMT='{{index .Config.Labels "org.seatlab.sha"}} {{json .RootFS.Layers}} {{json .Config}}'   # 지문 = 라벨 SHA + 층 diff ID + 이미지 설정(실행 명령·환경 — rv46 재점검: 층만 같고 설정이 다른 이미지를 막는다)
 external_app_supported() { return 0; }
 # 캠페인·run.sh 전 점검: 원격에 넣을 값 형식 · 비밀번호가 PC 환경에 있나 · PC docker(빌드) · .158 도달 · docker·compose · 포트 8103을 이 프로젝트 밖에서 쓰지 않나. 결과 한 줄을 표준 오류로 · 0 = 준비됨
 external_app_ready() {
@@ -527,12 +527,11 @@ external_app_deploy() {
   done
   full=$(git -C "$REPO_ROOT" rev-parse --verify "$sha^{commit}") || return 2
   # ① PC 빌드 — 빌드 문맥 = git archive tar(표준 입력 — 작업트리가 아니라 커밋 그대로)
-  if [[ "$(docker image inspect --format '{{index .Config.Labels "org.seatlab.sha"}}' "$img" 2>/dev/null)" != "$full" ]]; then
-    log "external build $img (k6 PC — git archive $sha)"
-    git -C "$REPO_ROOT" archive --format=tar "$sha" -- "${EXT_PATHS[@]}" \
-      | docker build -f reconciler-app/Dockerfile -t "$img" --label "org.seatlab.sha=$full" - >&2
-    (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || { log "external build $img 실패"; return 1; }
-  fi
+  # rv46 재점검: 라벨만 같은 다른 이미지가 태그를 차지했을 수 있어 늘 다시 짓는다(빌드 캐시로 빠름 — 결과 이미지 = 이 커밋)
+  log "external build $img (k6 PC — git archive $sha)"
+  git -C "$REPO_ROOT" archive --format=tar "$sha" -- "${EXT_PATHS[@]}" \
+    | docker build -f reconciler-app/Dockerfile -t "$img" --label "org.seatlab.sha=$full" - >&2
+  (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || { log "external build $img 실패"; return 1; }
   lfp=$(docker image inspect --format "$EXT_IMAGE_FMT" "$img" 2>/dev/null)
   [[ "$lfp" == "$full "* ]] || { log "external build: $img 라벨이 $full이 아니다 — $lfp"; return 1; }
   # ② 전송 — .158 지문이 같으면 건너뛴다(같은 SHA 재배포 · 이어서 실행)
