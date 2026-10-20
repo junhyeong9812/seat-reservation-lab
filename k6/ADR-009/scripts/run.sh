@@ -41,7 +41,8 @@
 #     ADR-012 2단계 손잡이(§4.2.2·4.2.5·4.2.7·4.2.9 ③④ — 지정하지 않으면 이전과 같은 렌더·계획·실행. 새 조건 A+I·A+X에서만 받는다):
 #       --cond A+I            A + 앱 안 증분(incremental.enabled=true) + 안전망(safety-net.enabled=true) · C 끔 — M2
 #       --cond A+X            A + external-reconciler=true + 표시만(incremental.method · enabled=false) — 증분·안전망은 외부 앱(.158 reconciler-app) — M3.
-#                             외부 앱(.158 · compose 프로젝트 seatlab-reconciler · 포트 8103 — lib.sh external_app_*): 배포(SHA) → 회차마다 업무 앱 기동 뒤 compose up · 8103 health ·
+#                             외부 앱(.158 · compose 프로젝트 seatlab-reconciler · 포트 8103 — lib.sh external_app_*): 배포(SHA — PC에서 이미지 빌드 → docker save | ssh docker load ·
+#                             compose 파일만 복사, §4.2.8 ①②) → 회차마다 업무 앱 기동 뒤 compose up(빌드·pull 없음) · 8103 health ·
 #                             configprops(external-config.json) · ⑥ 표본(timeline-ext-server.jsonl docker stats · timeline-ext-hikari.jsonl · clock-offset-ext.json) · 회차 끝 로그·내리기.
 #                             시작 전에 lib.sh external_app_ready(EXT_DB_PASSWORD — k6 PC 셸 환경 · .158 도달 · 포트)를 통과해야 한다(아니면 exit 2)
 #     [--incremental mem|trg|stmt]   방식(A+I·A+X 필수 · A+X는 trg|stmt) — 앱 키 method = memory|trigger|stmt · Flyway 위치(§4.2.2 조합표):
@@ -697,7 +698,7 @@ run_rep() {  # 인자: level cell rep
   # ADR-012 M3: 업무 앱이 스키마(Flyway — V9·V10)를 만든 뒤 외부 앱을 띄운다(외부 앱은 같은 IncrementalSchemaCheck로 확인만) — 기동 검사 실패·health 시한이면 external-unhealthy
   if (( HAS_X )) && ! external_app_up "$SHA" "$dir" $(ext_env); then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
-    external_app_logs "$dir" "$started"   # 기동 실패 원인(기동 검사 메시지)을 남긴다
+    external_app_logs "$dir"   # 기동 실패 원인(기동 검사 메시지)을 남긴다
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "external-unhealthy" -1 ""; return 1
   fi
   UNHEALTHY_STREAK=0
@@ -884,10 +885,13 @@ run_rep() {  # 인자: level cell rep
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/gc-status.txt"
   done
   python3 "$SUMMARIZE" --gc "$dir" > "$dir/gc.json" 2>>"$dir/errors.log" || echo "gc summary failed" >> "$dir/errors.log"
-  # ADR-012 M3: 외부 앱 로그·GC 로그(external-status.txt — rep_status external-log-missing) 뒤 내리기(회차 끝 — 다음 회차 앞에서도 다시 내린다)
+  # ADR-012 M3: 외부 앱 로그·GC 로그(external-status.txt — rep_status external-log-missing) 뒤 내리기(회차 끝 — 다음 회차 앞에서도 다시 내린다).
+  #   내리기 결과는 external-down.txt(rc) — 0이 아니면 rep_status external-down-failed(하네스 실패 — campaign이 기동 실패와 같이 센다 · rv46)
   if (( HAS_X )); then
-    external_app_logs "$dir" "$started"
-    external_app_down "$SHA" >> "$dir/external-compose.log" 2>&1 || echo "$(date -Is) external_app_down failed at rep end" >> "$dir/errors.log"
+    external_app_logs "$dir"
+    external_app_down "$SHA" >> "$dir/external-compose.log" 2>&1; local ext_down_rc=$?
+    echo "rep-end rc=$ext_down_rc" > "$dir/external-down.txt"
+    (( ext_down_rc == 0 )) || echo "$(date -Is) external_app_down failed at rep end (rc=$ext_down_rc)" >> "$dir/errors.log"
   fi
   # ADR-010(리뷰): 앱 컨테이너에 실제로 걸린 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 한 변수만 기록 — 환경 전체는 남기지 않는다. rep_status app-jvm-mismatch
   local amem ajto
@@ -1481,8 +1485,16 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
            '(((.external.incremental.errors // 0) - ($b[0].external.incremental.errors // 0)) + ((.external.safety.errors // 0) - ($b[0].external.safety.errors // 0))) > 0' "$dir/drift-ext-end.json" > /dev/null 2>&1; then
         reasons+=("reconcile-errors")
       fi
+      # 회차 끝 내리기 실패(external-down.txt — 파일이 없거나 rc ≠ 0) → external-down-failed
+      grep -qxs 'rep-end rc=0' "$dir/external-down.txt" || reasons+=("external-down-failed")
       # ⑥ 표본: 외부 앱 docker stats(k6 구간 공백 ≤ 30초 — 업무 서버 path-gap과 같은 판정기) · Hikari · .158 시계 차(앞·뒤) — 하나라도 없으면 external-sample-missing(하네스 실패)
-      python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-ext-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("external-sample-missing")
+      #   docker stats 표본의 t는 .158 시계 — clock-offset-ext.json(.158 − PC, 앞·뒤 평균)을 빼서 PC 시계의 k6 구간과 견준다(rv46 · 없으면 0 — 그때는 아래 시계 차 검사가 사유를 단다).
+      #   stats 행이 없는 시각은 lib.sh external_stats가 '{"t"' 줄을 내지 않으므로 공백으로 잡힌다
+      local ext_off=0
+      if jq -e '(.before.offset_s | type == "number") and (.after.offset_s | type == "number")' "$dir/clock-offset-ext.json" > /dev/null 2>&1; then
+        ext_off=$(jq -r '(.before.offset_s + .after.offset_s) / 2' "$dir/clock-offset-ext.json")
+      fi
+      python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-ext-server.jsonl" "$k6_started" "$k6_ended" 30 "$ext_off" 1 2>>"$dir/errors.log" || reasons+=("external-sample-missing")
       grep -qs "\"Name\":\"$EXT_CONTAINER\"" "$dir/timeline-ext-server.jsonl" || reasons+=("external-sample-missing")
       [[ -s "$dir/timeline-ext-hikari.jsonl" ]] || reasons+=("external-sample-missing")
       jq -e '(.before.offset_s | type == "number") and (.after.offset_s | type == "number")' "$dir/clock-offset-ext.json" > /dev/null 2>&1 || reasons+=("external-sample-missing")

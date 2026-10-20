@@ -1,15 +1,16 @@
 # 외부 대조 앱(.158 — ADR-012 §4.2.8). 프로젝트 이름은 늘 `-p seatlab-reconciler`로 준다(하네스 lib.sh external_app_*). 서비스 하나 — DB·Redis 없음(DB = .164:15432).
-# 저장소 루트에서: docker compose -p seatlab-reconciler -f reconciler-app/compose.yml up -d --build
+# 이미지는 미리 있어야 한다 — 이 파일로는 빌드·pull하지 않는다(build 절 없음 · pull_policy never). 하네스는 k6 PC에서 seatlab-reconciler:<SHA>를 빌드해
+#   docker save | ssh .158 docker load로 넣고 이 파일만 ~/labs/seat-reservation-lab-reconciler/<SHA>/compose.yml로 복사한다(ADR-012 §4.2.8 ①②).
+#   손으로 돌릴 때(저장소 루트): docker build -f reconciler-app/Dockerfile -t seatlab-reconciler:local . → docker compose -p seatlab-reconciler -f reconciler-app/compose.yml up -d
+# ⚠ `docker compose config`(그리고 docker inspect의 Config.Env)는 DB_PASSWORD를 평문으로 찍는다 — 출력을 파일·로그·기록에 남기지 않는다(하네스는 부르지 않는다).
 # 접속 정보는 이 파일에 값을 쓰지 않는다 — 셸 환경에서만 받는다(없으면 compose가 멈춘다):
 #   DB_URL(예 jdbc:postgresql://<.164>:15432/seat?ApplicationName=seatlab-reconciler-ext) · DB_USERNAME · DB_PASSWORD(하네스는 ssh 표준 입력으로 넘긴다 — 인자·파일·이력에 남지 않음)
 # 방식·주기·탐지 모양(SPRING_APPLICATION_JSON)만 바꾼다: INC_METHOD(trigger|stmt — 필수, 업무 앱과 같은 값) · INC_INTERVAL(기본 1s) · DETECT_SHAPE(비우면 앱 기본 one-shot) ·
 #   INC_TRACK(1이면 track-inject — 효과 셀). 자원 = F와 같은 구성(cpus 1 · mem 1g). JVM 옵션 = F와 같은 꼴(F는 업무 앱 JAVA_TOOL_OPTIONS를 물려받는다 — RECONCILER_JVM_OPTS·2·3·4 = 업무 앱 APP_JVM_OPTS·2·3·4와 같은 값 + MaxRAMPercentage·GC 로그)
 services:
   reconciler:
-    build:
-      context: ..
-      dockerfile: reconciler-app/Dockerfile
     image: seatlab-reconciler:${RECONCILER_TAG:-local}
+    pull_policy: never
     environment:
       DB_URL: ${DB_URL:?DB_URL가 필요하다}
       DB_USERNAME: ${DB_USERNAME:?DB_USERNAME가 필요하다}

@@ -451,30 +451,54 @@ SELECT json_build_object('t', clock_timestamp(), 'n_tup_upd', s.n_tup_upd, 'n_tu
 FROM pg_stat_user_tables s WHERE s.relname = 'user_hold_quota';
 SQL
 }
-# M3 외부 앱(reconciler-app · .158 — ADR-012 §4.2.8 '하네스가 띄우고 내리는 법' · 명세 §4 .158 범위). run.sh가 --cond A+X에서만 부른다.
-#   범위(명세 §4 — 환경변수로 바꿀 수 없다): 서버 홈 기준 경로 labs/seat-reservation-lab-reconciler · compose 프로젝트 seatlab-reconciler · 포트 8103.
-#   sudo를 쓰지 않는다 · 이 프로젝트 밖의 컨테이너·이미지·볼륨은 건드리지 않는다(docker 호출은 모두 프로젝트 이름 · 컨테이너 이름 · 이 경로의 compose 파일로 한정).
-#   배포 = 커밋 하나(.164 deploy_sha와 같은 git archive — 빌드에 필요한 경로만) → <경로>/<SHA>, 이미지는 .158에서 빌드(seatlab-reconciler:<SHA> — 루트 문맥 reconciler-app/Dockerfile).
-#   비밀번호(§4.2.8 ③): k6 PC 셸 환경 EXT_DB_PASSWORD만 — ssh 표준 입력으로 넘겨 원격 셸이 read로 받는다(명령 인자·파일·셸 이력·로그에 남지 않음).
+# M3 외부 앱(reconciler-app · .158 — ADR-012 §4.2.8 '하네스가 띄우고 내리는 법' ①~⑤ · 명세 §4 .158 범위). run.sh가 --cond A+X에서만 부른다.
+#   범위(명세 §4 — 환경변수로 바꿀 수 없다): 서버 홈 기준 경로 labs/seat-reservation-lab-reconciler · compose 프로젝트 seatlab-reconciler · 포트 8103 · 이미지 태그 seatlab-reconciler:<SHA>.
+#   sudo를 쓰지 않는다 · 이 프로젝트 밖의 컨테이너·이미지·볼륨은 건드리지 않는다(docker 호출은 모두 프로젝트 이름 · 컨테이너 이름 · 이 이미지 태그 · 이 경로의 compose 파일로 한정).
+#   배포(§4.2.8 ①②): 이미지는 k6 PC에서 빌드한다(SHA의 git archive → PC docker build -t seatlab-reconciler:<SHA> · 라벨 org.seatlab.sha=<전체 SHA>) →
+#     `docker save | ssh .158 docker load`(.158에 같은 이미지가 이미 있으면 보내지 않는다) → <경로>/<SHA>/compose.yml 하나만 복사.
+#     .158에서는 빌드·pull을 하지 않는다(기반 이미지·빌드 캐시가 .158에 쌓이지 않음 — compose.yml에 build 절 없음 · pull_policy never · up --no-build).
+#     '같은 이미지' = 라벨 SHA + 층 diff ID 목록(RootFS.Layers)이 같다 — .Id는 이미지 저장소 방식(classic 대 containerd)이 다르면 같은 이미지라도 달라질 수 있어 쓰지 않는다.
+#   비밀번호(§4.2.8 ③): k6 PC 셸 환경 EXT_DB_PASSWORD만 — ssh 표준 입력으로 넘겨 원격 셸이 `IFS= read -r`로 받는다(명령 인자·파일·셸 이력·로그에 남지 않음).
+#     남는 위험(rv46 — 지금은 막지 않는다): 값은 컨테이너 환경에 들어간다(.158의 docker inspect Config.Env · 데몬 config.v2.json(root만) · compose 프로세스 /proc/<pid>/environ(본인·root만)).
+#     그래서 하네스는 .158에서 Env를 빼는 --format 없이 docker inspect를 부르지 않고, docker compose config를 부르지 않는다(둘 다 값을 평문으로 찍는다).
+#   원격 명령에 끼우는 값은 모두 형식을 확인한다(rv46): SHA = 16진 · EXT_SERVER의 사용자·호스트 · SERVER_HOST · EXT_DB_USERNAME = [A-Za-z0-9._-](앞 '-' 금지 — ext_inputs_ok) ·
+#     compose 변수 = 허용 목록(ext_kv_ok). 어긋나면 2(run.sh·campaign.sh는 준비 점검 실패로 exit 2).
 #   서버 이름만 EXT_SERVER로 바꿀 수 있다(기본 jun@192.168.55.158). DB = .164(SERVER_HOST):15432 · application_name seatlab-reconciler-ext
+#   정리(수동 — 하네스는 옛 이미지·폴더를 지우지 않는다): ADR-012 §4.2.8의 정리 명령(옛 seatlab-reconciler:<SHA> 태그와 그 SHA 폴더만 — 남길 SHA 하나를 주고, -f 없이)
 EXT_SERVER="${EXT_SERVER:-jun@192.168.55.158}"
 EXT_HOST="${EXT_SERVER#*@}"
 EXT_REMOTE_BASE="labs/seat-reservation-lab-reconciler"
 EXT_PROJECT="seatlab-reconciler"
+EXT_IMAGE_REPO="seatlab-reconciler"
 EXT_PORT=8103
 EXT_CONTAINER="$EXT_PROJECT-reconciler-1"   # compose 기본 이름(<프로젝트>-<서비스>-1) — 표본·로그는 이 컨테이너만
-EXT_COMPOSE="docker compose -p $EXT_PROJECT -f reconciler-app/compose.yml"
+EXT_COMPOSE="docker compose -p $EXT_PROJECT -f compose.yml"   # <경로>/<SHA>/compose.yml(reconciler-app/compose.yml 사본 — 그 폴더에는 이 파일뿐)
 EXTERNAL_URL="http://${EXT_HOST}:${EXT_PORT}"
 EXT_DB_URL="jdbc:postgresql://${SERVER_HOST}:15432/seat?ApplicationName=seatlab-reconciler-ext"
 EXT_DB_USERNAME="${EXT_DB_USERNAME:-seat}"
-# 배포에 넣는 경로(루트 Dockerfile과 같은 빌드 입력 — main-app은 빌드 파일만: settings가 세 프로젝트를 포함한다)
+# PC 빌드 입력(git archive — 루트 Dockerfile과 같은 빌드 입력 · main-app은 빌드 파일만: settings가 세 프로젝트를 포함한다)
 EXT_PATHS=(gradlew settings.gradle.kts build.gradle.kts gradle .dockerignore main-app/build.gradle.kts reconcile-core reconciler-app)
 ext_remote_t() { local t="$1"; shift; timeout "$t" ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$EXT_SERVER" "$@"; }
 ext_sha_ok() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]]; }
+ext_name_ok() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != -* ]]; }
+# 원격 명령(작은따옴표 안 포함)에 들어가는 이름들 — 하나라도 형식이 아니면 2(값은 %q로만 보인다)
+ext_inputs_ok() {
+  local u=""; [[ "$EXT_SERVER" == *@* ]] && u="${EXT_SERVER%%@*}"
+  if { [[ "$EXT_SERVER" != *@* ]] || ext_name_ok "$u"; } && ext_name_ok "$EXT_HOST" && ext_name_ok "${SERVER_HOST:-}" && ext_name_ok "$EXT_DB_USERNAME"; then return 0; fi
+  printf 'external: 원격 명령에 넣을 값 형식 아님([A-Za-z0-9._-]만 · 앞 - 금지) — EXT_SERVER=%q SERVER_HOST=%q EXT_DB_USERNAME=%q\n' "$EXT_SERVER" "${SERVER_HOST:-}" "$EXT_DB_USERNAME" >&2
+  return 2
+}
+# compose 변수 허용 목록(reconciler-app/compose.yml이 읽는 것 중 하네스가 바꾸는 것만 — DB_*·RECONCILER_TAG는 external_app_up이 정한다: 태그를 바꾸면 기록된 SHA와 다른 이미지가 돈다) ·
+#   값은 공백·따옴표·셸 특수문자 없는 글자만
+ext_kv_ok() { [[ "$1" =~ ^(INC_METHOD|INC_INTERVAL|INC_TRACK|DETECT_SHAPE|RECONCILER_JVM_OPTS[234]?|RECONCILER_CPUS|RECONCILER_MEM)=[A-Za-z0-9:+._=-]*$ ]]; }
+# '같은 이미지' 지문(라벨 SHA + 층 diff ID) — docker image inspect --format(Env를 찍지 않는다)
+EXT_IMAGE_FMT='{{index .Config.Labels "org.seatlab.sha"}} {{json .RootFS.Layers}}'
 external_app_supported() { return 0; }
-# 캠페인·run.sh 전 점검: 비밀번호가 PC 환경에 있나 · .158 도달 · docker·compose · 포트 8103을 이 프로젝트 밖에서 쓰지 않나. 결과 한 줄을 표준 오류로 · 0 = 준비됨
+# 캠페인·run.sh 전 점검: 원격에 넣을 값 형식 · 비밀번호가 PC 환경에 있나 · PC docker(빌드) · .158 도달 · docker·compose · 포트 8103을 이 프로젝트 밖에서 쓰지 않나. 결과 한 줄을 표준 오류로 · 0 = 준비됨
 external_app_ready() {
+  ext_inputs_ok || return 2
   [[ -n "${EXT_DB_PASSWORD:-}" ]] || { echo "external_app_ready: EXT_DB_PASSWORD가 k6 PC 셸 환경에 없다(값은 파일에 쓰지 않는다 — export 후 다시)" >&2; return 1; }
+  docker version --format '{{.Server.Version}}' > /dev/null 2>&1 || { echo "external_app_ready: k6 PC docker를 쓸 수 없다(외부 앱 이미지는 PC에서 빌드한다 — §4.2.8 ①)" >&2; return 1; }
   local out
   out=$(ext_remote_t 60 bash -s -- "$EXT_PROJECT" "$EXT_PORT" "$EXT_REMOTE_BASE" <<'REMOTE'
 set -u
@@ -486,47 +510,72 @@ others=$(docker ps --filter "publish=$port" --format '{{.Names}} {{.Label "com.d
 [ -z "$others" ] || { echo "port-$port-used-by:$others"; exit 1; }
 if [ -z "$(docker ps -q --filter "label=com.docker.compose.project=$p")" ] && (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then echo "port-$port-busy(non-docker)"; exit 1; fi
 mkdir -p "$base" || { echo "mkdir-failed"; exit 1; }
-echo "ok compose=$cv disk_avail_kb=$(df -Pk "$base" | awk 'NR == 2 {print $4}') deployed=$(ls -d "$base"/*/ 2>/dev/null | wc -l)"
+echo "ok compose=$cv disk_avail_kb=$(df -Pk "$base" | awk 'NR == 2 {print $4}') deployed=$(ls -d "$base"/*/ 2>/dev/null | wc -l) images=$(docker image ls -q "$p" | sort -u | wc -l)"
 REMOTE
 ) || { echo "external_app_ready: $EXT_SERVER 점검 실패 — ${out:-ssh 실패}" >&2; return 1; }
   [[ "$out" == ok* ]] || { echo "external_app_ready: $out" >&2; return 1; }
   echo "external_app_ready: $EXT_SERVER $out" >&2
 }
-# 커밋 하나를 .158 <경로>/<SHA>에 푼다(deploy_sha와 같은 규칙 — 임시 폴더에 풀고 확인한 뒤 이름을 바꿔 .deployed). 인자: sha
+# 배포(§4.2.8 ①②) — ① PC 빌드(같은 태그가 이 커밋 라벨이면 다시 짓지 않는다) ② .158에 같은 이미지가 없을 때만 docker save | docker load → 지문 확인
+#   ③ compose 파일 하나를 <경로>/<SHA>/compose.yml로(임시 폴더에 쓰고 확인한 뒤 이름을 바꿔 .deployed). 인자: sha. 빌드·적재 출력은 표준 오류
 external_app_deploy() {
-  local sha="$1" i b="$EXT_REMOTE_BASE"
+  local sha="$1" b="$EXT_REMOTE_BASE" img="$EXT_IMAGE_REPO:$1" full lfp rfp i ok=0
   ext_sha_ok "$sha" || { log "external_app_deploy: SHA 형식 아님 — $sha"; return 2; }
-  git -C "$REPO_ROOT" cat-file -e "$sha:reconciler-app/compose.yml" 2>/dev/null || { log "external_app_deploy: $sha에 reconciler-app/compose.yml이 없다"; return 2; }
+  ext_inputs_ok || return 2
+  for i in compose.yml Dockerfile; do
+    git -C "$REPO_ROOT" cat-file -e "$sha:reconciler-app/$i" 2>/dev/null || { log "external_app_deploy: $sha에 reconciler-app/$i이 없다"; return 2; }
+  done
+  full=$(git -C "$REPO_ROOT" rev-parse --verify "$sha^{commit}") || return 2
+  # ① PC 빌드 — 빌드 문맥 = git archive tar(표준 입력 — 작업트리가 아니라 커밋 그대로)
+  if [[ "$(docker image inspect --format '{{index .Config.Labels "org.seatlab.sha"}}' "$img" 2>/dev/null)" != "$full" ]]; then
+    log "external build $img (k6 PC — git archive $sha)"
+    git -C "$REPO_ROOT" archive --format=tar "$sha" -- "${EXT_PATHS[@]}" \
+      | docker build -f reconciler-app/Dockerfile -t "$img" --label "org.seatlab.sha=$full" - >&2
+    (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || { log "external build $img 실패"; return 1; }
+  fi
+  lfp=$(docker image inspect --format "$EXT_IMAGE_FMT" "$img" 2>/dev/null)
+  [[ "$lfp" == "$full "* ]] || { log "external build: $img 라벨이 $full이 아니다 — $lfp"; return 1; }
+  # ② 전송 — .158 지문이 같으면 건너뛴다(같은 SHA 재배포 · 이어서 실행)
   for i in 1 2 3; do
-    if ext_remote_t 30 "test -f $b/$sha/.deployed" 2>/dev/null; then return 0; fi
-    log "external deploy $sha → $EXT_SERVER:$b/$sha (attempt $i)"
-    # 원격: 풀린 트리에 compose 파일이 있을 때만 .deployed(git archive가 도중에 실패해 빈 트리가 '배포됨'이 되지 않게)
-    if git -C "$REPO_ROOT" archive --format=tar "$sha" -- "${EXT_PATHS[@]}" \
-       | ext_remote_t 600 "mkdir -p $b && rm -rf $b/.tmp-$sha && mkdir -p $b/.tmp-$sha && tar -x -C $b/.tmp-$sha && test -f $b/.tmp-$sha/reconciler-app/compose.yml && touch $b/.tmp-$sha/.deployed && rm -rf $b/$sha && mv $b/.tmp-$sha $b/$sha"; then
+    rfp=$(ext_remote_t 30 "docker image inspect --format '$EXT_IMAGE_FMT' $img 2>/dev/null") || rfp=""
+    if [[ "$rfp" == "$lfp" ]]; then ok=1; break; fi
+    log "external image $img → $EXT_SERVER docker load (attempt $i)"
+    docker save "$img" | ext_remote_t 900 "docker load" >&2
+    log "external image load pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]}"
+    (( i < 3 )) && sleep $((i * 10))
+  done
+  (( ok )) || { rfp=$(ext_remote_t 30 "docker image inspect --format '$EXT_IMAGE_FMT' $img 2>/dev/null") && [[ "$rfp" == "$lfp" ]]; } \
+    || { log "external image: .158 $img 지문이 PC와 다르다(또는 없다)"; return 1; }
+  # ③ compose 파일만
+  for i in 1 2 3; do
+    log "external deploy compose.yml($sha) → $EXT_SERVER:$b/$sha (attempt $i)"
+    if git -C "$REPO_ROOT" show "$sha:reconciler-app/compose.yml" \
+       | ext_remote_t 60 "mkdir -p $b && rm -rf $b/.tmp-$sha && mkdir -p $b/.tmp-$sha && cat > $b/.tmp-$sha/compose.yml && test -s $b/.tmp-$sha/compose.yml && touch $b/.tmp-$sha/.deployed && rm -rf $b/$sha && mv $b/.tmp-$sha $b/$sha"; then
       return 0
     fi
     log "external deploy attempt $i failed — retry in $((i * 20))s"; sleep $((i * 20))
   done
   return 1
 }
-# 외부 앱 띄우기: compose up(이미지 빌드 포함 — 같은 SHA면 캐시) → 8103 health UP. 인자: sha 회차폴더 KEY=VALUE…(compose 변수 — 공백 없는 값만: INC_METHOD·INC_INTERVAL·DETECT_SHAPE·INC_TRACK·RECONCILER_JVM_OPTS*)
-#   회차폴더에 external-compose.log(compose 출력 — 비밀번호 없음) · external-container.json(적용된 cpus·메모리 한도만 — 환경은 읽지 않는다)
+# 외부 앱 띄우기: compose up(빌드·pull 없음 — 배포가 적재한 이미지 그대로) → 8103 health UP. 인자: sha 회차폴더 KEY=VALUE…(ext_kv_ok 허용 목록만)
+#   회차폴더에 external-compose.log(compose 출력 — 비밀번호 없음) · external-container.json(적용된 cpus·메모리 한도·이미지만 — 환경(Env)은 읽지 않는다)
 external_app_up() {
   local sha="$1" dir="$2" i; shift 2
   ext_sha_ok "$sha" || return 2
+  ext_inputs_ok 2>>"$dir/errors.log" || return 2
   [[ -n "${EXT_DB_PASSWORD:-}" ]] || { echo "$(date -Is) external_app_up: EXT_DB_PASSWORD 없음" >> "$dir/errors.log"; return 1; }
-  local kv; for kv in "$@"; do [[ "$kv" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9:+._=-]*$ ]] || { echo "$(date -Is) external_app_up: 변수 형식 아님 — $kv" >> "$dir/errors.log"; return 2; }; done
+  local kv; for kv in "$@"; do ext_kv_ok "$kv" || { printf '%s external_app_up: 허용 목록 밖 변수·형식 아님 — %q\n' "$(date -Is)" "$kv" >> "$dir/errors.log"; return 2; }; done
   for i in 1 2; do
     log "external compose up ($sha) $* (attempt $i)"
-    if printf '%s\n' "$EXT_DB_PASSWORD" | ext_remote_t 900 "read -r DB_PASSWORD && export DB_PASSWORD && cd $EXT_REMOTE_BASE/$sha && env RECONCILER_TAG=$sha DB_URL='$EXT_DB_URL' DB_USERNAME='$EXT_DB_USERNAME' $* $EXT_COMPOSE up -d --build --force-recreate" >> "$dir/external-compose.log" 2>&1; then
+    if printf '%s\n' "$EXT_DB_PASSWORD" | ext_remote_t 180 "IFS= read -r DB_PASSWORD && export DB_PASSWORD && cd $EXT_REMOTE_BASE/$sha && env RECONCILER_TAG=$sha DB_URL='$EXT_DB_URL' DB_USERNAME='$EXT_DB_USERNAME' $* $EXT_COMPOSE up -d --no-build --force-recreate" >> "$dir/external-compose.log" 2>&1; then
       break
     fi
     (( i == 2 )) && return 1
     sleep 20
   done
   external_wait_health "${EXT_HEALTH_S:-180}" || { echo "$(date -Is) external health timeout ($EXTERNAL_URL)" >> "$dir/errors.log"; return 1; }
-  ext_remote_t 30 "docker inspect $EXT_CONTAINER --format '{{json .HostConfig.NanoCpus}} {{json .HostConfig.Memory}} {{json .Config.Image}}'" 2>>"$dir/errors.log" \
-    | jq -Rc 'split(" ") | {container: "'"$EXT_CONTAINER"'", cpu: (.[0] | fromjson), mem: (.[1] | fromjson), image: (.[2] | fromjson)}' > "$dir/external-container.json" 2>>"$dir/errors.log" \
+  ext_remote_t 30 "docker inspect $EXT_CONTAINER --format '{{json .HostConfig.NanoCpus}} {{json .HostConfig.Memory}} {{json .Config.Image}} {{json .Image}}'" 2>>"$dir/errors.log" \
+    | jq -Rc 'split(" ") | {container: "'"$EXT_CONTAINER"'", cpu: (.[0] | fromjson), mem: (.[1] | fromjson), image: (.[2] | fromjson), image_id: (.[3] | fromjson)}' > "$dir/external-container.json" 2>>"$dir/errors.log" \
     || echo "$(date -Is) external-container.json failed" >> "$dir/errors.log"
   return 0
 }
@@ -542,9 +591,10 @@ external_wait_health() {
 external_app_down() {
   local sha="$1" i
   ext_sha_ok "$sha" || return 2
+  ext_inputs_ok || return 2
   for i in 1 2 3; do
     log "external compose down ($sha) (attempt $i)"
-    ext_remote_t 120 "if [ -f $EXT_REMOTE_BASE/$sha/reconciler-app/compose.yml ]; then cd $EXT_REMOTE_BASE/$sha && env DB_URL=- DB_USERNAME=- DB_PASSWORD=- INC_METHOD=- $EXT_COMPOSE down --remove-orphans; fi" >&2
+    ext_remote_t 120 "if [ -f $EXT_REMOTE_BASE/$sha/compose.yml ]; then cd $EXT_REMOTE_BASE/$sha && env DB_URL=- DB_USERNAME=- DB_PASSWORD=- INC_METHOD=- $EXT_COMPOSE down --remove-orphans; fi" >&2
     if ext_remote_t 30 "[ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=$EXT_PROJECT)\" ]" >&2; then return 0; fi
     log "external compose down: $EXT_PROJECT 컨테이너가 남았거나 확인 실패 — retry in 10s"; sleep 10
   done
@@ -555,15 +605,34 @@ external_app_configprops() {
   curl -fsS --max-time 10 "$EXTERNAL_URL/actuator/configprops" | jq -c '{configprops: [.contexts[].beans[] | select(.prefix | test("^(seat\\.hold(\\..+)?|spring\\.datasource\\.hikari|server)$"))
       | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]}'
 }
-# ⑥ 외부 앱 컨테이너 docker stats 한 번(이 컨테이너만) — 한 줄 JSON(서버 시각 t · load + stats). run.sh 표본기가 10초마다 부른다
+# ⑥ 외부 앱 컨테이너 docker stats 한 번(이 컨테이너만) → 표본 한 줄 {"t"(.158 시각),"load","stats":{…}}. run.sh 표본기가 10초마다 부른다.
+#   docker stats가 실패했거나 그 컨테이너가 돌고 있는 행(Name 일치 · CPUPerc 숫자 · PIDs ≥ 1)이 아니면 시각 행을 내지 않는다(rv46 — 빈 표본이 공백 판정을 통과하지 않게):
+#   대신 {"miss_pc_t"(PC 시각),"error"} 한 줄(gapcheck는 '{"t"' 줄만 센다 → 그 자리는 공백 → external-sample-missing) · 1
 external_stats() {
-  ext_remote_t 20 "echo \"{\\\"t\\\":\\\"\$(date -Is)\\\",\\\"load\\\":\\\"\$(cut -d' ' -f1-3 /proc/loadavg)\\\"}\"; docker stats --no-stream --format '{{json .}}' $EXT_CONTAINER"
+  local out
+  ext_inputs_ok 2>/dev/null || { printf '{"miss_pc_t":"%s","error":"inputs"}\n' "$(date -Is)"; return 2; }
+  out=$(ext_remote_t 20 bash -s -- "$EXT_CONTAINER" <<'REMOTE'
+set -u
+c="$1"
+t=$(date -Is); l=$(cut -d' ' -f1-3 /proc/loadavg)
+s=$(docker stats --no-stream --format '{{json .}}' "$c" 2>/dev/null) || exit 1
+[ -n "$s" ] || exit 1
+printf '{"t":"%s","load":"%s","stats":%s}\n' "$t" "$l" "$s"
+REMOTE
+)
+  if jq -ce --arg c "$EXT_CONTAINER" 'select(.stats.Name == $c and (.stats.CPUPerc | test("^[0-9.]+%$")) and (.stats.PIDs | test("^[1-9][0-9]*$")))' <<< "$out" 2>/dev/null | grep -m1 '^{"t"'; then
+    return 0
+  fi
+  printf '{"miss_pc_t":"%s","error":"stats-row-missing"}\n' "$(date -Is)"
+  return 1
 }
-# 회차 끝: 외부 앱 로그(external.log.gz)·GC 로그(external-gc.log.gz) — 상태 한 줄씩 external-status.txt(rep_status external-log-missing). 인자: 회차폴더 시작시각
+# 회차 끝·기동 실패: 외부 앱 로그(external.log.gz — 컨테이너 전체: 회차마다 새로 만든다(up --force-recreate) · 시각 거르기(--since)를 쓰지 않는다 — PC·.158 시계가 다르다)·
+#   GC 로그(external-gc.log.gz) — 상태 한 줄씩 external-status.txt(rep_status external-log-missing). 인자: 회차폴더
 external_app_logs() {
-  local dir="$1" since="$2" lf
+  local dir="$1" lf
+  ext_inputs_ok 2>>"$dir/errors.log" || return 2
   lf="$dir/external.log.gz"
-  ext_remote_t 120 "docker logs --since '$since' $EXT_CONTAINER 2>&1" | gzip > "$lf"
+  ext_remote_t 120 "docker logs $EXT_CONTAINER 2>&1" | gzip > "$lf"
   echo "log pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/external-status.txt"
   lf="$dir/external-gc.log.gz"
   ext_remote_t 120 "docker exec $EXT_CONTAINER cat /dev/shm/gc.log" | gzip > "$lf"

@@ -61,7 +61,7 @@
 #   x-<trg|stmt>-<1s|5s>(--cond A+X — 외부 앱 .158)} × 3 = 21. 순서 = 조건 7개 1칸 회전. 기본 id = <날짜>-adr012s2x-<SHA>.
 #   **외부 앱 의존**: x-* 셀은 .158 reconciler-app이 있어야 한다(lib.sh external_app_* — 배포·기동·표본·내리기). 측정(--dry-run 아님)은 --ext-ready(사용자가 .158 앱 준비를 확인 — task 07 스모크)와
 #   lib.sh external_app_ready(EXT_DB_PASSWORD · .158 도달 · 포트 8103)를 둘 다 통과해야 시작한다. --dry-run(계획)은 플래그 없이 된다.
-#   외부 앱 기동 실패(external-unhealthy)·내리기 실패(external-down-failed)는 업무 앱 기동 실패와 같이 하네스 실패로 센다(연속 5회면 멈춤)
+#   외부 앱 기동 실패(external-unhealthy)·내리기 실패(external-down-failed — 회차 앞·끝 모두)는 업무 앱 기동 실패와 같이 하네스 실패로 센다(연속 5회면 멈춤)
 # ADR-012 효과(§4 표 효과 · §4.2.7 · 하네스 ④ — 메인 결정 D-a: 앱 안 M2와 외부 앱 M3를 세트로 나눈다):
 #   adr012eff: M2 6셀(i-*) × S3e-a20 × 3 = 18 — 지금 돌릴 수 있다. adr012effx: M3 4셀(x-*) × S3e-a20 × 3 = 12 — 외부 앱 필요.
 #   회차마다 S3e DB 직접 주입(D·L1·L2·H — injected.json) **과** 앱 경로 주입(--inject-app on — AH·AL·AE, track-inject)을 **같은 회차**에서(셀당 3회로 'S3e × 3 + 앱 경로 주입 갈래'를
@@ -313,7 +313,9 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
   if (( rc == 6 )); then echo "$(date -Is) ABORT limit-config $name rep$rep exit=6 — $(grep -h 'ABORT limit-config' "$ROOT/$name/MATRIX.log" 2>/dev/null | tail -1)" >> "$LOG"; exit 6; fi
   if (( rc != 0 )); then echo "$(date -Is) ABORT $name rep$rep exit=$rc" >> "$LOG"; exit "$rc"; fi
   local fresh; fresh=$(find "$ROOT/$name" -path "*/rep$rep/status" -newer "$mark" 2>/dev/null); rm -f "$mark"
-  if [[ -n "$fresh" ]] && grep -qsE '^(unhealthy|reconciler-unhealthy|external-unhealthy|external-down-failed|compose-up-failed|seed-failed)$' $fresh; then
+  # 외부 앱 내리기 실패는 회차 끝(rep_status — 다른 사유와 쉼표로 함께 찍힐 수 있다)에서도 나므로 낱말로 찾는다(rv46)
+  if [[ -n "$fresh" ]] && { grep -qsE '^(unhealthy|reconciler-unhealthy|external-unhealthy|external-down-failed|compose-up-failed|seed-failed)$' $fresh \
+       || grep -qsE '(^|,)external-down-failed(,|$)' $fresh; }; then
     INFRA_STREAK=$((INFRA_STREAK + 1))
     (( INFRA_STREAK >= 5 )) && { echo "$(date -Is) ABORT infra-failure-5-in-a-row" >> "$LOG"; exit 4; }
   else

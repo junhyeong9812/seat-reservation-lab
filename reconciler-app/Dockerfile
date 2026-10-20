@@ -1,5 +1,5 @@
 # 외부 대조 앱 이미지(ADR-012 §4.2.8). 빌드 문맥 = 저장소 루트(루트 Dockerfile과 같다 — `docker build -f reconciler-app/Dockerfile .`).
-# 서버에 JDK가 없어도 되도록 빌드까지 컨테이너 안에서 한다. 빌드 파일을 먼저 넣어 의존성 층을 캐시한다(settings가 세 프로젝트를 다 포함하므로 main-app 빌드 파일도 넣는다).
+# 빌드 머신(하네스는 k6 PC — §4.2.8 ①)에 JDK가 없어도 되도록 빌드까지 컨테이너 안에서 한다. 빌드 파일을 먼저 넣어 의존성 층을 캐시한다(settings가 세 프로젝트를 다 포함하므로 main-app 빌드 파일도 넣는다).
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
 COPY gradlew settings.gradle.kts build.gradle.kts ./
