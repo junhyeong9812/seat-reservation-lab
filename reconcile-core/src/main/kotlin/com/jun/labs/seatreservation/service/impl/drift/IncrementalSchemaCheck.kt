@@ -37,7 +37,10 @@ object IncrementalSchemaCheck {
             "SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?", Int::class.java, UPDATED_AT_INDEX,
         )!! > 0
         val trigger = jdbc.queryForObject(
-            "SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal", Int::class.java, TOUCH_TRIGGER,
+            // 이 스키마의 user_hold_quota에 걸린 트리거만(rv43 — 다른 스키마·테이블의 같은 이름 트리거로 판정하지 않는다)
+            "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace " +
+                "WHERE t.tgname = ? AND NOT t.tgisinternal AND c.relname = 'user_hold_quota' AND n.nspname = current_schema()",
+            Int::class.java, TOUCH_TRIGGER,
         )!! > 0
         val updatedAtMethod = method == IncrementalMethod.TRIGGER || method == IncrementalMethod.STMT
         if (updatedAtMethod) {
