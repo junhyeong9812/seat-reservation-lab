@@ -9,11 +9,13 @@ import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
+import com.jun.labs.seatreservation.service.impl.drift.AppPathInjectHook
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
 import com.jun.labs.seatreservation.service.impl.drift.MemoryChangedPairs
 import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import java.sql.Timestamp
@@ -228,6 +230,7 @@ class CounterUserLimit(
     private val counters: ExpiryCounters,
     private val salesClose: SalesCloseGate,
     private val changes: MemoryChangedPairs,
+    private val inject: ObjectProvider<AppPathInjectHook>,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER
     override val hasPrepare = true
@@ -238,6 +241,7 @@ class CounterUserLimit(
         val updated = jdbc.update(incrementSql, command.scheduleId, command.userId, properties.maxPerUser)
         if (updated == 0) limitExceeded()
         changes.changed(command.scheduleId, command.userId) // ⓐ 등록(커밋 뒤) — method ≠ memory면 바로 돌아온다
+        inject.ifAvailable { it.afterHoldIncrement(command.scheduleId, command.userId) } // 측정 전용(loadtest 프로필 · 손잡이 켬일 때만)
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -258,12 +262,14 @@ class CounterUpsertUserLimit(
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
     private val changes: MemoryChangedPairs,
+    private val inject: ObjectProvider<AppPathInjectHook>,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT
     private val upsertSql = upsertSqlFor(properties)
     override fun acquire(command: HoldSeatCommand): Boolean {
         if (!upsertQuota(jdbc, upsertSql, command, properties.maxPerUser)) limitExceeded()
         changes.changed(command.scheduleId, command.userId)
+        inject.ifAvailable { it.afterHoldIncrement(command.scheduleId, command.userId) }
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝
@@ -307,6 +313,7 @@ class CounterUpsertPrecheckUserLimit(
     private val jdbc: JdbcTemplate,
     private val counters: ExpiryCounters,
     private val changes: MemoryChangedPairs,
+    private val inject: ObjectProvider<AppPathInjectHook>,
 ) : UserLimitStrategy {
     override val type = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK
     private val upsertSql = upsertSqlFor(properties)
@@ -317,6 +324,7 @@ class CounterUpsertPrecheckUserLimit(
             limitExceeded()
         }
         changes.changed(command.scheduleId, command.userId)
+        inject.ifAvailable { it.afterHoldIncrement(command.scheduleId, command.userId) }
         return true
     }
     override fun check(command: HoldSeatCommand, entered: Boolean) {} // acquire에서 판정 끝

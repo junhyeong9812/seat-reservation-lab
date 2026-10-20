@@ -354,11 +354,15 @@ class UpdatedAtCandidates(
         private val MARGIN: Duration = Duration.ofSeconds(1)
         private val HIDDEN_REPEAT: Duration = Duration.ofMinutes(10)
 
-        /** 문장 1 — 문장 2보다 **먼저** 보낸다(한 문장에 묶으면 스냅숏과 pg_stat_activity 읽기 사이 커밋이 양쪽에서 빠질 수 있다) */
+        /**
+         * 문장 1 — 문장 2보다 **먼저** 보낸다(한 문장에 묶으면 스냅숏과 pg_stat_activity 읽기 사이 커밋이 양쪽에서 빠질 수 있다).
+         * `[구현 검증]` 12(PostgreSQL 16 실측): 권한 없는 다른 역할 세션은 state·xact_start뿐 아니라 backend_type도 NULL로 보인다 —
+         * 숨은 세션 수 h는 `backend_type IS NULL`도 센다(ADR §4.2.3 문장의 `backend_type = 'client backend'`만으로는 h가 늘 0).
+         */
         private val WATERMARK_SQL = """
             SELECT now() AS t,
                    (SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid() AND xact_start IS NOT NULL) AS o,
-                   (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid() AND state IS NULL) AS h
+                   (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND (backend_type = 'client backend' OR backend_type IS NULL) AND pid <> pg_backend_pid() AND state IS NULL) AS h
         """.trimIndent()
 
         private const val CANDIDATES_SQL = "SELECT schedule_id, user_id FROM user_hold_quota WHERE updated_at >= ? ORDER BY schedule_id, user_id"

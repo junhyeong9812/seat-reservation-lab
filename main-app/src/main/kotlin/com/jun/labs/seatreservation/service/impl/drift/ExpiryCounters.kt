@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.service.impl.drift
 import com.jun.labs.seatreservation.domain.SeatHold
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import org.springframework.transaction.support.TransactionTemplate
@@ -25,6 +26,8 @@ class ExpiryCounters(
     private val recorder: CounterDriftRecorder,
     tx: TransactionTemplate,
     private val changes: MemoryChangedPairs,
+    /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7 — loadtest 프로필에만 빈) */
+    private val inject: ObjectProvider<AppPathInjectHook>,
 ) {
     /** ADR-012 ⓒ 3(method=stmt) — 감소 문장이 `updated_at = now()`를 함께 쓴다. 아니면 지금 문자열 그대로 */
     private val stmt = properties.counterDrift.reconcile.incremental.method == IncrementalMethod.STMT
@@ -52,7 +55,10 @@ class ExpiryCounters(
             val n = holds.size
             val updated = jdbc.update(guardSql, n, key.first, key.second, n)
             if (updated == 0) repairPair(key.first, key.second, holds)
-            else changes.changed(key.first, key.second) // ⓐ 등록(커밋 뒤) — 복구 갈래는 PairRepair가 등록한다
+            else {
+                changes.changed(key.first, key.second) // ⓐ 등록(커밋 뒤) — 복구 갈래는 PairRepair가 등록한다
+                inject.ifAvailable { it.afterExpiryDecrement(key.first, key.second) }
+            }
         }
     }
 
