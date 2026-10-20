@@ -452,7 +452,7 @@ FROM pg_stat_user_tables s WHERE s.relname = 'user_hold_quota';
 SQL
 }
 # M3 외부 앱(reconciler-app · .158 — §4.2.8 '하네스가 띄우고 내리는 법'): **stub — task 07이 채운다.** 지금은 모두 1(실패)을 돌려
-#   run.sh(--cond A+X)와 campaign.sh(adr012s2x·adr012eff의 외부 앱 셀)가 시작 전에 거부한다 — 업무 앱만 떠서 '대조 없는 M3'를 재지 않게.
+#   run.sh(--cond A+X)와 campaign.sh(adr012s2x·adr012effx의 외부 앱 셀)가 시작 전에 거부한다 — 업무 앱만 떠서 '대조 없는 M3'를 재지 않게.
 #   채울 것: external_app_supported(0 = 오케스트레이션 있음) · external_app_ready(캠페인 전 점검 — .158 도달·이미지·compose) · external_app_up <배포ID> <회차폴더>
 #   (이미지 save | ssh load · compose 동기화 · 비밀번호 표준 입력) · external_app_down · external_app_configprops(8103 actuator configprops → {configprops:[…]} — run.sh app_config가
 #   external-config.json으로) · ⑥ 표본(.158 docker stats · 외부 앱 Hikari · .158 ↔ .164 시계 차). 비밀번호는 명령 인자·파일에 남기지 않는다(§4.2.8 ③)
