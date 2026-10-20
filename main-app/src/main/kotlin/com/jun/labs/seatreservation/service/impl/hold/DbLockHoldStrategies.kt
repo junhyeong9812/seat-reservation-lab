@@ -63,10 +63,6 @@ class PessimisticNoWaitHoldStrategy(
     }
 }
 
-/** 예외 원인 사슬에서 첫 SQLState. */
-internal fun sqlStateOf(e: Throwable): String? =
-    generateSequence(e) { it.cause }.filterIsInstance<SQLException>().firstNotNullOfOrNull { it.sqlState }
-
 /**
  * 4 — 낙관락(버전 열): 읽은 버전이 그대로일 때만 올리고, 아니면 진다(재시도 없음 — 좌석은 한 명만 가지면 된다).
  * 버전은 좌석보다 **먼저** 읽는다 — 좌석을 먼저 읽고 버전을 나중에 읽으면 그 사이 커밋된 새 버전을 기준으로 삼아
