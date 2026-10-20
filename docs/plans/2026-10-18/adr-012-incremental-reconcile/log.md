@@ -67,6 +67,7 @@
 | 10-20 11:59 | rv44 회수(Opus 높음 1·중간 1·낮음 4 · codex 높음 2·중간 1) → 메인 판단: 증분·안전망 셀 = split(§8.4) · noc·M0 = 기본(현재 방식) · 효과 세트 M2/M3 분리 → 하네스 수정 워커(Opus — k6만) ∥ 앱 수정 워커(rv43 진행 중 — 이어서 RG-1 주입기) | 진행 |
 | 10-20 12:11 | 하네스 수정 워커(Opus) 회수 d4db5504(효과 세트 M2 adr012eff 18회 · M3 adr012effx 12회 · 증분·안전망 셀 split · 효과 tmpfs 12) · e7e73325(R4 적체 기준 = 주입 전 마지막 안전망 실행 · R7 기록 짝 safety-record-missing · retry_overflow · R6 판정 불가 · 예상 담당 열) · 워커 검증: 기존 10세트 dry-run 20/20 바이트 같음 · 새 세트 계획표 · 거부 경로 · 합성 점검 수정 전·후 다름 · 워커가 찾은 R7 ① 허용식 불일치(ADR rv43 줄 미반영) → 메인 직접 e72be453(탐지 몫 max(예산+청크, 열린 회차+예산/2+3×청크) · db_ms_open 필수) | 앱 수정 워커 대기 |
 | 10-20 12:18 | rv43 수정 워커(Opus) 회수 522aade4·f12ff82c·b6d1c3f4·3095d072·be674516·c58511d4·48318a1e·379b6824(지적 1~3·5~8) · RF-4 멈춤(테스트 7클래스가 '증분만' 조합으로 기동) · 전체 648 중 1 실패 = RecentWindowTest 14(예산 5ms가 강제 첫 블록에서 끝남 — 기준 커밋에서도 단독 실패, 앞선 전체 실행에선 통과 = 시간 민감) · 메인: ADR §4.2.6 kind 표에 retry_overflow · §4.2.13 #7 '더 넓게' 정정 · #21을 '다시 읽기에도 3회 규칙'으로 정정(§4.2.5와 맞춤) · 메인 판단: RF-4 = 7클래스에 '안전망 켜되 안 돌게' 속성만 + 기동 실패 검사 · 테스트 14 = 예산 전제만 수정 · RG-1 = 시드 초기화 때 주입 상태·counter_app_inject 비움 + 예열 사용자(≥900000) 제외 → 워커(Opus) | 진행 |
+| 10-20 13:01 | 남은 3건 워커(Opus) 회수: 24e45d44(증분만 조합 기동 실패 · 7클래스 안전망 켬·1h 속성만 · 금지 조합 테스트 1) · b9eee5e1(테스트 14 — 예산만 올리면 전체 커서가 매 실행 한 바퀴 돌아 다시 읽기를 증명 못 함(실측) → 별도 클래스·예산 200ms·앞 회차 채움 300,000행·전제 단언 3 추가 · 기존 단언 문구 그대로 · 반대 확인 reread=1ms면 실패) · 921d9367(주입기 시드 초기화·예열 사용자 제외 + 테스트 2 · 반대 확인) · 전체 651/0/0 · 증분 패키지 2회 115/0 · 메인: 테스트 14 처리 수용 · ADR §4.2.2 rv43 검사·조합표 행 · §4.2.7 예열·시드 초기화 | 재점검(codex) → 06f |
 
 ## 리뷰 ledger
 
@@ -147,7 +148,7 @@
 | RF-1 | 1 | codex H + opus L5 | IncrementalReconciler.kt:297 ⓑⓒ 재시도 상한 넘침 무기록 | 채택 — gap 행·지표 | fixed | 522aade4~379b6824 |
 | RF-2 | 1 | opus M1 + codex M | IncrementalReconciler.kt:183-190 기록 INSERT 실패 시 gap 유실 | 채택 | fixed | 522aade4~379b6824 |
 | RF-3 | 1 | opus M2 | SafetyNetReconciler.kt:457·484·572 갈래별 강제 첫 블록 대 허용식 | 채택 — 허용식 + 강제 블록 ≤ 3 × chunk_ms_max(R7 rv43 줄 · 테스트 12) | fixed | 522aade4~379b6824 |
-| RF-4 | 1 | opus M3 | HoldStrategyStartupCheck.kt:158 증분만 켜고 안전망·C 끔 | 채택 — 기동 실패(테스트 사용 여부 먼저) | open | |
+| RF-4 | 1 | opus M3 | HoldStrategyStartupCheck.kt:158 증분만 켜고 안전망·C 끔 | 채택 — 기동 실패(테스트 사용 여부 먼저) | fixed | 24e45d44 |
 | RF-5 | 1 | codex M + opus L2 | IncrementalSchemaCheck.kt:39-41 트리거 스키마 무시 | 채택 | fixed | 522aade4~379b6824 |
 | RF-6 | 1 | opus L1 | IncrementalReconciler.kt:365 접속 중 자기 역할 세션을 숨은 세션으로 | 채택 | fixed | 522aade4~379b6824 |
 | RF-7 | 1 | opus L3 | SafetyNetReconciler.kt:586-588 전체 커서·다시 읽기 3회 규칙·기록 | 채택 | fixed | 522aade4~379b6824 |
@@ -156,7 +157,7 @@
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
-| RG-1 | 1 | opus H | run.sh:661·670 · warmup.js:5 · AppPathInjector.kt:35,51-60 예열이 주입 상한을 먼저 씀 → 효과 30회 모두 effect-unexpected | 채택 — 앱: 시드 초기화 때 주입 상태 비움 + 예열 사용자(≥900000) 제외 (메인 판단과 같음) | open | |
+| RG-1 | 1 | opus H | run.sh:661·670 · warmup.js:5 · AppPathInjector.kt:35,51-60 예열이 주입 상한을 먼저 씀 → 효과 30회 모두 effect-unexpected | 채택 — 앱: 시드 초기화 때 주입 상태 비움 + 예열 사용자(≥900000) 제외 (메인 판단과 같음) | fixed | 921d9367 |
 | RG-2 | 1 | codex H | campaign.sh:211 증분 셀에 --reconcile-shape split 없음(§8.4) | 채택 — 증분·안전망·효과·2' 비교 셀 split · noc·M0는 기본(현재 방식) | fixed | d4db5504·e7e73325 |
 | RG-3 | 1 | codex H | summarize.py:1246 R4 적체에 주입 뒤 실행이 섞임 | 채택 — 주입 tx 시작 이전 마지막 안전망 실행 기준 | fixed | d4db5504·e7e73325 |
 | RG-4 | 1 | codex M | run.sh:1416 · summarize.py:1365 안전망 상세 행 결손 → R7 runs 0 ok | 채택 — run_id 짝 · 결손 사유 · R7 판정 불가 | fixed | d4db5504·e7e73325 |

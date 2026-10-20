@@ -184,6 +184,7 @@ ADR-015(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 | `track-inject` | `false`(기본) | 효과 셀 전용 — 켜면 증분 틱이 `counter_app_inject`의 후보 시각 열을 채운다(4.2.7 · rv41 codex M7). 하네스가 효과 셀에서만 켠다 |
 
 기동 검사(`IncrementalSchemaCheck` — 어기면 기동 실패, 메시지에 이유): `method=memory`면 `enabled=true`(표시만 하는 메모리 집합은 뜻이 없다)이고 외부 앱이 아니어야 한다 · `method ∈ {trigger, stmt}`면 `user_hold_quota.updated_at` 열과 인덱스가 있어야 한다 · `method=trigger`면 트리거 `user_hold_quota_touch`가 있어야 하고, **그 밖의 방식(none 포함)이면 그 트리거가 없어야 한다**(트리거 비용이 다른 셀에 새지 않게) · 증분 또는 안전망이 켜졌으면 `counter_safety_run` 테이블(4.2.5)이 있어야 한다 · 증분이 켜지면 A(만료 복구)가 필수다(지금 C와 같은 규칙 — `HoldStrategyStartupCheck.kt:62` 계열).
+- **rv43에서 더한 검사**: `incremental.enabled=true`인데 안전망(`safety-net.enabled`) · 전체 대조 C(`reconcile.enabled`) · 외부 대조(`external-reconciler`)가 모두 꺼져 있으면 **기동 실패**(rv43 Opus M3 · 24e45d44) — 증분은 조건부 보장이라 보장 밖 쌍(창 상한 · 재시작 · 넘침 · 등록 예외)을 고칠 전체 훑기가 하나는 있어야 한다. 검사는 업무 앱(`HoldStrategyStartupCheck`) · 메시지에 네 키.
 - **rv41에서 더한 검사**:
   - `method=stmt` + `limit-strategy=counter-trigger`면 **기동 실패**(rv41 codex H2). B의 선점·만료는 V8 `quota_add`의 `UPDATE user_hold_quota`(`V8__counter_trigger.sql:34` — 함수 :28-39)로 cnt를 바꾸는데 ⓒ 문장이 그 UPDATE를 덮지 못한다 — 커밋된 앱 경로 변경이 후보가 되지 않아 §3-1과 충돌한다. counter-trigger에서는 ⓑ(또는 ⓐ)만 쓴다. 업무 앱이 이 검사를 한다(외부 앱은 매수 방식을 모른다 — M3는 4.2.9의 두 앱 설정 비교가 맡는다).
   - `method ∈ {trigger, stmt}` + `enabled=true`(틱을 도는 프로세스)면 ① `SHOW max_prepared_transactions`가 0이어야 한다 — 준비된 트랜잭션은 세션이 끝난 뒤에도 남아 `pg_stat_activity`의 `xact_start`로 보이지 않는다(rv41 Opus M4 · codex H1 — 측정 DB는 기본값 0) ② 접속 역할이 superuser이거나 `pg_read_all_stats` 구성원이면 그대로 기동한다. 아니면 WARN 1행('다른 역할 세션의 `xact_start`가 NULL로 보일 수 있음 — 숨은 세션 검사로 보수 하한')을 남기고 기동하고, 틱마다 숨은 세션 검사(4.2.3)가 그 틱의 하한을 `t − max-overlap`으로 내린다 — 다른 역할 세션의 트랜잭션도 60초 안이면 놓치지 않는다(rv41 Opus M4 '같은 역할 또는 권한' 조건을 틱마다 확인하는 꼴). 측정 DB의 접속 역할은 스모크에서 확인한다 `[구현 검증]`.
@@ -246,6 +247,7 @@ ADR-015(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 | M3 ⓑ / ⓒ | 위 M2 ⓑ / ⓒ와 같은 위치(업무 앱은 표시만 — `enabled=false`) | 업무 앱 성공. 외부 앱은 Flyway를 끄고 같은 `IncrementalSchemaCheck`로 같은 스키마(V9 종류 · 트리거 유무 · V10)를 확인 — 다르면 외부 앱 기동 실패 |
 | 두 V9 위치를 함께 | 둘 다 | 실패(같은 버전 V9가 2개) |
 | V9를 적용한 DB를 **다른** V9 위치로 다시 기동 | 다른 쪽 | 실패(Flyway 검증 — 같은 V9의 체크섬이 다르다). 측정은 회차마다 새 DB라 해당 없음 · 운영 DB 전환은 ADR-014 |
+| 증분만(`incremental.enabled=true` · 안전망·C·외부 대조 모두 끔) | 위치와 무관 | 실패 — 보장 밖 몫을 받을 전체 훑기가 없다(rv43 M3) |
 
 #### 4.2.3 창(watermark) 규칙과 증분 틱
 
@@ -417,6 +419,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 #### 4.2.7 측정 전용 앱 경로 주입
 
 - 손잡이 `seat.hold.loadtest.inject-app.*`: `enabled=false`(기본) · `every=50`(쌍 선택: `(scheduleId × 31 + userId) mod every == 0`) · `max-pairs=60` · `paths=hold,expiry`. 빈 `AppPathInjector`는 `@Profile("loadtest")`에만 있다(loadtest 프로필이 아니면 빈이 없어 키를 켜도 아무것도 안 하고, 기동 검사가 '켰는데 프로필 없음'을 실패로 낸다). 쌍마다 한 번만 주입한다(주입한 쌍 집합 · 원자적 개수).
+- **예열·시드 초기화**(rv44 RG-1 · 921d9367): 예열(k6 `warmup.js` — 회차 1 · 사용자 900000 + [0, 100000))이 측정 전에 `max-pairs`를 써 버리지 않게 ① 사용자 id ≥ 900000은 고르지 않는다(`AppPathInjector.WARMUP_USER_MIN`) ② 시드 초기화(`LoadtestDataService.reset` — `TRUNCATE … RESTART IDENTITY`)가 같은 트랜잭션에서 `counter_app_inject`를 비우고(V10이 있을 때만) 커밋 뒤 주입 상태(쌍 집합 · 개수 · AH/AL 차례)를 비운다 — 측정의 주입 수·차례는 초기화 뒤 0부터. 한계: S3 계열 측정 사용자(`300000 + 반복 번호`)도 약 60만 번째 반복부터 900000 이상이 되어 고르지 않는다 — every 50 · max-pairs 60이면 상한이 첫 수천 사용자 안에 차므로 영향 없음.
 - **선점 경로**: `upsertQuota`(`UserLimitStrategies.kt:265-272`)와 counter `acquire`(:229-235)가 1행을 올린 직후, 같은 트랜잭션에서 고른 쌍에 `UPDATE user_hold_quota SET cnt = cnt + δ WHERE …` — δ는 쌍마다 번갈아 +1(종류 `AH` — cnt > 실제) · −1(`AL` — 방금 올린 뒤라 cnt ≥ 1, 결과 = 실제 − 1 ≥ 0). 선점이 뒤에서 롤백되면(좌석 실패 등) 주입도 함께 사라진다.
 - **만료 경로**: A의 가드 감소(`ExpiryCounters.kt:47-51`)가 1행일 때 같은 트랜잭션에서 +1(`AE`). −1은 쓰지 않는다(CHECK 23514로 만료 틱 전체가 롤백된다).
 - 주입 문장은 `updated_at`을 직접 쓰지 않는다. 표시는 정상 경로가 이미 남겼다(ⓐ 같은 트랜잭션 등록 · ⓒ 같은 트랜잭션 문장 · ⓑ 트리거가 같은 트랜잭션 시각으로 덮음 — 값이 같다). 그래서 ⓐⓑⓒ 모두 증분이 잡아야 한다(R6).
