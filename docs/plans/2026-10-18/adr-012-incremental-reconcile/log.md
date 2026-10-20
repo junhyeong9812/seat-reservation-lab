@@ -64,6 +64,7 @@
 | 10-20 11:35 | 메인 전체 테스트(d79dc3d7 --rerun): suites 143 · **648/0/0/0** · rv43 회수(codex 높음 1·중간 2 · Opus 중간 3·낮음 6 — 겹침 정리 8건) → 수정 워커(Opus) | 진행 |
 | 10-20 11:35 | 기록 주: 이 log의 '10-20 11:15'·'10-20 13:00' 행 시각은 추정으로 적었다(실제 각각 약 10:45·11:20 — 셸 date 기준). 이후 행은 date로 확인해 적는다 | — |
 | 10-20 11:49 | 06g 하네스 워커(Opus) 회수 7fcfaaff(run.sh A+I·A+X · --incremental·--incremental-interval·--inject-app · Flyway 조합 · 회차 사유 5종 · lib.sh path='db' 주입 기록·V10 덤프·db_schema·quota_hot · external_app_* stub · campaign adr012s2 24회 14.5h·adr012s2x 21회 12.7h(--m2-cell 필수)·adr012eff 30회 11.5h · summarize effect R4·R6·보장 밖·R7·R2 · tail 7절 · actsnap) · 워커 검증: 기존 10세트 dry-run 같음 · run.sh 48조건 plan·compose config 같음 · TAIL 3캠페인 같음 · postgres:16 임시 컨테이너로 SQL 확인 · 메인 판단 2: ① 효과 세트를 M2(adr012eff 6셀)·M3(adr012effx 4셀)로 나눔(M2 효과를 .158 전에 측정) ② 앱 주입기는 시드 초기화 때 주입 상태·counter_app_inject를 비우고 예열 사용자 범위(900000~)를 주입하지 않음 → 앱·하네스 후속 수정 · 06g 듀얼 리뷰 rv44(Opus ∥ codex) | 진행 |
+| 10-20 11:59 | rv44 회수(Opus 높음 1·중간 1·낮음 4 · codex 높음 2·중간 1) → 메인 판단: 증분·안전망 셀 = split(§8.4) · noc·M0 = 기본(현재 방식) · 효과 세트 M2/M3 분리 → 하네스 수정 워커(Opus — k6만) ∥ 앱 수정 워커(rv43 진행 중 — 이어서 RG-1 주입기) | 진행 |
 
 ## 리뷰 ledger
 
@@ -149,4 +150,17 @@
 | RF-6 | 1 | opus L1 | IncrementalReconciler.kt:365 접속 중 자기 역할 세션을 숨은 세션으로 | 채택 | open | |
 | RF-7 | 1 | opus L3 | SafetyNetReconciler.kt:586-588 전체 커서·다시 읽기 3회 규칙·기록 | 채택 | open | |
 | RF-8 | 1 | opus L4·L6 | 주석 2곳 | 채택 | open | |
+- review packet(06g 7fcfaaff): rv44 — 미러(k6/ADR-009 scripts·compose · ADR-012 · 마이그레이션 · reconcile-core). Opus(앱 이름 전수 대조 · 기존 10세트 dry-run 직접 재확인) ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RG-1 | 1 | opus H | run.sh:661·670 · warmup.js:5 · AppPathInjector.kt:35,51-60 예열이 주입 상한을 먼저 씀 → 효과 30회 모두 effect-unexpected | 채택 — 앱: 시드 초기화 때 주입 상태 비움 + 예열 사용자(≥900000) 제외 (메인 판단과 같음) | open | |
+| RG-2 | 1 | codex H | campaign.sh:211 증분 셀에 --reconcile-shape split 없음(§8.4) | 채택 — 증분·안전망·효과·2' 비교 셀 split · noc·M0는 기본(현재 방식) | open | |
+| RG-3 | 1 | codex H | summarize.py:1246 R4 적체에 주입 뒤 실행이 섞임 | 채택 — 주입 tx 시작 이전 마지막 안전망 실행 기준 | open | |
+| RG-4 | 1 | codex M | run.sh:1416 · summarize.py:1365 안전망 상세 행 결손 → R7 runs 0 ok | 채택 — run_id 짝 · 결손 사유 · R7 판정 불가 | open | |
+| RG-5 | 1 | opus M | summarize.py:1223-1240 retry_overflow kind 빠짐 | 채택 | open | |
+| RG-6 | 1 | opus L | summarize.py:1276,1298 path='db' 없을 때 R6 False | 채택 — None | open | |
+| RG-7 | 1 | opus L | campaign.sh:204 효과 세트 tmpfs 12 없음 | 채택 | open | |
+| RG-8 | 1 | opus L | summarize.py:1995 self_record 하한 | 채택 — 표에 '하한' 표시 | open | |
+| RG-9 | 1 | opus L | inc_effect 전체 커서만 잡는 D·L1·H에 120초 기준 | 채택 — 쌍별 '예상 탐지 갈래' 열(R4 규칙 무변경) · 스모크에서 바퀴 시간 확인 | open | |
 
