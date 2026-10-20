@@ -112,7 +112,8 @@ class StmtScopeStmtTest : StmtScopeScenario(stmt = true)
 class StmtScopeMemoryWithV9Test : StmtScopeScenario(stmt = false)
 
 /** counter 방식의 `cnt + 1` 문장(§4.2.2 ⓒ 1번) — 준비 INSERT는 기본값, 두 번째 선점의 UPDATE가 표시한다. */
-@TestPropertySource(properties = [A_ON, M_STMT, INC_ON, INC_1H, FW_STMT, "seat.hold.limit-strategy=counter"])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_STMT, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_STMT, "seat.hold.limit-strategy=counter"])
 class StmtScopeCounterStrategyTest : IncrementalTestBase() {
     @Test
     fun `11 — counter 선점 UPDATE cnt + 1 도 updated_at = 그 트랜잭션 시각`() {

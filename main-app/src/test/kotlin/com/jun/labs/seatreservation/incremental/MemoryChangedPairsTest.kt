@@ -162,7 +162,8 @@ class MemoryRegistrationTest : MemoryScenarioBase() {
 }
 
 /** 테스트 3 '커밋 전에는 후보가 아니다' — 임계 구역 지연(ADR-004 장치 · upsert 뒤 · 커밋 전)으로 선점 트랜잭션을 연 채 틱을 돌린다. */
-@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, FW_V10, "seat.hold.critical-section-delay=3s"])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, "seat.hold.critical-section-delay=3s"])
 class MemoryCommitTimingTest : MemoryScenarioBase() {
 
     @Test
@@ -181,7 +182,8 @@ class MemoryCommitTimingTest : MemoryScenarioBase() {
 }
 
 /** 테스트 3 '자동 커밋 경로(쿼터 행 준비)도 등록된다' — counter 방식은 트랜잭션 밖에서 cnt 0 행을 만든다(UserLimitStrategies ensureQuotaRow). */
-@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, FW_V10, "seat.hold.limit-strategy=counter"])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, "seat.hold.limit-strategy=counter"])
 class MemoryAutocommitPathTest : MemoryScenarioBase() {
 
     @Test

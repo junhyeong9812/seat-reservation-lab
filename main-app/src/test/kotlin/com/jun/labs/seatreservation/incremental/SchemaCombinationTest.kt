@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.incremental
 
+import com.jun.labs.seatreservation.support.causesOf
 import org.junit.jupiter.api.Test
 import org.springframework.jdbc.core.JdbcTemplate
 import org.testcontainers.containers.PostgreSQLContainer
@@ -89,6 +90,16 @@ class SchemaCombinationTest : BootTestBase() {
     @Test
     fun `증분 켬 + A(만료 복구) 끔 — 기동 실패`() =
         fails(incrementalProps("trigger", locs(LOC_V9_TRG, LOC_V10), "seat.hold.counter-drift.expiry-repair" to "false"), "증분은 A가 필수", "expiry-repair", "expiryRepair", "만료")
+
+    @Test
+    fun `증분만 켬(안전망·C·외부 대조 모두 끔) — 기동 실패(rv43 M3 — 보장 밖 쌍을 고칠 곳이 없다)`() {
+        val error = bootFailure(freshDbUrl(), incrementalProps("trigger", locs(LOC_V9_TRG, LOC_V10), "$SAFE.enabled" to "false"))
+        assertStartupFailure(error, "증분만 켜는 조합", listOf("전체 훑기를 모두 껐다"))
+        // 메시지가 막은 조합의 키 넷을 모두 이름 댄다
+        val message = causesOf(error!!).filterIsInstance<IllegalStateException>().joinToString { it.message.orEmpty() }
+        listOf("$INC.enabled", "$SAFE.enabled", "seat.hold.counter-drift.reconcile.enabled", "seat.hold.counter-drift.external-reconciler")
+            .forEach { assertTrue(it in message, "메시지에 $it 가 없다: $message") }
+    }
 
     // ── M2 ⓑ 트리거 ─────────────────────────────────────────────────────────────────
 

@@ -166,6 +166,12 @@ class HoldStrategyStartupCheck(
         check(!(safety && c)) {
             "안전망($safetyKey.enabled=true)과 전체 대조 C(seat.hold.counter-drift.reconcile.enabled=true)를 함께 켜지 않는다 — 전체 훑기가 두 개가 된다. 안전망을 쓰면 reconcile.enabled=false를 명시하라"
         }
+        // rv43 Opus M3: 증분은 조건부 보장(창 상한·재시작·넘침·등록 예외는 보장 밖)이라 그 몫을 받을 전체 훑기(안전망 · C · 외부 대조)가 하나는 있어야 한다
+        val external = properties.counterDrift.externalReconciler
+        check(!(inc.enabled && !safety && !c && !external)) {
+            "증분($incKey.enabled=true)만 켜고 전체 훑기를 모두 껐다($safetyKey.enabled=false · seat.hold.counter-drift.reconcile.enabled=false · " +
+                "seat.hold.counter-drift.external-reconciler=false) — 증분 보장 밖 쌍을 고칠 곳이 없다. 안전망($safetyKey.enabled=true)을 켜라"
+        }
         val injectApp = properties.loadtest.injectApp
         val loadtest = environment?.activeProfiles?.contains(LOADTEST_PROFILE) == true
         check(!(injectApp.enabled && !loadtest)) {

@@ -123,7 +123,8 @@ class AppPathInjectStmtTest : AppPathInjectScenario(SRC_STMT)
 
 /** track-inject=false — 열은 NULL이고 후보 시각 UPDATE가 나가지 않는다(counter_app_inject를 ACCESS EXCLUSIVE로 쥔 채 틱이 막힘 없이 끝난다). */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS])
 class AppPathInjectNoTrackTest : IncrementalTestBase() {
     @Test
     fun `18 — track-inject=false — first_candidate 열 NULL · 문장 없음 · 그래도 증분이 고친다`() {
@@ -149,7 +150,8 @@ class AppPathInjectNoTrackTest : IncrementalTestBase() {
 
 /** 손잡이 꺼짐(loadtest 프로필이어도) — 주입 0 · 쿼터 정상. */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, FW_TRG])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG])
 class AppPathInjectOffTest : IncrementalTestBase() {
     @Test
     fun `18 — inject-app 미지정이면 주입하지 않는다`() {
@@ -161,7 +163,8 @@ class AppPathInjectOffTest : IncrementalTestBase() {
 
 /** max-pairs — 상한 수만큼만 주입한다(원자적 개수). 이 클래스는 주입을 한 테스트에서만 만든다(개수가 컨텍스트에 쌓인다). */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=2"])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=2"])
 class AppPathInjectMaxPairsTest : IncrementalTestBase() {
     @Test
     fun `18 — max-pairs=2 — 세 쌍 선점에 주입 2행`() {
@@ -172,7 +175,8 @@ class AppPathInjectMaxPairsTest : IncrementalTestBase() {
 
 /** every — 고른 쌍만((s × 31 + u) mod every == 0). */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, FW_TRG, INJ_ON, "$INJECT.every=50", INJ_PATHS])
+// (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, "$INJECT.every=50", INJ_PATHS])
 class AppPathInjectEveryTest : IncrementalTestBase() {
     @Test
     fun `18 — every=50 — 선택식에 맞는 쌍만 주입된다`() {
@@ -182,3 +186,4 @@ class AppPathInjectEveryTest : IncrementalTestBase() {
         assertEquals(listOf(chosen), jdbcTemplate.injectRows().map { it.long("user_id") })
     }
 }
+
