@@ -41,7 +41,9 @@
 #     ADR-012 2단계 손잡이(§4.2.2·4.2.5·4.2.7·4.2.9 ③④ — 지정하지 않으면 이전과 같은 렌더·계획·실행. 새 조건 A+I·A+X에서만 받는다):
 #       --cond A+I            A + 앱 안 증분(incremental.enabled=true) + 안전망(safety-net.enabled=true) · C 끔 — M2
 #       --cond A+X            A + external-reconciler=true + 표시만(incremental.method · enabled=false) — 증분·안전망은 외부 앱(.158 reconciler-app) — M3.
-#                             외부 앱 기동·내리기·표본(⑥)은 task 07 — 지금은 lib.sh external_app_* stub이라 run.sh가 시작 전에 거부한다(exit 2)
+#                             외부 앱(.158 · compose 프로젝트 seatlab-reconciler · 포트 8103 — lib.sh external_app_*): 배포(SHA) → 회차마다 업무 앱 기동 뒤 compose up · 8103 health ·
+#                             configprops(external-config.json) · ⑥ 표본(timeline-ext-server.jsonl docker stats · timeline-ext-hikari.jsonl · clock-offset-ext.json) · 회차 끝 로그·내리기.
+#                             시작 전에 lib.sh external_app_ready(EXT_DB_PASSWORD — k6 PC 셸 환경 · .158 도달 · 포트)를 통과해야 한다(아니면 exit 2)
 #     [--incremental mem|trg|stmt]   방식(A+I·A+X 필수 · A+X는 trg|stmt) — 앱 키 method = memory|trigger|stmt · Flyway 위치(§4.2.2 조합표):
 #                             mem = + migration-incremental(V10) · trg = + migration-updated-at-trigger(V9) + migration-incremental · stmt = + migration-updated-at(V9) + migration-incremental
 #     [--incremental-interval 1s]    증분 틱 주기(정수 초 — 기본 1s, 계획에 늘 남는다) · source = inc-<app|ext>-<mem|trg|stmt>-<주기>, 안전망 = safety-<app|ext>(§4.2.6)
@@ -238,8 +240,9 @@ set_cond
 # ADR-012 R8: 탐지 모양은 F 컨테이너 손잡이 — A+F 밖에서 받으면 조용히 버리지 않고 거부(이어서 실행은 계획 복원 뒤 아래에서 다시 본다)
 #   ADR-012 2단계: A+I(업무 앱의 증분·안전망 탐지)·A+X(외부 앱)에도 받는다(§4.2.9 ③)
 (( RESUME )) || [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F || "$COND" == A+I || "$COND" == A+X ]] || { echo "--reconcile-shape는 --cond A+F·A+I·A+X에서만(대조 탐지 모양) — cond=$COND" >&2; exit 2; }
-# ADR-012 M3: 외부 앱(.158) 기동·내리기는 task 07 — lib.sh external_app_supported가 stub(1)이면 배포·결과 폴더 전에 거부한다(조용히 업무 앱만 띄워 '대조 없음'을 재지 않게)
-if (( HAS_X )) && ! external_app_supported; then echo "--cond A+X: 외부 앱 오케스트레이션이 아직 없다(lib.sh external_app_* — task 07) — 거부" >&2; exit 2; fi
+# ADR-012 M3: 외부 앱(.158) 오케스트레이션(lib.sh external_app_*)이 없거나 준비 점검(external_app_ready)이 실패하면 배포·결과 폴더 전에 거부한다(조용히 업무 앱만 띄워 '대조 없음'을 재지 않게)
+if (( HAS_X )) && ! external_app_supported; then echo "--cond A+X: 외부 앱 오케스트레이션이 없다(lib.sh external_app_*) — 거부" >&2; exit 2; fi
+if (( HAS_X && ! RESUME )) && ! external_app_ready; then echo "--cond A+X: 외부 앱 준비 점검 실패(lib.sh external_app_ready) — 거부" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-009(results 제외)가 SHA와 다르면 거부한다.
 # 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
@@ -331,7 +334,8 @@ if (( RESUME )); then
   [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F || "$COND" == A+I || "$COND" == A+X ]] || { echo "resume: 계획의 reconcile_shape $RECONCILE_SHAPE는 A+F·A+I·A+X에서만 — cond=$COND" >&2; exit 2; }
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
   inc_args_check "$RESUME_CELLS" || { echo "resume: 계획의 ADR-012 손잡이가 조건 $COND와 맞지 않는다" >&2; exit 2; }
-  if (( HAS_X )) && ! external_app_supported; then echo "resume: --cond A+X — 외부 앱 오케스트레이션이 아직 없다(task 07)" >&2; exit 2; fi
+  if (( HAS_X )) && ! external_app_supported; then echo "resume: --cond A+X — 외부 앱 오케스트레이션이 없다(lib.sh external_app_*)" >&2; exit 2; fi
+  if (( HAS_X )) && ! external_app_ready; then echo "resume: --cond A+X — 외부 앱 준비 점검 실패(lib.sh external_app_ready)" >&2; exit 2; fi
   echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
 else
   # 기존 결과를 덮어쓰지 않는다 — 근거 보존
@@ -402,6 +406,13 @@ inc_env() {
   (( INJECT_APP )) && printf ' INC_TRACK=1 INJECT_APP=1'
   return 0
 }
+# ADR-012 M3 외부 앱 compose 변수(reconciler-app/compose.yml 머리말 — A+X만): 방식(업무 앱과 같은 값) · 주기 · 탐지 모양 · track-inject(효과 셀) ·
+#   JVM 앞머리 = 업무 앱 APP_JVM_OPTS·2·3·4와 같은 값(F가 업무 앱 JAVA_TOOL_OPTIONS를 물려받는 것과 같은 꼴 — §4.2.8 'JVM 옵션은 F와 같게')
+ext_env() {
+  printf 'INC_METHOD=%s INC_INTERVAL=%s DETECT_SHAPE=%s INC_TRACK=%s' "$(inc_method_key "$INC_METHOD")" "$INC_INTERVAL" "$RECONCILE_SHAPE" "$( ((INJECT_APP)) && echo 1)"
+  printf ' RECONCILER_JVM_OPTS=%s RECONCILER_JVM_OPTS2=%s RECONCILER_JVM_OPTS3=%s RECONCILER_JVM_OPTS4=%s' "$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac)" \
+    "$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational")" "$( ((APP_PRETOUCH)) && echo "-XX:+AlwaysPreTouch")" "$( ((APP_XMS_FULL)) && echo "-XX:InitialRAMPercentage=75")"
+}
 # ADR-007 후속 tmpfs preset: DB 볼륨을 tmpfs로(오버레이). compose_down은 오버레이 없이도 같은 볼륨(pgdata)을 지운다(down -v)
 [[ "$PG_PRESET" == tmpfs ]] && export COMPOSE_EXTRA="${COMPOSE_EXTRA:-} -f k6/ADR-009/compose.tmpfs.yml"
 
@@ -423,6 +434,8 @@ cleanup() {
   fi
   # 재점검: 서버 측정기 컨테이너가 남았으면 지운다(다음 회차 compose_down도 probe 부재를 확인하지만, 도중 종료 뒤 곧바로 지우게)
   if (( ${PROBES:-0} )); then remote_t 60 "docker rm -f seatlab-probe-1" > /dev/null 2>&1 || true; fi
+  # ADR-012 M3: 도중에 끝나도 외부 앱(.158 seatlab-reconciler)이 남지 않게 — 이 프로젝트만 내린다(lib.sh external_app_down)
+  if (( ${HAS_X:-0} )) && [[ -n "${SHA:-}" ]]; then external_app_down "$SHA" > /dev/null 2>&1 || echo "[$(date '+%F %T')] cleanup: external_app_down 실패 — .158 $EXT_PROJECT 확인 필요" >&2; fi
   [[ -n "${FROZEN_DIR:-}" && "$FROZEN_DIR" == "${TMPDIR:-/tmp}"/tmp.* && -d "$FROZEN_DIR/scripts" ]] && rm -rf "$FROZEN_DIR"
 }
 trap cleanup EXIT
@@ -519,7 +532,7 @@ app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU �
     app_actuator reconciler configprops | jq -c '{configprops: [.contexts[].beans[] | select(.prefix | test("^(seat\\.hold|spring\\.datasource\\.hikari|server)$"))
         | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]}' > "$dir/reconciler-config.json" || return 1
   fi
-  # ADR-012 M3: 외부 앱(8103)의 적용 설정 → external-config.json(같은 모양 {configprops:[…]}) — incremental-config-mismatch가 두 앱을 함께 본다. 지금은 stub(task 07)
+  # ADR-012 M3: 외부 앱(8103)의 적용 설정 → external-config.json(같은 모양 {configprops:[…]}) — incremental-config-mismatch가 두 앱을 함께 본다(lib.sh external_app_configprops)
   if (( HAS_X )); then external_app_configprops > "$dir/external-config.json" || return 1; fi
 }
 limit_keys() {  # 인자: 회차폴더 → limit-key.json = 컨테이너마다 lib.sh limit_key_check 한 줄의 배열(앱 + F면 reconciler — 첫 원소가 앱)
@@ -608,6 +621,16 @@ start_pollers() {  # 인자: 출력폴더 셀 → 백그라운드 PID들을 출�
       [[ -n "$pend" && -n "$act" ]] && echo "{\"t\":\"$(date -Is)\",\"pending\":$pend,\"active\":$act}" >> "$dir/timeline-hikari.jsonl"
       sleep 1
     done ) > /dev/null 2>&1 & echo $!
+  # ADR-012 ⑥(M3 — §4.2.9): 외부 앱 컨테이너 docker stats(10초 — 그 컨테이너만, lib.sh external_stats) · 외부 앱 Hikari pending/active(1초 — 8103 actuator)
+  if (( HAS_X )); then
+    ( while :; do external_stats >> "$dir/timeline-ext-server.jsonl" 2>/dev/null; sleep 10; done ) > /dev/null 2>&1 & echo $!
+    ( while :; do
+        pend=$(curl -fsS --max-time 2 "$EXTERNAL_URL/actuator/metrics/hikaricp.connections.pending" 2>/dev/null | jq -c '.measurements[0].value' 2>/dev/null)
+        act=$(curl -fsS --max-time 2 "$EXTERNAL_URL/actuator/metrics/hikaricp.connections.active" 2>/dev/null | jq -c '.measurements[0].value' 2>/dev/null)
+        [[ -n "$pend" && -n "$act" ]] && echo "{\"t\":\"$(date -Is)\",\"pending\":$pend,\"active\":$act}" >> "$dir/timeline-ext-hikari.jsonl"
+        sleep 1
+      done ) > /dev/null 2>&1 & echo $!
+  fi
   case "$cell" in
     S3*)   # 좌석 상태 곡선 — DB 직접 가벼운 집계(전체 판정은 회차 끝 1회). poll_ms = ssh 포함 왕복 (간섭 판단용)
       ( while :; do
@@ -647,6 +670,11 @@ run_rep() {  # 인자: level cell rep
   log "L$level $cell rep$rep cond=$COND cleanup=$CLEANUP → $dir"
 
   # 회차마다 새 컨테이너 — JVM·커넥션 풀·DB 캐시 상태를 회차 사이에 넘기지 않는다(V7 기록 테이블도 새 볼륨이라 이 회차의 행뿐이다)
+  # ADR-012 M3: 외부 앱(.158)을 먼저 내린다 — 옛 외부 앱이 새 DB에 붙어 대조하지 않게(lib.sh external_app_down — 이 프로젝트만)
+  if (( HAS_X )) && ! external_app_down "$SHA" >> "$dir/external-compose.log" 2>&1; then
+    UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "external-down-failed" -1 ""; return 1
+  fi
   if ! compose_down "$DEPLOY_ID" >> "$dir/compose.log" 2>&1; then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "compose-down-failed" -1 ""; return 1
@@ -665,6 +693,12 @@ run_rep() {  # 인자: level cell rep
   if (( HAS_F )) && ! BASE_URL="$RECONCILER_URL" wait_health 180; then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "reconciler-unhealthy" -1 ""; return 1
+  fi
+  # ADR-012 M3: 업무 앱이 스키마(Flyway — V9·V10)를 만든 뒤 외부 앱을 띄운다(외부 앱은 같은 IncrementalSchemaCheck로 확인만) — 기동 검사 실패·health 시한이면 external-unhealthy
+  if (( HAS_X )) && ! external_app_up "$SHA" "$dir" $(ext_env); then
+    UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
+    external_app_logs "$dir" "$started"   # 기동 실패 원인(기동 검사 메시지)을 남긴다
+    finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "external-unhealthy" -1 ""; return 1
   fi
   UNHEALTHY_STREAK=0
   "$K6_BIN" run --quiet "$SCENARIOS/warmup.js" > "$dir/warmup.log" 2>&1   # ADR-011 --k6-bin(기본 k6)
@@ -739,6 +773,7 @@ run_rep() {  # 인자: level cell rep
 
   local k6env; k6env=$(k6_env_of "$cell")
   local clk_before clk_after; clk_before=$(clock_offset 2>>"$dir/errors.log")
+  local clk_ext_before="" clk_ext_after=""; (( HAS_X )) && clk_ext_before=$(SERVER="$EXT_SERVER" clock_offset 2>>"$dir/errors.log")   # ADR-012 ⑥: .158 시계 − PC 시계
   local dash=()
   [[ "$base" != S1 && "$base" != S2 && "$base" != S7 ]] && dash=(K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=-1 "K6_WEB_DASHBOARD_EXPORT=$dir/k6-dashboard.html")
   # ADR-009 마감 임박 셀(S3c — 설계 §9): k6 바로 전에 회차 starts_at = 지금 + 600초(+ k6 시작까지 예상 지연 CLOSE_LEAD_S, 기본 1초)를 DB에 넣고 close.json에 남긴다.
@@ -789,6 +824,12 @@ run_rep() {  # 인자: level cell rep
   clk_after=$(clock_offset 2>>"$dir/errors.log")
   jq -n --argjson b "${clk_before:-null}" --argjson a "${clk_after:-null}" '{before:$b, after:$a}' > "$dir/clock-offset.json" \
     || echo '{"before":null,"after":null}' > "$dir/clock-offset.json"
+  # ADR-012 ⑥(M3): .158 시계 차(PC 기준 — .158 ↔ .164 = 이 값 − clock-offset.json, 외부 앱 기록 시각(counter_drift_log.at · 틱 started_at)을 맞출 때)
+  if (( HAS_X )); then
+    clk_ext_after=$(SERVER="$EXT_SERVER" clock_offset 2>>"$dir/errors.log")
+    jq -n --argjson b "${clk_ext_before:-null}" --argjson a "${clk_ext_after:-null}" --arg s "$EXT_SERVER" '{server:$s, before:$b, after:$a}' > "$dir/clock-offset-ext.json" \
+      || echo '{"before":null,"after":null}' > "$dir/clock-offset-ext.json"
+  fi
   after_k6 "$dir" "$deadlocks0" 2>>"$dir/errors.log" || echo "after_k6 failed" >> "$dir/errors.log"
   drift_snaps "$dir" after-k6
   wait_io=$(( ${IO_SETTLE_S:-11} - (SECONDS - k6_done) )); (( wait_io > 0 )) && sleep "$wait_io"
@@ -843,6 +884,11 @@ run_rep() {  # 인자: level cell rep
     echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/gc-status.txt"
   done
   python3 "$SUMMARIZE" --gc "$dir" > "$dir/gc.json" 2>>"$dir/errors.log" || echo "gc summary failed" >> "$dir/errors.log"
+  # ADR-012 M3: 외부 앱 로그·GC 로그(external-status.txt — rep_status external-log-missing) 뒤 내리기(회차 끝 — 다음 회차 앞에서도 다시 내린다)
+  if (( HAS_X )); then
+    external_app_logs "$dir" "$started"
+    external_app_down "$SHA" >> "$dir/external-compose.log" 2>&1 || echo "$(date -Is) external_app_down failed at rep end" >> "$dir/errors.log"
+  fi
   # ADR-010(리뷰): 앱 컨테이너에 실제로 걸린 메모리 한도(bytes)와 JAVA_TOOL_OPTIONS 한 변수만 기록 — 환경 전체는 남기지 않는다. rep_status app-jvm-mismatch
   local amem ajto
   amem="$(remote "docker inspect --format '{{.HostConfig.Memory}}' seatlab-app-1" 2>/dev/null | tr -d '[:space:]')"
@@ -944,6 +990,12 @@ drift_snaps() {  # 인자: 회차폴더 라벨(before|after-k6|end)
   jq -e . <<< "$a" > /dev/null 2>&1 || a=null
   if (( HAS_F )); then r=$(drift_snap reconciler 2>>"$dir/errors.log") || r=null; jq -e . <<< "$r" > /dev/null 2>&1 || r=null; fi
   jq -n --argjson a "$a" --argjson r "$r" --argjson f "$HAS_F" '{app:$a} + (if $f == 1 then {reconciler:$r} else {} end)' > "$dir/drift-$label.json"
+  # ADR-012 M3: 외부 앱 지표(8103 — 증분·안전망 errors·borrows · Hikari)는 따로 drift-ext-<라벨>.json({external:{…}|null} — 이전 파일 모양은 그대로)
+  if (( HAS_X )); then
+    local e; e=$(python3 -I "$LIB_DIR/actsnap.py" "$EXTERNAL_URL" 2>>"$dir/errors.log") || e=null
+    jq -e . <<< "$e" > /dev/null 2>&1 || e=null
+    jq -n --argjson e "$e" '{external:$e}' > "$dir/drift-ext-$label.json"
+  fi
 }
 # 효과 셀 주입기(배경): k6 시작(PC epoch) + 라운드 초마다 inject_drift 한 번(라운드별 종류 수 — H-1) — 결과 한 줄씩 injected.jsonl(실패도 한 줄 — 무음 금지)
 injector_job() {  # 인자: 회차폴더 k6시작epoch
@@ -1417,10 +1469,27 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     # R7 기록 짝(summarize 머리말 'R7 기록 짝'): k6 구간 안전망 counter_reconcile_run마다 같은 run_id의 counter_safety_run + 필수 열 — 없으면 R7 판정 불가(결과 사유)
     python3 "$SUMMARIZE" --safety-pair-check "$dir" "$SAFETY_SOURCE" "$k6_started" "$k6_ended" 2>>"$dir/errors.log" || reasons+=("safety-record-missing")
     if jq -e '[.reconcile_runs[] | (.errors + .skipped_chunks)] | add // 0 | . > 0' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
-    # 증분·안전망 지표 errors 증가(k6 직전 → 회차 끝 — actsnap incremental·safety, 업무 앱만: A+X 외부 앱 지표는 task 07) > 0이면 reconcile-errors(바퀴 기록 errors는 위 공통 검사)
+    # 증분·안전망 지표 errors 증가(k6 직전 → 회차 끝 — actsnap incremental·safety, 업무 앱 — A+X 외부 앱은 아래 drift-ext-*) > 0이면 reconcile-errors(바퀴 기록 errors는 위 공통 검사)
     if (( HAS_I )) && jq -e --slurpfile b "$dir/drift-before.json" \
          '(((.app.incremental.errors // 0) - ($b[0].app.incremental.errors // 0)) + ((.app.safety.errors // 0) - ($b[0].app.safety.errors // 0))) > 0' "$dir/drift-end.json" > /dev/null 2>&1; then
       reasons+=("reconcile-errors")
+    fi
+    # ADR-012 M3: 외부 앱 지표 errors 증가(drift-ext-before → end) > 0이면 reconcile-errors · 지표를 못 읽었으면 drift-snap-failed
+    if (( HAS_X )); then
+      for f in drift-ext-before.json drift-ext-end.json; do jq -e '.external | type == "object" and (.error | not)' "$dir/$f" > /dev/null 2>&1 || reasons+=("drift-snap-failed"); done
+      if jq -e --slurpfile b "$dir/drift-ext-before.json" \
+           '(((.external.incremental.errors // 0) - ($b[0].external.incremental.errors // 0)) + ((.external.safety.errors // 0) - ($b[0].external.safety.errors // 0))) > 0' "$dir/drift-ext-end.json" > /dev/null 2>&1; then
+        reasons+=("reconcile-errors")
+      fi
+      # ⑥ 표본: 외부 앱 docker stats(k6 구간 공백 ≤ 30초 — 업무 서버 path-gap과 같은 판정기) · Hikari · .158 시계 차(앞·뒤) — 하나라도 없으면 external-sample-missing(하네스 실패)
+      python3 "$(dirname "$0")/gapcheck.py" "$dir/timeline-ext-server.jsonl" "$k6_started" "$k6_ended" 30 2>>"$dir/errors.log" || reasons+=("external-sample-missing")
+      grep -qs "\"Name\":\"$EXT_CONTAINER\"" "$dir/timeline-ext-server.jsonl" || reasons+=("external-sample-missing")
+      [[ -s "$dir/timeline-ext-hikari.jsonl" ]] || reasons+=("external-sample-missing")
+      jq -e '(.before.offset_s | type == "number") and (.after.offset_s | type == "number")' "$dir/clock-offset-ext.json" > /dev/null 2>&1 || reasons+=("external-sample-missing")
+      # 외부 앱 로그·GC 로그(파이프 0/0 · 0바이트 아님 · 두 줄)
+      if ! [[ -s "$dir/external-status.txt" ]] || grep -qvE '^(log|gc) pipe=0/0 bytes=[1-9][0-9]*$' "$dir/external-status.txt" || [[ "$(wc -l < "$dir/external-status.txt")" != 2 ]]; then
+        reasons+=("external-log-missing")
+      fi
     fi
     # 효과 셀 --inject-app on: S3e 주입마다 같은 트랜잭션의 counter_app_inject path='db' 행 수(tracked) = 기록한 주입 수
     if [[ "$base" == S3e ]] && (( INJECT_APP )) && jq -e '.rounds | type == "array" and length > 0' "$dir/injected.json" > /dev/null 2>&1; then
@@ -1552,7 +1621,9 @@ inc_json() {  # 인자: plan|meta
     jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" '{method:$m, interval:$i, inject_app:($j == 1)}'
   else
     jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" --arg s "$INC_SOURCE" --arg ss "$SAFETY_SOURCE" --arg x "$( ((HAS_X)) && echo ext || echo app)" \
-      --argjson every "$INJECT_APP_EVERY" '{method:$m, interval:$i, inject_app:($j == 1), source:$s, safety_source:$ss, where:$x} + (if $j == 1 then {inject_app_every:$every} else {} end)'
+      --argjson every "$INJECT_APP_EVERY" --arg es "${EXT_SERVER:-}" --arg ep "${EXT_PROJECT:-}" --arg eu "${EXTERNAL_URL:-}" --arg ed "${EXT_DB_URL:-}" \
+      '{method:$m, interval:$i, inject_app:($j == 1), source:$s, safety_source:$ss, where:$x} + (if $j == 1 then {inject_app_every:$every} else {} end)
+       + (if $x == "ext" then {external:{server:$es, project:$ep, url:$eu, db_url:$ed}} else {} end)'
   fi
 }
 
@@ -1613,6 +1684,10 @@ if (( WORKTREE )); then
   deploy_worktree "$SHA" "$DEPLOY_ID" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }
 else
   deploy_sha "$SHA" || { echo "$(date -Is) ABORT deploy-failed" >> "$MATRIX_LOG"; log "deploy failed"; exit 3; }
+fi
+# ADR-012 M3: 외부 앱은 늘 커밋 그대로(--worktree여도 앱은 SHA) — .158 labs/seat-reservation-lab-reconciler/<SHA>
+if (( HAS_X )); then
+  external_app_deploy "$SHA" || { echo "$(date -Is) ABORT external-deploy-failed" >> "$MATRIX_LOG"; log "external deploy failed"; exit 3; }
 fi
 log "matrix $MATRIX_ID: cond=$COND cleanup=$CLEANUP levels=[$LEVELS] reps=$REPS cells=[$CELLS] pg_preset=$PG_PRESET"
 for level in $LEVELS; do
