@@ -429,6 +429,40 @@ SELECT json_build_object('triggers', (SELECT coalesce(json_agg(DISTINCT tgname),
 SQL
 }
 
+# ---- ADR-012 2단계(새 조건 A+I·A+X — run.sh가 그 조건에서만 부른다) ----------------------------------------------------------------
+# 스키마(§4.2.2 기동 검사와 같은 대상 — 하네스가 DB에서 다시 본다, rep_status schema-mismatch):
+#   {"updated_at_column": user_hold_quota.updated_at 열 있음, "updated_at_index": idx_user_hold_quota_updated_at 있음, "touch_trigger": 트리거 user_hold_quota_touch 있음,
+#    "tables": [V10 테이블 중 있는 것 — counter_safety_run · counter_inc_gap · counter_app_inject]}
+db_schema() {
+  db_json <<'SQL'
+SELECT json_build_object(
+  'updated_at_column', EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_hold_quota' AND column_name = 'updated_at'),
+  'updated_at_index', to_regclass('idx_user_hold_quota_updated_at') IS NOT NULL,
+  'touch_trigger', EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'user_hold_quota_touch'),
+  'tables', (SELECT coalesce(json_agg(table_name ORDER BY table_name), '[]') FROM information_schema.tables
+             WHERE table_schema = current_schema() AND table_name IN ('counter_safety_run', 'counter_inc_gap', 'counter_app_inject')));
+SQL
+}
+# R5(하네스 ⑧ — §4.2.9): 쿼터 테이블 갱신·HOT 갱신 누적값 · updated_at 인덱스 크기(V9 방식만 부른다) — 한 줄 JSON {"t","n_tup_upd","n_tup_hot_upd","idx_bytes","table_bytes"}
+quota_hot() {
+  db_json <<'SQL'
+SELECT json_build_object('t', clock_timestamp(), 'n_tup_upd', s.n_tup_upd, 'n_tup_hot_upd', s.n_tup_hot_upd,
+  'idx_bytes', (SELECT pg_relation_size(to_regclass('idx_user_hold_quota_updated_at'))), 'table_bytes', pg_relation_size('user_hold_quota'))
+FROM pg_stat_user_tables s WHERE s.relname = 'user_hold_quota';
+SQL
+}
+# M3 외부 앱(reconciler-app · .158 — §4.2.8 '하네스가 띄우고 내리는 법'): **stub — task 07이 채운다.** 지금은 모두 1(실패)을 돌려
+#   run.sh(--cond A+X)와 campaign.sh(adr012s2x·adr012eff의 외부 앱 셀)가 시작 전에 거부한다 — 업무 앱만 떠서 '대조 없는 M3'를 재지 않게.
+#   채울 것: external_app_supported(0 = 오케스트레이션 있음) · external_app_ready(캠페인 전 점검 — .158 도달·이미지·compose) · external_app_up <배포ID> <회차폴더>
+#   (이미지 save | ssh load · compose 동기화 · 비밀번호 표준 입력) · external_app_down · external_app_configprops(8103 actuator configprops → {configprops:[…]} — run.sh app_config가
+#   external-config.json으로) · ⑥ 표본(.158 docker stats · 외부 앱 Hikari · .158 ↔ .164 시계 차). 비밀번호는 명령 인자·파일에 남기지 않는다(§4.2.8 ③)
+EXTERNAL_URL="${EXTERNAL_URL:-}"   # 외부 앱 actuator(예: http://<.158>:8103) — task 07
+external_app_supported() { return 1; }
+external_app_ready() { echo "external_app_ready: stub — 외부 앱(.158) 오케스트레이션은 task 07(lib.sh external_app_*)" >&2; return 1; }
+external_app_up() { echo "external_app_up: stub(task 07)" >&2; return 1; }
+external_app_down() { echo "external_app_down: stub(task 07)" >&2; return 1; }
+external_app_configprops() { echo "external_app_configprops: stub(task 07)" >&2; return 1; }
+
 # 대조 첫 바퀴 기다리기(C·F — reconcile-missing의 근거): counter_reconcile_run에 source 행이 생길 때까지(최대 인자 초). 한 줄 JSON {"source","runs","waited_s"}
 wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
   local src="$1" max="$2" t0=$SECONDS n=0 base
@@ -446,15 +480,20 @@ wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
 
 # V7 기록 테이블 전부(회차마다 DB 볼륨을 새로 만들므로 이 회차의 행뿐이다 — 시드 초기화는 V7을 비우지 않으므로 요약기가 k6 구간으로 다시 거른다).
 # counter_drift_log는 페이지로 전부(N-5 — 총 수 함께). 시각은 DB(서버) 시계
-drift_db_dump() {
+drift_db_dump() {  # 인자: (선택) v10 — ADR-012 새 조건: V10 기록 테이블(counter_safety_run · counter_inc_gap · counter_app_inject)도 머리 JSON에(행 수가 작다 — 안전망 1분 · 보장 밖 사건 · 주입 수십)
+  local v10=""
+  if [[ "${1:-}" == v10 ]]; then v10=",
+  'safety_runs', (SELECT coalesce(json_agg(s ORDER BY s.run_id), '[]') FROM counter_safety_run s),
+  'inc_gaps', (SELECT coalesce(json_agg(g ORDER BY g.id), '[]') FROM counter_inc_gap g),
+  'app_inject', (SELECT coalesce(json_agg(a ORDER BY a.id), '[]') FROM counter_app_inject a)"; fi
   # N-5: counter_drift_log는 id 순 페이지(DRIFT_PAGE, 기본 20,000행)로 끝까지 모은다 — 총수(먼저 셈)보다 적게 모이면 호출자(rep_status)가 drift-db-incomplete(수집 실패)
   local head page last=0 n tmp; tmp=$(mktemp)
-  head=$(db_json <<'SQL'
+  head=$(db_json <<SQL
 SELECT json_build_object(
   'db_now', clock_timestamp(),
   'drift_log_total', (SELECT count(*) FROM counter_drift_log),
   'reconcile_runs', (SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM counter_reconcile_run r),
-  'cleanup_runs', (SELECT coalesce(json_agg(c ORDER BY c.id), '[]') FROM counter_cleanup_run c));
+  'cleanup_runs', (SELECT coalesce(json_agg(c ORDER BY c.id), '[]') FROM counter_cleanup_run c)$v10);
 SQL
 ) || { rm -f "$tmp"; return 1; }
   echo '[]' > "$tmp"
@@ -482,9 +521,27 @@ SQL
 #   모두 열린 회차(starts_at > now)의 cnt = 1 쌍, 종류끼리·이전 주입과 겹치지 않는다. 고르는 순서는 결정적(D·L1 = 홀드 id · L2 = 예약 id · H = (회차, 사용자)).
 #   고른 뒤 (회차, 사용자) 순서로 FOR UPDATE 잠그고 조건을 다시 본다(H-7 — 바뀐 쌍은 dropped_after_lock). 변경은 상대값(cnt ± 1), 종류별 영향 행 수(applied)를 함께 낸다.
 #   출력 한 줄 JSON(+ applied·dropped_after_lock) {"at","at_epoch","counts":{…},"pairs":[{kind,schedule_id,user_id,cnt_before,held_at,expires_at}]}
+#   ADR-012 --inject-app on(INJECT_TRACK=1 — §4.2.7 'S3e DB 직접 주입 쌍도 같은 표에'): 같은 트랜잭션에서 counter_app_inject에 주입 쌍마다 1행
+#     (at = clock_timestamp() · tx_started_at = now() · path 'db' · kind D|L1|L2|H · delta = H +1 · 그 밖 −1 · cnt_after = D NULL(행 삭제) · 그 밖 cnt_before + delta) → 출력 + tracked(넣은 행 수).
+#     고르는 쪽은 앱 경로 주입 쌍((회차 × 31 + 사용자) mod INJECT_APP_EVERY = 0 — 앱이 고를 쌍)과 이미 기록된 주입 쌍을 뺀다(두 주입이 같은 쌍에 겹치지 않게).
+#     INJECT_TRACK이 0(기본)이면 SQL 문자열이 이전과 같다
 inject_drift() {
   local d="$1" l1="$2" l2="$3" h="$4" excl="${5:-}" held="${INJECT_HELD_MIN_S:-250}" margin="${INJECT_EXP_MARGIN_S:-15}"
+  local track="${INJECT_TRACK:-0}" every="${INJECT_APP_EVERY:-50}" xa="" tk="" tj=""
   [[ "$d$l1$l2$h$held$margin" =~ ^[0-9]+$ ]] || return 2
+  [[ "$track" =~ ^[01]$ && "$every" =~ ^[1-9][0-9]*$ ]] || return 2
+  if (( track )); then
+    xa=" AND NOT EXISTS (SELECT 1 FROM counter_app_inject a WHERE a.schedule_id = q.schedule_id AND a.user_id = q.user_id) AND (q.schedule_id * 31 + q.user_id) % $every <> 0"
+    tk="
+CREATE TEMP TABLE tracked ON COMMIT DROP AS
+WITH t AS (INSERT INTO counter_app_inject (at, tx_started_at, path, kind, schedule_id, user_id, delta, cnt_after)
+           SELECT clock_timestamp(), now(), 'db', i.kind, i.schedule_id, i.user_id, CASE WHEN i.kind = 'H' THEN 1 ELSE -1 END,
+                  CASE WHEN i.kind = 'D' THEN NULL WHEN i.kind = 'H' THEN i.cnt_before + 1 ELSE i.cnt_before - 1 END
+           FROM inj i ORDER BY i.kind, i.schedule_id, i.user_id RETURNING 1)
+SELECT count(*) AS n FROM t;"
+    tj="
+  'tracked', (SELECT n FROM tracked),"
+  fi
   [[ -z "$excl" || "$excl" =~ ^(\([0-9]+,[0-9]+\),?)+$ ]] || return 2
   db_json <<SQL
 BEGIN;
@@ -496,14 +553,14 @@ SELECT 'D', q.schedule_id, q.user_id, q.cnt, h.held_at, h.expires_at
 FROM seat_hold h JOIN user_hold_quota q ON q.schedule_id = h.schedule_id AND q.user_id = h.user_id
 JOIN product_schedule s ON s.id = h.schedule_id AND s.starts_at > now()
 WHERE h.held_at <= now() - make_interval(secs => $held) AND h.expires_at >= now() + make_interval(secs => $margin) AND q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
 ORDER BY h.id LIMIT $d;
 INSERT INTO inj
 SELECT 'L1', q.schedule_id, q.user_id, q.cnt, h.held_at, h.expires_at
 FROM seat_hold h JOIN user_hold_quota q ON q.schedule_id = h.schedule_id AND q.user_id = h.user_id
 JOIN product_schedule s ON s.id = h.schedule_id AND s.starts_at > now()
 WHERE h.held_at <= now() - make_interval(secs => $held) AND h.expires_at >= now() + make_interval(secs => $margin) AND q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY h.id LIMIT $l1;
 INSERT INTO inj
@@ -513,14 +570,14 @@ JOIN product_schedule s ON s.id = r.schedule_id AND s.starts_at > now()
 WHERE r.status = 'CONFIRMED' AND q.cnt = 1
   AND NOT EXISTS (SELECT 1 FROM seat_hold x WHERE x.schedule_id = q.schedule_id AND x.user_id = q.user_id)
   AND NOT EXISTS (SELECT 1 FROM reservation r2 WHERE r2.schedule_id = q.schedule_id AND r2.user_id = q.user_id AND r2.status = 'CONFIRMED' AND r2.id <> r.id)
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY r.id LIMIT $l2;
 INSERT INTO inj
 SELECT 'H', q.schedule_id, q.user_id, q.cnt, NULL, NULL
 FROM user_hold_quota q JOIN product_schedule s ON s.id = q.schedule_id AND s.starts_at > now()
 WHERE q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY q.schedule_id, q.user_id LIMIT $h;
 -- H-7: 고른 쌍의 쿼터 행을 앱과 같은 순서((회차, 사용자))로 잠근 뒤 조건을 다시 본다 — 고른 뒤 잠그기 전에 바뀐 쌍(확정·만료·cnt 변경)은 뺀다(dropped_after_lock)
@@ -544,8 +601,8 @@ CREATE TEMP TABLE applied ON COMMIT DROP AS
 WITH d AS (DELETE FROM user_hold_quota q USING inj i WHERE i.kind = 'D' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
      l AS (UPDATE user_hold_quota q SET cnt = q.cnt - 1 FROM inj i WHERE i.kind IN ('L1', 'L2') AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
      h AS (UPDATE user_hold_quota q SET cnt = q.cnt + 1 FROM inj i WHERE i.kind = 'H' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1)
-SELECT (SELECT count(*) FROM d) AS d, (SELECT count(*) FROM l) AS l, (SELECT count(*) FROM h) AS h;
-SELECT json_build_object('at', clock_timestamp(), 'at_epoch', extract(epoch FROM clock_timestamp()),
+SELECT (SELECT count(*) FROM d) AS d, (SELECT count(*) FROM l) AS l, (SELECT count(*) FROM h) AS h;$tk
+SELECT json_build_object('at', clock_timestamp(), 'at_epoch', extract(epoch FROM clock_timestamp()),$tj
   'counts', (SELECT json_build_object('D', count(*) FILTER (WHERE kind = 'D'), 'L1', count(*) FILTER (WHERE kind = 'L1'),
                                       'L2', count(*) FILTER (WHERE kind = 'L2'), 'H', count(*) FILTER (WHERE kind = 'H')) FROM inj),
   'applied', (SELECT json_build_object('D', d, 'L', l, 'H', h) FROM applied),

@@ -37,6 +37,17 @@
 #     [--reconcile-shape one-shot|split|group]   --cond A+F에서만 — F 컨테이너 SPRING_APPLICATION_JSON에 counter-drift.reconcile.detect-shape
 #                             (compose.reconciler.yml RECONCILE_DETECT_SHAPE) · plan.json condition.reconcile_shape · meta reconcile_shape ·
 #                             reconciler-config.json의 detectShape가 이 값(지정 안 하면 ONE_SHOT)이 아니면 reconciler-config-mismatch
+#                             (ADR-012 2단계: --cond A+I면 업무 앱 키 counter-drift.reconcile.detect-shape(compose.yml APP_DETECT_SHAPE) · A+X면 외부 앱 몫)
+#     ADR-012 2단계 손잡이(§4.2.2·4.2.5·4.2.7·4.2.9 ③④ — 지정하지 않으면 이전과 같은 렌더·계획·실행. 새 조건 A+I·A+X에서만 받는다):
+#       --cond A+I            A + 앱 안 증분(incremental.enabled=true) + 안전망(safety-net.enabled=true) · C 끔 — M2
+#       --cond A+X            A + external-reconciler=true + 표시만(incremental.method · enabled=false) — 증분·안전망은 외부 앱(.158 reconciler-app) — M3.
+#                             외부 앱 기동·내리기·표본(⑥)은 task 07 — 지금은 lib.sh external_app_* stub이라 run.sh가 시작 전에 거부한다(exit 2)
+#     [--incremental mem|trg|stmt]   방식(A+I·A+X 필수 · A+X는 trg|stmt) — 앱 키 method = memory|trigger|stmt · Flyway 위치(§4.2.2 조합표):
+#                             mem = + migration-incremental(V10) · trg = + migration-updated-at-trigger(V9) + migration-incremental · stmt = + migration-updated-at(V9) + migration-incremental
+#     [--incremental-interval 1s]    증분 틱 주기(정수 초 — 기본 1s, 계획에 늘 남는다) · source = inc-<app|ext>-<mem|trg|stmt>-<주기>, 안전망 = safety-<app|ext>(§4.2.6)
+#     [--inject-app on]       효과 셀(S3e*)만 — 앱 경로 주입(loadtest.inject-app.enabled) + track-inject(첫 후보 시각) + S3e 주입의 counter_app_inject path='db' 행(lib.sh inject_drift)
+#     새 조건의 회차 판정: incremental-config-mismatch(summarize.py --inc-config-check — A+X는 두 앱 configprops) · schema-mismatch(db-schema.json — 열·인덱스·트리거·V10 테이블) ·
+#       reconcile-missing(첫 증분 틱 · k6 구간의 증분 틱·안전망 실행 결손) · reconcile-errors(증분·안전망 지표 errors 증가)
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
 #     [--pg-tmpfs-size <GiB>]  ADR-011 E3(대조 켜고 끄기): tmpfs 크기 = <GiB>g · DB 메모리 = <GiB>+2g(지정 안 하면 0 = 6g·8g 그대로 — tmpfs preset만)
 #   셀 S4c4200 = S4 시나리오 고정 도착률 4,200/s(램프 60초 + 30초 × 12구간) — 판정은 정상 종료만(한계 규칙 없음)
@@ -73,6 +84,8 @@ APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(
 K6_BIN=k6 GCTRACE=0 PROBES=0 APP_PRETOUCH=0 APP_XMS_FULL=0 S4C_STEPS=12 SEED_SCHEDULES=200
 PG_TMPFS_GB=0   # ADR-011 E3: tmpfs 크기(GiB) — 0 = preset 값(6g · DB 8g)
 RECONCILE_SHAPE=""   # ADR-012 R8: F의 탐지 모양(머리말) — 빈 값 = 지정 안 함(키 없음 · 앱 기본 one-shot)
+INC_METHOD="" INC_INTERVAL="" INJECT_APP=0   # ADR-012 2단계(머리말) — 빈 값·0 = 지정 안 함(A+I·A+X 밖의 조건은 렌더·계획 그대로)
+INJECT_APP_EVERY=50   # ADR-012 §4.2.7 앱 경로 주입 쌍 선택 (scheduleId × 31 + userId) mod every == 0 — 앱 기본값(키를 넣지 않는다 · inc-config-check가 configprops와 대조)
 # 측정기 k6 기본 = 안정 경로의 v2.2.0(공식 tar.gz sha256 b5a8003c… 확인 뒤 푼 바이너리 — 바이너리 sha256 9fced9ff…, ADR-011 log). 주 k6와 다른 바이너리
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6"
 WORKTREE=0   # 스모크 전용(머리말)
@@ -104,6 +117,9 @@ while (( $# )); do
     --seed-schedules) SEED_SCHEDULES="$2"; COND_CLI+=" seed_schedules"; shift 2 ;;
     --pg-tmpfs-size) PG_TMPFS_GB="$2"; COND_CLI+=" pg_tmpfs_gb"; shift 2 ;;
     --reconcile-shape) [[ -n "${2:-}" ]] || { echo "--reconcile-shape one-shot|split|group(빈 값 불가)" >&2; exit 2; }; RECONCILE_SHAPE="$2"; COND_CLI+=" reconcile_shape"; shift 2 ;;
+    --incremental) [[ -n "${2:-}" ]] || { echo "--incremental mem|trg|stmt(빈 값 불가)" >&2; exit 2; }; INC_METHOD="$2"; COND_CLI+=" incremental"; shift 2 ;;
+    --incremental-interval) [[ -n "${2:-}" ]] || { echo "--incremental-interval <정수>s(빈 값 불가)" >&2; exit 2; }; INC_INTERVAL="$2"; COND_CLI+=" incremental_interval"; shift 2 ;;
+    --inject-app) [[ "${2:-}" == on ]] || { echo "--inject-app on" >&2; exit 2; }; INJECT_APP=1; COND_CLI+=" inject_app"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -114,11 +130,13 @@ STRATEGIES="none jvm-lock jvm-lock-in-tx conditional-update pessimistic pessimis
 [[ " $STRATEGIES " == *" $STRATEGY "* ]] || { echo "--strategy one of: $STRATEGIES" >&2; exit 2; }
 [[ "$DELAY_MS" =~ ^[0-9]+$ ]] || { echo "--delay-ms <정수 ms>" >&2; exit 2; }
 # ADR-009 조건(머리말). 이어서 실행(--resume)이면 아래에서 계획 값으로 다시 정한다 — 여기서는 명령줄 값만 검사
-CONDS="control control-noclose A A+C A+F B B+C default"
+CONDS="control control-noclose A A+C A+F B B+C default A+I A+X"   # A+I·A+X = ADR-012 2단계(머리말)
 (( RESUME )) && [[ -z "$COND" ]] && COND=control   # 이어서 실행은 계획에서 복원(아래)
 [[ " $CONDS " == *" $COND "* ]] || { echo "--cond one of: $CONDS" >&2; exit 2; }
 [[ "$CLEANUP" =~ ^(none|schedule|zero)$ ]] || { echo "--cleanup none|schedule|zero" >&2; exit 2; }
 [[ -z "$RECONCILE_SHAPE" || "$RECONCILE_SHAPE" =~ ^(one-shot|split|group)$ ]] || { echo "--reconcile-shape one-shot|split|group" >&2; exit 2; }
+[[ -z "$INC_METHOD" || "$INC_METHOD" =~ ^(mem|trg|stmt)$ ]] || { echo "--incremental mem|trg|stmt" >&2; exit 2; }
+[[ -z "$INC_INTERVAL" || "$INC_INTERVAL" =~ ^[1-9][0-9]*s$ ]] || { echo "--incremental-interval <정수>s(예: 1s · 5s)" >&2; exit 2; }
 [[ "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ ]] || { echo "--app-mem <정수>m|g (예: 1g · 1792m)" >&2; exit 2; }
 [[ "$APP_GC" =~ ^(auto|g1|zgc)$ ]] || { echo "--app-gc auto|g1|zgc" >&2; exit 2; }
 # ADR-011: S4c 구간 수 상한 = 계산 — 첫 홀드(k6 첫 요청)가 만료되기 전(S4c 앱 설정 HOLD_TTL 60m = 3,600초 — config_env s4)에 회차 끝 판정(consistency)까지 끝나야 한다
@@ -192,10 +210,36 @@ set_cond() {
   [[ "$COND" == default ]] && { IS_DEFAULT=1; CLEANUP=schedule; }
   [[ "$COND" == A+F ]] && HAS_F=1
   RECONCILE_INTERVAL=60s   # 명세 §11 R3 — 비용·효과 셀 모두 60초
+  # ADR-012 2단계(머리말): I = 앱 안 증분 + 안전망(M2) · X = 외부 앱 증분 + 안전망(M3 — 업무 앱은 A·정리 + 표시만). 둘 다 A 켬 · C 끔
+  HAS_I=0 HAS_X=0 HAS_INC=0 INC_SOURCE="" SAFETY_SOURCE=""
+  case "$COND" in A+I) HAS_A=1 HAS_I=1 ;; A+X) HAS_A=1 HAS_X=1 ;; esac
+  (( HAS_I || HAS_X )) && HAS_INC=1
+  if (( HAS_INC )); then
+    [[ -n "$INC_INTERVAL" ]] || INC_INTERVAL=1s   # 기본 1초(§4.2.2) — 계획에 늘 값을 남긴다
+    INC_SOURCE="inc-$( ((HAS_X)) && echo ext || echo app)-$INC_METHOD-$INC_INTERVAL"   # §4.2.6 — 주기 꼬리표 = 정수 초 Ns
+    SAFETY_SOURCE="safety-$( ((HAS_X)) && echo ext || echo app)"
+  fi
+}
+# ADR-012 2단계 손잡이 검사(이어서 실행은 계획 복원 뒤 다시 부른다): 새 조건에서만 받고, 방식은 새 조건에 필수 · 외부 앱은 ⓑⓒ만(§4.2.8) · 앱 경로 주입은 효과 셀만
+inc_args_check() {
+  if (( HAS_INC )); then
+    [[ -n "$INC_METHOD" ]] || { echo "--cond $COND는 --incremental mem|trg|stmt가 필요하다" >&2; return 1; }
+    (( HAS_X )) && [[ "$INC_METHOD" == mem ]] && { echo "--cond A+X(외부 앱)는 --incremental trg|stmt만(메모리 집합은 다른 프로세스가 볼 수 없다 — §4.2.8)" >&2; return 1; }
+  else
+    [[ -z "$INC_METHOD$INC_INTERVAL" ]] && (( ! INJECT_APP )) || { echo "--incremental·--incremental-interval·--inject-app은 --cond A+I·A+X에서만 — cond=$COND" >&2; return 1; }
+  fi
+  if (( INJECT_APP )); then
+    local c; for c in $1; do [[ "$c" == S3e* ]] || { echo "--inject-app on은 효과 셀(S3e*)에서만 — 셀 $c" >&2; return 1; }; done
+  fi
+  return 0
 }
 set_cond
+(( RESUME )) || inc_args_check "$CELLS" || exit 2
 # ADR-012 R8: 탐지 모양은 F 컨테이너 손잡이 — A+F 밖에서 받으면 조용히 버리지 않고 거부(이어서 실행은 계획 복원 뒤 아래에서 다시 본다)
-(( RESUME )) || [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F ]] || { echo "--reconcile-shape는 --cond A+F에서만(F 컨테이너의 탐지 모양) — cond=$COND" >&2; exit 2; }
+#   ADR-012 2단계: A+I(업무 앱의 증분·안전망 탐지)·A+X(외부 앱)에도 받는다(§4.2.9 ③)
+(( RESUME )) || [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F || "$COND" == A+I || "$COND" == A+X ]] || { echo "--reconcile-shape는 --cond A+F·A+I·A+X에서만(대조 탐지 모양) — cond=$COND" >&2; exit 2; }
+# ADR-012 M3: 외부 앱(.158) 기동·내리기는 task 07 — lib.sh external_app_supported가 stub(1)이면 배포·결과 폴더 전에 거부한다(조용히 업무 앱만 띄워 '대조 없음'을 재지 않게)
+if (( HAS_X )) && ! external_app_supported; then echo "--cond A+X: 외부 앱 오케스트레이션이 아직 없다(lib.sh external_app_* — task 07) — 거부" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-009(results 제외)가 SHA와 다르면 거부한다.
 # 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
@@ -235,6 +279,9 @@ if (( RESUME )); then
   P_PG_TMPFS_GB="$(jq -r '.condition.pg_tmpfs_gb // 0' "$OUT_ROOT/plan.json")"
   # ADR-012 R8 손잡이가 없는 옛 계획 = 지정 안 함(빈 값)
   P_RECONCILE_SHAPE="$(jq -r '.condition.reconcile_shape // ""' "$OUT_ROOT/plan.json")"
+  # ADR-012 2단계 손잡이가 없는 옛 계획 = 지정 안 함
+  P_INC_METHOD="$(jq -r '.condition.incremental.method // ""' "$OUT_ROOT/plan.json")"; P_INC_INTERVAL="$(jq -r '.condition.incremental.interval // ""' "$OUT_ROOT/plan.json")"
+  P_INJECT_APP="$(jq -r 'if .condition.incremental.inject_app then 1 else 0 end' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -255,6 +302,9 @@ if (( RESUME )); then
       seed_schedules) [[ "$SEED_SCHEDULES" == "$P_SEED_SCHEDULES" ]] || { echo "resume: --seed-schedules $SEED_SCHEDULES ≠ 계획 $P_SEED_SCHEDULES" >&2; exit 2; } ;;
       pg_tmpfs_gb) [[ "$PG_TMPFS_GB" == "$P_PG_TMPFS_GB" ]] || { echo "resume: --pg-tmpfs-size $PG_TMPFS_GB ≠ 계획 $P_PG_TMPFS_GB" >&2; exit 2; } ;;
       reconcile_shape) [[ "$RECONCILE_SHAPE" == "$P_RECONCILE_SHAPE" ]] || { echo "resume: --reconcile-shape $RECONCILE_SHAPE ≠ 계획 ${P_RECONCILE_SHAPE:-(지정 안 함)}" >&2; exit 2; } ;;
+      incremental) [[ "$INC_METHOD" == "$P_INC_METHOD" ]] || { echo "resume: --incremental $INC_METHOD ≠ 계획 ${P_INC_METHOD:-(지정 안 함)}" >&2; exit 2; } ;;
+      incremental_interval) [[ "$INC_INTERVAL" == "$P_INC_INTERVAL" ]] || { echo "resume: --incremental-interval $INC_INTERVAL ≠ 계획 ${P_INC_INTERVAL:-(지정 안 함)}" >&2; exit 2; } ;;
+      inject_app) [[ "$INJECT_APP" == "$P_INJECT_APP" ]] || { echo "resume: --inject-app ≠ 계획(inject_app=$P_INJECT_APP)" >&2; exit 2; } ;;
     esac
   done
   # 측정기 이미지는 환경변수 손잡이 — 명시했는데 계획과 다르면 거부(지정하지 않으면 위 기본값이 들어 있으므로 계획에 값이 있을 때만 대조)
@@ -262,6 +312,7 @@ if (( RESUME )); then
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
   K6_BIN="$P_K6_BIN" GCTRACE="$P_GCTRACE" PROBES="$P_PROBES" PROBE_K6_BIN="$P_PROBE_K6_BIN" PROBE_IMAGE="$P_PROBE_IMAGE" APP_PRETOUCH="$P_APP_PRETOUCH" APP_XMS_FULL="$P_APP_XMS_FULL"
   S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES" PG_TMPFS_GB="$P_PG_TMPFS_GB" RECONCILE_SHAPE="$P_RECONCILE_SHAPE"
+  INC_METHOD="$P_INC_METHOD" INC_INTERVAL="$P_INC_INTERVAL" INJECT_APP="$P_INJECT_APP"
   k6_versions || exit 2
   for k in k6_version probe_k6_version k6_sha256 probe_k6_sha256; do
     pv="$(jq -r --arg k "$k" '.condition[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -277,8 +328,10 @@ if (( RESUME )); then
   done
   set_cond
   [[ "$LIMIT_STRATEGY" == "$(jq -r .condition.limit_strategy "$OUT_ROOT/plan.json")" ]] || { echo "resume: 계획의 limit_strategy가 조건 $COND의 기대값과 다르다" >&2; exit 2; }
-  [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F ]] || { echo "resume: 계획의 reconcile_shape $RECONCILE_SHAPE는 A+F에서만 — cond=$COND" >&2; exit 2; }
+  [[ -z "$RECONCILE_SHAPE" || "$COND" == A+F || "$COND" == A+I || "$COND" == A+X ]] || { echo "resume: 계획의 reconcile_shape $RECONCILE_SHAPE는 A+F·A+I·A+X에서만 — cond=$COND" >&2; exit 2; }
   RESUME_CELLS="$(jq -r '.cells|join(" ")' "$OUT_ROOT/plan.json")"
+  inc_args_check "$RESUME_CELLS" || { echo "resume: 계획의 ADR-012 손잡이가 조건 $COND와 맞지 않는다" >&2; exit 2; }
+  if (( HAS_X )) && ! external_app_supported; then echo "resume: --cond A+X — 외부 앱 오케스트레이션이 아직 없다(task 07)" >&2; exit 2; fi
   echo "$(date -Is) RESUME sha=$SHA plan_sha=$PLAN_SHA (앱·시나리오·compose 동일 확인)" >> "$MATRIX_LOG"
 else
   # 기존 결과를 덮어쓰지 않는다 — 근거 보존
@@ -293,6 +346,14 @@ SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
 FLYWAY_LOCATIONS=$([[ "$STRATEGY" == unique ]] && echo "classpath:db/migration,classpath:db/migration-unique" || echo "classpath:db/migration")
 # ADR-009 B(counter-trigger)는 V8 트리거(db/migration-trigger)를 더한다 — 앱 기동 검사가 트리거 ⇔ counter-trigger를 강제하고, 회차 판정이 pg_trigger를 다시 대조한다(db-triggers.json)
 [[ "$LIMIT_STRATEGY" == counter-trigger ]] && FLYWAY_LOCATIONS="$FLYWAY_LOCATIONS,classpath:db/migration-trigger"
+# ADR-012 2단계(§4.2.2 Flyway 위치 조합표 — 기본 위치 뒤에 더한다. M3 업무 앱도 M2와 같은 위치 · 외부 앱은 Flyway 없음): V9(열·인덱스 — trg는 트리거 위치) + V10(안전망·기록 테이블)
+if (( HAS_INC )); then
+  case "$INC_METHOD" in
+    trg)  FLYWAY_LOCATIONS="$FLYWAY_LOCATIONS,classpath:db/migration-updated-at-trigger" ;;
+    stmt) FLYWAY_LOCATIONS="$FLYWAY_LOCATIONS,classpath:db/migration-updated-at" ;;
+  esac
+  FLYWAY_LOCATIONS="$FLYWAY_LOCATIONS,classpath:db/migration-incremental"
+fi
 EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id"
 [[ "$STRATEGY" == unique ]] && EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id,uq_seat_hold_seat_id"
 # ADR-009 F: 별도 대조 컨테이너 오버레이 — compose_up이 이 변수를 쓰고, compose_down은 늘 이 오버레이까지 지정한다(lib.sh)
@@ -306,6 +367,8 @@ INJECT_ROUNDS="${INJECT_ROUNDS:-$(inject_rounds_default)}" INJECT_HELD_MIN_S="${
 [[ "$INJECT_ROUNDS" =~ ^[0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+(\ [0-9]+:[0-9]+,[0-9]+,[0-9]+,[0-9]+)*$ && "$INJECT_HELD_MIN_S$INJECT_EXP_MARGIN_S$CLOSE_LEAD_S" =~ ^[0-9]+$ ]] \
   || { echo "INJECT_ROUNDS(<초>:<D>,<L1>,<L2>,<H> …)·INJECT_HELD_MIN_S·INJECT_EXP_MARGIN_S·CLOSE_LEAD_S 형식" >&2; exit 2; }
 export INJECT_HELD_MIN_S INJECT_EXP_MARGIN_S
+# ADR-012 --inject-app on(§4.2.7): S3e 주입이 같은 트랜잭션에서 counter_app_inject path='db' 행을 남기고, 앱 경로 주입 쌍((s × 31 + u) mod every = 0)·이미 기록된 주입 쌍은 고르지 않는다(lib.sh inject_drift)
+INJECT_TRACK=$INJECT_APP
 # 명세 §13 k6 전 대기(교란 수정 — README '시작 상태'): 시드 끝 → 대기점 PRE_K6_HOLD_S(70) — 대조 조건 첫 바퀴 대기의 이론 최대
 #   (주기 60초 − 예열 뒤 시드까지 최소 약 20초 + 바퀴 시간 + 폴링 3초 — 실측 30~43초, 리뷰 H1·R5로 주기 + 바퀴 + 폴링 ≥ 70초를 덮게) ·
 #   시드 끝 → **첫 요청** 목표 PRE_K6_TARGET_S(87 = 70 + 준비 단계 약 16~17초 실측) · 허용 PRE_K6_TOL_S(5) ·
@@ -321,8 +384,23 @@ cond_env() {
     a=$( ((HAS_A)) && echo true || echo false) c=$( ((HAS_C)) && echo true || echo false) ci=$( ((HAS_C)) && echo "$RECONCILE_INTERVAL") cl="$CLEANUP"
   fi
   echo "LIMIT_TRIGGER=$([[ "$LIMIT_STRATEGY" == counter-trigger ]] && echo 1) SALES_CLOSE_OFF=$([[ "$COND" == control-noclose ]] && echo 1)" \
-       "DRIFT_A=$a DRIFT_EXTERNAL=$( ((HAS_F)) && echo 1) DRIFT_C_ENABLED=$c DRIFT_C=$ci" \
-       "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL${RECONCILE_SHAPE:+ RECONCILE_DETECT_SHAPE=$RECONCILE_SHAPE}"
+       "DRIFT_A=$a DRIFT_EXTERNAL=$( ((HAS_F || HAS_X)) && echo 1) DRIFT_C_ENABLED=$c DRIFT_C=$ci" \
+       "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL$( ((HAS_F)) && echo "${RECONCILE_SHAPE:+ RECONCILE_DETECT_SHAPE=$RECONCILE_SHAPE}")$(inc_env)"
+}
+# ADR-012 2단계 업무 앱 키(compose.yml 머리말 — 새 조건에서만 붙는다: 이전 조건의 cond_env·meta app_env는 한 글자도 바뀌지 않는다).
+#   A+I: 방식 · 틱 켬 · 주기 · 안전망 켬(+ 탐지 모양) · A+X: 방식 · 틱 끔(표시만 — 안전망은 기본 끔). 효과 셀 --inject-app on: track-inject(두 앱 — §4.2.9 ④) + 앱 경로 주입
+INC_BLANK_ENV="INC_METHOD= INC_ENABLED= INC_INTERVAL= INC_TRACK= SAFETY_ENABLED= APP_DETECT_SHAPE= INJECT_APP="
+inc_method_key() { case "$1" in mem) echo memory ;; trg) echo trigger ;; *) echo "$1" ;; esac; }
+inc_env() {
+  (( HAS_INC )) || return 0
+  if (( HAS_I )); then
+    printf ' INC_METHOD=%s INC_ENABLED=true INC_INTERVAL=%s SAFETY_ENABLED=true' "$(inc_method_key "$INC_METHOD")" "$INC_INTERVAL"
+    [[ -n "$RECONCILE_SHAPE" ]] && printf ' APP_DETECT_SHAPE=%s' "$RECONCILE_SHAPE"
+  else
+    printf ' INC_METHOD=%s INC_ENABLED=false' "$(inc_method_key "$INC_METHOD")"
+  fi
+  (( INJECT_APP )) && printf ' INC_TRACK=1 INJECT_APP=1'
+  return 0
 }
 # ADR-007 후속 tmpfs preset: DB 볼륨을 tmpfs로(오버레이). compose_down은 오버레이 없이도 같은 볼륨(pgdata)을 지운다(down -v)
 [[ "$PG_PRESET" == tmpfs ]] && export COMPOSE_EXTRA="${COMPOSE_EXTRA:-} -f k6/ADR-009/compose.tmpfs.yml"
@@ -423,8 +501,10 @@ snapshot() {  # 인자: 출력폴더 라벨
 }
 app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU 수 + 풀 크기 + 컨테이너 제한
   local dir="$1" props cpu pool mem containers
-  props=$(actuator configprops | jq -c '[.contexts[].beans[]
-      | select(.prefix | test("^(seat\\.hold|spring\\.datasource\\.hikari|spring\\.flyway|server)$"))
+  # ADR-012 2단계: 새 조건은 seat.hold 아래 다른 묶음(앱 경로 주입 seat.hold.loadtest.inject-app 등 — 따로 바인딩될 수 있다)도 남긴다. 이전 조건은 같은 정규식 그대로
+  local pre='^(seat\.hold|spring\.datasource\.hikari|spring\.flyway|server)$'; (( HAS_INC )) && pre='^(seat\.hold(\..+)?|spring\.datasource\.hikari|spring\.flyway|server)$'
+  props=$(actuator configprops | jq -c --arg pre "$pre" '[.contexts[].beans[]
+      | select(.prefix | test($pre))
       | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]') || return 1
   cpu=$(actuator metrics/system.cpu.count | jq -c '[.measurements[].value]') || return 1
   pool=$(actuator metrics/hikaricp.connections.max | jq -c '[.measurements[].value]') || return 1
@@ -439,6 +519,8 @@ app_config() {  # 적용된 설정 (비밀번호 등 제외) + JVM이 본 CPU �
     app_actuator reconciler configprops | jq -c '{configprops: [.contexts[].beans[] | select(.prefix | test("^(seat\\.hold|spring\\.datasource\\.hikari|server)$"))
         | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]}' > "$dir/reconciler-config.json" || return 1
   fi
+  # ADR-012 M3: 외부 앱(8103)의 적용 설정 → external-config.json(같은 모양 {configprops:[…]}) — incremental-config-mismatch가 두 앱을 함께 본다. 지금은 stub(task 07)
+  if (( HAS_X )); then external_app_configprops > "$dir/external-config.json" || return 1; fi
 }
 limit_keys() {  # 인자: 회차폴더 → limit-key.json = 컨테이너마다 lib.sh limit_key_check 한 줄의 배열(앱 + F면 reconciler — 첫 원소가 앱)
   local dir="$1" arr="[]" c line names="seatlab-app-1"
@@ -569,7 +651,9 @@ run_rep() {  # 인자: level cell rep
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "compose-down-failed" -1 ""; return 1
   fi
-  if ! compose_up "$DEPLOY_ID" $cfg_env >> "$dir/compose.log" 2>&1; then
+  # ADR-012: compose.yml의 새 변수(INC_* 등 — compose.yml 머리말)를 빈 값으로 앞에 둔다(env는 뒤 값이 이긴다) — 이전 조건도 'variable is not set' 경고·원격 환경 값 섞임이 없다.
+  #   렌더는 같다(빈 값 = 키 없음). meta.json app_env(config_env)에는 넣지 않는다(이전 조건의 기록 그대로)
+  if ! compose_up "$DEPLOY_ID" $INC_BLANK_ENV $cfg_env >> "$dir/compose.log" 2>&1; then
     UNHEALTHY_STREAK=$((UNHEALTHY_STREAK + 1))
     finish_rep "$dir" "$level" "$cell" "$rep" "$started" "|" "compose-up-failed" -1 ""; return 1
   fi
@@ -591,10 +675,11 @@ run_rep() {  # 인자: level cell rep
   local seed_done=$SECONDS seed_t; seed_t=$(date +%s.%N)
   db_state > "$dir/db-state-seed.json" 2>>"$dir/errors.log" || echo "db_state seed failed" >> "$dir/errors.log"   # 리뷰 R2 — 시드 끝 DB 상태
   # ADR-009 C·F: 대조가 실제로 도는지 — 시드 뒤 첫 바퀴 기록이 생길 때까지 기다린다(최대 주기 + 60초). 못 보면 reconcile-first.json runs = 0 → rep_status reconcile-missing
-  if (( HAS_C || HAS_F )); then
+  if (( HAS_C || HAS_F || HAS_INC )); then
+    # ADR-012 2단계: 새 조건은 첫 증분 틱(source = INC_SOURCE — 주기 1·5초라 대기점 안에 온다)을 같은 방식으로 기다린다
     # 기다리는 상한 = 대기점(PRE_K6_HOLD_S) — 그 안에 첫 바퀴가 없으면 목표 시각에 k6를 시작할 수 없다 → 아래 pre-k6-overrun(하네스 실패)로 멈춘다(리뷰 H1:
     # reconcile-missing(결과 사유)로 남기지 않는다 — 첫 바퀴가 늦은 것은 이 하네스의 시작 맞춤 실패다)
-    wait_reconcile_run "$( ((HAS_F)) && echo reconcile-proc || echo reconcile-app)" "$PRE_K6_HOLD_S" > "$dir/reconcile-first.json" 2>>"$dir/errors.log" \
+    wait_reconcile_run "$(if (( HAS_INC )); then echo "$INC_SOURCE"; elif (( HAS_F )); then echo reconcile-proc; else echo reconcile-app; fi)" "$PRE_K6_HOLD_S" > "$dir/reconcile-first.json" 2>>"$dir/errors.log" \
       || echo "wait_reconcile_run failed" >> "$dir/errors.log"
   fi
   # 명세 §13(교란 수정): 모든 조건이 k6 전에 같은 시간을 거친다 — 시드 끝(DB 준비 = /internal/reset 반환, ANALYZE 포함) 뒤 PRE_K6_HOLD_S까지 기다린다
@@ -604,7 +689,7 @@ run_rep() {  # 인자: level cell rep
   hold_left=$(awk -v h="$PRE_K6_HOLD_S" -v r="$hold_reached" 'BEGIN { d = h - r; printf "%.3f", (d > 0 ? d : 0) }')
   # 리뷰 H1·R5: 대기점을 넘었거나(첫 바퀴가 늦음) 대조 조건인데 첫 바퀴를 못 봤으면 k6 전에 멈춘다 — 하네스 실패(pre-k6-overrun, 재측정 대상)
   if awk -v r="$hold_reached" -v h="$PRE_K6_HOLD_S" 'BEGIN { exit !(r > h + 1) }' \
-     || { (( HAS_C || HAS_F )) && ! jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1; }; then
+     || { (( HAS_C || HAS_F || HAS_INC )) && ! jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1; }; then
     abort_pre_k6 "$dir" "$level" "$cell" "$rep" "$started" "hold-reached=${hold_reached}s"; return 1
   fi
   sleep "$hold_left"
@@ -614,6 +699,8 @@ run_rep() {  # 인자: level cell rep
   # 매수 방식 키 흔적(개수만 — 환경 전체는 남기지 않는다). ADR-009: 기대 개수는 조건마다(B·B+C = 1) — rep_status
   limit_keys "$dir" 2>>"$dir/errors.log" || echo "limit_keys failed" >> "$dir/errors.log"
   db_triggers > "$dir/db-triggers.json" 2>>"$dir/errors.log" || echo "db_triggers failed" >> "$dir/errors.log"
+  # ADR-012 2단계: 스키마(V9 열·인덱스 · 트리거 user_hold_quota_touch · V10 테이블)가 방식과 맞나 — rep_status schema-mismatch
+  if (( HAS_INC )); then db_schema > "$dir/db-schema.json" 2>>"$dir/errors.log" || echo "db_schema failed" >> "$dir/errors.log"; fi
   pg_settings > "$dir/pg-settings.json" 2>>"$dir/errors.log" || echo "pg_settings failed" >> "$dir/errors.log"
   SAMPLER_COPY="$(sampler_copy_of "$level" "$cell" "$rep")"
   HOST_COPY="${SAMPLER_COPY%.jsonl}-host.jsonl" HOST_IOSTAT="${SAMPLER_COPY%.jsonl}-iostat.txt"
@@ -635,6 +722,8 @@ run_rep() {  # 인자: level cell rep
   drift_snaps "$dir" before
   # 명세 §13: 마지막 맞춤 — 시드 끝 → k6 시작이 PRE_K6_TARGET_S가 되게 남은 만큼 더 기다린다(준비 단계 길이 차를 지운다). 넘었으면 기다리지 않는다(rep_status pre-k6-mismatch가 판정)
   db_state > "$dir/db-state-k6.json" 2>>"$dir/errors.log" || echo "db_state k6 failed" >> "$dir/errors.log"   # 리뷰 R2 — k6 직전 DB 상태(맞춤 sleep 앞)
+  # ADR-012 R5(하네스 ⑧): updated_at 방식(V9)만 — 쿼터 테이블 갱신·HOT 갱신 누적 · updated_at 인덱스 크기를 k6 직전·회차 끝에(quota-hot.json). HOT 비율은 io-before/after에도 있다
+  local qh0=null; [[ "$INC_METHOD" == trg || "$INC_METHOD" == stmt ]] && { qh0=$(quota_hot 2>>"$dir/errors.log") && jq -e . <<< "$qh0" > /dev/null 2>&1 || qh0=null; }
   local now2; now2=$(date +%s.%N)
   # 리뷰 H1: 준비 단계까지 마친 시각이 이미 목표 + 허용을 넘었으면(첫 요청이 허용 밖이 된다) k6 전에 멈춘다
   if awk -v n="$now2" -v b="$seed_t" -v t="$PRE_K6_TARGET_S" -v l="$PRE_K6_TOL_S" -v lead="$PRE_K6_LEAD_S" 'BEGIN { exit !((n - b) + lead > t + l) }'; then
@@ -716,12 +805,19 @@ run_rep() {  # 인자: level cell rep
   pg_storage > "$dir/pg-storage-end.json" 2>>"$dir/errors.log" || echo "pg_storage end failed" >> "$dir/errors.log"
   # ADR-009 회차 끝 수집: 앱(·F) 지표 · V7 기록 테이블 · 효과 셀 끝 쌍 상태 · 마감 임박 셀 정리 상태
   drift_snaps "$dir" end
-  drift_db_dump > "$dir/drift-db.json" 2>>"$dir/errors.log" || echo "drift_db_dump failed" >> "$dir/errors.log"
+  drift_db_dump $( ((HAS_INC)) && echo v10) > "$dir/drift-db.json" 2>>"$dir/errors.log" || echo "drift_db_dump failed" >> "$dir/errors.log"   # ADR-012: V10 기록 테이블도(새 조건)
+  if [[ "$INC_METHOD" == trg || "$INC_METHOD" == stmt ]]; then
+    local qh1; qh1=$(quota_hot 2>>"$dir/errors.log") && jq -e . <<< "$qh1" > /dev/null 2>&1 || qh1=null
+    jq -n --argjson a "$qh0" --argjson b "$qh1" '{k6: $a, end: $b}' > "$dir/quota-hot.json"
+  fi
   # 리뷰 H2·H5·R2: pre-k6.json에 첫 요청 시각·대조 바퀴 위상·대기 중 DB 상태를 더한다(판정 기준 = 시드 끝 → 첫 요청)
   python3 "$SUMMARIZE" --pre-k6-finish "$dir" 2>>"$dir/errors.log" || echo "pre-k6 finish failed" >> "$dir/errors.log"
   if [[ "$base" == S3e ]]; then
     injected_finish "$dir"
-    end_pairs "$(jq -r '[.rounds[].pairs[] | "(\(.schedule_id),\(.user_id))"] | join(",")' "$dir/injected.json" 2>/dev/null)" > "$dir/end-pairs.json" 2>>"$dir/errors.log" \
+    # ADR-012 --inject-app on: 앱 경로 주입 쌍(drift-db.json app_inject — path hold·expiry)도 끝 상태에 넣는다(주입 밖 끝 어긋남·오탐 판정에서 주입 쌍으로)
+    local appinj=""; (( INJECT_APP )) && appinj=$(jq -r '[.app_inject[]? | select(.path != "db") | "(\(.schedule_id),\(.user_id))"] | unique | join(",")' "$dir/drift-db.json" 2>/dev/null)
+    local injp; injp=$(jq -r '[.rounds[].pairs[] | "(\(.schedule_id),\(.user_id))"] | join(",")' "$dir/injected.json" 2>/dev/null)
+    end_pairs "$injp${injp:+${appinj:+,}}$appinj" > "$dir/end-pairs.json" 2>>"$dir/errors.log" \
       || echo "end_pairs failed" >> "$dir/errors.log"
   fi
   [[ "$base" == S3c ]] && { close_end > "$dir/close-end.json" 2>>"$dir/errors.log" || echo "close_end failed" >> "$dir/errors.log"; }
@@ -756,7 +852,8 @@ run_rep() {  # 인자: level cell rep
   gzip -f "$dir/k6-stdout.log"
   (( GCTRACE )) && gzip -f "$dir/k6-gctrace.log"
   # ADR-009 효과 지표(effect.json — 요약기 --effect, 주입 셀만). rep_status 전에 만든다(합격 판정이 읽는다)
-  [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
+  # ADR-012 새 조건: 증분·안전망 source와 앱 경로 주입 여부를 함께 넘긴다(허용 출처 · R4·R6 — summarize.py effect)
+  [[ "$base" == S3e ]] && { python3 "$SUMMARIZE" --effect "$dir" "$COND" $( ((HAS_INC)) && echo "$INC_SOURCE $SAFETY_SOURCE $INJECT_APP") > /dev/null 2>>"$dir/errors.log" || echo "effect failed" >> "$dir/errors.log"; }
 
   finish_rep "$dir" "$level" "$cell" "$rep" "$started" "$k6_started|$k6_ended" "$(rep_status "$dir" "$base" "$k6_exit" "$k6_started" "$k6_ended")" "$k6_exit" "$k6env"
 }
@@ -960,16 +1057,21 @@ app_counters() {  # 인자: 출력 파일
     lim=$(limit_metrics "$a")
     pool=$(actuator_retry "$a" metrics/hikaricp.connections.max | jq -c '.measurements[0].value')
     # H-11: 대조·정리 빌림을 획득(acquire) 앞뒤로 두 번 읽어 같을 때만 쓴다(그 사이 바퀴가 빌리면 차감이 어긋난다) — 3번까지, 끝내 다르면 null(borrow-missing)
-    local rb cb rb2 cb2 try
+    local rb cb rb2 cb2 try ib="" sb="" ib2="" sb2=""
     for try in 1 2 3; do
       rb=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
+      # ADR-012 M2(A+I): 증분 틱·안전망도 업무 앱 풀에서 빌린다 — 같은 앞뒤 두 번 읽기(§4.2.6 하네스 ⑤). M3 외부 앱의 빌림은 업무 앱 풀 밖이라 읽지 않는다
+      if (( HAS_I )); then ib=$(counter_or_zero "$a" seat.hold.counter.reconcile.incremental.borrows); sb=$(counter_or_zero "$a" seat.hold.counter.safety.borrows); fi
       acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
       rb2=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb2=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
-      [[ "$rb" == "$rb2" && "$cb" == "$cb2" ]] && break
-      echo "$(date -Is) app_counters: 빌림 지표가 획득 조회 사이에 바뀜(reconcile $rb→$rb2 cleanup $cb→$cb2) — 다시 읽음 $try" >> "${out%/*}/errors.log"
+      if (( HAS_I )); then ib2=$(counter_or_zero "$a" seat.hold.counter.reconcile.incremental.borrows); sb2=$(counter_or_zero "$a" seat.hold.counter.safety.borrows); fi
+      [[ "$rb" == "$rb2" && "$cb" == "$cb2" && "$ib" == "$ib2" && "$sb" == "$sb2" ]] && break
+      echo "$(date -Is) app_counters: 빌림 지표가 획득 조회 사이에 바뀜(reconcile $rb→$rb2 cleanup $cb→$cb2${ib:+ incremental $ib→$ib2 safety $sb→$sb2}) — 다시 읽음 $try" >> "${out%/*}/errors.log"
     done
     [[ "$rb" == "$rb2" ]] || rb=null
     [[ "$cb" == "$cb2" ]] || cb=null
+    [[ "$ib" == "$ib2" ]] || ib=null
+    [[ "$sb" == "$sb2" ]] || sb=null
     tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
     req=$(hold_requests "$a")   # 숫자 · 0(기록 없음 확인) · null(조회 실패) — 위 함수
     local creq; creq=$(confirm_requests "$a")   # ADR-008 D1 — 같은 규칙
@@ -977,6 +1079,8 @@ app_counters() {  # 인자: 출력 파일
     arr=$(jq -c --arg a "$a" --argjson st "${st:-null}" --argjson ls "${lst:-null}" --argjson p "${pool:-null}" --argjson q "${acq:-null}" --argjson t "${tmo:-null}" --argjson r "${req:-null}" --argjson l "${lim:-null}" --argjson cr "${creq:-null}" \
           --argjson rb "${rb:-null}" --argjson cb "${cb:-null}" \
           '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, confirm_requests:$cr, reconcile_borrows:$rb, cleanup_borrows:$cb, limit:$l}]' <<< "$arr")
+    # ADR-012 M2: 증분·안전망 빌림 키는 A+I에서만 더한다(이전 조건의 파일 모양 그대로 — summarize.borrow_per_request가 키가 있을 때만 뺀다)
+    (( HAS_I )) && arr=$(jq -c --argjson ib "${ib:-null}" --argjson sb "${sb:-null}" '.[-1] += {incremental_borrows:$ib, safety_borrows:$sb}' <<< "$arr")
   done
   echo "$arr" > "$out"
 }
@@ -998,7 +1102,9 @@ after_k6() {  # 인자: 폴더 부하 전 deadlocks — 부하 중 증가분(직
                 hold_requests: (if $y and $x.hold_requests != null and $y.hold_requests != null then $x.hold_requests - $y.hold_requests else null end),
                 confirm_requests: (if $y and $x.confirm_requests != null and $y.confirm_requests != null then $x.confirm_requests - $y.confirm_requests else null end),
                 reconcile_borrows: (if $y and $x.reconcile_borrows != null and $y.reconcile_borrows != null then $x.reconcile_borrows - $y.reconcile_borrows else null end),
-                cleanup_borrows: (if $y and $x.cleanup_borrows != null and $y.cleanup_borrows != null then $x.cleanup_borrows - $y.cleanup_borrows else null end)}]' "$dir/after-k6.raw.json") || arr="[]"
+                cleanup_borrows: (if $y and $x.cleanup_borrows != null and $y.cleanup_borrows != null then $x.cleanup_borrows - $y.cleanup_borrows else null end)}
+             # ADR-012 M2(A+I만 키가 있다): 증분·안전망 빌림 증가분 — 같은 규칙(어느 쪽이 null이면 null)
+             + (reduce ("incremental_borrows", "safety_borrows") as $k ({}; if ($x | has($k)) then . + {($k): (if $y and $x[$k] != null and $y[$k] != null then $x[$k] - $y[$k] else null end)} else . end))]' "$dir/after-k6.raw.json") || arr="[]"
   local d1 redis
   d1=$(db_scalar "SELECT deadlocks FROM pg_stat_database WHERE datname='seat'")
   redis=$(remote "docker exec seatlab-redis-1 sh -c 'redis-cli info memory | grep ^used_memory: | cut -d: -f2; redis-cli dbsize'" | tr -d '\r' | tr '\n' ' ')
@@ -1144,7 +1250,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     # S3는 확정 요청도 커넥션을 빌리는데 분모는 선점 요청만이라 '선점당 빌림'으로 읽을 수 없다 — 범위 검사는 S2·S4·S4c·S7 계열에만(ADR-006 재점검 N1)
     # (`A || B && C`는 `(A || B) && C`라 S3에서 늘 사유가 붙었다 — if로 묶는다, fbaaf815)
     # ADR-009: 획득에서 대조·정리 빌림을 뺀 값으로(설계 §4d)
-    if [[ "$base" != S3* ]] && jq -e '[.apps[] | .acquire.COUNT - (.reconcile_borrows // 0) - (.cleanup_borrows // 0)] as $a | [.apps[].hold_requests] as $h
+    if [[ "$base" != S3* ]] && jq -e '[.apps[] | .acquire.COUNT - (.reconcile_borrows // 0) - (.cleanup_borrows // 0) - (.incremental_borrows // 0) - (.safety_borrows // 0)] as $a | [.apps[].hold_requests] as $h
            | if ($a | all(type == "number")) and ($h | all(type == "number")) and ($h | add) > 0
              then (($a | add) / ($h | add)) as $r | ($r < 0.9 or $r > 4) else false end' "$dir/after-k6.json" > /dev/null 2>&1; then
       reasons+=("invalid-borrow-ratio")
@@ -1249,7 +1355,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   # 적용 설정(configprops seat.hold): 조건이 켠 키만 켜졌나 — counterDrift.{expiryRepair, externalReconciler, reconcile.enabled, reconcile.interval, cleanup.mode} · salesClose.enabled
   if jq empty "$dir/app-config.json" 2>/dev/null; then
     local cfg_want cfg_got
-    cfg_want="$(jq -nc --argjson a "$HAS_A" --argjson f "$HAS_F" --argjson c "$HAS_C" --arg cl "$CLEANUP" --arg noc "$([[ "$COND" == control-noclose ]] && echo 1)" \
+    cfg_want="$(jq -nc --argjson a "$HAS_A" --argjson f "$(( HAS_F || HAS_X ))" --argjson c "$HAS_C" --arg cl "$CLEANUP" --arg noc "$([[ "$COND" == control-noclose ]] && echo 1)" \
       '{expiryRepair: ($a == 1), externalReconciler: ($f == 1), reconcile: ($c == 1), interval: (if $c == 1 then "PT1M" else null end), cleanup: ($cl | ascii_upcase), salesClose: ($noc != "1")}')"
     cfg_got="$(jq -c '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] as $p
       | {expiryRepair: $p.counterDrift.expiryRepair, externalReconciler: $p.counterDrift.externalReconciler, reconcile: $p.counterDrift.reconcile.enabled,
@@ -1287,6 +1393,37 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     if jq -e --slurpfile b "$dir/drift-before.json" --arg k "$( ((HAS_F)) && echo reconciler || echo app)" \
          '((.[$k].reconcile.errors // 0) - ($b[0][$k].reconcile.errors // 0)) > 0' "$dir/drift-end.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
     if jq -e '[.reconcile_runs[] | (.errors + .skipped_chunks)] | add // 0 | . > 0' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
+  fi
+  # ---- ADR-012 2단계(새 조건 A+I·A+X만 — §4.2.9 ③④) ----
+  if (( HAS_INC )); then
+    # 적용 설정: 방식·틱·주기·안전망·탐지 모양·track-inject·앱 경로 주입(A+X는 업무 앱 + 외부 앱 configprops — external-config.json). 판정 실패도 같은 사유
+    local icr; icr=$(python3 "$SUMMARIZE" --inc-config-check "$dir" "$COND" "$INC_METHOD" "$INC_INTERVAL" "${RECONCILE_SHAPE:-one-shot}" "$INJECT_APP" "$INJECT_APP_EVERY" 2>>"$dir/errors.log") \
+      || reasons+=("incremental-config-mismatch")
+    # 스키마: V9 열·인덱스(trg·stmt) · 트리거 user_hold_quota_touch(trg만 — 다른 방식이면 없어야) · V10 세 테이블(늘) — db-schema.json(lib.sh db_schema)
+    if jq -e '(.updated_at_column | type == "boolean") and (.tables | type == "array")' "$dir/db-schema.json" > /dev/null 2>&1; then
+      jq -e --argjson v9 "$([[ "$INC_METHOD" == mem ]] && echo false || echo true)" --argjson tg "$([[ "$INC_METHOD" == trg ]] && echo true || echo false)" \
+        '.updated_at_column == $v9 and .updated_at_index == $v9 and .touch_trigger == $tg and ((.tables | sort) == ["counter_app_inject", "counter_inc_gap", "counter_safety_run"])' \
+        "$dir/db-schema.json" > /dev/null || reasons+=("schema-mismatch")
+    else
+      reasons+=("schema-mismatch")
+    fi
+    # 대조가 실제로 돌았나: 시드 뒤 첫 증분 틱(reconcile-first.json) · k6 구간의 증분 틱(주기)·안전망 실행(1분) 결손(긴 셀만 — S2 밖) · V10 기록 덤프
+    jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1 || reasons+=("reconcile-missing")
+    if [[ "$base" != S2 ]]; then
+      python3 "$SUMMARIZE" --runs-in-window "$dir" "$INC_SOURCE" "$k6_started" "$k6_ended" "${INC_INTERVAL%s}" 2>>"$dir/errors.log" || reasons+=("reconcile-missing")
+      python3 "$SUMMARIZE" --runs-in-window "$dir" "$SAFETY_SOURCE" "$k6_started" "$k6_ended" 60 2>>"$dir/errors.log" || reasons+=("reconcile-missing")
+    fi
+    jq -e '(.safety_runs | type == "array") and (.inc_gaps | type == "array") and (.app_inject | type == "array")' "$dir/drift-db.json" > /dev/null 2>&1 || reasons+=("drift-db-failed")
+    if jq -e '[.reconcile_runs[] | (.errors + .skipped_chunks)] | add // 0 | . > 0' "$dir/drift-db.json" > /dev/null 2>&1; then reasons+=("reconcile-errors"); fi
+    # 증분·안전망 지표 errors 증가(k6 직전 → 회차 끝 — actsnap incremental·safety, 업무 앱만: A+X 외부 앱 지표는 task 07) > 0이면 reconcile-errors(바퀴 기록 errors는 위 공통 검사)
+    if (( HAS_I )) && jq -e --slurpfile b "$dir/drift-before.json" \
+         '(((.app.incremental.errors // 0) - ($b[0].app.incremental.errors // 0)) + ((.app.safety.errors // 0) - ($b[0].app.safety.errors // 0))) > 0' "$dir/drift-end.json" > /dev/null 2>&1; then
+      reasons+=("reconcile-errors")
+    fi
+    # 효과 셀 --inject-app on: S3e 주입마다 같은 트랜잭션의 counter_app_inject path='db' 행 수(tracked) = 기록한 주입 수
+    if [[ "$base" == S3e ]] && (( INJECT_APP )) && jq -e '.rounds | type == "array" and length > 0' "$dir/injected.json" > /dev/null 2>&1; then
+      jq -e 'all(.rounds[]; .tracked == (.counts.D + .counts.L1 + .counts.L2 + .counts.H))' "$dir/injected.json" > /dev/null 2>&1 || reasons+=("inject-mismatch")
+    fi
   fi
   # 정리(S3c)도 실패를 숨기지 않는다: 앱 지표 cleanup.errors 증가(회차 전체 — before → end) > 0이면 cleanup-errors
   if [[ "$CLEANUP" != none ]] && jq -e '(.app.cleanup.errors // 0) > 0' "$dir/drift-end.json" > /dev/null 2>&1; then reasons+=("cleanup-errors"); fi
@@ -1385,6 +1522,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --argjson adr011 "$(jq -nc --argjson g "$GCTRACE" --argjson p "$PROBES" --argjson t "$APP_PRETOUCH" --argjson x "$APP_XMS_FULL" --argjson st "$S4C_STEPS" --argjson ss "$SEED_SCHEDULES" --argjson tg "$PG_TMPFS_GB" \
                              '{gctrace: ($g == 1), probes: ($p == 1), app_pretouch: ($t == 1), app_xms_full: ($x == 1), s4c_steps: $st, seed_schedules: $ss, pg_tmpfs_gb: $tg}')" \
         --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg rshape "$RECONCILE_SHAPE" \
+        --argjson inc "$(inc_json meta)" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
         --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
         --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
@@ -1400,8 +1538,20 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6, k6_bin:$k6bin, adr011:$adr011,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
           pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}
-          + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)' > "$dir/meta.json"
+          + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)
+          + (if $inc != null then {incremental:$inc} else {} end)' > "$dir/meta.json"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
+}
+
+# ADR-012 2단계 기록(plan.json condition.incremental · meta.json incremental) — 새 조건만(이전 조건은 null → 키 없음 · 계획·meta 그대로)
+inc_json() {  # 인자: plan|meta
+  (( HAS_INC )) || { echo null; return; }
+  if [[ "$1" == plan ]]; then
+    jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" '{method:$m, interval:$i, inject_app:($j == 1)}'
+  else
+    jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" --arg s "$INC_SOURCE" --arg ss "$SAFETY_SOURCE" --arg x "$( ((HAS_X)) && echo ext || echo app)" \
+      --argjson every "$INJECT_APP_EVERY" '{method:$m, interval:$i, inject_app:($j == 1), source:$s, safety_source:$ss, where:$x} + (if $j == 1 then {inject_app_every:$every} else {} end)'
+  fi
 }
 
 # ---- 매트릭스 ----------------------------------------------------------------------------------------
@@ -1413,6 +1563,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
   --arg k6bin "$K6_BIN" --arg k6ver "$K6_VERSION" --argjson gctrace "$GCTRACE" --argjson probes "$PROBES" --arg pbin "$PROBE_K6_BIN" --arg pver "$PROBE_K6_VERSION" \
   --arg k6sha "$K6_SHA256" --arg psha "$PROBE_K6_SHA256" \
   --arg pimage "$PROBE_IMAGE" --argjson prate "$PROBE_RATE" --argjson pretouch "$APP_PRETOUCH" --argjson xmsfull "$APP_XMS_FULL" --argjson s4c_steps "$S4C_STEPS" --argjson seed_sched "$SEED_SCHEDULES" --argjson pg_tmpfs_gb "$PG_TMPFS_GB" --arg rshape "$RECONCILE_SHAPE" \
+  --argjson inc "$(inc_json plan)" \
   '{sha:$sha, harness:$harness, levels:($levels|split(" ")|map(select(.!="")|tonumber)), reps:$reps,
     cells:($cells|split(" ")|map(select(.!=""))),
     condition:({cond:$cond, cleanup:$cleanup, reconcile_interval:$rint, limit_strategy:$limit,
@@ -1420,7 +1571,8 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
                k6_bin:$k6bin, k6_version:$k6ver, k6_sha256:$k6sha, probe_k6_sha256:(if $probes == 1 then $psha else null end), gctrace:($gctrace == 1), probes:($probes == 1), probe_k6_bin:$pbin,
                probe_k6_version:(if $probes == 1 then $pver else null end), probe_image:$pimage, probe_rate:$prate,
                app_pretouch:($pretouch == 1), app_xms_full:($xmsfull == 1), s4c_steps:$s4c_steps, seed_schedules:$seed_sched, pg_tmpfs_gb:$pg_tmpfs_gb}
-               + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)),
+               + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)
+               + (if $inc != null then {incremental:$inc} else {} end)),
     knobs:{INJECT_ROUNDS:$inj_rounds, INJECT_HELD_MIN_S:$hm, INJECT_EXP_MARGIN_S:$em, CLOSE_LEAD_S:$cl, PRE_K6_HOLD_S:$ph, PRE_K6_TARGET_S:$pt, PRE_K6_TOL_S:$pl, PRE_K6_LEAD_S:$pd},
     start_state:{mode:"fixed-after-seed", hold_s:($ph|tonumber), target_s:($pt|tonumber), tol_s:($pl|tonumber), lead_s:($pd|tonumber),
                  judged_on:"시드 끝 → k6 첫 요청(리뷰 H5 — S4c setup_data.startedAt, 그 밖 CSV 1초 분해능)",
