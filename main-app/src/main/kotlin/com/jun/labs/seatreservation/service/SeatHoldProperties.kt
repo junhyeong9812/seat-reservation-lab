@@ -22,7 +22,26 @@ data class SeatHoldProperties(
      * 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 기동 검사가 이 기본값을 거부한다 — 세 키를 명시해 끈다(ADR-008 none 고정과 같은 방식). counter-trigger(B)는 A를, counter는 정리를 끈다.
      */
     val counterDrift: CounterDrift = CounterDrift(),
+    /** 측정 전용 장치(ADR-012 §4.2.7 — `seat.hold.loadtest.*`). 기본 전부 끔 — loadtest 프로필에서만 쓴다(기동 검사). */
+    val loadtest: Loadtest = Loadtest(),
 ) {
+    data class Loadtest(
+        /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7) — 선점·만료 경로 안에서 고른 쌍의 cnt를 일부러 틀리게 쓴다 */
+        val injectApp: InjectApp = InjectApp(),
+    )
+
+    data class InjectApp(
+        val enabled: Boolean = false,
+        /** 쌍 선택: (scheduleId × 31 + userId) mod every == 0 */
+        val every: Int = 50,
+        /** 주입할 쌍 수 상한(원자적 개수) */
+        val maxPairs: Int = 60,
+        val paths: Set<InjectPath> = setOf(InjectPath.HOLD, InjectPath.EXPIRY),
+    )
+
+    /** 주입 경로 — hold(선점 증가 직후 ±1 · AH/AL) · expiry(A 가드 감소 직후 +1 · AE) */
+    enum class InjectPath { HOLD, EXPIRY }
+
     data class SalesClose(
         /** 끄면 회차 조회 문장 자체가 없다(마감 비용 분리 측정용 — 명세 §10 D2). */
         val enabled: Boolean = true,

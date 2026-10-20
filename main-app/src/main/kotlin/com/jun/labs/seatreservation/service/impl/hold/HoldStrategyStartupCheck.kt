@@ -11,6 +11,8 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType.COUNTER_UPSERT
 import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_LOCK
 import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT
 import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_EARLY
+import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
+import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -117,10 +119,13 @@ class HoldStrategyStartupCheck(
             "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다" +
                 CLEANUP_HINT
         }
-        if (a || c || f || cleanup != CleanupMode.NONE) {
+        val inc = drift.reconcile.incremental
+        val safety = drift.reconcile.safetyNet.enabled
+        if (a || c || f || cleanup != CleanupMode.NONE || inc.enabled || safety) {
             val missing = LOG_TABLES.filterNot(::exists)
             check(missing.isEmpty()) { "카운터 어긋남 후보·정리를 켰는데 기록 테이블(V7)이 없다: $missing" }
         }
+        checkIncremental(limit, a, c)
         if (f) {
             val expiryScheduler = environment!!.getProperty("seat.hold.expiry-scheduler-enabled", Boolean::class.java, true)
             check(!expiryScheduler) {
@@ -132,7 +137,45 @@ class HoldStrategyStartupCheck(
         }
     }
 
+    /**
+     * ADR-012 §4.2.2 · §4.2.5 · §4.2.7 기동 검사 — 새 손잡이를 하나도 주지 않으면 통과한다(스키마 검사는 'V9 트리거가 없어야 한다'만 본다 — 조합표 기본 행).
+     * 스키마(V9 종류 · 트리거 유무 · V10 · 준비된 트랜잭션)는 core [IncrementalSchemaCheck]가, 매수 방식·후보·프로필 조합은 여기서 본다.
+     */
+    private fun checkIncremental(limit: UserLimitStrategyType, a: Boolean, c: Boolean) {
+        val reconcile = properties.counterDrift.reconcile
+        val inc = reconcile.incremental
+        val safety = reconcile.safetyNet.enabled
+        val incKey = IncrementalSchemaCheck.PREFIX
+        val safetyKey = IncrementalSchemaCheck.SAFETY_PREFIX
+        check(!((inc.enabled || safety) && limit !in COUNTER_FAMILY)) {
+            "증분($incKey.enabled=${inc.enabled})·안전망($safetyKey.enabled=$safety)은 카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
+        }
+        // rv41 codex H2: B의 cnt 변경은 V8 quota_add의 UPDATE라 ⓒ 앱 문장이 덮지 못한다 — 커밋된 앱 경로 변경이 후보가 되지 않는다(§3-1)
+        check(!(inc.method == IncrementalMethod.STMT && limit == COUNTER_TRIGGER)) {
+            "$incKey.method=stmt 와 seat.hold.limit-strategy=counter-trigger는 함께 쓰지 않는다 — V8 quota_add의 UPDATE는 ⓒ 앱 문장이 updated_at을 남기지 못한다(counter-trigger에서는 trigger만)"
+        }
+        // 증분은 A가 필수(지금 C와 같은 규칙 — 마감 회차 어긋남이 만료를 멈출 수 있다). counter-trigger는 A와 함께 못 켜므로 증분 틱도 못 돈다(§4.2.13 #2 — 표시만 허용)
+        check(!(inc.enabled && !a)) {
+            "증분($incKey.enabled=true)을 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다 — 현재 $limit · expiry-repair=false" +
+                " (counter-trigger는 A를 켤 수 없어 증분 틱 대신 표시만 — enabled=false)"
+        }
+        // 안전망은 C를 대신하는 대조 — C와 같은 A 필수 규칙(counter-trigger는 예외 — 트리거가 마감 회차를 건너뛴다)
+        check(!(safety && !a && limit != COUNTER_TRIGGER)) {
+            "안전망($safetyKey.enabled=true)을 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다(counter-trigger는 예외) — 현재 $limit"
+        }
+        check(!(safety && c)) {
+            "안전망($safetyKey.enabled=true)과 전체 대조 C(seat.hold.counter-drift.reconcile.enabled=true)를 함께 켜지 않는다 — 전체 훑기가 두 개가 된다. 안전망을 쓰면 reconcile.enabled=false를 명시하라"
+        }
+        val injectApp = properties.loadtest.injectApp
+        val loadtest = environment?.activeProfiles?.contains(LOADTEST_PROFILE) == true
+        check(!(injectApp.enabled && !loadtest)) {
+            "측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 $LOADTEST_PROFILE 프로필에서만 쓴다 — 프로필 없이 켰다(주입 빈이 없어 아무것도 하지 않는다)"
+        }
+        IncrementalSchemaCheck.check(jdbc, reconcile, externalApp = false)
+    }
+
     companion object {
+        const val LOADTEST_PROFILE = "loadtest"
         /** 쿼터 테이블(user_hold_quota)을 읽거나 쓰는 매수 방식 */
         val QUOTA_TABLE_STRATEGIES = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER, QUOTA_LOCK, QUOTA_NOWAIT, QUOTA_NOWAIT_EARLY)
         /** cnt를 유지하는 매수 방식(카운터 계열) — 단일 출처는 [UserLimitStrategyType.COUNTER_FAMILY] */
