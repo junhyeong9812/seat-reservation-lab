@@ -32,6 +32,8 @@ data class GapEvent(
         const val MEMORY_OVERFLOW = "memory_overflow"
         const val AFTER_COMMIT_ERROR = "after_commit_error"
         const val HIDDEN_SESSIONS = "hidden_sessions"
+        /** ⓑⓒ 재시도 쌍(실패해 다시 볼 쌍)이 상한 memory-cap을 넘어 버려졌다 — 그 쌍은 안전망 몫(rv43) */
+        const val RETRY_OVERFLOW = "retry_overflow"
     }
 }
 
@@ -357,16 +359,28 @@ class UpdatedAtCandidates(
 ) : CandidateSource {
     @Volatile private var lower: Instant? = null
     @Volatile private var hiddenGapAt: Long? = null
-    /** 실패해 다시 볼 쌍(다음 틱 후보에 더한다 — 상한 memory-cap, 넘치면 버리고 WARN: 안전망 몫) */
+    /** 실패해 다시 볼 쌍(다음 틱 후보에 더한다 — 상한 memory-cap, 넘치면 버리고 WARN + 다음 틱에 `retry_overflow` 1행: 안전망 몫) */
     private val retry = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     private val gapBuffer = GapBuffer()
 
     override fun requeueGaps(gaps: List<GapEvent>): Int = gapBuffer.add(gaps)
 
     override fun requeue(pairs: Collection<Pair<Long, Long>>) {
+        val cap = properties.incremental.memoryCap
         var dropped = 0
-        pairs.forEach { if (retry.size < properties.incremental.memoryCap) retry += it else dropped++ }
-        if (dropped > 0) log.warn("증분 재시도 쌍 {}개를 상한(memory-cap {})으로 버렸다 — 안전망 몫", dropped, properties.incremental.memoryCap)
+        var first: Pair<Long, Long>? = null
+        pairs.forEach {
+            if (retry.size < cap || retry.contains(it)) retry += it else {
+                if (first == null) first = it
+                dropped++
+            }
+        }
+        val f = first ?: return
+        log.warn("증분 재시도 쌍 {}개를 상한(memory-cap {})으로 버렸다 — 첫 쌍 회차 {} 사용자 {} · 안전망 몫", dropped, cap, f.first, f.second)
+        // 버린 사실을 남긴다(rv43) — 다음 틱 기록과 같은 빌림으로 counter_inc_gap 1행 + 지표 gap{kind=retry_overflow}
+        val now = Instant.now()
+        val lost = gapBuffer.add(listOf(GapEvent(GapEvent.RETRY_OVERFLOW, now, now, f.first, f.second, dropped, "memory-cap $cap")))
+        if (lost > 0) log.warn("증분 retry_overflow 기록을 되돌림 버퍼 상한({})으로 버렸다", GapBuffer.CAP)
     }
 
     override fun supports(method: IncrementalMethod) = method == IncrementalMethod.TRIGGER || method == IncrementalMethod.STMT

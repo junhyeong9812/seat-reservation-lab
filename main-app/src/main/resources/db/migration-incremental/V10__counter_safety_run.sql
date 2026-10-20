@@ -71,7 +71,7 @@ CREATE TABLE counter_inc_gap (
     id          BIGSERIAL    PRIMARY KEY,
     at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     source      VARCHAR(30)  NOT NULL,   -- 증분 source
-    kind        VARCHAR(30)  NOT NULL,   -- window_clamped | restart | memory_overflow | after_commit_error | hidden_sessions
+    kind        VARCHAR(30)  NOT NULL,   -- window_clamped | restart | memory_overflow | after_commit_error | hidden_sessions | retry_overflow
     from_at     TIMESTAMPTZ  NULL,       -- 보장 밖 구간
     to_at       TIMESTAMPTZ  NULL,
     schedule_id BIGINT       NULL,       -- 첫 쌍(있으면)
