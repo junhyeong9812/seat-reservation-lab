@@ -23,6 +23,8 @@ data class GapEvent(
     val userId: Long? = null,
     val pairs: Int = 0,
     val detail: String? = null,
+    /** 이미 지표 `…incremental.gap{kind}`에 센 사건을 되돌려 다시 쓰는 중(rv43 — 지표를 두 번 세지 않는다) */
+    val requeued: Boolean = false,
 ) {
     companion object {
         const val WINDOW_CLAMPED = "window_clamped"
@@ -30,6 +32,28 @@ data class GapEvent(
         const val MEMORY_OVERFLOW = "memory_overflow"
         const val AFTER_COMMIT_ERROR = "after_commit_error"
         const val HIDDEN_SESSIONS = "hidden_sessions"
+    }
+}
+
+/**
+ * 틱(또는 기동)이 쓰지 못한 보장 밖 기록을 다음 틱으로 넘기는 버퍼(rv43 — 기록 실패가 행을 잃지 않게). 상한 [CAP] — 넘친 건수를 돌려준다(호출자가 WARN).
+ * 두 후보 출처가 하나씩 들고 [CandidateSource.take]의 gaps 앞에 내보낸다.
+ */
+class GapBuffer {
+    private val pending = ArrayList<GapEvent>()
+
+    @Synchronized
+    fun add(gaps: Collection<GapEvent>): Int {
+        var dropped = 0
+        gaps.forEach { if (pending.size < CAP) pending += it else dropped++ }
+        return dropped
+    }
+
+    @Synchronized
+    fun drain(): List<GapEvent> = ArrayList(pending).also { pending.clear() }
+
+    companion object {
+        const val CAP = 1_000
     }
 }
 
@@ -53,6 +77,9 @@ interface CandidateSource {
      * ⓑⓒ도 하한이 이미 앞으로 갔으므로 창이 다시 읽어 주지 않는다 — 같은 방식으로 메모리에 들고 다음 틱에 더한다(재시작하면 사라짐 — 안전망 몫).
      */
     fun requeue(pairs: Collection<Pair<Long, Long>>)
+
+    /** 틱(또는 기동)이 쓰지 못한 보장 밖 기록 — 다음 [take]의 gaps로 다시 내보낸다(rv43 · [GapBuffer]). 상한으로 버린 건수를 돌려준다. */
+    fun requeueGaps(gaps: List<GapEvent>): Int
 }
 
 /**
@@ -78,14 +105,18 @@ class IncrementalReconciler(
 
     /** 틱 스케줄러 시작 때 1회 — 기동 INFO 1행 + `restart` 행(실패해도 기동은 계속 — WARN·지표). */
     fun start(source: String) {
-        val event = candidateSource().start()
+        val cs = candidateSource()
+        val event = cs.start()
         log.info("증분 대조 기동({}): 방식 {} — 이 기동 앞의 변경은 안전망 몫(보장 밖 구간 {} ~ {})", source, properties.incremental.method, event.fromAt, event.toAt)
-        try {
-            jdbc.execute(ConnectionCallback { con -> writeGaps(JdbcTemplate(SingleConnectionDataSource(con, true)), source, listOf(event)) })
+        val failed = try {
+            jdbc.execute(ConnectionCallback { con -> writeGaps(JdbcTemplate(SingleConnectionDataSource(con, true)), source, listOf(event)) })!!
         } catch (e: Exception) {
+            // 커넥션을 빌리지 못했다 — 행을 쓰지 못했고 지표도 아직 세지 않았다
             meters.counter(ERRORS_METRIC, "stage", "gap").increment()
-            log.warn("증분 기동 restart 기록 실패({}) — {}", source, e.toString())
+            log.warn("증분 기동 restart 기록 실패({}) — 다음 틱에 다시 쓴다: {}", source, e.toString())
+            listOf(event)
         }
+        requeueGaps(cs, source, failed)
     }
 
     fun tick(source: String): ReconcileRun {
@@ -180,14 +211,31 @@ class IncrementalReconciler(
             // 이 틱의 빌림 전부 = 아래 기록 1 + (track-inject) 1 포함 — 지표 borrows 증가분·Hikari acquire 증가분과 같다
             borrows = pass.borrows + 1 + (if (track) 1 else 0), outcomes = outcomes,
         )
-        val id = pass.borrow {
-            jdbc.execute(ConnectionCallback { con ->
-                val single = JdbcTemplate(SingleConnectionDataSource(con, true))
-                val runId = insertReconcileRun(single, run)
-                writeGaps(single, source, batch.gaps)
-                runId
-            })!!
+        // 기록 실패는 틱을 실패시키지 않는다(rv43): 바퀴 행 실패 = errors{stage=record} · 보장 밖 행 실패 = errors{stage=gap} + 다음 틱에 다시 쓴다
+        var gapsLeft: List<GapEvent> = emptyList()
+        val id: Long? = try {
+            pass.borrow {
+                jdbc.execute(ConnectionCallback { con ->
+                    val single = JdbcTemplate(SingleConnectionDataSource(con, true))
+                    // 자동 커밋 — 바퀴 행 INSERT가 실패해도 아래 보장 밖 행은 따로 쓴다
+                    val runId = try {
+                        insertReconcileRun(single, run)
+                    } catch (e: Exception) {
+                        recordFailed(source, e)
+                        null
+                    }
+                    gapsLeft = writeGaps(single, source, batch.gaps)
+                    runId
+                })
+            }
+        } catch (e: Exception) {
+            // 커넥션을 빌리지 못했다 — 바퀴 행도 보장 밖 행도 쓰지 못했다(보장 밖 행은 지표도 아직 세지 않았다)
+            recordFailed(source, e)
+            if (batch.gaps.isNotEmpty()) meters.counter(ERRORS_METRIC, "stage", "gap").increment()
+            gapsLeft = batch.gaps
+            null
         }
+        requeueGaps(cs, source, gapsLeft)
         if (track) {
             try {
                 pass.borrow { markFirstCandidates(pairs, batch.readAt!!, source) }
@@ -203,13 +251,29 @@ class IncrementalReconciler(
                 source, run.pairsScanned, run.schedules, run.found, run.repaired, run.falsePositives, run.skipped, run.errors, skippedSchedules, skippedPairs,
             )
         }
-        return run.copy(id = id)
+        return run.copy(id = id ?: 0)
     }
 
-    /** 기록 실패는 지표 `…incremental.errors{stage=gap}` + WARN — 틱을 실패시키지 않는다(§4.2.6). */
-    private fun writeGaps(single: JdbcTemplate, source: String, gaps: List<GapEvent>) {
+    private fun recordFailed(source: String, e: Exception) {
+        meters.counter(ERRORS_METRIC, "stage", "record").increment()
+        log.error("증분 틱({}) 기록 실패(counter_reconcile_run) — {}", source, e.toString())
+    }
+
+    /** 쓰지 못한 보장 밖 기록을 후보 출처 버퍼로 되돌린다(다음 틱이 다시 쓴다 — rv43). 버퍼 상한으로 버린 건은 WARN. */
+    private fun requeueGaps(cs: CandidateSource, source: String, gaps: List<GapEvent>) {
+        if (gaps.isEmpty()) return
+        val dropped = cs.requeueGaps(gaps)
+        if (dropped > 0) log.warn("증분 보장 밖 기록 {}건을 되돌림 버퍼 상한({})으로 버렸다({}) — 행은 남지 않는다", dropped, GapBuffer.CAP, source)
+    }
+
+    /**
+     * 기록 실패는 지표 `…incremental.errors{stage=gap}` + WARN — 틱을 실패시키지 않는다(§4.2.6). 쓰지 못한 사건을 돌려준다(호출자가 다음 틱으로 되돌린다 — rv43).
+     * 지표 `…gap{kind}`는 사건마다 한 번 — 되돌려 다시 쓰는 사건([GapEvent.requeued])은 세지 않는다.
+     */
+    private fun writeGaps(single: JdbcTemplate, source: String, gaps: List<GapEvent>): List<GapEvent> {
+        val failed = ArrayList<GapEvent>()
         for (g in gaps) {
-            meters.counter(GAP_METRIC, "kind", g.kind).increment()
+            if (!g.requeued) meters.counter(GAP_METRIC, "kind", g.kind).increment()
             try {
                 single.update(
                     """
@@ -220,9 +284,11 @@ class IncrementalReconciler(
                 )
             } catch (e: Exception) {
                 meters.counter(ERRORS_METRIC, "stage", "gap").increment()
-                log.warn("증분 보장 밖 기록 실패({} · {}) — {}: {}", source, g.kind, e.toString(), g)
+                log.warn("증분 보장 밖 기록 실패({} · {}) — 다음 틱에 다시 쓴다 — {}: {}", source, g.kind, e.toString(), g)
+                failed += g.copy(requeued = true)
             }
         }
+        return failed
     }
 
     /** ADR-012 §4.2.7 첫 후보 시각 — 맞든 틀리든 후보에 오른 주입 쌍에 채운다(인자 시각 = 후보 읽기 직전 DB 시각). */
@@ -293,6 +359,9 @@ class UpdatedAtCandidates(
     @Volatile private var hiddenGapAt: Long? = null
     /** 실패해 다시 볼 쌍(다음 틱 후보에 더한다 — 상한 memory-cap, 넘치면 버리고 WARN: 안전망 몫) */
     private val retry = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
+    private val gapBuffer = GapBuffer()
+
+    override fun requeueGaps(gaps: List<GapEvent>): Int = gapBuffer.add(gaps)
 
     override fun requeue(pairs: Collection<Pair<Long, Long>>) {
         var dropped = 0
@@ -345,7 +414,8 @@ class UpdatedAtCandidates(
             }
         }
         lower = next
-        return CandidateBatch(pairs, t, gaps)
+        // 앞 틱이 쓰지 못한 보장 밖 기록이 먼저(rv43)
+        return CandidateBatch(pairs, t, gapBuffer.drain() + gaps)
     }
 
     companion object {

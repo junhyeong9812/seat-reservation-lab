@@ -55,6 +55,8 @@ class MemoryChangedPairs(
     private var overflowTo: Instant? = null
     private var overflowSinceWarn = 0
     private var lastOverflowWarnNs = 0L
+    /** 틱이 쓰지 못한 보장 밖 기록(rv43) — 다음 틱 gaps 맨 앞 */
+    private val gapBuffer = GapBuffer()
 
     init {
         if (active) Gauge.builder(IncrementalReconciler.MEMORY_SIZE_METRIC, set) { it.size.toDouble() }.register(meters)
@@ -163,7 +165,8 @@ class MemoryChangedPairs(
     }
 
     private fun drainGaps(): List<GapEvent> = synchronized(this) {
-        val gaps = ArrayList<GapEvent>(pendingErrors)
+        val gaps = ArrayList<GapEvent>(gapBuffer.drain())
+        gaps += pendingErrors
         if (droppedErrors > 0 && gaps.isNotEmpty()) {
             // 버퍼 상한을 넘긴 등록 예외는 개수만 — 다음 행의 pairs에 더한다(§4.2.6)
             val last = gaps.removeAt(gaps.size - 1)
@@ -189,6 +192,8 @@ class MemoryChangedPairs(
             }
         }
     }
+
+    override fun requeueGaps(gaps: List<GapEvent>): Int = gapBuffer.add(gaps)
 
     override fun start(): GapEvent {
         // 재시작하면 집합은 사라진다 — 그 사이 변경은 안전망 몫(§2.3 '잃음'). to_at = 이번 기동 DB 시각 · from_at = NULL(이전 프로세스 끝을 모름 — §4.2.13 #13)
