@@ -72,6 +72,7 @@
 | 10-20 13:51 | 06f 리뷰 rv46 회수(Opus 높음 0·중간 2·낮음 6 · codex 높음 1·중간 3·낮음 1) — 원격 명령 전수: prune·패턴 image rm·-p 없는 down·sudo 없음 · 메인 판단: 배포를 ADR §4.2.8대로(PC 빌드 + docker save·ssh load · compose 파일만 동기화 — 앞 브리핑의 'git archive 배포'는 메인 실수) · 비밀번호 잔여 위험(컨테이너 env) 기록 → 수정 워커(Opus) | 진행 |
 | 10-20 14:13 | rv46 수정 워커(Opus) 회수 c82cf854 — 배포 ADR대로(PC 빌드 → save·load · compose만 · pull_policy never · --no-build) · 입력 검증 · env 허용 목록(RECONCILER_TAG 제외) · IFS= read -r · --since 제거 · stats 한 줄 검증 + .158 시계 차 · 회차 끝 down 실패 사유 · compose config 경고 · 검증: bash -n · 14세트 dry-run 같음 · 가짜 ssh 80/80 · 로컬 빌드 + save/load 왕복(.Id·지문 같음 · 이미지 Env에 PASSWORD 0) · 메인: 판단 2건(라벨+층 지문 · TAG 제외) 수용 · ADR §4.2.8 배포·남는 위험·정리 명령 | load-bearing 가정: .158 load 뒤 지문 같음 → task 07에서 실증 |
 | 10-20 14:15 | rv46 재점검(codex) 중간 2 → 메인 직접 da1718dd · 06f 리뷰 종료 · **task 06 구현 끝**(06a~06g · 테스트 main-app 651 · reconciler-app 6 · 리뷰 rv42~rv46 + 재점검) · .164 꺼져 있음 → A+I 스모크·2단계 대기 · task 07(.158) 비밀번호 전달 방식 사용자 확인 대기 | — |
+| 10-20 18:11 | 사용자 ".164 켰어 진행하자" · .164(부팅 1분 · seatlab 컨테이너·볼륨 0) · PC 점검(ccle-postgres-1 healthy · load 4.1/24) · 2단계 계획 dry-run 확인(8조건 · 24회 · 증분 셀 split) · A+I 스모크 3개 시작(mem·trg·stmt · 1s · split · 12구간 · f4bbebab · id smoke-ai-*) | 대기 |
 
 ## 리뷰 ledger
 
