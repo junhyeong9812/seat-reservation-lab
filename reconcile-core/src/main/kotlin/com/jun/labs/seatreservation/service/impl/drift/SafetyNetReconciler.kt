@@ -67,6 +67,8 @@ class SafetyNetReconciler(
     private val recentFailCount = IntArray(2)
     private val rereadPos = arrayOfNulls<Long>(2)
     private val rereadProgress = arrayOfNulls<ChunkProgress>(2)
+    private val rereadFailLo = LongArray(2) { Long.MIN_VALUE }
+    private val rereadFailCount = IntArray(2)
 
     private var fullSchedule: Long? = null
     private var fullAfter = Long.MIN_VALUE
@@ -152,6 +154,8 @@ class SafetyNetReconciler(
         recentFailCount.fill(0)
         rereadPos.fill(null)
         rereadProgress.fill(null)
+        rereadFailLo.fill(Long.MIN_VALUE)
+        rereadFailCount.fill(0)
         carry.clear()
         fullSchedule = null
         fullAfter = Long.MIN_VALUE
@@ -460,13 +464,26 @@ class SafetyNetReconciler(
             val done = try {
                 stepChunk(run, prog, Branch.REREAD)
             } catch (e: Exception) {
-                run.pass.fail("reread", skipChunk = true, "다시 읽기 청크 ${KIND_NAMES[kind]} (${prog.lo}, ${prog.hi}] — 다음 실행이 같은 곳에서 다시 한다", e)
+                if (rereadFailLo[kind] == prog.lo) rereadFailCount[kind]++ else {
+                    rereadFailLo[kind] = prog.lo
+                    rereadFailCount[kind] = 1
+                }
+                run.pass.fail("reread", skipChunk = true, "다시 읽기 청크 ${KIND_NAMES[kind]} (${prog.lo}, ${prog.hi}] ${rereadFailCount[kind]}회째 실패 — 다음 실행이 같은 곳에서 다시 한다", e)
+                if (rereadFailCount[kind] >= FAIL_SKIP) {
+                    // 같은 청크 3회 연속 실패 — 최근 창과 같은 규칙(rv43): 건너뛴 범위로 기록·WARN하고 전진(전체 커서 몫 — 무음 아님)
+                    log.warn("안전망 다시 읽기 청크 {} ({}, {}] {}회 연속 실패 — 건너뛴다(전체 커서 몫)", KIND_NAMES[kind], prog.lo, prog.hi, FAIL_SKIP)
+                    run.skip(prog.lo, prog.hi)
+                    pos[kind] = prog.hi
+                    rereadProgress[kind] = null
+                    rereadFailCount[kind] = 0
+                }
                 break
             }
             steps++
             if (done) {
                 pos[kind] = prog.hi
                 rereadProgress[kind] = null
+                rereadFailCount[kind] = 0
                 kind = 1 - kind
             }
         }
@@ -584,8 +601,15 @@ class SafetyNetReconciler(
                 }
                 run.pass.fail("full", skipChunk = true, "전체 커서 ${if (quota) "①(회차 $fullSchedule · user_id > $fullAfter)" else "②(id ${fullOrphan.toList()})"} ${fullFailCount}회째 실패", e)
                 if (fullFailCount >= FAIL_SKIP) {
-                    log.warn("안전망 전체 커서 블록 {}회 연속 실패 — 건너뛴다({}) · 다음 바퀴가 다시 본다", FAIL_SKIP, key)
-                    if (quota) nextSchedule(run, fullSchedule) else advanceOrphan(minOf(fullOrphanPos() + properties.orphanChunkSize, lapEnd[fullOrphanKind()]))
+                    // 같은 블록 3회 연속 실패 — 그 블록 하나만 건너뛴다(rv43 — 처음에는 ①이 회차의 나머지를 통째로 건너뛰었다) · 다음 바퀴가 다시 본다
+                    if (quota) skipQuotaChunk(run, key) else {
+                        val kind = fullOrphanKind()
+                        val lo = fullOrphan[kind]
+                        val hi = minOf(lo + properties.orphanChunkSize, lapEnd[kind])
+                        log.warn("안전망 전체 커서 ② {} ({}, {}] {}회 연속 실패 — 건너뛴다 · 다음 바퀴가 다시 본다", KIND_NAMES[kind], lo, hi, FAIL_SKIP)
+                        run.skip(lo, hi)
+                        advanceOrphan(hi)
+                    }
                     fullFailKey = null
                     fullFailCount = 0
                 }
@@ -612,6 +636,38 @@ class SafetyNetReconciler(
         run.pairsScanned += d.scanned
         d.mismatches.forEach { run.found[it.scheduleId to it.userId] = it }
         if (d.scanned < k) nextSchedule(run, s) else fullAfter = d.lastUser
+    }
+
+    /**
+     * 전체 커서 ① 3회 연속 실패 — 그 keyset 청크(사용자 k명)만 건너뛴다: 청크의 마지막 사용자(k번째)를 가볍게 찾아 커서를 거기로(rv43).
+     * k명보다 적게 남았으면 다음 회차 · 찾기마저 실패하면 회차의 나머지를 건너뛴다(WARN에 그렇게 적는다). 사용자 범위는 id 범위가 아니라
+     * `recent_skip_*`(홀드·예약 id)에 넣지 않는다 — WARN과 바퀴 기록 `skipped_chunks`(이 실패의 skipChunk)로 남는다.
+     */
+    private fun skipQuotaChunk(run: Run, key: String) {
+        val s = fullSchedule
+        if (s == null) {
+            nextSchedule(run, null)
+            return
+        }
+        val after = fullAfter
+        val k = properties.chunkSize
+        val t0 = System.nanoTime()
+        val last = try {
+            run.pass.borrow { jdbc.queryForList(QUOTA_CHUNK_END_SQL, Long::class.java, s, after, k - 1).firstOrNull() }
+        } catch (e: Exception) {
+            log.warn("안전망 전체 커서 ① 회차 {} user_id > {} {}회 연속 실패 · 청크 끝 찾기도 실패({}) — 회차의 나머지를 건너뛴다 · 다음 바퀴가 다시 본다", s, after, FAIL_SKIP, e.toString())
+            nextSchedule(run, s)
+            return
+        } finally {
+            run.ns[Branch.FULL.ordinal] += System.nanoTime() - t0
+        }
+        if (last == null) {
+            log.warn("안전망 전체 커서 ① 회차 {} user_id > {}(끝까지 · {}명 미만) {}회 연속 실패 — 건너뛴다({}) · 다음 바퀴가 다시 본다", s, after, k, FAIL_SKIP, key)
+            nextSchedule(run, s)
+        } else {
+            log.warn("안전망 전체 커서 ① 회차 {} user_id ({}, {}] {}회 연속 실패 — 건너뛴다({}) · 다음 바퀴가 다시 본다", s, after, last, FAIL_SKIP, key)
+            fullAfter = last
+        }
     }
 
     private fun nextSchedule(run: Run, s: Long?) {
@@ -707,6 +763,10 @@ class SafetyNetReconciler(
 
         /** 열린 회차(앱 Clock) — 지금 C와 달리 마감 회차의 쿼터 행 수를 세지 않는다(그 count가 마감 회차 행 수에 비례) */
         private const val OPEN_SCHEDULES_SQL = "SELECT id FROM product_schedule WHERE starts_at > ? ORDER BY id"
+
+        /** 전체 커서 ① keyset 청크의 마지막 사용자(k번째) — 파라미터: 회차, after, k − 1. k명보다 적으면 0행 */
+        private const val QUOTA_CHUNK_END_SQL =
+            "SELECT user_id FROM user_hold_quota WHERE schedule_id = ? AND user_id > ? ORDER BY user_id OFFSET ? LIMIT 1"
 
         /** 최근 창 (나) 행 있음 — id 범위 (lo, hi]의 쌍(열린 회차만). 파라미터: lo, hi, 열린 회차 배열 */
         private const val HOLD_PAIRS_SQL = "SELECT DISTINCT schedule_id, user_id FROM seat_hold WHERE id > ? AND id <= ? AND schedule_id = ANY(?)"
