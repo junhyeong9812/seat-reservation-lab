@@ -73,6 +73,7 @@
 | 10-20 14:13 | rv46 수정 워커(Opus) 회수 c82cf854 — 배포 ADR대로(PC 빌드 → save·load · compose만 · pull_policy never · --no-build) · 입력 검증 · env 허용 목록(RECONCILER_TAG 제외) · IFS= read -r · --since 제거 · stats 한 줄 검증 + .158 시계 차 · 회차 끝 down 실패 사유 · compose config 경고 · 검증: bash -n · 14세트 dry-run 같음 · 가짜 ssh 80/80 · 로컬 빌드 + save/load 왕복(.Id·지문 같음 · 이미지 Env에 PASSWORD 0) · 메인: 판단 2건(라벨+층 지문 · TAG 제외) 수용 · ADR §4.2.8 배포·남는 위험·정리 명령 | load-bearing 가정: .158 load 뒤 지문 같음 → task 07에서 실증 |
 | 10-20 14:15 | rv46 재점검(codex) 중간 2 → 메인 직접 da1718dd · 06f 리뷰 종료 · **task 06 구현 끝**(06a~06g · 테스트 main-app 651 · reconciler-app 6 · 리뷰 rv42~rv46 + 재점검) · .164 꺼져 있음 → A+I 스모크·2단계 대기 · task 07(.158) 비밀번호 전달 방식 사용자 확인 대기 | — |
 | 10-20 18:11 | 사용자 ".164 켰어 진행하자" · .164(부팅 1분 · seatlab 컨테이너·볼륨 0) · PC 점검(ccle-postgres-1 healthy · load 4.1/24) · 2단계 계획 dry-run 확인(8조건 · 24회 · 증분 셀 split) · A+I 스모크 3개 시작(mem·trg·stmt · 1s · split · 12구간 · f4bbebab · id smoke-ai-*) | 대기 |
+| 10-20 18:21 | A+I 스모크 3개 **모두 pre-k6-overrun**(setup-done 91.9초 > 87±5): 원인 = run.sh app_counters가 부하 전 빌림 지표를 획득 조회 앞뒤로 두 번 읽어 같기를 요구 — 증분 틱(1초)·안전망이 그 사이 늘 빌려 다시 읽기 3회 → 준비 시간 초과 · 수정 a6939bcb(같기는 C·정리만 · 증분·안전망은 앞 값 + 차이 `*_jitter` 기록 · 다른 조건 무변경) · 실패 폴더는 smoke-ai-*-overrun · .164 남은 컨테이너 0 · 스모크 다시 | 대기 |
 
 ## 리뷰 ledger
 
