@@ -524,6 +524,32 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 - **고르지 않은 수정안**(기각 아님 — 사용자가 D1·D2에서 다른 안을 골랐다): H1 '최대 트랜잭션 수명을 DB 설정으로 강제 + 영속 변경 로그' · M8 '커밋과 함께 남는 변경 기록' — D1이 조건부 보장 + 기록을 골랐다(영속 변경 기록은 ADR-013의 CDC 몫). H4 'M3 각 셀에 대응하는 M2 셀을 같은 캠페인에' — D2가 M2 비교 셀 1개를 유지했다.
 - **기계 수정이 §5를 건드린 곳**: R6(판정 자료)·R7(허용식)은 사용자 결정이 아니라 리뷰 반영이다 — 원문을 남기고 'rv41 반영' 행으로 더했다. 측정 전이라 판정 결과에 영향이 없다.
 
+
+#### 4.2.13 계약 명확화 (blind 테스트 작성 중 발견 — 2026-10-20, 메인 판단)
+
+blind 테스트 워커(Opus — 계약만 보고 21파일·89 테스트 작성, 저장소 밖 scratchpad/blind06)가 계약의 모호점 18개를 짚었다. 추측으로 정하지 않고 아래처럼 고정한다(구현·테스트 모두 이것을 따른다). 이음새(테스트가 가정한 API) S1~S8은 그대로 받는다: `IncrementalReconciler.tick(source)` · `SafetyNetReconciler.runOnce()`·`sampleOnce()` · `MemoryRegistrationProbe.beforeRegister` · 새 스케줄러 첫 실행 = 한 주기 뒤 · 증분·안전망 복구도 `CounterRepairProbe`를 부름 · `ChunkDetector` 빈(모양별) · 기동 검사 실패 = `IllegalStateException`(막은 대상 이름 포함).
+
+| # | 모호점 | 정한 것 |
+|---|---|---|
+| 1 | 창 상한 1초 경계 — 하한 `t − max-overlap`이면 59초 넘은 트랜잭션부터 걸림 | 하한 = `max(min(t, o) − 1초, t − max-overlap − 1초)` — 시작 뒤 ≤ 60초인 트랜잭션은 보장 안 |
+| 2 | ⓐ + counter-trigger는 뜰 수 없는 조합(ⓐ는 A 필수 · B는 A와 함께 못 켬) | counter-trigger에서 허용 = ⓑ와 '표시만'(enabled=false)뿐 — §4.2.2 '(또는 ⓐ)' 문구는 이것으로 읽는다 |
+| 3 | `counter_inc_gap.source` | 그때 켜진 증분 스케줄러의 source(예 `inc-app-mem-1s`) |
+| 4 | memory_overflow 행 시점 | 넘침 뒤 첫 틱에 1행(그 사이 넘친 쌍 수·첫 쌍) |
+| 5 | db_ms_recent와 reread | 열을 나눈다 — `db_ms_reread` 따로, `db_ms_recent`에는 넣지 않음. 앞 절반 예산 = recent + reread |
+| 6 | 실행 시작 표본 | `sample_count`·`sample_db_ms`에 넣고 `db_ms_total`에는 넣지 않음 |
+| 7 | 맞는 표본이 없을 때 `id_at(T)` | 가장 오래된 표본의 id(더 넓게 다시 읽음) + 행 `sample_short=true`. 표본이 하나도 없으면 다시 읽기 갈래를 건너뛰고 같은 표시 |
+| 8 | 최근 창 청크 끝 | head(그 실행 시작의 max id)에서 자른다 |
+| 9 | 청크 3회 연속 실패 | 그 청크를 건너뛰고 `recent_skip_*` 열 + WARN + 지표 · 그 실행의 최근 창 갈래는 거기서 멈춤 |
+| 10 | 예산 확인 시점 | 청크 끝에서만 — 갈래마다 실행당 청크 최소 1개(진행이 멈추지 않게) |
+| 11 | 안전망 복구 skipped(잠금 시간 초과) | 이월 대기열로 |
+| 12 | hidden_sessions 행 빈도 | 지표는 틱마다 · 행은 처음 1번과 그 뒤 10분마다(WARN과 같음) |
+| 13 | ⓐ restart 행의 from_at·to_at | from_at = NULL(이전 프로세스 끝을 모름) · to_at = 이번 기동 시각 |
+| 14 | 외부 앱 `reconcile.enabled` 기본값 | 외부 앱 설정 파일에서 `false`(켜면 기동 실패 — 전체 바퀴 C는 업무 앱만) |
+| 15 | 주입 AH/AL 순서 · AE | AH부터 번갈아 · 만료 경로 AE는 따로 셈(번갈아에 끼지 않음) |
+| 16 | 손잡이 미지정 시 빈 존재 | 빈은 있어도 된다 — 스케줄러·지표·기록이 없어야 한다(테스트 15) |
+| 17 | V10이 필요한 조건 | `incremental.enabled=true` 또는 `safety-net.enabled=true` |
+| 18 | 기동 실패 메시지 | 막은 대상 손잡이 키를 포함(테스트는 키워드 목록으로 단언) |
+
 ## 5. 가설 (측정 전 고정)
 
 | # | 가설 | 틀렸다고 판정할 관측 |

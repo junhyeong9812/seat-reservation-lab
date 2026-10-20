@@ -56,6 +56,7 @@
 | 10-20 09:40 | 설계 재점검(codex) 신규 중간 2(보장 밖 분류 기준 시각 · 자기 INSERT 시간) → 메인 직접 반영(tx_started_at · 자기 INSERT 제외 + 지표) · §4.2.12 표 r-a·r-b · 설계 문서 리뷰 종료(선검증 + 듀얼 + 재점검) | task 05 설계 확정 — R8 결과로 탐지 모양만 남음 |
 | 10-20 08:50 | R8 집계 끝(summarize 3 · tail rc 0 · 누락·의심 없음) — 결과 커밋 ecd717ed(185M) · ADR §8.4 7cc96a8e · 후반 ① 중앙 f 11,509 · split 7,235.5(−37% 비겹침) · group 9,282(−19%) · 바퀴 중 DB CPU f 258.1 · split 258.3(겹침) · group 264.8(비겹침 높음) · p99 최대 겹침 · ② f 8,457 · split 8,007.5(겹침) · group 7,736(f와 비겹침) → 유효 조건 해석 갈림 → 사용자 **'split 성립'** → §8.4 판정 · §9 행 · §4.2.4 탐지 모양 = split | task 06 구현 준비 |
 | 10-20 09:00 | task 06 착수(사용자 '쭉 진행' 10-20 00:45) — 분할 06a core 추출 → 06b V9·V10·기동 검사 → 06c 증분 ⓐⓑⓒ·창 → 06d 안전망 → 06e 주입·후보 시각 → 06f reconciler-app → 06g 하네스 · 06a 워커(Opus — refactoring.md 순서 · 536 baseline · configprops JSON·jar·dry-run diff) ∥ blind 테스트 워커(Opus — §4.2.10 계약만 · 저장소 밖 scratchpad/blind06에 작성 · 구현이 들어갈 때 메인이 넣음) | 진행 |
+| 10-20 09:40 | blind 테스트 워커(Opus) 회수 — scratchpad/blind06 21파일·89 테스트(타입 검사 통과 · 미실행 — 구현 없음) · 이음새 가정 S1~S8 · 계약 모호점 18 → 메인이 ADR §4.2.13 계약 명확화로 고정(1초 경계 · ⓐ+counter-trigger 불가 · gap source · 열 분리 · id_at 표본 없음 등) | 06a 대기 · 이후 06b~ 구현 워커에 §4.2.13 + 이음새 전달 |
 
 ## 리뷰 ledger
 
