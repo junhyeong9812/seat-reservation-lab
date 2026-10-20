@@ -1121,13 +1121,18 @@ app_counters() {  # 인자: 출력 파일
       acq=$(actuator_retry "$a" metrics/hikaricp.connections.acquire | jq -c '[.measurements[] | {(.statistic): .value}] | add')
       rb2=$(counter_or_zero "$a" seat.hold.counter.reconcile.borrows); cb2=$(counter_or_zero "$a" seat.hold.counter.cleanup.borrows)
       if (( HAS_I )); then ib2=$(counter_or_zero "$a" seat.hold.counter.reconcile.incremental.borrows); sb2=$(counter_or_zero "$a" seat.hold.counter.safety.borrows); fi
-      [[ "$rb" == "$rb2" && "$cb" == "$cb2" && "$ib" == "$ib2" && "$sb" == "$sb2" ]] && break
+      # ADR-012 스모크(10-20): 증분 틱(1초)·안전망은 두 읽기 사이에 늘 빌린다 — 같기를 요구하면 다시 읽기가 준비 시간을 넘긴다(pre-k6-overrun).
+      # 같기는 대조(C)·정리만 요구하고, 증분·안전망은 앞 값을 쓰고 차이(두 읽기 사이 빌림)를 *_jitter로 남긴다(30분 수백만 획득 대비 몇 건)
+      [[ "$rb" == "$rb2" && "$cb" == "$cb2" ]] && break
       echo "$(date -Is) app_counters: 빌림 지표가 획득 조회 사이에 바뀜(reconcile $rb→$rb2 cleanup $cb→$cb2${ib:+ incremental $ib→$ib2 safety $sb→$sb2}) — 다시 읽음 $try" >> "${out%/*}/errors.log"
     done
     [[ "$rb" == "$rb2" ]] || rb=null
     [[ "$cb" == "$cb2" ]] || cb=null
-    [[ "$ib" == "$ib2" ]] || ib=null
-    [[ "$sb" == "$sb2" ]] || sb=null
+    local ij="" sj=""
+    if (( HAS_I )); then
+      [[ "$ib" =~ ^[0-9.eE+-]+$ && "$ib2" =~ ^[0-9.eE+-]+$ ]] && ij=$(awk -v a="$ib" -v b="$ib2" 'BEGIN{print b-a}') || ib=null
+      [[ "$sb" =~ ^[0-9.eE+-]+$ && "$sb2" =~ ^[0-9.eE+-]+$ ]] && sj=$(awk -v a="$sb" -v b="$sb2" 'BEGIN{print b-a}') || sb=null
+    fi
     tmo=$(actuator_retry "$a" metrics/hikaricp.connections.timeout | jq -c '.measurements[0].value')
     req=$(hold_requests "$a")   # 숫자 · 0(기록 없음 확인) · null(조회 실패) — 위 함수
     local creq; creq=$(confirm_requests "$a")   # ADR-008 D1 — 같은 규칙
@@ -1136,7 +1141,7 @@ app_counters() {  # 인자: 출력 파일
           --argjson rb "${rb:-null}" --argjson cb "${cb:-null}" \
           '. + [{app:$a, strategy:$st, limit_strategy:$ls, pool:$p, acquire:$q, timeouts:$t, hold_requests:$r, confirm_requests:$cr, reconcile_borrows:$rb, cleanup_borrows:$cb, limit:$l}]' <<< "$arr")
     # ADR-012 M2: 증분·안전망 빌림 키는 A+I에서만 더한다(이전 조건의 파일 모양 그대로 — summarize.borrow_per_request가 키가 있을 때만 뺀다)
-    (( HAS_I )) && arr=$(jq -c --argjson ib "${ib:-null}" --argjson sb "${sb:-null}" '.[-1] += {incremental_borrows:$ib, safety_borrows:$sb}' <<< "$arr")
+    (( HAS_I )) && arr=$(jq -c --argjson ib "${ib:-null}" --argjson sb "${sb:-null}" --argjson ij "${ij:-null}" --argjson sj "${sj:-null}" '.[-1] += {incremental_borrows:$ib, safety_borrows:$sb, incremental_borrows_jitter:$ij, safety_borrows_jitter:$sj}' <<< "$arr")
   done
   echo "$arr" > "$out"
 }
