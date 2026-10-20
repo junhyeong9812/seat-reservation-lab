@@ -437,7 +437,7 @@ class SafetyNetReconciler(
         return b
     }
 
-    /** 다시 읽기 구역 (id_at(T − reread), c] — 최근 창 몫(앞 절반)에서 쓴다. 맞는 표본이 없으면 가장 오래된 표본(더 넓게 — #7), 표본이 없으면 건너뜀. */
+    /** 다시 읽기 구역 (id_at(T − reread), c] — 최근 창 몫(앞 절반)에서 쓴다. 맞는 표본이 없으면 가장 오래된 표본(#7 — 그 표본은 T − reread보다 늦어 하한이 실제보다 **크다**: 구역이 좁아진다 · sample_short로 드러냄), 표본이 없으면 건너뜀. */
     private fun reread(run: Run, t: Instant, bounds: LongArray) {
         val hi = LongArray(2) { recentCursor[it] }
         val lo = LongArray(2)

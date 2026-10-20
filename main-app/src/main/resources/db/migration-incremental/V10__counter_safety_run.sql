@@ -15,7 +15,7 @@ CREATE TABLE counter_safety_run (
     db_ms_full          BIGINT           NOT NULL,
     repair_ms           BIGINT           NOT NULL,      -- 복구 트랜잭션 합(이월 복구 포함)
     repair_ms_max       BIGINT           NOT NULL,
-    record_ms           BIGINT           NOT NULL,      -- skipped 기록 · counter_reconcile_run INSERT
+    record_ms           BIGINT           NOT NULL,      -- counter_reconcile_run INSERT만(복구 안 counter_drift_log INSERT는 repair_ms에 — §4.2.13 #23)
     chunk_ms_max        BIGINT           NOT NULL,      -- 탐지 블록 하나(행 없음 조회 · 쌍 조회 · 탐지 청크)의 최대
     wall_ms             BIGINT           NOT NULL,
     repair_pairs        INT              NOT NULL,
