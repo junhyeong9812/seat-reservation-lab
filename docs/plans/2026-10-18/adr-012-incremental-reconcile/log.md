@@ -71,6 +71,7 @@
 | 10-20 13:47 | 재점검 rv45(codex — rv43·rv44 수정분 전체) **신규 없음** → 앱·하네스 리뷰 종료 · 06f 워커(Opus) 회수 c7596003(reconciler-app 본체 · 기동 검사 · 스케줄러 · configprops 비밀번호 가림 · blind 동등성 테스트) · b7779d96(Dockerfile · compose — 프로젝트 seatlab-reconciler · 8103 · cpus 1 · 1g · DB 값은 셸 env 필수) · 4cd1b7bf(lib.sh external_app_* 실구현 · run.sh A+X 순서·표본·사유 · campaign 연속 실패 집계) · 워커 검증: main-app 651/0 · reconciler-app 6/0 · 로컬 이미지 빌드 373MB · postgres:16 로컬 스모크(V10 없으면 실패 · health UP 22초 · inc-ext-trg-1s 61틱 · safety-ext · actuator 3개만) · 가짜 ssh로 하네스 함수 · 14세트 dry-run 57파일 같음 · 남은 것: db_sampler by_src에 외부 앱 'X' 분류 없음 · summarize 외부 앱 시계 차·self_record 연결 · .158 이미지 정리 · 06f 듀얼 리뷰 rv46 | 진행 |
 | 10-20 13:51 | 06f 리뷰 rv46 회수(Opus 높음 0·중간 2·낮음 6 · codex 높음 1·중간 3·낮음 1) — 원격 명령 전수: prune·패턴 image rm·-p 없는 down·sudo 없음 · 메인 판단: 배포를 ADR §4.2.8대로(PC 빌드 + docker save·ssh load · compose 파일만 동기화 — 앞 브리핑의 'git archive 배포'는 메인 실수) · 비밀번호 잔여 위험(컨테이너 env) 기록 → 수정 워커(Opus) | 진행 |
 | 10-20 14:13 | rv46 수정 워커(Opus) 회수 c82cf854 — 배포 ADR대로(PC 빌드 → save·load · compose만 · pull_policy never · --no-build) · 입력 검증 · env 허용 목록(RECONCILER_TAG 제외) · IFS= read -r · --since 제거 · stats 한 줄 검증 + .158 시계 차 · 회차 끝 down 실패 사유 · compose config 경고 · 검증: bash -n · 14세트 dry-run 같음 · 가짜 ssh 80/80 · 로컬 빌드 + save/load 왕복(.Id·지문 같음 · 이미지 Env에 PASSWORD 0) · 메인: 판단 2건(라벨+층 지문 · TAG 제외) 수용 · ADR §4.2.8 배포·남는 위험·정리 명령 | load-bearing 가정: .158 load 뒤 지문 같음 → task 07에서 실증 |
+| 10-20 14:15 | rv46 재점검(codex) 중간 2 → 메인 직접 da1718dd · 06f 리뷰 종료 · **task 06 구현 끝**(06a~06g · 테스트 main-app 651 · reconciler-app 6 · 리뷰 rv42~rv46 + 재점검) · .164 꺼져 있음 → A+I 스모크·2단계 대기 · task 07(.158) 비밀번호 전달 방식 사용자 확인 대기 | — |
 
 ## 리뷰 ledger
 
@@ -183,4 +184,5 @@
 | RX-8 | 1 | opus L5 | read -r에 IFS= 없음 | 채택 | fixed | c82cf854 |
 | RX-9 | 1 | opus L8 + codex L | 비밀번호가 컨테이너 env·docker inspect·config.v2.json(root 전용)에 남음 · compose config 평문 | 잔여 위험 기록 — env 방식(ADR §4.2.8 ③)의 불가피한 경로 · 하네스는 Env를 읽는 inspect·원격 compose config를 쓰지 않음 · 사용자에게 알림 | fixed | c82cf854 |
 | RX-10 | 1 | opus L6·L7 | 포트 검사 127.0.0.1만 · .158 이미지 정리 경로 없음 | 기록 — 포트는 실패가 드러남 · 정리 명령(프로젝트 태그 한정) 문서화 | fixed | c82cf854 |
+| RX-11 | p | codex 재점검 | lib.sh:530 라벨만 같은 다른 이미지를 다시 짓지 않음 · lib.sh:540 층만 같고 설정이 다른 이미지 | 채택 — PC에서 늘 다시 지음(캐시) · 지문에 `{{json .Config}}` 포함 | fixed | da1718dd |
 
