@@ -31,7 +31,13 @@ class ConcurrentRepairTest : IncrementalTestBase() {
             val inc = pool.submit { tick(SRC_TRG) }
             val saf = pool.submit { safety.runOnce() }
             val exp = pool.submit<Int> { expireHolds.expire() }
-            jdbcTemplate.awaitBlockedBy(lock.pid(), n = 3, timeout = Duration.ofSeconds(20))
+            // 전제 수정 2026-10-20: 같은 행의 2·3번째 대기자는 pg_blocking_pids에 앞 대기자로 보인다(튜플 잠금 사슬) — 행 잠금 대기 3개로 동기화
+            run {
+                val deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos()
+                while (jdbcTemplate.queryForObject("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'", Int::class.java)!! < 3) {
+                    check(System.nanoTime() < deadline) { "행 잠금 대기 3개를 20초 안에 못 봄" }; Thread.sleep(10)
+                }
+            }
             lock.rollback()                        // 잠금을 놓는다 — 셋이 차례로 잠근다
             inc.join(); saf.join(); exp.join()
         }

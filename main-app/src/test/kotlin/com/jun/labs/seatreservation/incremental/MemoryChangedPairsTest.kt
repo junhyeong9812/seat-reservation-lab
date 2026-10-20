@@ -140,7 +140,7 @@ class MemoryRegistrationTest : MemoryScenarioBase() {
     @Test
     fun `23 — afterCommit 등록 예외 — 요청은 성공 · counter_inc_gap after_commit_error 행(그 쌍) · 지표 · 그 쌍의 어긋남은 안전망 source로 고쳐진다`() {
         drain()
-        quota(s, 2301, 3)                         // 직접 SQL 어긋남(등록 없음) — 선점 뒤 cnt 4 · 실제 1
+        quota(s, 2301, 1)                         // 직접 SQL 어긋남(등록 없음) — 선점 뒤 cnt 2 · 실제 1(1인 한도 2 — 전제 수정 2026-10-20)
         failing.failFor.set(s to 2301L)
         val gap0 = meters.countOf(M_INC_GAP, "kind" to "after_commit_error")
 

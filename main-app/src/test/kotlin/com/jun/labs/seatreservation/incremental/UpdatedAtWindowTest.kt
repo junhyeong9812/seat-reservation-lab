@@ -100,6 +100,9 @@ abstract class UpdatedAtWindowScenario(private val method: String, private val s
         val ticks0 = meters.countOf(M_INC_TICK)
 
         tick(source)
+        // 전제 수정 2026-10-20: 아래 lastRunOf 조회도 커넥션을 빌리므로 빌림은 틱 직후에 읽는다
+        val hikariAfter = meters.hikariBorrows()
+        val borrowsAfter = meters.countOf(M_INC_BORROWS)
 
         val run = jdbcTemplate.lastRunOf(source)
         assertEquals(source, run["source"])
@@ -111,9 +114,9 @@ abstract class UpdatedAtWindowScenario(private val method: String, private val s
         assertEquals(1L, run.long("repaired"))
         assertTrue(run.long("chunks") >= 1)
         assertEquals(1L, run.long("schedules"), "후보의 열린 회차 수")
-        val hikari = meters.hikariBorrows() - hikari0
+        val hikari = hikariAfter - hikari0
         assertEquals(hikari, run.long("borrows").toDouble(), "기록 borrows = 이 틱의 커넥션 빌림(기록 INSERT 포함)")
-        assertEquals(hikari, meters.countOf(M_INC_BORROWS) - borrows0, "빌림 지표 증가분")
+        assertEquals(hikari, borrowsAfter - borrows0, "빌림 지표 증가분")
         assertEquals(1.0, meters.countOf(M_INC_TICK) - ticks0, "틱 타이머 1회")
     }
 

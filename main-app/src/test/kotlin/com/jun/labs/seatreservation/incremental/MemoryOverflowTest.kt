@@ -26,7 +26,7 @@ class MemoryOverflowTest : MemoryScenarioBase() {
     @Test
     fun `4·23 — 상한을 넘긴 등록 — overflow 지표 · 안전망 앞당김 실행 · counter_inc_gap memory_overflow 행(첫 쌍) · 넘친 쌍은 안전망이 고친다`() {
         drain()
-        quota(s, 403, 5)                          // 넘칠 쌍의 어긋남(직접 SQL) — 선점 뒤 cnt 6 · 실제 1
+        quota(s, 403, 1)                          // 넘칠 쌍의 어긋남(직접 SQL) — 선점 뒤 cnt 2 · 실제 1(1인 한도 2 — 전제 수정 2026-10-20)
         val overflow0 = meters.countOf(M_INC_MEM_OVERFLOW)
         val expedited0 = meters.countOf(M_SAFE_EXPEDITED)
 
