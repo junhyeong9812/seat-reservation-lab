@@ -8,6 +8,8 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.sql.Timestamp
 import java.time.Clock
 
@@ -26,6 +28,8 @@ class LoadtestDataService(
     private val redis: StringRedisTemplate,
     /** 판정기 v2(ADR-009)의 마감 기준 시각 — 선점의 마감 판정과 같은 출처(앱 Clock) */
     private val clock: Clock,
+    /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7 — 같은 loadtest 프로필). 직접 생성(판정기 테스트)할 때는 없다 */
+    private val injector: AppPathInjector? = null,
 ) {
 
     /**
@@ -41,6 +45,21 @@ class LoadtestDataService(
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
         )
+        // ADR-012 rv44 RG-1: 초기화 앞(예열)의 앱 경로 주입 기록·상태를 비운다 — 측정의 max-pairs·effect.json에 예열 주입이 섞이지 않게.
+        // counter_app_inject는 V10(선택 위치 migration-incremental)에만 있다
+        if (jdbcTemplate.queryForObject("SELECT to_regclass('counter_app_inject') IS NOT NULL", Boolean::class.java) == true) {
+            jdbcTemplate.execute("TRUNCATE counter_app_inject RESTART IDENTITY")
+        }
+        // 주입 상태는 초기화가 커밋된 뒤에 비운다(롤백되면 옛 기록·상태가 그대로 맞물린다)
+        injector?.let { inj ->
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+                    override fun afterCommit() = inj.resetState()
+                })
+            } else {
+                inj.resetState()
+            }
+        }
         // ADR-003 Redis 전략: 선점 관문 키·분산락이 이전 시드의 좌석 id로 남아 있으면 새 시드의 같은 id 좌석을 막는다.
         // Redis는 이 실험 전용(compose 내부)이라 DB 전체를 비운다. Redis 전략이 아니면 Redis에 연결하지 않는다.
         if (properties.strategy == HoldStrategyType.REDIS_NX || properties.strategy == HoldStrategyType.REDIS_LOCK) {

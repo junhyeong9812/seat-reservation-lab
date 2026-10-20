@@ -1,7 +1,9 @@
 package com.jun.labs.seatreservation.incremental
 
+import com.jun.labs.seatreservation.loadtest.LoadtestDataService
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.TestPropertySource
 import kotlin.test.assertEquals
@@ -187,3 +189,47 @@ class AppPathInjectEveryTest : IncrementalTestBase() {
     }
 }
 
+/**
+ * rv44 RG-1 (a) — 시드 초기화(LoadtestDataService.reset — TRUNCATE 경로)가 주입 상태(쌍 집합 · 개수)와 counter_app_inject를 비운다:
+ * 예열이 max-pairs를 다 써도 초기화 뒤 측정의 주입 수는 0부터 센다. (상한 3 — 상한 2인 AppPathInjectMaxPairsTest와 컨텍스트를 나눈다: 같은 손잡이면 캐시된 컨텍스트의 개수를 이어받는다)
+ */
+@ActiveProfiles("loadtest")
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=3"])
+class AppPathInjectSeedResetTest : IncrementalTestBase() {
+
+    @Autowired lateinit var loadtestData: LoadtestDataService
+
+    @Test
+    fun `RG-1 — 초기화 앞에서 max-pairs를 다 써도 초기화 뒤 주입은 0부터 — counter_app_inject도 비운다`() {
+        appHold(1881); appHold(1882); appHold(1883); appHold(1884) // 예열 흉내: 상한 3까지 주입
+        assertEquals(3, jdbcTemplate.injectRows().size, "전제: 초기화 앞 주입 = 상한: ${jdbcTemplate.injectRows()}")
+
+        loadtestData.reset(1, 20)
+
+        assertTrue(jdbcTemplate.injectRows().isEmpty(), "초기화가 counter_app_inject를 비워야 한다: ${jdbcTemplate.injectRows()}")
+        val sc = jdbcTemplate.queryForObject("SELECT id FROM product_schedule", Long::class.java)!!
+        listOf(1881L, 1882L, 1883L, 1884L).forEach { appHold(it, sc) }   // 초기화 앞과 같은 사용자 — 쌍 집합도 비었다
+        val rows = jdbcTemplate.injectRows()
+        assertEquals(3, rows.size, "초기화 뒤 개수는 0부터(상한 3): $rows")
+        assertEquals(listOf(1881L, 1882L, 1883L), rows.map { it.long("user_id") })
+        assertEquals("AH", rows.first()["kind"], "AH/AL 차례도 처음부터(§4.2.13 #15): $rows")
+    }
+}
+
+/** rv44 RG-1 (b) — 예열 사용자 대역(k6 warmup.js — 900000 + [0, 100000))은 고르지 않는다. 대역 바로 아래(899999)는 고른다(대조). */
+@ActiveProfiles("loadtest")
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS])
+class AppPathInjectWarmupRangeTest : IncrementalTestBase() {
+
+    @Test
+    fun `RG-1 — 사용자 900000 이상은 주입하지 않는다(선점·만료 경로 모두)`() {
+        listOf(900_000L, 950_000L, 999_999L).forEach { appHold(it) }
+        quota(s, 900_001, 1)
+        rawHold(s, 900_001, expiresAt = NOW.minusSeconds(1))
+        assertEquals(1, expireHolds.expire())                    // 만료 경로(A 가드 감소 1행)
+        assertTrue(jdbcTemplate.injectRows().isEmpty(), "예열 대역이 주입됐다: ${jdbcTemplate.injectRows()}")
+
+        appHold(899_999)
+        assertEquals(listOf(899_999L), jdbcTemplate.injectRows().map { it.long("user_id") }, "대역 밖(899999)은 고른다")
+    }
+}
