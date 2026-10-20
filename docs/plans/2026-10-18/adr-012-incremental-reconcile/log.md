@@ -58,6 +58,7 @@
 | 10-20 09:00 | task 06 착수(사용자 '쭉 진행' 10-20 00:45) — 분할 06a core 추출 → 06b V9·V10·기동 검사 → 06c 증분 ⓐⓑⓒ·창 → 06d 안전망 → 06e 주입·후보 시각 → 06f reconciler-app → 06g 하네스 · 06a 워커(Opus — refactoring.md 순서 · 536 baseline · configprops JSON·jar·dry-run diff) ∥ blind 테스트 워커(Opus — §4.2.10 계약만 · 저장소 밖 scratchpad/blind06에 작성 · 구현이 들어갈 때 메인이 넣음) | 진행 |
 | 10-20 09:40 | blind 테스트 워커(Opus) 회수 — scratchpad/blind06 21파일·89 테스트(타입 검사 통과 · 미실행 — 구현 없음) · 이음새 가정 S1~S8 · 계약 모호점 18 → 메인이 ADR §4.2.13 계약 명확화로 고정(1초 경계 · ⓐ+counter-trigger 불가 · gap source · 열 분리 · id_at 표본 없음 등) | 06a 대기 · 이후 06b~ 구현 워커에 §4.2.13 + 이음새 전달 |
 | 10-20 10:35 | task 06a 워커(Opus) 회수: 1e8b484a(sqlStateOf → core public) · d0a8b372(ScheduleClosure) · b841c8b1(ReconcileProperties·DetectShape — @Bean 바인딩 · R8 blind 테스트 별칭 1줄) · 7b6d66e5(CounterReconciler·PairRepair git mv · skipReason public · core 빌드 plugin.spring·BOM platform) · 워커 검증: 커밋마다 536/0/0/0 · configprops seat.hold 바이트 같음 3경우 · dry-run 10세트 같음 · jar 차이 = §4.2.1 이름 · classpath.idx 순서만 · ChunkDetector·PairRepairRunner 분리는 미착수 → **메인 판단: 06c·06d에서 호출처와 함께** · 메인: 로컬 XML이 3건뿐(워커 임시 테스트 흔적) → 전체 다시 실행 중 · 06a 듀얼 리뷰 rv42(Opus ∥ codex) | 리뷰 대기 |
+| 10-20 11:10 | 메인 전체 테스트(7b6d66e5 --rerun) 결과 확인 · rv42 리뷰 종료(Opus 낮음 3 기록 · codex 신규 없음) → **task 06a 완료** | 06b 착수 |
 
 ## 리뷰 ledger
 
@@ -123,3 +124,12 @@
 | RC-4 | 1 | opus L2·L3 | fetch size 왕복 · JPA 트랜잭션 비용이 모양 효과를 가릴 수 있음 | 기록 — ADR §4.1 해석 주의(R8 기각 시 먼저 가름) | fixed | 7bf6dee6 |
 | RC-5 | 1 | opus L4 | 바깥 트랜잭션 안 runOnce → RC 합류 | 기록 — 지금 호출처 스케줄러뿐 | fixed | 7bf6dee6 |
 - review packet(§4.2 설계 a8626d42): rv41 — 미러(ADR-012 · 명세 · main-app/src/main · k6/ADR-009 lib·run·summarize·compose · reconcile-core·reconciler-app · Dockerfile). Opus ∥ codex. 발견별 판단 정본 = ADR-012 §4.2.12(수정 워커가 작성 · 메인 확인).
+- review packet(06a a843f08c..7b6d66e5): rv42 — 미러(main-app/src/main · 빌드 파일 · reconcile-core · reconciler-app · Dockerfile · ADR-012 · run.sh · drift 테스트 · refactor.diff). Opus(워커 비교 자료 /tmp/t06a 직접 재대조 · BOOT-INF/lib 펼쳐 겹침 확인) ∥ codex.
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| RE-1 | 1 | opus L | /tmp/t06a/dup — 워커 중복 점검이 META-INF를 뺐음 | 기록 — Opus가 lib 전체를 펼쳐 확인: 겹치는 클래스 0 · 겹치는 META-INF는 spring.factories·AutoConfiguration.imports·services 등 합쳐 읽는 종류뿐(순서 없는 리스너 호출 순서만 바뀔 수 있음) | closed | |
+| RE-2 | 1 | opus L | dry-run 10세트 같음은 약한 증거(이번 diff가 k6를 안 건드림) | 기록 — 하네스 렌더 보존의 실제 근거는 configprops 비교(Opus가 평탄화 diff로 재확인 — 다른 것은 Testcontainers 포트뿐) | closed | |
+| RE-3 | 1 | opus L | SeatReservationApplication.kt:21-22 /actuator/beans에 reconcileProperties 새 빈 | 기록 — §3-4 범위 밖(하네스는 metrics만) | closed | |
+| RE-4 | 1 | codex | — | 신규 없음(미러에 git·산출물이 없어 수치 재검증은 Opus 몫) | closed | |
+
