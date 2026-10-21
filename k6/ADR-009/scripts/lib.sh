@@ -458,7 +458,7 @@ SQL
 #     `docker save | ssh .158 docker load`(.158에 같은 이미지가 이미 있으면 보내지 않는다) → <경로>/<SHA>/compose.yml 하나만 복사.
 #     .158에서는 빌드·pull을 하지 않는다(기반 이미지·빌드 캐시가 .158에 쌓이지 않음 — compose.yml에 build 절 없음 · pull_policy never · up --no-build).
 #     '같은 이미지' = 라벨 SHA + 층 diff ID 목록(RootFS.Layers)이 같다 — .Id는 이미지 저장소 방식(classic 대 containerd)이 다르면 같은 이미지라도 달라질 수 있어 쓰지 않는다.
-#   비밀번호(§4.2.8 ③): k6 PC 셸 환경 EXT_DB_PASSWORD만 — ssh 표준 입력으로 넘겨 원격 셸이 `IFS= read -r`로 받는다(명령 인자·파일·셸 이력·로그에 남지 않음).
+#   비밀번호(§4.2.8 ③): k6 PC 셸 환경 EXT_DB_PASSWORD, 없으면 측정 커밋 compose.yml의 측정 DB 고정값(ext_db_password) — ssh 표준 입력으로 넘겨 원격 셸이 `IFS= read -r`로 받는다(명령 인자·파일·셸 이력·로그에 남지 않음).
 #     남는 위험(rv46 — 지금은 막지 않는다): 값은 컨테이너 환경에 들어간다(.158의 docker inspect Config.Env · 데몬 config.v2.json(root만) · compose 프로세스 /proc/<pid>/environ(본인·root만)).
 #     그래서 하네스는 .158에서 Env를 빼는 --format 없이 docker inspect를 부르지 않고, docker compose config를 부르지 않는다(둘 다 값을 평문으로 찍는다).
 #   원격 명령에 끼우는 값은 모두 형식을 확인한다(rv46): SHA = 16진 · EXT_SERVER의 사용자·호스트 · SERVER_HOST · EXT_DB_USERNAME = [A-Za-z0-9._-](앞 '-' 금지 — ext_inputs_ok) ·
@@ -495,9 +495,17 @@ ext_kv_ok() { [[ "$1" =~ ^(INC_METHOD|INC_INTERVAL|INC_TRACK|DETECT_SHAPE|RECONC
 EXT_IMAGE_FMT='{{index .Config.Labels "org.seatlab.sha"}} {{json .RootFS.Layers}} {{json .Config}}'   # 지문 = 라벨 SHA + 층 diff ID + 이미지 설정(실행 명령·환경 — rv46 재점검: 층만 같고 설정이 다른 이미지를 막는다)
 external_app_supported() { return 0; }
 # 캠페인·run.sh 전 점검: 원격에 넣을 값 형식 · 비밀번호가 PC 환경에 있나 · PC docker(빌드) · .158 도달 · docker·compose · 포트 8103을 이 프로젝트 밖에서 쓰지 않나. 결과 한 줄을 표준 오류로 · 0 = 준비됨
+# DB 비밀번호(§4.2.8 ③): EXT_DB_PASSWORD가 있으면 그 값 · 없으면 측정 커밋의 하네스 compose(k6/ADR-009/compose.yml — .164 측정 DB를 회차마다 만드는 파일)의
+#   POSTGRES_PASSWORD 고정값을 쓴다(측정 전용 DB · 값은 이미 저장소에 커밋됨 · 사용자 결정 10-21). 값은 출력하지 않고 변수에만 둔다(export 안 함 — k6 등 자식에 안 물림)
+ext_db_password() {  # 인자: sha(없으면 HEAD) → EXT_DB_PASSWORD를 채운다. 실패면 1
+  [[ -n "${EXT_DB_PASSWORD:-}" ]] && return 0
+  local v; v=$(git -C "$REPO_ROOT" show "${1:-HEAD}:k6/ADR-009/compose.yml" 2>/dev/null | sed -nE 's/^[[:space:]]*POSTGRES_PASSWORD:[[:space:]]*"?([^"#[:space:]]+)"?.*$/\1/p' | head -1)
+  [[ -n "$v" ]] || return 1
+  EXT_DB_PASSWORD="$v"
+}
 external_app_ready() {
   ext_inputs_ok || return 2
-  [[ -n "${EXT_DB_PASSWORD:-}" ]] || { echo "external_app_ready: EXT_DB_PASSWORD가 k6 PC 셸 환경에 없다(값은 파일에 쓰지 않는다 — export 후 다시)" >&2; return 1; }
+  ext_db_password || { echo "external_app_ready: DB 비밀번호를 정하지 못했다(EXT_DB_PASSWORD 없음 · 하네스 compose.yml POSTGRES_PASSWORD 못 읽음)" >&2; return 1; }
   docker version --format '{{.Server.Version}}' > /dev/null 2>&1 || { echo "external_app_ready: k6 PC docker를 쓸 수 없다(외부 앱 이미지는 PC에서 빌드한다 — §4.2.8 ①)" >&2; return 1; }
   local out
   out=$(ext_remote_t 60 bash -s -- "$EXT_PROJECT" "$EXT_PORT" "$EXT_REMOTE_BASE" <<'REMOTE'
@@ -562,7 +570,7 @@ external_app_up() {
   local sha="$1" dir="$2" i; shift 2
   ext_sha_ok "$sha" || return 2
   ext_inputs_ok 2>>"$dir/errors.log" || return 2
-  [[ -n "${EXT_DB_PASSWORD:-}" ]] || { echo "$(date -Is) external_app_up: EXT_DB_PASSWORD 없음" >> "$dir/errors.log"; return 1; }
+  ext_db_password "$sha" || { echo "$(date -Is) external_app_up: DB 비밀번호를 정하지 못함(EXT_DB_PASSWORD 없음 · $sha compose.yml POSTGRES_PASSWORD 없음)" >> "$dir/errors.log"; return 1; }
   local kv; for kv in "$@"; do ext_kv_ok "$kv" || { printf '%s external_app_up: 허용 목록 밖 변수·형식 아님 — %q\n' "$(date -Is)" "$kv" >> "$dir/errors.log"; return 2; }; done
   for i in 1 2; do
     log "external compose up ($sha) $* (attempt $i)"
