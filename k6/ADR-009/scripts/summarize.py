@@ -825,7 +825,7 @@ def gc_summary(gc_gz, window=None, steady_from=None):
     heap_committed_max_mb(GC 끝 줄 괄호 안 — GC 뒤 잡은 힙의 최대, **로그 전체**(기동·시드 포함)).
     ADR-010 2차(ZGC): ZGC는 'Pause … NM->NM(NM)' 끝 줄이 없다 — Z로 시작하는 safepoint(ZMarkStart·ZMarkEnd·ZRelocateStart …)를 GC 정지 하나로 센다 ·
     stalls·stall_ms_max(버킷마다 — 'Allocation Stall (스레드) X ms'·'Relocation Stall' 줄 중 앱 스레드 — 앱 스레드가 GC를 기다린 시간) ·
-    worker_stalls·worker_stall_ms_max(같은 줄 중 GC 작업자 스레드 ZWorker… — 'GC(n) y: Relocation Stall (ZWorkerYoung#1)', 기록만) · zgc_generational('Minor Collection' 줄 유무) ·
+    worker_stalls·worker_stall_ms_max(같은 줄 중 GC 작업자 스레드 ZWorker… — 'GC(n) y: Relocation Stall (ZWorkerYoung#1)', 기록만) · zgc_generational('Minor Collection'·'Major Collection' 줄 유무) ·
     heap_max_mb는 ZGC면 gc,init 'Max Capacity:'.
     steady_from(서버 epoch) = k6 램프 끝(setup_data.startedAt + ramp_s — 지연 지표의 정상 구간과 같은 기준, 리뷰). 없으면 window 시작 + 60."""
     if not gc_gz.exists():
@@ -844,7 +844,8 @@ def gc_summary(gc_gz, window=None, steady_from=None):
             t = datetime.fromisoformat(f"{m.group(1)}{m.group(2)}:{m.group(3)}").timestamp() if m else None
             if out["collector"] is None and "Using " in line and "[gc" in line:
                 out["collector"] = line.split("Using ", 1)[1].strip()
-            if "Minor Collection" in line:
+            # 세대형 ZGC는 "Minor Collection"·"Major Collection"으로 찍는다(비세대형은 "Garbage Collection"). 낮은 부하(S3e)에서는 Minor 없이 Major만 나올 수 있다(ADR-012 효과 스모크 10-21)
+            if "Minor Collection" in line or "Major Collection" in line:
                 out["zgc_generational"] = True
             stl = GC_STALL.search(line)
             if stl:
