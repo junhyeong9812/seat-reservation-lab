@@ -85,6 +85,7 @@
 | 10-21 15:34 | 하네스 수정 워커 커밋 5a31b58b(인자 한도·무음 실패 — 워커 보고 대기 · 1초 셀 재집계 진행 중) · 효과 스모크(5a31b58b · M2 앱 안 증분 · ⓑ DB 트리거 · 1초 · split · S3e + 앱 경로 주입) 대조는 정상: 주입 120쌍(앱 경로 AH 30·AL 30 · DB 직접 D 20·H 20·L1 10·L2 10) · 발견 110·복구 110 · 오류 0 · 정합성 위반 0 · effect.json 120쌍·unexpected 0 · meta.json 129KB 정상 · 증분 틱 897·안전망 15(k6 구간 결손 0) · 빌림 1.0001 · **상태 gc-collector-mismatch** — 원인: 하네스가 'Minor Collection' 줄로만 세대형 ZGC를 판정 · S3e 낮은 부하라 Minor 0·Major 170(세대형 맞음) → 03adbf02(Major Collection 줄도 인정 · 스모크·2단계 로그로 확인) | 효과 본측정 시작 |
 | 10-21 16:50 | 하네스 수정 워커(Opus) 회수 5a31b58b — 인자 한도 감사(실패 원인 pre-k6 195KB · 잠재 결함 drift_db_dump 페이지 약 700행부터 무음 버림 → 파일로) · finish_rep 임시 파일 검증·meta-write-failed(재측정 대상 — ACCEPT_RE 밖) · 새 사유 invalid-k6-window.json·quota-hot-missing · meta_rebuild.py로 9회 복원(규칙 검증 15/15 · ended만 0~1초 근사) · 1초 셀 summarize·tail 재집계 · HOT 칸: S4c는 쿼터 UPDATE 0(INSERT만)이라 0÷0 → '갱신 0' 표기 · 메인: 결과 커밋 45539bc5 · ADR §8.5 2단계 결과·§9 행 · README 사유 표 3개 추가는 task 09 | 효과 측정 진행 중 |
 | 10-21 22:38 | 앱 안 효과 캠페인 끝(adr012eff · 71585d53 · 10-21 15:34 ~ 22:35 · 18/18 ok · 비정상 회차 0) | 집계(summarize 6 병렬 → tail.py --set adr012eff) |
+| 10-21 22:41 | 효과 집계 끝(summarize 6 · tail rc 0) · 결과 커밋 2d075467 · ADR §8.6 효과 결과·§8.7 판정: 성공 = ⓐ 메모리 1초 · ⓑ 트리거 1초 · ⓑ 트리거 5초 · 규칙 1 미결정 → 규칙 2 → **ⓑ 트리거 1초** · 2' 비교 셀 trg-1s | 남은 측정: .158 스모크 → 2'(adr012s2x --m2-cell trg-1s) → 외부 앱 효과(adr012effx) · 비밀번호 전달 방식 사용자 확인 대기 |
 
 ## 리뷰 ledger
 
