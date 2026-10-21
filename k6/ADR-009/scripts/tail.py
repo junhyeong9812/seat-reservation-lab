@@ -67,7 +67,9 @@
     R7 판정 불가(summarize.safety_r7 undecidable) = 창 안 실행 0 · 안전망 counter_reconcile_run과 counter_safety_run의 run_id 짝 없음·필수 열 없음(summarize 머리말 'R7 기록 짝') —
     그 회차의 ①~④ 수·⑤는 '위반 없음'으로 읽지 않는다(조건 행은 판정 불가 회차 수/ok 회차 수).
     R5 = 정상 구간(분 0~29) 선점 hold 응답(코드 0 제외) p99(분별 배열 — 단정밀도) · 같은 캠페인 noc(조건 이름 noc-…) 중앙값 대비 % · HOT 비율 = k6 구간 Δn_tup_hot_upd ÷ Δn_tup_upd
-    (io-before/after quota_table) · updated_at 인덱스 크기 = quota-hot.json(k6 직전 · 회차 끝 — V9 방식만).
+    (io-before/after quota_table) · updated_at 인덱스 크기 = quota-hot.json(k6 직전 · 회차 끝 — V9 방식만). HOT 칸(10-21): V9 방식(trg·stmt — quota-hot.json 있음)만 —
+    그 밖 '—'. k6 구간 갱신이 0이면 비율이 정의되지 않는다(0 ÷ 0) — '갱신 0'으로 적는다(누락 아님 — S4c는 선점마다 새 (회차, 사용자) 쿼터 행 INSERT라 갱신 0이 실측).
+    io 두 파일 중 하나라도 없거나 값이 아니면 '누락'.
   - ADR-012 효과(--set adr012eff — M2 · adr012effx — M3 외부 앱): 회차 effect.json(summarize.effect — run.sh가 회차 끝에 만든다)의 종류별 주입/복구/끝 일치 ·
     R4 위반/판정 불가/보장 밖 · 적체 기준 실행이 주입 뒤 첫 실행(no-prior-run) 쌍 수 · 예상 담당(recent·reread·full-cursor — 위반 쌍 몫) · R6 위반/판정/판정 불가 · 오탐 복구 · unexpected.
     정의(적체 기준 실행 · 예상 담당 · R6 판정 불가)는 summarize.py 머리말 'ADR-012 추가'.
@@ -673,6 +675,7 @@ def a12x_rep(d, meta, cond, off, s_min, mins):
     du, dh = (qa.get(k) - qb.get(k) if num(qa.get(k)) and num(qb.get(k)) else None for k in ("n_tup_upd", "n_tup_hot_upd"))
     qh = load(d / "quota-hot.json") or {}
     x["r5"] = {"v9": (d / "quota-hot.json").exists(), "upd_k6": du, "hot_upd_k6": dh, "hot_ratio_k6": (dh / du) if num(du) and du and num(dh) else None,
+               "hot_undefined": num(du) and du == 0,   # k6 구간 갱신 0 — 비율 0 ÷ 0(머리말 HOT 칸)
                "idx_bytes_k6": _get(qh, "k6", "idx_bytes"), "idx_bytes_end": _get(qh, "end", "idx_bytes"), "table_bytes_end": _get(qh, "end", "table_bytes")}
     if cond not in INC_CONDS:
         return x
@@ -904,7 +907,20 @@ def _a12x_vals(t):
             "chunk": g("r7", "chunk_ms_max", "max"), "smp": g("r7", "sample_db_ms", "median"), "lag": g("r7", "lag_ids", "max"), "laps": g("r7", "laps_completed"),
             "carry": g("r7", "carry_out_max"), "drop": g("r7", "carry_dropped"), "skip": g("r7", "recent_skip_ids"), "gaps": gp,
             "p99": x.get("hold_p99_steady_ms"), "hot": g("r5", "hot_ratio_k6"), "idx": (g("r5", "idx_bytes_end") / 1048576) if num(g("r5", "idx_bytes_end")) else None,
-            "v9": g("r5", "v9")}
+            "v9": g("r5", "v9"), "hot0": g("r5", "hot_undefined") is True}
+
+
+def _hot_cell(vals, d=3):
+    """HOT 비율 칸(머리말 R5 HOT 칸) — V9가 아니면 '—', 비율이 있는 회차는 범위, 갱신 0 회차는 '갱신 0'(n), 나머지는 누락 수."""
+    if not vals:
+        return "누락"
+    if not any(v["v9"] for v in vals):
+        return "—"
+    r = [v["hot"] for v in vals if num(v["hot"])]
+    z = sum(1 for v in vals if not num(v["hot"]) and v["hot0"])
+    m = len(vals) - len(r) - z
+    parts = ([_rngd(r, d)] if r else []) + ([f"갱신 0({z}/{len(vals)})" if len(vals) > 1 else "갱신 0"] if z else []) + ([f"누락 {m}"] if m else [])
+    return " · ".join(parts) or "누락"
 
 
 def a12x_tables(out, js, lab, notes):
@@ -937,7 +953,7 @@ def a12x_tables(out, js, lab, notes):
             inc_cells = ["—"] * len(inc_cells)
         v9 = any(v["v9"] for v in vals)   # updated_at 인덱스는 V9 방식(trg·stmt)만 — 그 밖은 '—'(누락 아님)
         cond_rows.append([c, len(ok)] + inc_cells + [col("p99", 2), fx((p99m / noc_p99 - 1) * 100, 1) if num(p99m) and noc_p99 else "누락",
-                                                     col("hot", 3), col("idx", 1) if v9 else "—"])
+                                                     _hot_cell(vals), col("idx", 1) if v9 else "—"])
         for t in reps:
             v = _a12x_vals(t)
             nt = (t.get("a12x") or {}).get("notes") or []
@@ -947,7 +963,7 @@ def a12x_tables(out, js, lab, notes):
             if not _get(t, "a12_expect", "sources"):
                 ic = ["—"] * len(ic)
             rep_rows.append([c, Path(t["dir"]).name, " · ".join([t["status"] or "누락"] + nt)] + ic
-                            + [fx(v["p99"], 2), fx((v["p99"] / noc_p99 - 1) * 100, 1) if num(v["p99"]) and noc_p99 else "누락", fx(v["hot"], 3), fx(v["idx"], 1) if v["v9"] else "—"])
+                            + [fx(v["p99"], 2), fx((v["p99"] / noc_p99 - 1) * 100, 1) if num(v["p99"]) and noc_p99 else "누락", _hot_cell([v]), fx(v["idx"], 1) if v["v9"] else "—"])
             notes += [f"{c} {Path(t['dir']).name} ADR-012 2단계: {n}" for n in nt]
     table(out, A12X_HEAD, cond_rows)
     table(out, ["조건", "회차", "상태"] + A12X_HEAD[2:], rep_rows)

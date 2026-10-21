@@ -1212,7 +1212,8 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     if ! python3 "$SUMMARIZE" --fixed-check "$dir/k6-summary.json"; then reasons+=("fixed-incomplete"); fi
   fi
   local f
-  for f in k6-summary.json consistency.json app-config.json seed.json after-k6.json io-before.json io-after.json pg-settings.json; do
+  # 10-21 무음 실패 감사: k6-window.json(k6 구간 — gc.json k6 정지·효과 지표가 읽는다)도 필수 산출물
+  for f in k6-summary.json consistency.json app-config.json seed.json after-k6.json io-before.json io-after.json pg-settings.json k6-window.json; do
     if ! { [[ -s "$dir/$f" ]] && jq empty "$dir/$f" 2>/dev/null; }; then reasons+=("invalid-$f"); fi
   done
   if [[ "$base" == S2 || "$base" == S7 ]]; then
@@ -1468,6 +1469,12 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
     else
       reasons+=("schema-mismatch")
     fi
+    # R5(하네스 ⑧ — 10-21 무음 실패 감사): V9 방식(trg·stmt)은 quota-hot.json의 k6 직전·회차 끝 두 측정(갱신·HOT 누적 · updated_at 인덱스 크기)이 모두 있어야 한다 —
+    #   quota_hot 조회가 실패하면 그 칸이 null로 조용히 남았다 → quota-hot-missing(수집 실패 — campaign ACCEPT_RE 밖이라 다시 잰다)
+    if [[ "$INC_METHOD" == trg || "$INC_METHOD" == stmt ]] \
+       && ! jq -e 'all(.k6, .end; type == "object" and (.n_tup_upd | type == "number") and (.n_tup_hot_upd | type == "number") and (.idx_bytes | type == "number"))' "$dir/quota-hot.json" > /dev/null 2>&1; then
+      reasons+=("quota-hot-missing")
+    fi
     # 대조가 실제로 돌았나: 시드 뒤 첫 증분 틱(reconcile-first.json) · k6 구간의 증분 틱(주기)·안전망 실행(1분) 결손(긴 셀만 — S2 밖) · V10 기록 덤프
     jq -e '.runs > 0' "$dir/reconcile-first.json" > /dev/null 2>&1 || reasons+=("reconcile-missing")
     if [[ "$base" != S2 ]]; then
@@ -1597,8 +1604,16 @@ reset_with_retry() {  # 인자: 회차폴더 schedules seats — 과부하 직�
 
 finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" status k6_exit k6env — 성공·실패 모두 여기서 기록한다
   local dir="$1" level="$2" cell="$3" rep="$4" started="$5" k6_window="$6" status="$7" k6_exit="$8" k6env="$9" base="$(cell_base "$3")"
-  echo "$status" > "$dir/status"
-  jq -n --arg sha "$SHA" --arg level "$level" --arg cell "$cell" --arg rep "$rep" \
+  # ADR-012 2단계(10-21): pre-k6.json이 1초 증분 셀에서 193KB — --argjson(인자 하나 최대 128KB, MAX_ARG_STRLEN)을 넘어 jq가 실행되지 못했고 meta.json이 빈 채
+  #   status만 ok로 남았다(무음 — 9회차). 회차 파일 내용은 인자로 넘기지 않는다: --slurpfile($x[0]). 없거나 깨진 파일 = null(이전과 같은 값 — json_file_or_null)
+  local tmps=() f_pg f_clk f_pre f_gc
+  f_pg=$(json_file_or_null "$dir/pg-settings.json") f_clk=$(json_file_or_null "$dir/clock-offset.json") \
+    f_pre=$(json_file_or_null "$dir/pre-k6.json") f_gc=$(json_file_or_null "$dir/gc.json")
+  [[ "$f_pg" == "$dir/"* ]] || tmps+=("$f_pg"); [[ "$f_clk" == "$dir/"* ]] || tmps+=("$f_clk")
+  [[ "$f_pre" == "$dir/"* ]] || tmps+=("$f_pre"); [[ "$f_gc" == "$dir/"* ]] || tmps+=("$f_gc")
+  # 쓰기는 임시 파일 → 검증 → 이름 바꾸기. 실패하면 status = meta-write-failed(하네스 실패 — campaign ACCEPT_RE 밖이라 다시 잰다) + errors.log 한 줄.
+  # status는 meta 뒤에 쓴다 — 그 사이에 끊기면 status가 없어 --resume이 끝나지 못한 회차로 다시 잰다(meta 없는 '끝난 회차'가 생기지 않게)
+  if ! jq -n --arg sha "$SHA" --arg level "$level" --arg cell "$cell" --arg rep "$rep" \
         --arg started "$started" --arg ended "$(date -Is)" \
         --arg k6_started "${k6_window%%|*}" --arg k6_ended "${k6_window##*|}" --arg k6env "$k6env" \
         --arg appenv "$(config_env "$(config_of "$base")") APP_CPUS=$(app_cpus "$level") DB_CPUS=$level" \
@@ -1612,10 +1627,7 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
         --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg rshape "$RECONCILE_SHAPE" \
         --argjson inc "$(inc_json meta)" \
         --arg pg_preset "$PG_PRESET" --arg pg_env "$(preset_env "$PG_PRESET")" \
-        --argjson pg_applied "$( { jq -ec . "$dir/pg-settings.json" 2>/dev/null || echo null; } | head -1)" \
-        --argjson clock "$( { jq -ec . "$dir/clock-offset.json" 2>/dev/null || echo null; } | head -1)" \
-        --argjson prek6 "$( { jq -ec . "$dir/pre-k6.json" 2>/dev/null || echo null; } | head -1)" \
-        --argjson gc "$( { jq -ec '{app: (.app | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end), reconciler: (.reconciler | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end)}' "$dir/gc.json" 2>/dev/null || echo null; } | head -1)" \
+        --slurpfile pg_applied "$f_pg" --slurpfile clock "$f_clk" --slurpfile prek6 "$f_pre" --slurpfile gcs "$f_gc" \
         '{sha:$sha, level:($level|tonumber), cell:$cell, rep:($rep|tonumber), started:$started, ended:$ended,
           k6_started:$k6_started, k6_ended:$k6_ended, ttl_s:($ttl|tonumber),
           strategy:$strategy, pool:($pool|tonumber), apps:($apps|tonumber), delay_ms:($delay|tonumber), bg:0,
@@ -1625,10 +1637,25 @@ finish_rep() {  # 인자: 폴더 level cell rep started "k6_started|k6_ended" st
           applied:{strategy:$applied_seat, limit_strategy:$applied_lim},
           k6_env:$k6env, app_env:$appenv, k6_exit:$k6_exit, status:$status, k6_version:$k6, k6_bin:$k6bin, adr011:$adr011,
           io_settle_s:(($ENV.IO_SETTLE_S // "11")|tonumber),
-          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied, clock_offset:$clock, pre_k6:$prek6, gc:$gc}
+          pg_preset:$pg_preset, pg_env:$pg_env, pg_applied:$pg_applied[0], clock_offset:$clock[0], pre_k6:$prek6[0],
+          gc:(try ($gcs[0] | if . == null then null else
+                {app: (.app | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end),
+                 reconciler: (.reconciler | if . then {collector, stops, stop_ms_max, nested, log_bytes, k6} else null end)} end) catch null)}
           + (if $rshape != "" then {reconcile_shape:$rshape} else {} end)
-          + (if $inc != null then {incremental:$inc} else {} end)' > "$dir/meta.json"
+          + (if $inc != null then {incremental:$inc} else {} end)' > "$dir/meta.json.tmp" \
+     || ! jq -e 'type == "object" and .sha != null' "$dir/meta.json.tmp" > /dev/null 2>&1 \
+     || ! mv "$dir/meta.json.tmp" "$dir/meta.json"; then
+    echo "$(date -Is) meta-write-failed — meta.json을 쓰지 못함(회차 상태 $status → meta-write-failed)" >> "$dir/errors.log"
+    rm -f "$dir/meta.json.tmp"; status="meta-write-failed"
+  fi
+  (( ${#tmps[@]} )) && rm -f "${tmps[@]}"
+  echo "$status" > "$dir/status"
   echo "$(date -Is) L$level $cell rep$rep $status" >> "$MATRIX_LOG"
+}
+# 파일이 올바른 JSON이면 그 경로, 아니면 null 한 줄 임시 파일 경로(호출자가 지운다) — jq --slurpfile로 넘길 것(인자 크기 한도 없음)
+json_file_or_null() {  # 인자: 파일
+  if [[ -s "$1" ]] && jq empty "$1" > /dev/null 2>&1; then echo "$1"; return; fi
+  local t; t=$(mktemp) && echo null > "$t" && echo "$t"
 }
 
 # ADR-012 2단계 기록(plan.json condition.incremental · meta.json incremental) — 새 조건만(이전 조건은 null → 키 없음 · 계획·meta 그대로)
@@ -1646,7 +1673,8 @@ inc_json() {  # 인자: plan|meta
 
 # ---- 매트릭스 ----------------------------------------------------------------------------------------
 # 계획을 먼저 남긴다 — 요약은 이 계획 기준으로 미측정·누락을 표시한다 (이어서 실행이면 기존 계획 유지)
-(( RESUME )) || jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
+if (( ! RESUME )); then   # 10-21 감사: 계획은 임시 파일 → 검증 → 이름 바꾸기. 못 쓰면 회차를 돌리지 않는다(exit 2 — 캠페인도 멈춘다)
+jq -n --arg sha "$SHA" --arg levels "$LEVELS" --argjson reps "$REPS" --arg cells "$(expand_cells | tr '\n' ' ')" \
   --arg strategy "$STRATEGY" --argjson pool "$POOL" --argjson apps "$APPS" --argjson delay "$DELAY_MS" --arg limit "$LIMIT_STRATEGY" --arg harness "$HARNESS" \
   --arg pg "$PG_PRESET" --arg app_mem "$APP_MEM" --arg app_gc "$APP_GC" --arg cond "$COND" --arg cleanup "$CLEANUP" --arg rint "$RECONCILE_INTERVAL" --arg inj_rounds "$INJECT_ROUNDS" --arg hm "$INJECT_HELD_MIN_S" --arg em "$INJECT_EXP_MARGIN_S" --arg cl "$CLOSE_LEAD_S" \
   --arg ph "$PRE_K6_HOLD_S" --arg pt "$PRE_K6_TARGET_S" --arg pl "$PRE_K6_TOL_S" --arg pd "$PRE_K6_LEAD_S" \
@@ -1672,7 +1700,9 @@ inc_json() {  # 인자: plan|meta
                  vacuum:"시드 직후 VACUUM은 넣지 않음 — 옛 캠페인과 같은 시작 상태(autovacuum 포함)를 두고 시점만 맞춘다",
                  why:"교란 원인은 시작 상태가 아니라 대조 조건만 k6 전에 약 30~43초 더 기다린 시점 차(명세 §13) — 모든 조건을 같은 시점(시드 끝 + target_s)에 시작한다",
                  jvm:"JAVA_TOOL_OPTIONS -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:…:filecount=0 — 수집기는 JVM 기본 선택 그대로(gc.json collector에 기록)"},
-    created:(now|todate)}' > "$OUT_ROOT/plan.json"
+    created:(now|todate)}' > "$OUT_ROOT/plan.json.tmp" && jq -e '.condition | type == "object"' "$OUT_ROOT/plan.json.tmp" > /dev/null 2>&1 && mv "$OUT_ROOT/plan.json.tmp" "$OUT_ROOT/plan.json" \
+  || { rm -f "$OUT_ROOT/plan.json.tmp"; echo "$(date -Is) ABORT plan-write-failed" >> "$MATRIX_LOG"; log "plan.json write failed — abort"; exit 2; }
+fi
 
 # ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — lib.sh limit_config_check): 측정 대상 앱 SHA의 프로필 설정이 매수 방식을 덮지 않는가 ·
 # application.yml이 counter-upsert-precheck인가 · 띄울 compose에 SPRING_CONFIG_*가 없는가. 회차 전에 한 번 — 결과는 회차마다 limit-config.json으로 남고

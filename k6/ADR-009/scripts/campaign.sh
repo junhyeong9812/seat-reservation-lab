@@ -325,6 +325,7 @@ run_condition_rep() {  # 인자: 조건 한 줄, 회차. run.sh가 0이 아니�
 
 # 결과 사유(머리말) — 이 사유가 하나라도 있는 회차는 다시 재지 않는다. ADR-008 결과 사유 + ADR-009(효과·마감 임박·조건 적용·시한폭탄·대조/정리 실패 ·
 #   H-16 reconcile-missing(대조가 기대만큼 돌지 않은 것은 부하의 결과 — 다시 재서 가리지 않는다)) · ADR-012 safety-record-missing(안전망 기록 짝 없음 — 앱 기록 실패라 drift-record-failed와 같이 다시 재지 않는다)
+#   넣지 않는 것(하네스 실패 — 다시 잰다): meta-write-failed(run.sh finish_rep — meta.json 쓰기 실패) · quota-hot-missing · invalid-k6-window.json(10-21 무음 실패 감사)
 ACCEPT_RE='(^|,)(over-limit|counter-mismatch|counter-mismatch-missing|borrow-not-one|limit-strategy-mismatch|limit-key-present|limit-key-missing|limit-set-by-profile|limit-default-not-precheck|spring-config-override|spring-config-import|cond-config-mismatch|reconciler-config-mismatch|incremental-config-mismatch|safety-record-missing|schema-mismatch|trigger-mismatch|effect-unexpected|false-repair|close-leak|confirm-after-close-failed|cleanup1-early|cleanup1-incomplete|cleanup2-left|pre-close-mismatch|schedule-closed-seen|counter-judge-vacuous|reconcile-errors|reconcile-missing|cleanup-errors|drift-record-failed|close-wrong-code|close-tick-failed|drift-key-present|gc-collector-mismatch)(,|$)'
 all_status() { ls "$ROOT"/*/L*/*/rep*/status 2>/dev/null | grep -vE '\.(path-gap|retry|incomplete)-' || true; }
 non_ok_reps() { local st; for st in $(all_status); do grep -qxs 'ok' "$st" || echo "$st"; done; }

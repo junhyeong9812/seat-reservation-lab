@@ -662,7 +662,9 @@ drift_db_dump() {  # 인자: (선택) v10 — ADR-012 새 조건: V10 기록 테
   'inc_gaps', (SELECT coalesce(json_agg(g ORDER BY g.id), '[]') FROM counter_inc_gap g),
   'app_inject', (SELECT coalesce(json_agg(a ORDER BY a.id), '[]') FROM counter_app_inject a)"; fi
   # N-5: counter_drift_log는 id 순 페이지(DRIFT_PAGE, 기본 20,000행)로 끝까지 모은다 — 총수(먼저 셈)보다 적게 모이면 호출자(rep_status)가 drift-db-incomplete(수집 실패)
-  local head page last=0 n tmp; tmp=$(mktemp)
+  # 리뷰(10-21 인자 한도 감사): 페이지(최대 20,000행 × 약 190B ≈ 3.8MB)를 --argjson으로 넘기면 약 700행부터 인자 한도(128KB)를 넘어 jq가 실행되지 못한다 —
+  #   예전에는 그 실패가 && 사슬에 묻혀 페이지를 조용히 버렸다(rep_status drift-db-incomplete로만 드러남). 페이지는 파일로 받아 --slurpfile, 실패하면 1(drift-db-failed)
+  local head last=0 n tmp pf; tmp=$(mktemp); pf=$(mktemp)
   head=$(db_json <<SQL
 SELECT json_build_object(
   'db_now', clock_timestamp(),
@@ -674,17 +676,19 @@ SQL
   echo '[]' > "$tmp"
   local pages=0
   while :; do
-    page=$(db_json <<SQL
+    db_json > "$pf" <<SQL || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
 SELECT coalesce(json_agg(d ORDER BY d.id), '[]') FROM (SELECT * FROM counter_drift_log WHERE id > $last ORDER BY id LIMIT ${DRIFT_PAGE:-20000}) d;
 SQL
-) || { rm -f "$tmp"; return 1; }
-    n=$(jq 'length' <<< "$page") || { rm -f "$tmp"; return 1; }
+    n=$(jq 'length' "$pf") && [[ "$n" =~ ^[0-9]+$ ]] || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
     pages=$((pages + 1))
-    (( n > 0 )) && { jq -c --argjson p "$page" '. + $p' "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp"; last=$(jq '.[-1].id' <<< "$page"); }
+    if (( n > 0 )); then
+      { jq -c --slurpfile p "$pf" '. + $p[0]' "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp" && last=$(jq -e '.[-1].id' "$pf"); } || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
+    fi
     (( n < ${DRIFT_PAGE:-20000} )) && break
   done
-  jq -c --slurpfile l "$tmp" --argjson pages "$pages" '. + {drift_log: $l[0], drift_log_pages: $pages}' <<< "$head"
-  rm -f "$tmp"
+  jq -c --slurpfile l "$tmp" --argjson pages "$pages" '. + {drift_log: $l[0], drift_log_pages: $pages}' <<< "$head"; local rc=$?
+  rm -f "$tmp" "$pf"
+  return $rc
 }
 
 # 어긋남 주입(설계 §9 주입기 — 부하 중 DB 직접 조작, 한 트랜잭션). 인자: D L1 L2 H 제외쌍("(s,u),(s,u)" 또는 빈 값)
