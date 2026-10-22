@@ -1,0 +1,21 @@
+accept: S4c4200 cond=A cleanup=schedule 사유 없음 · 빌림 1.0000253361546143
+path-gap: 서버 지표 수집 공백 226s > 30.0s
+Traceback (most recent call last):
+  File "/tmp/tmp.6xh9BLe6Gq/scripts/wall.py", line 314, in <module>
+    sys.exit(main(sys.argv[1:]))
+             ^^^^^^^^^^^^^^^^^^
+  File "/tmp/tmp.6xh9BLe6Gq/scripts/wall.py", line 271, in main
+    rec = one(rep, meta={"k6_started": argv[2], "k6_ended": argv[3]})
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/tmp.6xh9BLe6Gq/scripts/wall.py", line 153, in one
+    for line in f:
+                ^
+  File "/home/jun/exit/lib/python3.12/gzip.py", line 337, in read1
+    return self._buffer.read1(size)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jun/exit/lib/python3.12/_compression.py", line 68, in readinto
+    data = self.read(len(byte_view))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jun/exit/lib/python3.12/gzip.py", line 547, in read
+    raise EOFError("Compressed file ended before the "
+EOFError: Compressed file ended before the end-of-stream marker was reached
