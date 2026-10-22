@@ -48,7 +48,8 @@
 #     [--incremental mem|trg|stmt]   방식(A+I·A+X 필수 · A+X는 trg|stmt) — 앱 키 method = memory|trigger|stmt · Flyway 위치(§4.2.2 조합표):
 #                             mem = + migration-incremental(V10) · trg = + migration-updated-at-trigger(V9) + migration-incremental · stmt = + migration-updated-at(V9) + migration-incremental
 #     [--incremental-interval 1s]    증분 틱 주기(정수 초 — 기본 1s, 계획에 늘 남는다) · source = inc-<app|ext>-<mem|trg|stmt>-<주기>, 안전망 = safety-<app|ext>(§4.2.6)
-#     [--inject-app on]       효과 셀(S3e*)만 — 앱 경로 주입(loadtest.inject-app.enabled) + track-inject(첫 후보 시각) + S3e 주입의 counter_app_inject path='db' 행(lib.sh inject_drift)
+#     [--inject-app on|expiry] 효과 셀(S3e*)만 — 앱 경로 주입(loadtest.inject-app.enabled) + track-inject(첫 후보 시각) + S3e 주입의 counter_app_inject path='db' 행(lib.sh inject_drift)
+#                             expiry = 위와 같고 앱 경로를 만료 경로(AE)만(loadtest.inject-app.paths=expiry — 명세 task 08b · 결과 리뷰 RR-5: on은 선점 경로 AH·AL이 max-pairs를 먼저 쓴다)
 #     새 조건의 회차 판정: incremental-config-mismatch(summarize.py --inc-config-check — A+X는 두 앱 configprops) · schema-mismatch(db-schema.json — 열·인덱스·트리거·V10 테이블) ·
 #       reconcile-missing(첫 증분 틱 · k6 구간의 증분 틱·안전망 실행 결손) · reconcile-errors(증분·안전망 지표 errors 증가)
 #   --pg-preset default|nockpt|buf512|tmpfs — ADR-007 DB 설정 축(그대로). tmpfs = compose.tmpfs.yml(데이터 디렉터리 tmpfs · DB 메모리 8g)
@@ -87,7 +88,7 @@ APP_MEM=1g APP_GC=auto  # ADR-010 조건 축: 앱 메모리 한도 · 수집기(
 K6_BIN=k6 GCTRACE=0 PROBES=0 APP_PRETOUCH=0 APP_XMS_FULL=0 S4C_STEPS=12 SEED_SCHEDULES=200
 PG_TMPFS_GB=0   # ADR-011 E3: tmpfs 크기(GiB) — 0 = preset 값(6g · DB 8g)
 RECONCILE_SHAPE=""   # ADR-012 R8: F의 탐지 모양(머리말) — 빈 값 = 지정 안 함(키 없음 · 앱 기본 one-shot)
-INC_METHOD="" INC_INTERVAL="" INJECT_APP=0   # ADR-012 2단계(머리말) — 빈 값·0 = 지정 안 함(A+I·A+X 밖의 조건은 렌더·계획 그대로)
+INC_METHOD="" INC_INTERVAL="" INJECT_APP=0 INJECT_APP_PATHS=""   # INJECT_APP_PATHS: --inject-app expiry → expiry(빈 값 = 앱 기본 두 경로 · 키 없음) · ADR-012 2단계(머리말) — 빈 값·0 = 지정 안 함(A+I·A+X 밖의 조건은 렌더·계획 그대로)
 INJECT_APP_EVERY=50   # ADR-012 §4.2.7 앱 경로 주입 쌍 선택 (scheduleId × 31 + userId) mod every == 0 — 앱 기본값(키를 넣지 않는다 · inc-config-check가 configprops와 대조)
 # 측정기 k6 기본 = 안정 경로의 v2.2.0(공식 tar.gz sha256 b5a8003c… 확인 뒤 푼 바이너리 — 바이너리 sha256 9fced9ff…, ADR-011 log). 주 k6와 다른 바이너리
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6"
@@ -122,7 +123,7 @@ while (( $# )); do
     --reconcile-shape) [[ -n "${2:-}" ]] || { echo "--reconcile-shape one-shot|split|group(빈 값 불가)" >&2; exit 2; }; RECONCILE_SHAPE="$2"; COND_CLI+=" reconcile_shape"; shift 2 ;;
     --incremental) [[ -n "${2:-}" ]] || { echo "--incremental mem|trg|stmt(빈 값 불가)" >&2; exit 2; }; INC_METHOD="$2"; COND_CLI+=" incremental"; shift 2 ;;
     --incremental-interval) [[ -n "${2:-}" ]] || { echo "--incremental-interval <정수>s(빈 값 불가)" >&2; exit 2; }; INC_INTERVAL="$2"; COND_CLI+=" incremental_interval"; shift 2 ;;
-    --inject-app) [[ "${2:-}" == on ]] || { echo "--inject-app on" >&2; exit 2; }; INJECT_APP=1; COND_CLI+=" inject_app"; shift 2 ;;
+    --inject-app) [[ "${2:-}" =~ ^(on|expiry)$ ]] || { echo "--inject-app on|expiry" >&2; exit 2; }; INJECT_APP=1; [[ "$2" == expiry ]] && INJECT_APP_PATHS=expiry; COND_CLI+=" inject_app"; shift 2 ;;
     --worktree) WORKTREE=1; shift ;;
     --only-rep) ONLY_REP="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
@@ -285,7 +286,7 @@ if (( RESUME )); then
   P_RECONCILE_SHAPE="$(jq -r '.condition.reconcile_shape // ""' "$OUT_ROOT/plan.json")"
   # ADR-012 2단계 손잡이가 없는 옛 계획 = 지정 안 함
   P_INC_METHOD="$(jq -r '.condition.incremental.method // ""' "$OUT_ROOT/plan.json")"; P_INC_INTERVAL="$(jq -r '.condition.incremental.interval // ""' "$OUT_ROOT/plan.json")"
-  P_INJECT_APP="$(jq -r 'if .condition.incremental.inject_app then 1 else 0 end' "$OUT_ROOT/plan.json")"
+  P_INJECT_APP="$(jq -r 'if .condition.incremental.inject_app then 1 else 0 end' "$OUT_ROOT/plan.json")"; P_INJECT_APP_PATHS="$(jq -r '.condition.incremental.inject_app_paths // ""' "$OUT_ROOT/plan.json")"
   for k in $COND_CLI; do
     case "$k" in
       strategy) [[ "$STRATEGY" == "$P_STRATEGY" ]] || { echo "resume: --strategy $STRATEGY ≠ 계획 $P_STRATEGY" >&2; exit 2; } ;;
@@ -308,7 +309,7 @@ if (( RESUME )); then
       reconcile_shape) [[ "$RECONCILE_SHAPE" == "$P_RECONCILE_SHAPE" ]] || { echo "resume: --reconcile-shape $RECONCILE_SHAPE ≠ 계획 ${P_RECONCILE_SHAPE:-(지정 안 함)}" >&2; exit 2; } ;;
       incremental) [[ "$INC_METHOD" == "$P_INC_METHOD" ]] || { echo "resume: --incremental $INC_METHOD ≠ 계획 ${P_INC_METHOD:-(지정 안 함)}" >&2; exit 2; } ;;
       incremental_interval) [[ "$INC_INTERVAL" == "$P_INC_INTERVAL" ]] || { echo "resume: --incremental-interval $INC_INTERVAL ≠ 계획 ${P_INC_INTERVAL:-(지정 안 함)}" >&2; exit 2; } ;;
-      inject_app) [[ "$INJECT_APP" == "$P_INJECT_APP" ]] || { echo "resume: --inject-app ≠ 계획(inject_app=$P_INJECT_APP)" >&2; exit 2; } ;;
+      inject_app) [[ "$INJECT_APP" == "$P_INJECT_APP" && "$INJECT_APP_PATHS" == "$P_INJECT_APP_PATHS" ]] || { echo "resume: --inject-app ≠ 계획(inject_app=$P_INJECT_APP paths=${P_INJECT_APP_PATHS:-기본})" >&2; exit 2; } ;;
     esac
   done
   # 측정기 이미지는 환경변수 손잡이 — 명시했는데 계획과 다르면 거부(지정하지 않으면 위 기본값이 들어 있으므로 계획에 값이 있을 때만 대조)
@@ -316,7 +317,7 @@ if (( RESUME )); then
   STRATEGY="$P_STRATEGY" POOL="$P_POOL" APPS="$P_APPS" DELAY_MS="$P_DELAY" PG_PRESET="$P_PG" COND="$P_COND" CLEANUP="$P_CLEANUP" APP_MEM="$P_APP_MEM" APP_GC="$P_APP_GC"
   K6_BIN="$P_K6_BIN" GCTRACE="$P_GCTRACE" PROBES="$P_PROBES" PROBE_K6_BIN="$P_PROBE_K6_BIN" PROBE_IMAGE="$P_PROBE_IMAGE" APP_PRETOUCH="$P_APP_PRETOUCH" APP_XMS_FULL="$P_APP_XMS_FULL"
   S4C_STEPS="$P_S4C_STEPS" SEED_SCHEDULES="$P_SEED_SCHEDULES" PG_TMPFS_GB="$P_PG_TMPFS_GB" RECONCILE_SHAPE="$P_RECONCILE_SHAPE"
-  INC_METHOD="$P_INC_METHOD" INC_INTERVAL="$P_INC_INTERVAL" INJECT_APP="$P_INJECT_APP"
+  INC_METHOD="$P_INC_METHOD" INC_INTERVAL="$P_INC_INTERVAL" INJECT_APP="$P_INJECT_APP" INJECT_APP_PATHS="$P_INJECT_APP_PATHS"
   k6_versions || exit 2
   for k in k6_version probe_k6_version k6_sha256 probe_k6_sha256; do
     pv="$(jq -r --arg k "$k" '.condition[$k] // empty' "$OUT_ROOT/plan.json")"
@@ -394,7 +395,7 @@ cond_env() {
 }
 # ADR-012 2단계 업무 앱 키(compose.yml 머리말 — 새 조건에서만 붙는다: 이전 조건의 cond_env·meta app_env는 한 글자도 바뀌지 않는다).
 #   A+I: 방식 · 틱 켬 · 주기 · 안전망 켬(+ 탐지 모양) · A+X: 방식 · 틱 끔(표시만 — 안전망은 기본 끔). 효과 셀 --inject-app on: track-inject(두 앱 — §4.2.9 ④) + 앱 경로 주입
-INC_BLANK_ENV="INC_METHOD= INC_ENABLED= INC_INTERVAL= INC_TRACK= SAFETY_ENABLED= APP_DETECT_SHAPE= INJECT_APP="
+INC_BLANK_ENV="INC_METHOD= INC_ENABLED= INC_INTERVAL= INC_TRACK= SAFETY_ENABLED= APP_DETECT_SHAPE= INJECT_APP= INJECT_APP_PATHS="
 inc_method_key() { case "$1" in mem) echo memory ;; trg) echo trigger ;; *) echo "$1" ;; esac; }
 inc_env() {
   (( HAS_INC )) || return 0
@@ -405,6 +406,7 @@ inc_env() {
     printf ' INC_METHOD=%s INC_ENABLED=false' "$(inc_method_key "$INC_METHOD")"
   fi
   (( INJECT_APP )) && printf ' INC_TRACK=1 INJECT_APP=1'
+  [[ -n "$INJECT_APP_PATHS" ]] && printf ' INJECT_APP_PATHS=%s' "$INJECT_APP_PATHS"
   return 0
 }
 # ADR-012 M3 외부 앱 compose 변수(reconciler-app/compose.yml 머리말 — A+X만): 방식(업무 앱과 같은 값) · 주기 · 탐지 모양 · track-inject(효과 셀) ·
@@ -1459,7 +1461,7 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   # ---- ADR-012 2단계(새 조건 A+I·A+X만 — §4.2.9 ③④) ----
   if (( HAS_INC )); then
     # 적용 설정: 방식·틱·주기·안전망·탐지 모양·track-inject·앱 경로 주입(A+X는 업무 앱 + 외부 앱 configprops — external-config.json). 판정 실패도 같은 사유
-    local icr; icr=$(python3 "$SUMMARIZE" --inc-config-check "$dir" "$COND" "$INC_METHOD" "$INC_INTERVAL" "${RECONCILE_SHAPE:-one-shot}" "$INJECT_APP" "$INJECT_APP_EVERY" 2>>"$dir/errors.log") \
+    local icr; icr=$(python3 "$SUMMARIZE" --inc-config-check "$dir" "$COND" "$INC_METHOD" "$INC_INTERVAL" "${RECONCILE_SHAPE:-one-shot}" "$INJECT_APP" "$INJECT_APP_EVERY" "${INJECT_APP_PATHS:-default}" 2>>"$dir/errors.log") \
       || reasons+=("incremental-config-mismatch")
     # 스키마: V9 열·인덱스(trg·stmt) · 트리거 user_hold_quota_touch(trg만 — 다른 방식이면 없어야) · V10 세 테이블(늘) — db-schema.json(lib.sh db_schema)
     if jq -e '(.updated_at_column | type == "boolean") and (.tables | type == "array")' "$dir/db-schema.json" > /dev/null 2>&1; then
@@ -1662,11 +1664,11 @@ json_file_or_null() {  # 인자: 파일
 inc_json() {  # 인자: plan|meta
   (( HAS_INC )) || { echo null; return; }
   if [[ "$1" == plan ]]; then
-    jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" '{method:$m, interval:$i, inject_app:($j == 1)}'
+    jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" --arg p "$INJECT_APP_PATHS" '{method:$m, interval:$i, inject_app:($j == 1)} + (if $p != "" then {inject_app_paths:$p} else {} end)'
   else
     jq -nc --arg m "$INC_METHOD" --arg i "$INC_INTERVAL" --argjson j "$INJECT_APP" --arg s "$INC_SOURCE" --arg ss "$SAFETY_SOURCE" --arg x "$( ((HAS_X)) && echo ext || echo app)" \
       --argjson every "$INJECT_APP_EVERY" --arg es "${EXT_SERVER:-}" --arg ep "${EXT_PROJECT:-}" --arg eu "${EXTERNAL_URL:-}" --arg ed "${EXT_DB_URL:-}" \
-      '{method:$m, interval:$i, inject_app:($j == 1), source:$s, safety_source:$ss, where:$x} + (if $j == 1 then {inject_app_every:$every} else {} end)
+      --arg p "$INJECT_APP_PATHS" '{method:$m, interval:$i, inject_app:($j == 1), source:$s, safety_source:$ss, where:$x} + (if $j == 1 then {inject_app_every:$every} else {} end) + (if $p != "" then {inject_app_paths:$p} else {} end)
        + (if $x == "ext" then {external:{server:$es, project:$ep, url:$eu, db_url:$ed}} else {} end)'
   fi
 }

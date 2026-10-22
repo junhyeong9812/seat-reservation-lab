@@ -1538,13 +1538,14 @@ def _props(path):
     return [b for b in ((load(path) or {}).get("configprops") or []) if isinstance(b, dict)]
 
 
-def inc_config_check(rep_dir, cond, method, interval, shape="one-shot", inject="0", every=str(50)):
+def inc_config_check(rep_dir, cond, method, interval, shape="one-shot", inject="0", every=str(50), paths="default"):
     """incremental-config-mismatch(§4.2.9 ③ · rv41 Opus M3) — app-config.json(업무 앱)과, A+X면 external-config.json(외부 앱 — 같은 모양 {configprops:[…]})의
     seat.hold .counterDrift.reconcile.{incremental.{method, enabled, interval, trackInject}, safetyNet.enabled, detectShape, enabled}를 기대와 대조한다.
       A+I: 업무 앱 method = 방식 · enabled true · interval = 주기 · safetyNet.enabled true · detectShape = 모양 · reconcile.enabled false.
       A+X: 업무 앱 method = 방식 · enabled false · safetyNet.enabled false + 외부 앱 method = 업무 앱 method · enabled true · interval · safetyNet.enabled true · detectShape · reconcile.enabled false.
       두 앱 trackInject = (--inject-app on). 앱 경로 주입(업무 앱): seat.hold 아래 loadtest.injectApp(또는 따로 바인딩된 seat.hold.loadtest.inject-app 묶음)의 enabled = (on) ·
       on이면 every = 하네스가 고르지 않을 쌍의 every(INJECT_APP_EVERY) · max-pairs = APP_INJECT_MAX(effect 판정의 상한) — 못 찾으면 on일 때 불일치(꺼짐이면 없어도 된다).
+      paths = default(앱 기본 HOLD·EXPIRY) | expiry(--inject-app expiry — EXPIRY만 · 명세 task 08b) — on일 때 configprops paths와 대조.
     값 비교는 enum·Duration 표기를 맞춘다(방식 = 대소문자·'-'/'_' 무시 · 주기 = ms). 결과 inc-config.json(want·got·reasons) · 사유 한 줄씩 stdout · exit 0 일치 · 1 불일치."""
     rep_dir = Path(rep_dir)
     norm = lambda v: str(v).replace("-", "_").upper() if v is not None else None
@@ -1619,9 +1620,12 @@ def inc_config_check(rep_dir, cond, method, interval, shape="one-shot", inject="
                 reasons.append(f"app: inject-app.every {ia.get('every')} ≠ {every}(하네스가 S3e에서 뺄 쌍)")
             if ia.get("maxPairs") is not None and ia.get("maxPairs") != APP_INJECT_MAX:
                 reasons.append(f"app: inject-app.maxPairs {ia.get('maxPairs')} ≠ {APP_INJECT_MAX}(effect 판정 상한)")
+            want_p = ["EXPIRY"] if paths == "expiry" else ["EXPIRY", "HOLD"]
+            if sorted(norm(x) for x in (ia.get("paths") or [])) != want_p:
+                reasons.append(f"app: inject-app.paths {ia.get('paths')} ≠ {want_p}")
     elif isinstance(ia, dict) and ia.get("enabled"):
         reasons.append("app: inject-app.enabled가 켜져 있다(--inject-app 없음)")
-    (rep_dir / "inc-config.json").write_text(json.dumps({"cond": cond, "want": {"method": want_m, "interval": interval, "shape": shape, "inject": inject == "1", "every": every},
+    (rep_dir / "inc-config.json").write_text(json.dumps({"cond": cond, "want": {"method": want_m, "interval": interval, "shape": shape, "inject": inject == "1", "every": every, "paths": paths},
                                                          "got": got, "reasons": reasons}, ensure_ascii=False, indent=1))
     for r in reasons:
         print(r)
@@ -2419,7 +2423,7 @@ if __name__ == "__main__":
         sys.exit(s7late_check(sys.argv[2]))
     if len(sys.argv) in (4, 6) and sys.argv[1] == "--accept-check":
         sys.exit(accept_check(*sys.argv[2:]))
-    if len(sys.argv) == 9 and sys.argv[1] == "--inc-config-check":   # ADR-012: <회차> <조건> <방식> <주기> <모양> <주입 0|1> <every>
+    if len(sys.argv) in (9, 10) and sys.argv[1] == "--inc-config-check":   # ADR-012: <회차> <조건> <방식> <주기> <모양> <주입 0|1> <every> [<경로 default|expiry>]
         sys.exit(inc_config_check(*sys.argv[2:]))
     if len(sys.argv) in (4, 7) and sys.argv[1] == "--effect":
         try:
