@@ -91,6 +91,7 @@
 | 10-22 00:08 | task 08 2' 캠페인 시작 → 이어서 외부 앱 효과: `campaign.sh --set adr012s2x --m2-cell trg-1s --ext-ready --sha ee649b8d` 뒤 `--set adr012effx --ext-ready`(setsid 한 줄 · results/adr012-ext-launch.log) · 2' 7조건 × 3 = 21회 계획 762.3분 · 외부 효과 12회 약 4.6시간 → 끝 약 10-22 17:00 | 측정 중 |
 | 10-22 13:53 | **PC 디스크 가득 참(13:35 · 468G 중 여유 0)** — 결과 폴더 40G(원시 k6-requests.csv.gz 약 60G 누적 · git 제외) + 다른 프로젝트 도커 48G + 이전 세션 임시 8.4G · 2' noc rep3이 요청 CSV를 못 써 k6 오류 로그 2.6G 증가 → 사용자 '지금 지운다' → 이 작업 임시(이전 세션 임시 폴더 8.4G · /tmp/04b·t06a·rv42chk)·이 랩 비교 이미지(seatlab-04b-before/after · 옛 reconciler 태그 2) 삭제 · 해당 회차 k6 중지·오류 로그 1MB로 자름(회차 무효 → 하네스 재측정) · 여유 12G(남은 측정 약 2G) · 13:13까지 끝난 19회는 영향 없음 · 후속: 끝난 ADR 원시 CSV 보관 위치 결정(NEXT) | 측정 계속 |
 | 10-22 20:45 | 2'(adr012s2x · ee649b8d · 00:08 ~ 15:57) 21회 ok — noc rep3은 디스크 가득 참으로 무효(k6-exit-143 등) → 하네스가 15:16 재측정 ok · c rep3 1회 borrow-missing → 재측정 ok · 외부 앱 효과(adr012effx · 15:57 ~ 20:44) 12회 ok · 두 캠페인 비정상 회차 0 · .164·.158 남은 컨테이너 0 | 집계(summarize 11 병렬 → tail effx·s2x) |
+| 10-22 22:22 | 2'·외부 효과 집계 끝(summarize 11 · tail 2 rc 0) · 결과 커밋 55e178f5 · ADR §8.8: M3 4셀 성공 · 앱 JVM 분리 효과 작음 · 기본값 결론 유지(M2 ⓑ 1초) · 남은 '누락·의심' = 외부 앱 시계 차 미보정(−10~−24ms — 영향 없음) · 외부 앱 self_record 지표 없음(R7에 0) | **task 08 끝** → task 09 |
 
 ## 리뷰 ledger
 
