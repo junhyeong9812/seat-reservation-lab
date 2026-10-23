@@ -27,7 +27,8 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 
 /**
- * 거부될 기동은 마이그레이션 **앞**에서 거부한다 — 불변식: 기동이 거부되면 DB 스키마는 바뀌지 않는다(ADR-012 기본값 교체 코드 리뷰 RC-8).
+ * 거부될 기동은 마이그레이션 **앞**에서 거부한다 — 불변식(범위 한정): 설정 조합·방식 ↔ Flyway 위치(V9·V10)·준비된 트랜잭션으로 거부되는 기동은 DB 스키마를 바꾸지 않는다(ADR-012 기본값 교체 코드 리뷰 RC-8).
+ * 범위 밖(마이그레이션 뒤에 거부 — ADR-012 §7-13 ⑦·⑧): V4 unique·V8 counter-trigger 위치 검사 · target으로 앞 버전을 띄운 V5·V7 검사 · Flyway 비표준 경로(반복 마이그레이션 · 손으로 지운 V9 객체 등).
  * 기동 검사가 [ApplicationRunner]로만 돌면 Flyway가 먼저 기본 위치의 V9 트리거·V10을 적용한 뒤에야 거부된다 — 안내대로 키를 고쳐
  * 같은 DB로 다시 띄우면 남은 트리거 때문에 또 거부된다(명세 §10 K2·K4).
  * ① 설정 검사([HoldStrategyStartupCheck.checkConfig]) ② 방식 ↔ Flyway 위치·DB 조건(core [IncrementalSchemaCheck.checkSchema] — 마이그레이션 뒤 검사와 같은 규칙):

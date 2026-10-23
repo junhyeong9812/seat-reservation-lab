@@ -55,7 +55,8 @@ object IncrementalSchemaCheck {
     ) {
         /**
          * 이 스키마에 Flyway [locationPaths](location 경로 — `db/migration-incremental` 꼴)를 적용한 뒤의 모양(조합표의 위치 → 객체).
-         * 이미 있는 객체는 그대로 둔다(같은 버전을 다시 적용하지 않는다). 두 V9 위치를 함께 준 경우(조합표 '두 V9' 행)는 여기서 보지 않는다 —
+         * 위치가 목록에 있고 target이 닿으면 그 위치의 객체가 **있다고 본다**(이미 적용됐는지·이번에 적용될지를 가르지 않는다 — 적용된 V9 객체를 손으로 지운 DB ·
+         * validate-on-migrate=false로 다른 V9판이 적용된 DB · baselineVersion ≥ 9는 예측이 실제와 어긋날 수 있다: 그때는 마이그레이션 뒤 검사가 거부한다 · ADR-012 §7-13 ⑧). 두 V9 위치를 함께 준 경우(조합표 '두 V9' 행)는 여기서 보지 않는다 —
          * Flyway가 마이그레이션 전에 '같은 버전 2개'로 막는다(호출 쪽이 Flyway 검증을 먼저 돌린다).
          * @param reachesV9 Flyway target이 V9까지 가는가(false면 V9 위치는 객체를 더하지 않는다) · [reachesV10] 같은 뜻
          */
