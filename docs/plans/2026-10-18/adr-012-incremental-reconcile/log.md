@@ -101,6 +101,12 @@
 | 10-23 09:08 | task 09 기본값 교체: 사용자 결정 4건(yml만 · default 거부·A+C 명시 · 혼동 조합 둘 다 거부 · ADR-001~008 키 명시) → 명세 §10 계약 K1~K10 고정 · stakes 높음(기본값·스키마 기본 적용) → 구현 워커(Opus — diff) ∥ blind 테스트 워커(Opus — 명세 §10만, 구현 diff 미열람) · 설계 선검증 생략 사유: 새 동작 불변식 = 기동 거부 2건(K6·K7)뿐이고 기존 강제 위치 HoldStrategyStartupCheck.kt(:99 external+C 거부 · :158·163·166 증분·안전망 조합 거부)와 같은 꼴 — blind 테스트가 계약을 직접 잰다 | 진행 |
 | 10-23 10:31 | 구현 회수(Opus): 39a11a8d(앱 기본값·기동 검사 K6·K7·reconciler yml) · 3acc4cc9(테스트 고정·기본값 테스트) · d40b2195(k6/ADR-009 — default 거부·A+C·키 명시·cond-config 확장) · 3251efe6(ADR-001~008 compose) · 워커 보고 gradle test 661/0 · 옛 SHA dry-run 15세트 바이트 동일 · blind 회수(Opus · worktree): dac158a4 → cherry-pick ea6cd0b9 · 교체 전 16 중 12 실패(기대대로) → 교체 뒤 16/16 통과(메인 실행 1m36s) · 디스크 99% → 사용자 승인 정리(멈춘 컨테이너 1.4G · 볼륨 10.0G · 이미지 34.5G · 옛 ADR-009 blind worktree — 커밋은 main-app/ 경로로 이미 반영 확인) → 55G 여유 · 전체 테스트 재실행(백그라운드) · 코드 듀얼 리뷰 루프 1회차 시작(base 9ab4f768 · 미러 6.0M — k6 결과 제외 · 측정 DB 더미 비밀번호 'seat' 미러에서 redact) | 진행 |
 | 10-23 10:40 | 코드 리뷰 루프 1 회수: codex 1(M) · Opus 6(M 1 · L 5) → 종합 RC-1~7 전부 채택 · 수정 워커(Opus · worktree — 전체 테스트가 메인 작업트리에서 도는 중) | 진행 |
+| 10-23 10:48 | 전체 테스트(HEAD ea6cd0b9 코드 · 메인 실행 `./gradlew test --continue` 17m38s rc=0): 677건 · 실패 0 · 오류 0 · 건너뜀 0(구현 661 + blind 16) | 리뷰 수정 대기 |
+| 10-23 11:34 | 리뷰 수정 회수(Opus · worktree fix/adr012-rc): 5커밋 cherry-pick → b7bf323b(설정 검사를 Flyway 앞 — HoldStrategyMigrationGate · run()에서 재검사) · 4e44ca30(활성 트리거만) · 61b67ac8(판정 0/1/2 · 소문자) · 7e1fa0a6(StartupCheckOrderTest 4건 — ea6cd0b9 코드로 되돌리면 3건 실패 확인) · dacba19d(안내 보정) · 워커 전체 테스트 681/0(17m45s) · 판정 함수 원시값 9ab4f768→1 · ea6cd0b9→0 · 없는 SHA→2 · 93dd610a→1 · 빈 인자→2 · run.sh --cond default(ea6cd0b9) exit 2 · campaign jvm-baseline dry-run 옛 SHA default · 새 SHA A+C(RC-7 해소) · 코드는 4afad003과 동일(diff 0) · 리뷰 루프 2회차 시작(Opus ∥ codex — 누적 diff + 수정 diff 참고) | 진행 |
+| 10-23 11:42 | 리뷰 루프 2 회수: codex 1(M) · Opus 3(M 1 · L 2) — 신규 채택 4(RC-8~11) · 수정-새결함 0(Opus: 루프 1 수정의 회귀·순환 의존 없음) · **정지 규칙 주의**: RC-8은 RC-1과 같은 불변식('거부된 기동은 스키마를 바꾸지 않는다')의 남은 경로 — 2회째 수정 · 이번에도 깨지면 설계를 되돌려 재슬라이스(core §3) · 수정 워커(Opus · worktree) | 진행 |
+| 10-23 12:51 | 루프 2 수정 회수(Opus · worktree fix/adr012-rc2): cherry-pick 6커밋(… d4875ca8 — 코드는 b8d4dba9와 diff 0) · 워커 전체 테스트 685/0 · 새 테스트 3건 dacba19d 코드에서 실패 확인 · RC-9 원시값 9ab4f768·cc906369·93dd610a→0 · dacba19d→1 · 없는 SHA·728c236c→2 · 판단 지점 5(V4·V8 경로 — 같은 불변식의 남은 구멍) → **정지 규칙 적용**: 3번째 덧대기 대신 사용자 결정 '범위 밖으로 기록'(AskUserQuestion) → 거부 메시지 안내 + ADR §7-13 ⑦ · 전체 테스트 재실행 + 리뷰 루프 3(마지막) 시작 | 진행 |
+| 10-23 13:00 | 리뷰 루프 3(마지막) 회수: Opus H·M 0 · L 3(계약 K1~K10 위반 없음 — 렌즈 8개 applicable 근거 file:line) · codex M 2 → 기각 2(RC-L3-1·2 — 옛 SHA 캠페인은 그 SHA 하네스로만 이어 돈다: run.sh 하네스=SHA 검사가 교체 전부터 있음 · 새 비교 항목은 옛 하네스에 없음) · L 3 채택(RC-12~14) → 주석·ADR §7-13 ⑧ 기록(동작 무변경) · **루프 3에 신규 채택 3(L — 문서·주석) → 종료 조건 '신규 채택 0' 미충족 · 최대 3루프 도달** → 사용자 보고 | 사용자 결정 대기 |
+| 10-23 13:55 | 사용자 결정 '이대로 마감'(AskUserQuestion — 루프 3 신규 채택 L 3건은 주석·ADR 기록 · 동작 무변경) → **user override 기록**: 잔여 위험 = ADR §7-13 ⑦·⑧(비표준·측정 전용 경로) · 전체 테스트(HEAD 12e3b9fd 코드 · 18m29s rc=0): main-app 679 · 실패 0 · 오류 0(reconciler-app 6 — 변경 없음 up-to-date) · 안전선: 스모크(측정 스모크 2 · K1~K10 부팅 테스트) · diff self-review(리뷰 3루프) · 되돌리기 = 손잡이 K2·K3 · 공개 계약 영향 = 기본 스키마 V9·V10(ADR §7-13) · **검증 완료** → 사이클 마감 | 마감 진행 |
 
 ## 리뷰 ledger
 
@@ -215,16 +221,71 @@
 | RX-10 | 1 | opus L6·L7 | 포트 검사 127.0.0.1만 · .158 이미지 정리 경로 없음 | 기록 — 포트는 실패가 드러남 · 정리 명령(프로젝트 태그 한정) 문서화 | fixed | c82cf854 |
 | RX-11 | p | codex 재점검 | lib.sh:530 라벨만 같은 다른 이미지를 다시 짓지 않음 · lib.sh:540 층만 같고 설정이 다른 이미지 | 채택 — PC에서 늘 다시 지음(캐시) · 지문에 `{{json .Config}}` 포함 | fixed | da1718dd |
 | RR-1 | 1 | opus F1(H) + codex F2(M) | ADR-012:810·839·847-848·890 R5 '판정 불가'를 선언한 자료로 '성립' | 채택 — §8.5-6 정정 · ⓑ·M3 셀 R5 보류 · 사용자 결정 추가 측정(§8.9) | fixed(§8.9 — R5 성립) | 473ae26c |
-| RR-2 | 1 | opus F2(M) | 2' noc rep3 재측정이 캠페인 끝에 돌아 noc 범위 상한을 만듦 | 채택 — §8.8-1 민감도 기록(M2 R3 판정 캠페인은 2단계) | fixed | (이번 커밋) |
-| RR-3 | 1 | opus F3(M) | §8.8-3 '범위가 겹친다'는 원자료와 반대 · 규칙 1 미대입 · §8.7 단정 | 채택 — 비겹침으로 정정 · 규칙 1 대입 · 조건부 문구 | fixed | (이번 커밋) |
-| RR-4 | 1 | opus F4(M) | M3 안전망 바퀴 완료 1 대 3 · 적체 460만 대 200만 누락 | 채택 — §8.8-3 하위 항목 | fixed | (이번 커밋) |
+| RR-2 | 1 | opus F2(M) | 2' noc rep3 재측정이 캠페인 끝에 돌아 noc 범위 상한을 만듦 | 채택 — §8.8-1 민감도 기록(M2 R3 판정 캠페인은 2단계) | fixed | a76eb798 |
+| RR-3 | 1 | opus F3(M) | §8.8-3 '범위가 겹친다'는 원자료와 반대 · 규칙 1 미대입 · §8.7 단정 | 채택 — 비겹침으로 정정 · 규칙 1 대입 · 조건부 문구 | fixed | a76eb798 |
+| RR-4 | 1 | opus F4(M) | M3 안전망 바퀴 완료 1 대 3 · 적체 460만 대 200만 누락 | 채택 — §8.8-3 하위 항목 | fixed | a76eb798 |
 | RR-5 | 1 | opus F5(M) | AE(만료 경로 앱 주입) 0쌍 — 상한 60을 AH·AL이 소진 · R6 범위 과장 | 채택 — R6 선점 경로 한정 · §8.9에서 AE 확인 | fixed(§8.9 — 트리거 1초 AE 138쌍 위반 0) | 473ae26c |
-| RR-6 | 1 | opus F6(L) + codex F3(L) | 주입 120쌍 · 2,160쌍 오기 | 채택 | fixed | (이번 커밋) |
-| RR-7 | 1 | codex F1(H) + opus F7(L) | R8 유효 조건 사후 재해석 | 채택(문구) — '측정 전 문구로는 보류 · split은 측정 뒤 사용자 결정' 명시 · 결정은 유지(사용자 결정 10-20) | fixed | (이번 커밋) |
-| RC-1 | 1 | opus F1(M) | HoldStrategyStartupCheck.kt:36-42(ApplicationRunner — Flyway 뒤) · :98-101 · IncrementalSchemaCheck.kt:56-60 | 채택 — 설정만으로 판정되는 거부를 Flyway 앞으로 · '거부 → 안내 키 → 같은 DB 재기동' 테스트 | open | — |
-| RC-2 | 1 | codex F1(M) | IncrementalSchemaCheck.kt:39 트리거 존재만 셈(tgenabled 미확인) — 기본 경로가 됨 | 채택 — 활성 트리거만 인정 + 테스트 | open | — |
-| RC-3 | 1 | opus F2(L) | HoldStrategyStartupCheck.kt:131-133 · CLEANUP_HINT — 비카운터에 틀린 안내 | 채택 | open | — |
-| RC-4 | 1 | opus F3(L) | HoldStrategyStartupCheck.kt:188-191 K6 뒤 도달 불가 갈래 · 문구 | 채택 | open | — |
-| RC-5 | 1 | opus F4(L) | k6/ADR-009/scripts/lib.sh:417-423 판정 불가를 '교체 전'으로 접음 · 대소문자 | 채택 — 경로 없음 1 · 그 밖 오류 2 · 소문자 비교 | open | — |
-| RC-6 | 1 | opus F5(L) | application-reconciler.yml:14-21 F 키 없이 → 업무 앱 기본 위치로 V9·V10 적용 | 채택 — yml 주석 + ADR §7 운영 위험 | open | — |
-| RC-7 | 1 | opus F6(L) | K9 하네스 자동 확인 없음 | 채택 — 두 SHA dry-run·판정 함수 원시값을 log에 기록 | open | — |
+| RR-6 | 1 | opus F6(L) + codex F3(L) | 주입 120쌍 · 2,160쌍 오기 | 채택 | fixed | a76eb798 |
+| RR-7 | 1 | codex F1(H) + opus F7(L) | R8 유효 조건 사후 재해석 | 채택(문구) — '측정 전 문구로는 보류 · split은 측정 뒤 사용자 결정' 명시 · 결정은 유지(사용자 결정 10-20) | fixed | a76eb798 |
+| RC-1 | 1 | opus F1(M) | HoldStrategyStartupCheck.kt:36-42(ApplicationRunner — Flyway 뒤) · :98-101 · IncrementalSchemaCheck.kt:56-60 | 채택 — 설정만으로 판정되는 거부를 Flyway 앞으로 · '거부 → 안내 키 → 같은 DB 재기동' 테스트 | fixed | b7bf323b · 7e1fa0a6 |
+| RC-2 | 1 | codex F1(M) | IncrementalSchemaCheck.kt:39 트리거 존재만 셈(tgenabled 미확인) — 기본 경로가 됨 | 채택 — 활성 트리거만 인정 + 테스트 | fixed | 4e44ca30 · 7e1fa0a6 |
+| RC-3 | 1 | opus F2(L) | HoldStrategyStartupCheck.kt:131-133 · CLEANUP_HINT — 비카운터에 틀린 안내 | 채택 | fixed | b7bf323b |
+| RC-4 | 1 | opus F3(L) | HoldStrategyStartupCheck.kt:188-191 K6 뒤 도달 불가 갈래 · 문구 | 채택 | fixed | b7bf323b · dacba19d |
+| RC-5 | 1 | opus F4(L) | k6/ADR-009/scripts/lib.sh:417-423 판정 불가를 '교체 전'으로 접음 · 대소문자 | 채택 — 경로 없음 1 · 그 밖 오류 2 · 소문자 비교 | fixed | 61b67ac8 |
+| RC-6 | 1 | opus F5(L) | application-reconciler.yml:14-21 F 키 없이 → 업무 앱 기본 위치로 V9·V10 적용 | 채택 — yml 주석 + ADR §7 운영 위험 | fixed | b7bf323b |
+| RC-7 | 1 | opus F6(L) | K9 하네스 자동 확인 없음 | 채택 — 두 SHA dry-run·판정 함수 원시값을 log에 기록 | fixed | log 이 행 |
+| RC-8 | 2 | opus R2-1(M) | HoldStrategyStartupCheck.kt:35-40 게이트가 checkConfig만 · IncrementalSchemaCheck.kt:73-78·88-93 방식↔V9 위치·max_prepared_transactions는 마이그레이션 뒤 | 채택 — 위치↔방식 대응·V10 필요·max_prepared_transactions를 마이그레이션 앞에서 · 남은 트리거 거부 메시지에 K3 안내 · 회귀 테스트(위치 뺀 K2) | fixed | d5739fcc→cherry · d4875ca8 |
+| RC-9 | 2 | codex F-1(M) | k6/ADR-009/scripts/lib.sh:418 · run.sh:253 · campaign.sh:143 default 허용을 incremental.enabled 하나로 판정 | 채택 — 'C 켬 그리고 증분 꺼짐'일 때만 default(옛 C) 허용 | fixed | 7abcb848→cherry |
+| RC-10 | 2 | opus R2-2(L) | Adr012DefaultsContractTest.kt:220-223 K1 safety-app source 미측정 | 채택 | fixed | db9138ca→cherry |
+| RC-11 | 2 | opus R2-3(L) | cfgkeys.py:340-350 on-profile 문서 무시 | 채택 — on-profile 문서가 있으면 판정 불가(2) | fixed | 1a6d467a→cherry |
+| RC-L3-1 | 3 | codex(M) | campaign.sh:154 · run.sh:269 옛 SHA 캠페인 현재 하네스 resume 불가 | 기각 — 하네스=SHA 규칙(run.sh SHA 일치 검사 · 교체 전부터)으로 옛 캠페인은 옛 하네스로 이어 돈다 · 회귀 아님 | — | — |
+| RC-L3-2 | 3 | codex(M) | run.sh:1439 옛 앱 configprops를 새 필드로 판정 | 기각 — 같은 이유(옛 SHA = 옛 하네스 · 새 비교 항목 없음) · --worktree 스모크만 해당(구현자 보고 판단 7) | — | — |
+| RC-12 | 3 | opus L-1 | IncrementalSchemaCheck.kt:62-73 afterLocations가 적용 여부 구분 안 함(비표준 경로) | 채택 — 주석 정정 + ADR §7-13 ⑧ 기록(동작 무변경 · 마이그레이션 뒤 검사가 거부) | fixed | ef4799cc · 12e3b9fd |
+Je3b9fd |
+| RC-14 | 3 | opus L-3 | HoldStrategyStartupCheck.kt:30 불변식 주석이 범위보다 넓음(V5·V7) | 채택 — 주석을 실제 범위로 | fixed | ef4799cc |
+
+## 완료 요약 (2026-10-23 — 초안 Opus 워커 · 스니펫은 git 출력 그대로)
+
+**무엇이 됐나**
+- 측정 7캠페인 99회 전부 ok(비정상 0): adr012s1 9 · adr012r8 9 · adr012s2 24 · adr012eff 18 · adr012s2x 21(noc rep3·c rep3 재측정) · adr012effx 12 · adr012r5 15.
+- 판정: R1(C 바퀴 비용 출처) 유지 — 비용은 DB 쪽 · R8 split 채택(측정 뒤 사용자 결정 · 재해석 공개) · M2(앱 안 증분) 성공 = ⓐ(메모리 집합) 1초 · ⓑ(DB 트리거 updated_at) 1초 → 규칙 2로 **ⓑ 1초** · M3(외부 앱 .158) 4셀은 R5만 보류 — 선택 배포 · ADR-020 기준선.
+- 기본값 교체(명세 §10 K1~K10): application.yml만 — A 켬 · 앱 안 증분 ⓑ 1초 + 안전망 · split · C 끔 · Flyway V9 트리거·V10 기본. 구현 39a11a8d · 3acc4cc9 · d40b2195 · 3251efe6 · blind ea6cd0b9 · 리뷰 수정 b7bf323b … ef4799cc.
+- 번호 이동 9차: Kafka·복제본 → ADR-020(보류) · 014~020 → 013~019(8c2df227 · 826c6874 · 5215851b).
+
+**핵심 diff**
+
+① `main-app/src/main/resources/application.yml` 9ab4f768 → HEAD
+```diff
++  flyway:
++    locations: classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental
+-        enabled: true
++        enabled: false
++        detect-shape: split
++        incremental:
++          method: trigger
++          enabled: true
++          interval: 1s
++        safety-net:
++          enabled: true
+```
+
+② `reconcile-core/.../IncrementalSchemaCheck.kt` HEAD — 활성 트리거만 인정
+```kotlin
+127:        val triggerActive = states.any { it == "O" || it == "A" }
+128-        val updatedAtMethod = method == IncrementalMethod.TRIGGER || method == IncrementalMethod.STMT
+129-        if (updatedAtMethod) {
+130-            check(column && index) {
+```
+
+③ `main-app/.../HoldStrategyStartupCheck.kt` HEAD — 거부될 기동은 마이그레이션 앞에서
+```kotlin
+44:    fun holdStrategyFlywayMigrationStrategy(properties: SeatHoldProperties, environment: Environment) = FlywayMigrationStrategy { flyway ->
+45-        HoldStrategyStartupCheck.checkConfig(properties, environment)
+46-        val config = flyway.configuration
+47-        val target = config.target
+58:        flyway.migrate()
+```
+
+**검증**: 측정(위 7캠페인 — 핵심 수치 ADR §8.1~8.9) · 전체 테스트 main-app 679 · 실패 0(reconciler-app 6 변경 없음 — 워커 실행 685/0과 같음) · blind 16(교체 전 12 실패 → 16/16) · 결과 문서 듀얼 RR-1~7(R5 판정 충돌 → adr012r5 추가 측정으로 해소) · 코드 루프 3회 RC-1~14 채택 · RC-L3-1·2 기각 · 루프 3 신규 L 3 → **user override**(잔여 위험 ADR §7-13 ⑦·⑧).
+**배운 것**: ① 같은 불변식을 두 번 고쳐도 구멍이 남으면 범위를 좁혀 기록한다(정지 규칙 — RC-1 → RC-8 → V4·V8 범위 밖) ② 하네스 무음 실패(빈 meta.json — jq 인수 한도)는 회차 상태를 'ok'로 둔 채 숨는다 → 쓰기 뒤 검증 + meta-write-failed 사유.
+**남은 빚**: 없음(DEBT=0). push·PR은 사용자 확인 대기. 측정 안 한 셀(§8.9) · M3 안전망 느린 원인 · 원시 CSV 보관은 NEXT N0a.
