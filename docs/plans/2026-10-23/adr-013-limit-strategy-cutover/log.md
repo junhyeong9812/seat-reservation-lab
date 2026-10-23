@@ -19,6 +19,9 @@
 | 10-23 23:43 | §5 측정 전 고정 듀얼 회수: codex H 1 · M 3 · Opus H 1 · M 7 · L 4 → S5-1~14 채택 · 정합 기준 해석 → 사용자 결정 '전환이 만든 손해 0'(명세 §10) · §5 수정 워커(Opus) | 진행 |
 | 10-23 23:46 | 사용자 확인 질문 '8 이전 데이터를 12 상태로?' → 출발 = ADR-009~011 반영 main 93dd610a(쿼터·카운터 있음) · 도착 = ADR-012 · ADR-008 이전(카운터 없음)은 범위 밖으로 설명 → 사용자 '지금 범위 그대로 진행 — 트래픽을 받기 위해 추가사항을 처리할 때 확장 시 어떻게 안전하게 데이터나 구조를 전환하는지에 대한 주제' | 범위 유지 · ADR §1 주제 문장에 반영 예정 |
 | 10-23 23:56 | §5 수정 회수(Opus — S5-1~14 · 메인 판단 §5.7 · §1 주제 일반형 54f88ebc) · post-fix 재점검(codex): 해소 10 · 부분 4(S5-2·3·4·10) · 신규 NF-1(H — min(T)>max(O)가 관측 손해 통과) · NF-2(H — d·종류 구성 차) · NF-3(H — 결과 보고 재측정 선택 여지) · NF-4(M — 탐침 일정 미고정 · N=1) → 메인 수정 §5.8(탐침 일정 고정 · 짝 제외 · 칸별 T ≤ O · N H·L 각 1 · 절차 지연 probe-short = 실패 · P8 반증 = 멈춤 · 하네스 수정 = 30회 전체) — 설계 문서 리뷰 상한(듀얼 1패스 + 재점검 1회) 도달 · 추가 재점검 없이 확정(구현 blind 테스트·dry-run이 검증) | 측정 전 고정 확정 → task 05 |
+| 10-23 23:58 | task 05 착수 — 워커 3(Opus) 병렬: 앱 코드(§4.11 첫 창 m 제외·키셋 페이지 · N8 · 지표 — reconcile-core·main-app) ∥ blind 테스트(worktree test/adr013-blind · 16fb81df 기준 계약만) ∥ 하네스·적용판(k6/ADR-013 · ops/online-v9 — 접속 없이 dry-run) · 같은 작업트리 두 워커는 경로 분리 · 커밋 각자 경로만 | 진행 |
+| 10-24 00:10 | blind 회수(Opus · worktree test/adr013-blind b7e05822): Adr013FirstWindowContractTest 7 + Adr013InvalidIndexContractTest 1 · 구현 전(16fb81df) 8/8 기대 단언에서 실패(그린 위장 1건 발견·전제 추가로 고침) · 해석 H1~H11(지표 이름 page_full·carry_ticks · page-size 0 = 기동 검사 거부 · carry_ticks DistributionSummary 등) · PG16 실측: VACUUM FULL → atthasmissing false · 빈 표 ADD COLUMN도 atthasmissing true | 앱 구현 회수 뒤 cherry-pick·실행 |
+| 10-24 00:32 | 앱 코드 회수(Opus bb7ecbd2): m 제외(attmissingval · 두 범위) · 키셋 페이지(page-size 기본 100,000 — ADR-012 결과 최대 틱 후보 26,591 × 2 이하 근거) · t₀ 기준 하한 · page_full·carry_ticks · N8(Schema.updatedAtIndexValid · afterLocations가 기존 INVALID 유지 · 게이트 migrate 전 거부) · 구현자 테스트 7 · 워커 전체 테스트 692/0(18m50s) · §4.9-16 PG16 확인 · blind cherry-pick → 구현 위에서 Adr013* 8/8 통과(1m27s) · 남은 §4.9-17(대량 시드 EXPLAIN)은 스모크 몫 | 하네스 회수 대기 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
