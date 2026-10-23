@@ -5,6 +5,7 @@ import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
 import com.jun.labs.seatreservation.service.impl.drift.DetectShape
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
+import com.jun.labs.seatreservation.service.impl.drift.SafetyNetReconciler
 import com.jun.labs.seatreservation.support.IntegrationTest
 import com.jun.labs.seatreservation.support.causesOf
 import org.junit.jupiter.api.AfterAll
@@ -218,8 +219,12 @@ class Adr012DefaultsContractTest {
             assertEquals(0, b.threads(T_RECONCILE), "K1: C 대조 스케줄러 스레드 없음 (새 스레드 ${b.newThreads})")
 
             // 기록 source — 증분 틱(1초 주기, 첫 실행은 한 주기 뒤)이 inc-app-trg-1s 행을 남긴다(후보 0이어도 쓴다 — ADR §4.2.3 순서 5).
-            // 해석: safety-app 행은 안전망 기본 주기(1분) 뒤라 이 테스트에서는 기다리지 않는다(스레드 존재 + 실효값으로 갈음).
             await("counter_reconcile_run에 source inc-app-trg-1s 행", Duration.ofSeconds(20)) { db.runRows("inc-app-trg-1s") > 0 }
+            // safety-app — 안전망 기본 주기(1분)를 기다리지 않고, 기동된 안전망 빈의 source를 보고 실행 한 번을 직접 불러 기록 행을 본다(K1 실효값은 그대로)
+            val safetyNet = b.ctx.getBean(SafetyNetReconciler::class.java)
+            assertEquals("safety-app", safetyNet.source, "K1: 안전망 기록 source")
+            safetyNet.runOnce()
+            assertTrue(db.runRows("safety-app") > 0, "K1: counter_reconcile_run에 source safety-app 행")
             assertEquals(0, db.runRows("reconcile-app"), "K1: C 기록(reconcile-app) 없음")
         }
     }
