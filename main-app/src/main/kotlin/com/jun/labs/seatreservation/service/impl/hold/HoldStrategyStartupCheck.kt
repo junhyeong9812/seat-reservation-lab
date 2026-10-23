@@ -29,6 +29,8 @@ import org.springframework.stereotype.Component
  *   SERIALIZABLE의 `SET TRANSACTION`이 첫 문장이 아니게 된다(설계·측정이 3b 고정 — 명세 §2).
  * - ADR-009(설계 §7 · 명세 §10 D4): 쿼터 테이블을 쓰는 방식은 그 테이블이 있어야 한다 · 트리거(V8)는 counter-trigger에서만 ·
  *   후보(A·C·F·정리)와 매수 방식 조합 · 후보를 켜면 V7 기록 테이블 · reconciler 프로필이면 만료 스케줄러 끔.
+ * - ADR-012 기본값 교체(§8.9 · 명세 §10 K4~K7): 업무 앱 기본값(application.yml)이 A · 증분(trigger 1초) · 안전망 · 정리 ①을 켜고 C를 끈다 —
+ *   검사는 기본값을 조용히 끄지 않고 거부 메시지에 끌 키를 안내한다. 더한 거부: F(external-reconciler) + 증분·안전망(대조 중복) · C + 증분(옛 방식 복귀 착각).
  */
 @Component
 class HoldStrategyStartupCheck(
@@ -91,18 +93,32 @@ class HoldStrategyStartupCheck(
         val f = environment?.activeProfiles?.contains(RECONCILER_PROFILE) == true
         val external = drift.externalReconciler
         val cleanup = drift.cleanup.mode
+        val inc = drift.reconcile.incremental
+        val safety = drift.reconcile.safetyNet.enabled
         check(!(a || c || f || external) || limit in COUNTER_FAMILY) {
             "카운터 어긋남 후보(A expiry-repair=$a · C reconcile.enabled=$c · F reconciler 프로필=$f · external-reconciler=$external)는 " +
                 "카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit" + DEFAULTS_HINT
         }
-        // F(별도 대조 프로세스)를 쓰는 업무 앱(external-reconciler)이 앱 안 대조(C)까지 켜면 같은 DB를 두 프로세스가 대조한다 — ADR-009 기본값이 C를 켜므로 끄라고 명시해야 한다
+        // F(별도 대조 프로세스)를 쓰는 업무 앱(external-reconciler)이 앱 안 대조(C)까지 켜면 같은 DB를 두 프로세스가 대조한다
         check(!(external && c && !f)) {
             "업무 앱에 external-reconciler=true(F)와 대조(C reconcile.enabled=true)가 함께 켜져 있다 — 대조가 두 프로세스에서 겹친다. " +
-                "F를 쓰면 업무 앱은 seat.hold.counter-drift.reconcile.enabled=false를 명시하라(ADR-009 기본값이 C를 켠다)"
+                "F를 쓰면 업무 앱은 seat.hold.counter-drift.reconcile.enabled=false로 둬라(업무 앱 기본값은 끔 — application.yml)"
+        }
+        // ADR-012 명세 §10 K6: F를 쓰는 업무 앱이 업무 앱 기본값(증분·안전망 켬)을 그대로 두면 대조가 두 프로세스에서 겹친다(F = C 전체 대조)
+        check(!(external && !f && (inc.enabled || safety))) {
+            "업무 앱에 external-reconciler=true(F)와 증분(${IncrementalSchemaCheck.PREFIX}.enabled=${inc.enabled})·" +
+                "안전망(${IncrementalSchemaCheck.SAFETY_PREFIX}.enabled=$safety)이 함께 켜져 있다 — 대조가 두 프로세스에서 겹친다. " +
+                "F를 쓰면 업무 앱은 ${IncrementalSchemaCheck.PREFIX}.enabled=false · ${IncrementalSchemaCheck.SAFETY_PREFIX}.enabled=false를 명시하라(업무 앱 기본값이 둘을 켠다)"
+        }
+        // ADR-012 명세 §10 K7: C를 켜서 옛 방식으로 되돌린다고 생각했는데 업무 앱 기본값의 증분이 그대로 켜져 있는 경우 — 조용히 둘 다 돌지 않게 거부(옛 방식 조합 안내)
+        check(!(c && inc.enabled)) {
+            "전체 대조 C(seat.hold.counter-drift.reconcile.enabled=true)와 증분(${IncrementalSchemaCheck.PREFIX}.enabled=true)을 함께 켜지 않는다 — " +
+                "업무 앱 기본값은 증분 + 안전망이다. 옛 방식(ADR-009 C 60초)으로 되돌리려면$OLD_WAY_HINT"
         }
         check(!(a && limit == COUNTER_TRIGGER)) {
             "후보 A(expiry-repair)와 B(counter-trigger)는 함께 쓰지 않는다 — B는 앱이 감소하지 않는다(트리거가 내린다)" +
-                " — A는 ADR-009 기본값이 켠다: counter-trigger는 seat.hold.counter-drift.expiry-repair=false를 명시하라"
+                " — A·증분은 업무 앱 기본값이 켠다: counter-trigger는 seat.hold.counter-drift.expiry-repair=false · " +
+                "${IncrementalSchemaCheck.PREFIX}.enabled=false를 명시하라(증분은 A가 필수 — 안전망은 켠 채 둘 수 있다)"
         }
         // 대조(C·F)를 켜면 A 필수(코드 루프 1 L1-10·L1-18, 사용자 결정): 대조는 마감 회차를 보지 않으므로, 마감 회차의 어긋난 쌍이 만료 감소를 실패시키면
         // A 없이는 틱이 계속 롤백된다(만료 정지). counter-trigger는 예외 — 트리거가 마감 회차를 건너뛰어 그 정지 경로가 없다.
@@ -110,7 +126,7 @@ class HoldStrategyStartupCheck(
         check(!((c || external) && !f && !a && limit != COUNTER_TRIGGER)) {
             "대조(C reconcile.enabled=$c · F external-reconciler=$external)를 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다 " +
                 "— 마감 회차 어긋남이 만료를 멈출 수 있다(counter-trigger는 예외) — 현재 $limit" +
-                " — C는 ADR-009 기본값이 켠다: A를 끄려면 reconcile.enabled=false도 명시하라"
+                " — A를 끄려면 reconcile.enabled=false · external-reconciler=false로 둬라"
         }
         check(cleanup == CleanupMode.NONE || limit in CLEANUP_STRATEGIES) {
             "쿼터 행 정리(cleanup.mode=$cleanup)는 $CLEANUP_STRATEGIES 에서만 쓴다 — 현재 $limit(준비 단계·쿼터 행 락 방식은 행을 다시 만든다)" + CLEANUP_HINT
@@ -119,8 +135,6 @@ class HoldStrategyStartupCheck(
             "정리 ①(cleanup.mode=schedule)은 판매 마감(sales-close.enabled=true)이 켜져 있어야 한다 — 선점의 마감 판정(회차 행 FOR SHARE)이 정리와의 직렬화 근거다" +
                 CLEANUP_HINT
         }
-        val inc = drift.reconcile.incremental
-        val safety = drift.reconcile.safetyNet.enabled
         if (a || c || f || cleanup != CleanupMode.NONE || inc.enabled || safety) {
             val missing = LOG_TABLES.filterNot(::exists)
             check(missing.isEmpty()) { "카운터 어긋남 후보·정리를 켰는데 기록 테이블(V7)이 없다: $missing" }
@@ -148,7 +162,7 @@ class HoldStrategyStartupCheck(
         val incKey = IncrementalSchemaCheck.PREFIX
         val safetyKey = IncrementalSchemaCheck.SAFETY_PREFIX
         check(!((inc.enabled || safety) && limit !in COUNTER_FAMILY)) {
-            "증분($incKey.enabled=${inc.enabled})·안전망($safetyKey.enabled=$safety)은 카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit"
+            "증분($incKey.enabled=${inc.enabled})·안전망($safetyKey.enabled=$safety)은 카운터를 유지하는 매수 방식($COUNTER_FAMILY)에서만 쓴다 — 현재 $limit" + DEFAULTS_HINT
         }
         // rv41 codex H2: B의 cnt 변경은 V8 quota_add의 UPDATE라 ⓒ 앱 문장이 덮지 못한다 — 커밋된 앱 경로 변경이 후보가 되지 않는다(§3-1)
         check(!(inc.method == IncrementalMethod.STMT && limit == COUNTER_TRIGGER)) {
@@ -157,14 +171,17 @@ class HoldStrategyStartupCheck(
         // 증분은 A가 필수(지금 C와 같은 규칙 — 마감 회차 어긋남이 만료를 멈출 수 있다). counter-trigger는 A와 함께 못 켜므로 증분 틱도 못 돈다(§4.2.13 #2 — 표시만 허용)
         check(!(inc.enabled && !a)) {
             "증분($incKey.enabled=true)을 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다 — 현재 $limit · expiry-repair=false" +
-                " (counter-trigger는 A를 켤 수 없어 증분 틱 대신 표시만 — enabled=false)"
+                " (counter-trigger는 A를 켤 수 없어 증분 틱 대신 표시만 — enabled=false) — 증분은 업무 앱 기본값이 켠다: A를 끄려면 $incKey.enabled=false를 명시하라"
         }
         // 안전망은 C를 대신하는 대조 — C와 같은 A 필수 규칙(counter-trigger는 예외 — 트리거가 마감 회차를 건너뛴다)
         check(!(safety && !a && limit != COUNTER_TRIGGER)) {
-            "안전망($safetyKey.enabled=true)을 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다(counter-trigger는 예외) — 현재 $limit"
+            "안전망($safetyKey.enabled=true)을 켜면 후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수다(counter-trigger는 예외) — 현재 $limit" +
+                " — 안전망은 업무 앱 기본값이 켠다: A를 끄려면 $safetyKey.enabled=false를 명시하라"
         }
+        // 위 K7(C + 증분)과 같은 갈래 — 증분만 끄고 안전망(업무 앱 기본값 켬)을 남긴 옛 방식 복귀
         check(!(safety && c)) {
-            "안전망($safetyKey.enabled=true)과 전체 대조 C(seat.hold.counter-drift.reconcile.enabled=true)를 함께 켜지 않는다 — 전체 훑기가 두 개가 된다. 안전망을 쓰면 reconcile.enabled=false를 명시하라"
+            "안전망($safetyKey.enabled=true)과 전체 대조 C(seat.hold.counter-drift.reconcile.enabled=true)를 함께 켜지 않는다 — 전체 훑기가 두 개가 된다. " +
+                "안전망을 쓰면 reconcile.enabled=false로 둬라. 옛 방식(ADR-009 C 60초)으로 되돌리려면$OLD_WAY_HINT"
         }
         // rv43 Opus M3: 증분은 조건부 보장(창 상한·재시작·넘침·등록 예외는 보장 밖)이라 그 몫을 받을 전체 훑기(안전망 · C · 외부 대조)가 하나는 있어야 한다
         val external = properties.counterDrift.externalReconciler
@@ -189,12 +206,22 @@ class HoldStrategyStartupCheck(
         /** 쿼터 행 정리를 허용하는 방식 — 트랜잭션 안에서 행을 만들거나(upsert) 트리거가 만든다 */
         val CLEANUP_STRATEGIES = setOf(COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER)
         val LOG_TABLES = listOf("counter_drift_log", "counter_reconcile_run", "counter_cleanup_run")
-        /** ADR-009 기본값 전환(명세 §12) 뒤 조합 거부 안내 — 검사 자체는 바꾸지 않는다(기본값을 조용히 끄지 않는다: 설정·configprops와 실제 동작이 갈리지 않게) */
+        /**
+         * 카운터 계열이 아닌 매수 방식 거부 안내(명세 §10 K4) — 업무 앱 기본값(ADR-012 · application.yml)이 켠 것을 모두 끈다. 검사 자체는 기본값을 조용히 끄지 않는다
+         * (설정·configprops와 실제 동작이 갈리지 않게). method=none · 위치 db/migration은 V9 트리거·V10을 만들지 않는다(그 매수 방식은 증분 표시가 필요 없다)
+         */
         private const val DEFAULTS_HINT =
-            " — ADR-009 기본값이 A·C·정리 ①을 켠다: 이 방식으로 띄우려면 seat.hold.counter-drift.expiry-repair=false · reconcile.enabled=false · cleanup.mode=none을 명시하라"
-        /** 정리 조합 거부(counter · 판매 마감 끔) 안내 — 정리만 끄면 된다(A·C는 이 조합에서 허용된다) */
+            " — 업무 앱 기본값(ADR-012 — application.yml)이 A·정리 ①·증분(trigger)·안전망을 켠다: 이 방식으로 띄우려면 seat.hold.counter-drift.expiry-repair=false · " +
+                "cleanup.mode=none · ${IncrementalSchemaCheck.PREFIX}.enabled=false · ${IncrementalSchemaCheck.SAFETY_PREFIX}.enabled=false · " +
+                "${IncrementalSchemaCheck.PREFIX}.method=none · spring.flyway.locations=classpath:db/migration을 명시하라(reconcile.enabled는 기본 끔)"
+        /** 정리 조합 거부(counter · 판매 마감 끔) 안내 — 정리만 끄면 된다(A·증분·안전망은 이 조합에서 허용된다) */
         private const val CLEANUP_HINT =
-            " — 정리 ①은 ADR-009 기본값이 켠다: seat.hold.counter-drift.cleanup.mode=none을 명시하라(A·C는 켠 채 둘 수 있다)"
+            " — 정리 ①은 업무 앱 기본값이 켠다: seat.hold.counter-drift.cleanup.mode=none을 명시하라(A·증분·안전망은 켠 채 둘 수 있다)"
+        /** 옛 방식(ADR-009 C 60초 · one-shot) 복귀 조합 안내(명세 §10 K2·K3) — C + 증분 · C + 안전망 거부 메시지 끝에 붙는다 */
+        private const val OLD_WAY_HINT =
+            " seat.hold.counter-drift.reconcile.enabled=true · ${IncrementalSchemaCheck.PREFIX}.enabled=false · ${IncrementalSchemaCheck.PREFIX}.method=none · " +
+                "${IncrementalSchemaCheck.SAFETY_PREFIX}.enabled=false · seat.hold.counter-drift.reconcile.detect-shape=one-shot · " +
+                "spring.flyway.locations=classpath:db/migration(새 DB — V9·V10을 이미 적용한 DB면 method=trigger · 위치 기본값 그대로)"
         const val HOLD_TRIGGER = "seat_hold_quota"
         const val RESERVATION_TRIGGER = "reservation_quota"
     }

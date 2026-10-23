@@ -4,6 +4,8 @@ import java.time.Duration
 
 /**
  * 대조(C·F) 설정 — 키는 업무 앱 `SeatHoldProperties.counterDrift.reconcile`(`seat.hold.counter-drift.reconcile.*`)에 그대로 묶인다(ADR-012 §4.2.1).
+ * 아래 값은 코드 기본값(ADR-009 값 · 손잡이 미지정 = 이전과 같다)이다. 업무 앱 기본값은 main-app application.yml이 정한다(ADR-012 §8.9 — C 끔 · 증분 trigger 1초 · 안전망 · split).
+ * 외부 대조 앱(reconciler-app)은 자기 application.yml을 쓴다.
  * core는 앱 설정 클래스를 import하지 않으므로 이 타입만 받는다 — 업무 앱은 `@Bean reconcileProperties`로 그 값을 내준다.
  */
 data class ReconcileProperties(

@@ -18,8 +18,9 @@ data class SeatHoldProperties(
     /** ADR-009 판매 마감(회차 starts_at). 기본 켬(도메인 규칙). */
     val salesClose: SalesClose = SalesClose(),
     /**
-     * ADR-009 카운터 어긋남 후보(A·C·F)와 쿼터 행 정리. 기본 = ADR-009 결정(명세 §12) A 켬 · C 켬 · 정리 ① schedule(B·F는 기본 아님).
-     * 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 기동 검사가 이 기본값을 거부한다 — 세 키를 명시해 끈다(ADR-008 none 고정과 같은 방식). counter-trigger(B)는 A를, counter는 정리를 끈다.
+     * ADR-009 카운터 어긋남 후보(A·C·F)와 쿼터 행 정리. 코드 기본값 = ADR-009 결정(명세 §12) A 켬 · C 켬 · 정리 ① schedule(B·F는 기본 아님).
+     * 업무 앱 기본값은 application.yml이 정한다 — ADR-012 판정(§8.9): A 켬 · C 끔 · 증분 trigger 1초 · 안전망 · split · 정리 ① schedule.
+     * 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 기동 검사가 이 기본값을 거부한다 — 키를 명시해 끈다(ADR-008 none 고정과 같은 방식). counter-trigger(B)는 A·증분을, counter는 정리를 끈다.
      */
     val counterDrift: CounterDrift = CounterDrift(),
     /** 측정 전용 장치(ADR-012 §4.2.7 — `seat.hold.loadtest.*`). 기본 전부 끔 — loadtest 프로필에서만 쓴다(기동 검사). */
