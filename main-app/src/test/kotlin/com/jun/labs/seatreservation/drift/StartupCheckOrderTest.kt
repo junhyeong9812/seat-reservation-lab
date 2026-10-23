@@ -23,6 +23,7 @@ import kotlin.test.fail
  *   안내 키로 같은 DB를 다시 띄우면 뜬다(남은 트리거로 또 거부되지 않는다).
  * - Flyway가 꺼진 구성에서도 같은 설정 검사가 ApplicationRunner에서 돈다(검사가 빠지지 않는다).
  * - method=trigger는 활성 트리거만 인정한다(DISABLE TRIGGER면 거부).
+ * - 코드 리뷰 RC-8: 방식 ↔ Flyway 위치(조합표 §4.2.2)·준비된 트랜잭션(max_prepared_transactions)도 마이그레이션 앞에서 판정한다 — 거부된 기동은 빈 DB를 빈 채로 둔다.
  * 실제 SpringApplication 기동 — 기동 실패는 @SpringBootTest로 단언할 수 없다(Adr012DefaultsContractTest와 같은 방식).
  */
 
@@ -42,12 +43,13 @@ class StartupCheckOrderTest {
     @BeforeAll fun startDb() = postgres.start()
     @AfterAll fun stopDb() = postgres.stop()
 
-    private fun freshDbUrl(): String {
+    private fun freshDbUrl(pg: PostgreSQLContainer<*> = postgres): String {
         val name = "startorder_${seq.incrementAndGet()}"
-        DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { c -> c.createStatement().use { it.execute("CREATE DATABASE $name") } }
-        return "jdbc:postgresql://${postgres.host}:${postgres.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)}/$name"
+        DriverManager.getConnection(pg.jdbcUrl, pg.username, pg.password).use { c -> c.createStatement().use { it.execute("CREATE DATABASE $name") } }
+        return "jdbc:postgresql://${pg.host}:${pg.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)}/$name"
     }
 
+    // 두 컨테이너(기본 · max_prepared_transactions>0)의 접속 계정은 같다(Testcontainers 기본 test/test)
     private fun jdbc(url: String) = JdbcTemplate(DriverManagerDataSource(url, postgres.username, postgres.password))
 
     private fun boot(url: String, vararg extra: String): ConfigurableApplicationContext =
@@ -92,6 +94,13 @@ class StartupCheckOrderTest {
         }
         assertTrue(!db.hasTouchTrigger(), "$where: 트리거 $TOUCH_TRIGGER 가 생겼다")
         V10_TABLES.forEach { assertTrue(!db.hasTable(it), "$where: V10 테이블 $it 가 생겼다") }
+    }
+
+    /** 거부된 기동이 빈 DB를 빈 채로 뒀다 — 테이블이 하나도 없다(flyway_schema_history 포함) · 트리거·V10 없음 */
+    private fun assertUntouched(url: String, where: String) {
+        val tables = jdbc(url).queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'", String::class.java)
+        assertTrue(tables.isEmpty(), "$where: 거부된 기동이 스키마를 바꿨다 — 테이블 $tables")
+        assertNoV9V10(url, where)
     }
 
     /** 명세 §10 K4 안내 조합(A·정리·증분·안전망 끔 + method none + 위치 db/migration) */
@@ -144,5 +153,37 @@ class StartupCheckOrderTest {
         assertTrue(message.contains("비활성"), message)
         db.execute("ALTER TABLE user_hold_quota ENABLE TRIGGER $TOUCH_TRIGGER")
         boot(url, "--seat.hold.expiry-scheduler-enabled=false").use { ctx -> assertTrue(ctx.isActive) } // 다시 켜면 뜬다
+    }
+
+    @Test
+    fun `K2에서 위치만 빠뜨림 — 마이그레이션 전에 거부(빈 DB 그대로 · K3 안내) · 같은 DB를 위치 준 K2로 다시 띄우면 뜬다`() {
+        val url = freshDbUrl()
+        val withoutLocations = k2Keys.filterNot { it.startsWith("--spring.flyway.locations") }.toTypedArray()
+        val message = assertRejected(url, withoutLocations, "$INC_K.method=none", TOUCH_TRIGGER)
+        assertUntouched(url, "위치 뺀 K2 거부 뒤")
+        assertTrue(message.contains("K3") && message.contains("method=trigger"), "남은 트리거 거부에 K3 안내가 없다: $message")
+        boot(url, *k2Keys).use { ctx -> assertTrue(ctx.isActive) }
+        assertTrue(!jdbc(url).hasTouchTrigger(), "K2 재기동: 트리거 없음")
+    }
+
+    @Test
+    fun `method=stmt·memory + 기본 위치(V9 트리거판) — 마이그레이션 전에 거부(빈 DB 그대로)`() {
+        for (method in listOf("stmt", "memory")) {
+            val url = freshDbUrl()
+            assertRejected(url, arrayOf("--$INC_K.method=$method"), "$INC_K.method=$method", TOUCH_TRIGGER)
+            assertUntouched(url, "method=$method 거부 뒤")
+        }
+    }
+
+    @Test
+    fun `max_prepared_transactions 0 아닌 DB에 키 없이(K1) — 마이그레이션 전에 거부(빈 DB 그대로) · 같은 DB를 K2로 띄우면 뜬다`() {
+        PostgreSQLContainer("postgres:16").withCommand("postgres", "-c", "fsync=off", "-c", "max_prepared_transactions=10").use { pg ->
+            pg.start()
+            val url = freshDbUrl(pg)
+            assertEquals("10", jdbc(url).queryForObject("SHOW max_prepared_transactions", String::class.java), "전제: 준비된 트랜잭션이 켜진 DB")
+            assertRejected(url, emptyArray(), "max_prepared_transactions")
+            assertUntouched(url, "max_prepared_transactions 거부 뒤")
+            boot(url, *k2Keys).use { ctx -> assertTrue(ctx.isActive) } // 증분 틱을 돌지 않는 옛 방식은 그 DB에서 뜬다
+        }
     }
 }

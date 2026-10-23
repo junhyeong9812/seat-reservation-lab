@@ -14,6 +14,7 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_E
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
+import org.flywaydb.core.api.MigrationVersion
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy
@@ -25,17 +26,26 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 
 /**
- * 설정만으로 판정되는 기동 검사([HoldStrategyStartupCheck.checkConfig])를 Flyway 마이그레이션 **앞**에서 돌린다.
+ * 거부될 기동은 마이그레이션 **앞**에서 거부한다 — 불변식: 기동이 거부되면 DB 스키마는 바뀌지 않는다(ADR-012 기본값 교체 코드 리뷰 RC-8).
  * 기동 검사가 [ApplicationRunner]로만 돌면 Flyway가 먼저 기본 위치의 V9 트리거·V10을 적용한 뒤에야 거부된다 — 안내대로 키를 고쳐
- * 같은 DB로 다시 띄우면 남은 트리거 때문에 또 거부된다(명세 §10 K4). 설정 검사는 DB 없이 판정되므로 마이그레이션 전에 막아 스키마를 건드리지 않는다.
- * Flyway가 꺼진 구성에서는 이 전략이 불리지 않는다 — 그래서 [HoldStrategyStartupCheck.run]이 같은 설정 검사를 다시 부른다(검사가 빠지지 않게).
- * 이 빈은 DB 접근 빈(JdbcTemplate 등 — Flyway 초기화에 의존)에 기대지 않는다(순환 의존 없음).
+ * 같은 DB로 다시 띄우면 남은 트리거 때문에 또 거부된다(명세 §10 K2·K4).
+ * ① 설정 검사([HoldStrategyStartupCheck.checkConfig]) ② 방식 ↔ Flyway 위치·DB 조건(core [IncrementalSchemaCheck.checkSchema] — 마이그레이션 뒤 검사와 같은 규칙):
+ *   지금 DB의 스키마 사실(읽기만 — V9·V10을 이미 적용한 DB 포함 · max_prepared_transactions)에 Flyway가 실제로 쓸 위치(`flyway.configuration.locations` ·
+ *   `target`까지)가 더할 객체를 얹어 내다본 스키마로 판정한다. 그래서 이미 V9 트리거·V10을 적용한 DB의 K3(method=trigger · 위치 기본값)는 그대로 뜬다.
+ * Flyway가 꺼진 구성에서는 이 전략이 불리지 않는다 — 그래서 [HoldStrategyStartupCheck.run]이 같은 검사를 마이그레이션 뒤 DB로 다시 한다(검사가 빠지지 않게).
+ * 이 빈은 DB 접근 빈(JdbcTemplate 등 — Flyway 초기화에 의존)에 기대지 않는다(순환 의존 없음) — DB는 Flyway의 DataSource로 읽는다.
  */
 @Configuration(proxyBeanMethods = false)
 class HoldStrategyMigrationGate {
     @Bean
     fun holdStrategyFlywayMigrationStrategy(properties: SeatHoldProperties, environment: Environment) = FlywayMigrationStrategy { flyway ->
         HoldStrategyStartupCheck.checkConfig(properties, environment)
+        val config = flyway.configuration
+        val target = config.target
+        // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')
+        fun reaches(version: String) = target == null || target == MigrationVersion.LATEST || (target.version != null && target.isAtLeast(version))
+        val predicted = IncrementalSchemaCheck.readSchema(JdbcTemplate(config.dataSource)).afterLocations(config.locations.map { it.path }, reachesV9 = reaches("9"), reachesV10 = reaches("10"))
+        IncrementalSchemaCheck.checkSchema(properties.counterDrift.reconcile, predicted)
         flyway.migrate()
     }
 }
