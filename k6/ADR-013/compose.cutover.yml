@@ -1,0 +1,60 @@
+# ADR-013 혼재 오버레이(§4.6 H1·H2·H5·H10) — k6/ADR-009/compose.yml(+ compose.tmpfs.yml) 위에 얹는다:
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml [-f k6/ADR-009/compose.tmpfs.yml] -f k6/ADR-013/compose.cutover.yml …
+#   경로는 첫 파일(k6/ADR-009)의 폴더 기준이다 — 그래서 nginx.conf는 ../ADR-013/nginx.conf.
+# 슬롯 A = 서비스 app · 슬롯 B = 서비스 app2. 자리마다 이미지·역할을 따로 준다:
+#   SLOT_A_TAG · SLOT_B_TAG = 이미지 태그(seatlab-app:<sha8> — 캠페인 전에 한 번 빌드·태그해 둔다 · 이미지 ID는 plan에 고정 · DS-11).
+#   build 절을 지우고 pull_policy: never — 회차 안 기동은 up -d --no-build --no-deps <서비스>(재빌드·받기 없음 · N1).
+#   SLOT_A_APPNAME · SLOT_B_APPNAME = ApplicationName(seatlab-<슬롯>-<sha8>-<역할> — DB 표본을 앱별로 가른다 · H5).
+#   SLOT_A_SHADOW · SLOT_B_SHADOW = 1이면 그림자 앱(§4.3 — 증분·안전망 끔 · 나머지는 이미지 기본값). 비우면 키 없음 = 그 이미지의 기본값
+#     (옛 앱 = 93dd610a 기본값 A·C 60초·정리 ① · 위치 db/migration / 새 앱 = ADR-012 기본값 K1 — Flyway 위치도 넣지 않는다).
+#   공통 키(ADR-009 compose.yml과 같은 출처): HOLD_TTL · EXPIRY_INTERVAL · HOLD_STRATEGY · POOL_SIZE.
+# 포트: 앱은 8111(A)·8112(B)로 따로 연다 — 하네스가 앱별 actuator(설정 대조·지표 수집·Hikari 표본)를 lb를 거치지 않고 읽는다. 부하·탐침은 lb 8101만 부른다.
+# 자원(H10): 앱마다 APP_CPUS · APP_MEM 그대로(혼재 구간에만 앱 자원이 두 배 — 실제 롤링과 같다). JVM 옵션은 ADR-009 compose.yml과 같은 문자열.
+services:
+  app:
+    image: seatlab-app:${SLOT_A_TAG:?SLOT_A_TAG}
+    pull_policy: never
+    build: !reset null
+    ports: !override
+      - "8111:8101"
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/seat?ApplicationName=${SLOT_A_APPNAME:-seatlab-A}
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{${SLOT_A_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "data":{"redis":{"host":"redis","port":6379}}}}
+
+  app2:
+    image: seatlab-app:${SLOT_B_TAG:-none}
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: loadtest
+      DB_URL: jdbc:postgresql://db:5432/seat?ApplicationName=${SLOT_B_APPNAME:-seatlab-B}
+      DB_USERNAME: seat
+      DB_PASSWORD: seat
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{${SLOT_B_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "data":{"redis":{"host":"redis","port":6379}}}}
+      JAVA_TOOL_OPTIONS: "${APP_JVM_OPTS:+${APP_JVM_OPTS} }${APP_JVM_OPTS2:+${APP_JVM_OPTS2} }${APP_JVM_OPTS3:+${APP_JVM_OPTS3} }${APP_JVM_OPTS4:+${APP_JVM_OPTS4} }-XX:MaxRAMPercentage=75 -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:time,uptime,level,tags:filecount=0"
+    ports:
+      - "8112:8101"
+    cpus: ${APP_CPUS:-2}
+    mem_limit: ${APP_MEM:-1g}
+
+  lb:
+    image: nginx:1.27-alpine
+    pull_policy: never
+    # 구성원 파일은 컨테이너 안에만 둔다(하네스가 docker exec로 다시 쓴다) — 처음에는 자리표시 서버 하나(DS-9 ⓐ)
+    command: ["sh", "-c", "mkdir -p /etc/nginx/members && echo 'server 127.0.0.1:9 down;' > /etc/nginx/members/members.conf && exec nginx -g 'daemon off;'"]
+    volumes:
+      - ../ADR-013/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8101:8101"
+    cpus: ${LB_CPUS:-1}
+    mem_limit: 256m
