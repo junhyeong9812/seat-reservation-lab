@@ -27,6 +27,7 @@
 | 10-24 01:19 | 루프 1 수정 회수(Opus): 3289c3d5(적용판) · 5048ab39(하네스) · 09acde2d(README·ADR §4.9-17) · bbba7264(앱 WARN 문구) · selftest 29/29(새 13 — 수정 전 13 실패 확인) · 로컬 PG apply.sh 경우 7 · incremental 테스트 131/0 · 메인 판단: anomaly = P9 (바) 정합 · 결측 무효는 transition-failed 없을 때 · final-app-mismatch = 절차 · inflight_unknown = 하네스(옛 앱 active 지표 유무는 스모크 확인) | 전체 테스트 + 루프 2 |
 | 10-24 01:30 | 코드 리뷰 루프 2 회수: codex 3(H 2 · M 1) · Opus 12(H 1 · M 4 · L 7) · 앱 결함 0 → CR13-15~29 채택 · **정지 규칙 주의**: 비움 inflight는 CR13-6 → CR13-16(2회째) — 함수 하나로 모으고 조회 실패 = 모름 전파 · 또 깨지면 비움 방식 재설계 · 메인 결정: J 모집단 = §5.8-3 문자(전환 칸만 — 사용자 기준 '전환이 만든 손해') · ① J = 0(섞임 없음) → 측정 전 정정 행 · 수정 워커 | 진행 |
 | 10-24 01:56 | 전체 테스트(bbba7264 코드 · 17m46s rc=0): 700건 실패 0 · 루프 2 수정 회수(Opus): a0703a60(비움 함수 하나 — app_inflight·drain_verdict) · 5f8970cd(요약기 — 절차 우선 · J 전환 칸만 · ① J 0) · f0a613ef(시작 조건 — 스모크 events.jsonl 실측 · stmt-timeout max(3×,600) · git archive 동결 + hhash) · 7fa9cbe8(적용판 — ② 같은 트랜잭션 확인 · test-local.sh) · f43e0e25(README) · selftest 51/51 · selftest-drain 0 실패(수정 전 13 실패) · test-local 0 실패(수정 전 1 실패) · 판단 지점: inflight 필터 = method POST(스모크 확인) · 동결 대조는 이 커밋 이후 SHA만 | 루프 3(마지막) |
+| 10-24 02:42 | 코드 리뷰 루프 3(마지막) 회수: codex 2(H 1 · M 1) · Opus 5(M 2 · L 3) · 앱 결함 0 → 사용자 질문 '실제 발생할 문제들이 맞아?' → 메인 분류(발생 조건·가능성·영향) 보고 → 사용자 '수정해 그리고 커밋 후 문제없으면 스모크 진행 · 164 켜놨어' → 메인 수정(결론을 기울일 수 있는 3건): 탐침 오류 = 최소 수와 무관하게 invalid(probe-error) · 비움 판정 입력 IP 형식 검증(lb_started_after — 같은 종류 3회째 → 판정 입력 검증을 한 곳으로 · do_lb_add ip-unknown) · 끝 검사 실패 = curl 28만 판정 불가 · 그 밖 end-check-app-failed(하네스) · 기록만(고치지 않음): 옛 C 바퀴 0(T2 전 300초 넘게 60초 주기 — 거의 없음) · 멈춤 메시지 15회 문구 · test-local 1ms DROP · 스모크 폴더 출처 대조 · selftest 51/51 · selftest-drain 0 실패 · 빈 IP·주입 문자 rc 1 확인 · **리뷰 마감 = user override**(루프 3 신규 채택 3 — 재리뷰 없이 .164 스모크가 실서버 검증) | task 05 끝 → .164 스모크 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -93,6 +94,13 @@
 | CR13-26 | 2 | opus L5 | apply.sh:279-282 기록 뒤 확인 실패 시 이력 남음 | 채택 — ② 같은 트랜잭션 검증 후 COMMIT · ①은 사유에 명시 | fixed | 루프 2 수정 |
 | CR13-27 | 2 | opus L6 | plan13.py:323-324 pageSize 양수만 | 채택 — new = 100000 | fixed | 루프 2 수정 |
 | CR13-28 | 2 | opus L7 | summarize.py:744-746 오프셋 파싱 | 채택 | fixed | 루프 2 수정 |
+| CR13-29c | 3 | codex(H) | summarize.py:483·769 탐침 SQL 오류가 최소 수 충족 시 무시 | 채택 — probe-error invalid | fixed | 루프 3 메인 |
+| CR13-30c | 3 | codex(M) | summarize.py:699 옛 C 바퀴 0이면 N4 생략 | 기록만(발생 거의 없음 — 사용자 확인) | user-deferred | — |
+| CR13-29o | 3 | opus(M) | run.sh:247 · lib13.sh:48·93 빈 IP → 비움 통과 | 채택 — 입력 형식 검증 · ip-unknown | fixed | 루프 3 메인 |
+| CR13-30o | 3 | opus(M) | run.sh:500 · summarize.py:980 끝 검사 실패 = 판정 불가 | 채택 — curl 28만 · end-check-app-failed | fixed | 루프 3 메인 |
+| CR13-31 | 3 | opus(L) | campaign.sh:25·152 · README:73 15회 문구 | 기록만 | user-deferred | — |
+| CR13-32 | 3 | opus(L) | test-local.sh 1ms DROP 비결정 | 기록만(측정 무관) | user-deferred | — |
+| CR13-33 | 3 | opus(L) | campaign.sh:75-86 스모크 폴더 출처 미대조 | 기록만(메인 통제 입력) | user-deferred | — |
 
 ## 생략한 검증 (긴급 경로 빚 — DEBT=1인 동안 정본)
 
