@@ -238,7 +238,8 @@ class HoldStrategyStartupCheck(
             // 외부 대조(F external-reconciler)는 이 자리의 대안이 아니다 — 업무 앱이 external이면 증분 자체가 위 K6 검사에서 거부된다(F 프로세스는 C 필수)
             check(!(inc.enabled && !safety && !c)) {
                 "증분($incKey.enabled=true)만 켜고 전체 훑기를 모두 껐다($safetyKey.enabled=false · seat.hold.counter-drift.reconcile.enabled=false) — " +
-                    "증분 보장 밖 쌍을 고칠 곳이 없다. 안전망($safetyKey.enabled=true)을 켜라"
+                    "증분 보장 밖 쌍을 고칠 곳이 없다. 안전망($safetyKey.enabled=true)을 켜라" +
+                    "(seat.hold.counter-drift.external-reconciler=true는 대안이 아니다 — F를 쓰는 업무 앱은 증분·안전망을 모두 끈다)"
             }
             val injectApp = properties.loadtest.injectApp
             val loadtest = environment?.activeProfiles?.contains(LOADTEST_PROFILE) == true
