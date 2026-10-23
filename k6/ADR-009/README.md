@@ -44,7 +44,7 @@ F 컨테이너(`compose.reconciler.yml`)는 `incremental.method=none`과 탐지 
 | `A+F` | A + `counter-drift.external-reconciler=true` | `compose.reconciler.yml`(대조 60s) |
 | `B` | `limit-strategy=counter-trigger` | `spring.flyway.locations += classpath:db/migration-trigger`(V8) |
 | `B+C` | B + reconcile 60s(A 없이 — 명세 §11) | 효과 셀만 |
-| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C. **ADR-012 기본값 교체 뒤 SHA에서는 계획 단계에서 거부**(`lib.sh app_defaults_incremental` — 그 SHA의 `application.yml`이 증분을 켜면) — C 셀은 `--cond A+C --cleanup schedule`. 교체 전 SHA의 이어서 실행·옛 결과 집계(`summarize.py`·`tail.py`)는 default = C 그대로 |
+| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C. **ADR-012 기본값 교체 뒤 SHA에서는 계획 단계에서 거부**(`lib.sh app_default_is_old_c` — 그 SHA의 `application.yml`이 `reconcile.enabled=true` · 증분 아님이 아니면 · 판정 불가도 거부) — C 셀은 `--cond A+C --cleanup schedule`. 교체 전 SHA의 이어서 실행·옛 결과 집계(`summarize.py`·`tail.py`)는 default = C 그대로 |
 
 - `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c). `default` 밖에서는 `none`도 키로 넣는다.
 - 한계: `default` 조건의 키 없음 확인(`drift`·`drift_cmd`)은 앱 컨테이너 **환경변수·명령줄만** 본다 — 프로필 yml(`application-*.yml`)이 세 키를 바꾸는 경우는 configprops 대조(`cond-config-mismatch` — 기대 = A 켬 · C 켬 · SCHEDULE)가 잡는다.
