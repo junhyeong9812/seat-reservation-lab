@@ -14,6 +14,7 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_E
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
+import org.flywaydb.core.api.CoreErrorCode
 import org.flywaydb.core.api.MigrationVersion
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Component
  * ① 설정 검사([HoldStrategyStartupCheck.checkConfig]) ② 방식 ↔ Flyway 위치·DB 조건(core [IncrementalSchemaCheck.checkSchema] — 마이그레이션 뒤 검사와 같은 규칙):
  *   지금 DB의 스키마 사실(읽기만 — V9·V10을 이미 적용한 DB 포함 · max_prepared_transactions)에 Flyway가 실제로 쓸 위치(`flyway.configuration.locations` ·
  *   `target`까지)가 더할 객체를 얹어 내다본 스키마로 판정한다. 그래서 이미 V9 트리거·V10을 적용한 DB의 K3(method=trigger · 위치 기본값)는 그대로 뜬다.
+ *   Flyway가 스스로 마이그레이션 전에 막을 조합(두 V9 · 다른 V9로 다시 기동 등)은 ②를 건너뛰고 Flyway의 거부로 둔다.
  * Flyway가 꺼진 구성에서는 이 전략이 불리지 않는다 — 그래서 [HoldStrategyStartupCheck.run]이 같은 검사를 마이그레이션 뒤 DB로 다시 한다(검사가 빠지지 않게).
  * 이 빈은 DB 접근 빈(JdbcTemplate 등 — Flyway 초기화에 의존)에 기대지 않는다(순환 의존 없음) — DB는 Flyway의 DataSource로 읽는다.
  */
@@ -44,9 +46,19 @@ class HoldStrategyMigrationGate {
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')
         fun reaches(version: String) = target == null || target == MigrationVersion.LATEST || (target.version != null && target.isAtLeast(version))
-        val predicted = IncrementalSchemaCheck.readSchema(JdbcTemplate(config.dataSource)).afterLocations(config.locations.map { it.path }, reachesV9 = reaches("9"), reachesV10 = reaches("10"))
-        IncrementalSchemaCheck.checkSchema(properties.counterDrift.reconcile, predicted)
+        // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
+        // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
+        val flywayRejects = config.isValidateOnMigrate && flyway.validateWithResult().invalidMigrations.orEmpty().any { it.errorDetails?.errorCode !in PENDING }
+        if (!flywayRejects) {
+            val predicted = IncrementalSchemaCheck.readSchema(JdbcTemplate(config.dataSource))
+                .afterLocations(config.locations.map { it.path }, reachesV9 = reaches("9"), reachesV10 = reaches("10"))
+            IncrementalSchemaCheck.checkSchema(properties.counterDrift.reconcile, predicted)
+        }
         flyway.migrate()
+    }
+
+    private companion object {
+        val PENDING = setOf(CoreErrorCode.RESOLVED_VERSIONED_MIGRATION_NOT_APPLIED, CoreErrorCode.RESOLVED_REPEATABLE_MIGRATION_NOT_APPLIED)
     }
 }
 

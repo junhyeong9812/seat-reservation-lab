@@ -55,15 +55,12 @@ object IncrementalSchemaCheck {
     ) {
         /**
          * 이 스키마에 Flyway [locationPaths](location 경로 — `db/migration-incremental` 꼴)를 적용한 뒤의 모양(조합표의 위치 → 객체).
-         * 이미 있는 객체는 그대로 둔다(같은 버전을 다시 적용하지 않는다). 두 V9 위치를 함께 주면 거부한다(같은 버전 V9가 2개 — 조합표 '두 V9' 행).
+         * 이미 있는 객체는 그대로 둔다(같은 버전을 다시 적용하지 않는다). 두 V9 위치를 함께 준 경우(조합표 '두 V9' 행)는 여기서 보지 않는다 —
+         * Flyway가 마이그레이션 전에 '같은 버전 2개'로 막는다(호출 쪽이 Flyway 검증을 먼저 돌린다).
          * @param reachesV9 Flyway target이 V9까지 가는가(false면 V9 위치는 객체를 더하지 않는다) · [reachesV10] 같은 뜻
          */
         fun afterLocations(locationPaths: Collection<String>, reachesV9: Boolean = true, reachesV10: Boolean = true): Schema {
             fun has(location: String) = locationPaths.any { it.trim('/') == location || it.trimEnd('/').endsWith("/$location") }
-            check(!(has(LOCATION_V9_TRIGGER) && has(LOCATION_V9_STMT))) {
-                "spring.flyway.locations에 V9 위치 둘(classpath:$LOCATION_V9_TRIGGER · classpath:$LOCATION_V9_STMT)이 함께 있다 — 같은 버전 V9가 2개다. " +
-                    "$PREFIX.method=trigger면 트리거 위치만, stmt면 문장 위치만 더하라"
-            }
             val v9Trigger = reachesV9 && has(LOCATION_V9_TRIGGER)
             val v9Stmt = reachesV9 && has(LOCATION_V9_STMT)
             return copy(

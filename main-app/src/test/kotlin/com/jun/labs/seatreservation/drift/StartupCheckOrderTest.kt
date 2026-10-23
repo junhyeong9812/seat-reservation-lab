@@ -2,6 +2,7 @@ package com.jun.labs.seatreservation.drift
 
 import com.jun.labs.seatreservation.SeatReservationApplication
 import com.jun.labs.seatreservation.support.causesOf
+import org.flywaydb.core.api.FlywayException
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -185,5 +186,20 @@ class StartupCheckOrderTest {
             assertUntouched(url, "max_prepared_transactions 거부 뒤")
             boot(url, *k2Keys).use { ctx -> assertTrue(ctx.isActive) } // 증분 틱을 돌지 않는 옛 방식은 그 DB에서 뜬다
         }
+    }
+
+    @Test
+    fun `두 V9 위치를 함께 — Flyway가 마이그레이션 전에 막는다(빈 DB 그대로)`() {
+        val url = freshDbUrl()
+        val error = try {
+            boot(url, "--spring.flyway.locations=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-updated-at,classpath:db/migration-incremental").close()
+            fail("두 V9 위치로 기동이 됐다")
+        } catch (e: AssertionError) {
+            throw e
+        } catch (e: Throwable) {
+            e
+        }
+        assertTrue(causesOf(error).any { it is FlywayException }, "Flyway 거부가 아니다: ${causesOf(error).map { "${it::class.simpleName}: ${it.message?.take(200)}" }}")
+        assertUntouched(url, "두 V9 거부 뒤")
     }
 }
