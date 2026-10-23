@@ -16,7 +16,11 @@
 set -uo pipefail
 
 if [[ "${RUN13_FROZEN:-0}" != 1 ]]; then
-  src="$(cd "$(dirname "$0")" && pwd)"; repo="$(cd "$src/../../.." && pwd)"
+  src="$(cd "$(dirname "$0")" && pwd)"; repo="$(cd "$src/../../.." && pwd)"   # repo = 이 스크립트가 든 트리(작업트리 또는 campaign.sh의 git archive 동결본)
+  # 원본 하네스 해시(CR13-21 — hhash.sh): 캠페인이 준 동결본 해시(HARNESS_HASH13)와 다르면 시작하지 않는다 · meta.json에 남긴다
+  HH_SRC="$(bash "$src/hhash.sh" "$repo")" || { echo "하네스 해시 실패($repo)" >&2; exit 2; }
+  [[ -z "${HARNESS_HASH13:-}" || "$HH_SRC" == "$HARNESS_HASH13" ]] || { echo "하네스 해시 $HH_SRC ≠ 캠페인 동결본 $HARNESS_HASH13" >&2; exit 2; }
+  export HH_SRC
   frozen="$(mktemp -d)"
   mkdir -p "$frozen/k6/ADR-013" "$frozen/k6/ADR-009" "$frozen/ops"
   cp -r "$src" "$frozen/k6/ADR-013/scripts" && cp -r "$repo/k6/ADR-009/scripts" "$frozen/k6/ADR-009/scripts" && cp -r "$repo/ops/online-v9" "$frozen/ops/online-v9" \
@@ -31,7 +35,7 @@ source "$S13/lib13.sh"
 set +e
 
 SHA="" SHA_OLD=93dd610a SHA_NEW="" IMAGES="" PROC="" LOAD="" REP="" CID="" ATTEMPT=1 WORKTREE=0 K6_BIN=k6 PG_TMPFS_GB=12 APP_MEM=2g APP_GC=zgc
-STMT_TIMEOUT=600s PREPARE=0 IMG_OUT="" PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" CALIB="" CALIB_PAIRS=""
+STMT_TIMEOUT=600s STMT_GIVEN=0 PREPARE=0 IMG_OUT="" PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" CALIB="" CALIB_PAIRS=""
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -48,7 +52,7 @@ while (( $# )); do
     --pg-tmpfs-size) PG_TMPFS_GB="$2"; shift 2 ;;
     --app-mem) APP_MEM="$2"; shift 2 ;;
     --app-gc) APP_GC="$2"; shift 2 ;;
-    --stmt-timeout) STMT_TIMEOUT="$2"; shift 2 ;;
+    --stmt-timeout) STMT_TIMEOUT="$2"; STMT_GIVEN=1; shift 2 ;;
     --prepare-images) PREPARE=1; shift ;;
     --calibrate) CALIB="$2"; shift 2 ;;
     --pairs) CALIB_PAIRS="$2"; shift 2 ;;
@@ -96,14 +100,18 @@ if [[ -n "$CALIB" ]]; then   # 보정(§4.1 DS-12): 절차 없이 옛 앱 단독
 fi
 [[ "$PROC" =~ ^[1-5]$ && "$LOAD" =~ ^(S4c|S3e)$ && "$REP" =~ ^[1-9][0-9]*$ && "$ATTEMPT" =~ ^[1-9]$ && -n "$CID" ]] || { echo "--proc 1..5 --load S4c|S3e --rep k --id <id> 필수" >&2; exit 2; }
 [[ "$PG_TMPFS_GB" =~ ^[1-9][0-9]?$ && "$APP_MEM" =~ ^[1-9][0-9]*[mg]$ && "$APP_GC" =~ ^(auto|g1|zgc)$ && "$STMT_TIMEOUT" =~ ^[0-9]+s$ ]] || { echo "손잡이 형식" >&2; exit 2; }
+# 적용판 단계 3 statement_timeout(CR13-17): 캠페인은 시작 조건 ⑥이 스모크 실측으로 정한 값(max(⌈실측 × 3⌉, 600))을 늘 넘긴다 — 기본값 600 고정으로 측정하지 않는다
+if [[ "${CAMPAIGN13:-0}" == 1 ]] && (( ! STMT_GIVEN )); then echo "캠페인 회차는 --stmt-timeout(시작 조건 ⑥ 값)이 필요하다" >&2; exit 2; fi
+(( ${STMT_TIMEOUT%s} >= 600 )) || { echo "--stmt-timeout ${STMT_TIMEOUT} < 600s(§4.4 DS-8 최소)" >&2; exit 2; }
 SHA="$(short "${SHA:-HEAD}")" || exit 2; SHA_OLD8="$(short "$SHA_OLD")"; SHA_NEW8="$(short "${SHA_NEW:-$SHA}")"
 [[ -n "$SHA" && -n "$SHA_OLD8" && -n "$SHA_NEW8" ]] || { echo "SHA 해석 실패" >&2; exit 2; }
-HPATHS=(k6/ADR-013 ops/online-v9 k6/ADR-009/scripts k6/ADR-009/scenarios k6/ADR-009/compose.yml k6/ADR-009/compose.tmpfs.yml)
-worktree_hash13() { (cd "$REPO_ROOT" && find "${HPATHS[@]}" -path k6/ADR-013/results -prune -o -name __pycache__ -prune -o -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-8); }
+mapfile -t HPATHS < <(bash "$S13/hhash.sh" --paths)   # 하네스 경로 단일 출처(CR13-21)
 HARNESS="sha:$SHA" DEPLOY_ID="$SHA"
 if (( WORKTREE )); then
   [[ "${CAMPAIGN13:-0}" != 1 ]] || { echo "--worktree는 스모크 전용" >&2; exit 2; }
-  HARNESS="worktree:$(worktree_hash13)"; DEPLOY_ID="$SHA-wt13-${HARNESS#worktree:}"
+  HARNESS="worktree:${HH_SRC:0:8}"; DEPLOY_ID="$SHA-wt13-${HARNESS#worktree:}"
+elif [[ -n "${HARNESS_HASH13:-}" ]]; then
+  :   # 캠페인: 원본 = --sha의 git archive 동결본이고 해시를 위에서 대조했다(작업트리와 무관 — CR13-21)
 elif ! git -C "$REPO_ROOT" diff --quiet "$SHA" -- "${HPATHS[@]}" ':(exclude)k6/ADR-013/results' \
      || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- "${HPATHS[@]}" ':(exclude)k6/ADR-013/results')" ]]; then
   echo "하네스(${HPATHS[*]})가 $SHA와 다르다 — 커밋하거나 --worktree(스모크)" >&2; (( DRY )) || exit 2
@@ -146,9 +154,9 @@ finish13() {   # 판정(summarize --rep) → status · meta. 인자: (선택) �
   local st="${1:-}"
   jq -n --arg sha "$SHA" --arg old "$SHA_OLD8" --arg new "$SHA_NEW8" --arg harness "$HARNESS" --argjson proc "$PROC" --arg load "$LOAD" --argjson rep "$REP" \
         --argjson attempt "$ATTEMPT" --arg started "$STARTED" --arg ended "$(date -Is)" --arg k6 "$("$K6_BIN" version 2>/dev/null | head -1)" \
-        --argjson t0 "${T0:-null}" --argjson k6end "${K6_END:-null}" --arg env "$COMMON_ENV" --arg tmpfs "$PG_TMPFS_GB" --arg stmt "$STMT_TIMEOUT" \
+        --argjson t0 "${T0:-null}" --argjson k6end "${K6_END:-null}" --arg env "$COMMON_ENV" --arg tmpfs "$PG_TMPFS_GB" --arg stmt "$STMT_TIMEOUT" --arg hh "${HH_SRC:-}" \
     '{sha: $sha, sha_old: $old, sha_new: $new, harness: $harness, proc: $proc, load: $load, rep: $rep, attempt: $attempt, rerun: ($attempt > 1),
-      started: $started, ended: $ended, k6_version: $k6, t0_pc: $t0, k6_end_pc: $k6end, common_env: $env, pg_tmpfs_gb: ($tmpfs | tonumber), stmt_timeout: $stmt}' > "$DIR/meta.json.tmp" \
+      started: $started, ended: $ended, k6_version: $k6, t0_pc: $t0, k6_end_pc: $k6end, common_env: $env, pg_tmpfs_gb: ($tmpfs | tonumber), stmt_timeout: $stmt, harness_hash: $hh}' > "$DIR/meta.json.tmp" \
     && mv "$DIR/meta.json.tmp" "$DIR/meta.json" || { hreason meta-write-failed; st="invalid:meta-write-failed"; }
   if [[ -z "$st" ]]; then st=$(python3 -I "$S13/summarize.py" --rep "$DIR" 2>>"$DIR/errors.log" | tail -1); [[ "$st" =~ ^(ok|invalid:|fail:) ]] || st="invalid:summarize-failed"; fi
   echo "$st" > "$DIR/status"

@@ -10,6 +10,8 @@
 ⑫ H4 수집 오류·지표 없음 = app-collect-missing ⑬ (마) 응답 섞인 탐침은 두 수에서 뺀다 ⑭ P7 이어 읽기 끝 = page_full 지표 + 행 수 ⑮ 끝 검사 앱 ≠ 계획 = final-app-mismatch
 ⑯ 실행기 끝 행 없음·기록 < 계획 = probe-incomplete(최소 수 충족이어도 — CR13-15) ⑰ 전환 실패(절차) 뒤 산출물 결측은 하네스로 묻지 않음 · 앞의 하네스 사유는 invalid(CR13-18)
 ⑱ J 모집단 = 전환 칸만 · ① J = 0(§5.8-3a — CR13-19) ⑲ 앱 끝 검사 v_counter_mismatch = P9 (다)(CR13-23) ⑳ m 시각 오프셋 해석(분 오프셋 · 못 읽음 = m-parse-failed — CR13-28)
+㉑ 시작 조건 ⑤ 스모크 사건 길이 = events.jsonl op별 최대(모든 op — 기동 시작 길이도 dry-run에 든다 · CR13-20) ㉒ 단계 3 statement_timeout = max(⌈실측 × 3⌉, 600)(CR13-17)
+㉓ 새 앱 incremental.pageSize = 100,000(CR13-27)
 (코드 리뷰 루프 1 CR13-1~14 · 참고 · 루프 2 CR13-15~28 — ①·⑦의 J는 §5.8-3a 정정 뒤 값)."""
 import gzip
 import json
@@ -80,13 +82,13 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
     (d / "clock-offset.json").write_text(json.dumps({"before": {"offset_s": OFF}, "after": {"offset_s": OFF}}))
     k6_s = plan["timeline"]["k6_s"]
     (d / "k6-window.json").write_text(json.dumps({"end_pc": T0 + k6_s}))
-    ev, derived = plan13.planned_events_timed(proc, load, startup)
+    ev, derived = plan13.planned_events_timed(proc, load, {"wait-health": startup, "drain": float(plan13.DRAIN_S)} if startup else None)
     rows = []
     lives, cnt, roles = {}, {"A": 0, "B": 0}, {"A": None, "B": None}
     # 셋업(옛 앱 A1)
     for i, op in enumerate(("start", "wait-health", "config-check", "lb-add")):
         rows.append({"kind": "plan", "step": "setup", "op": op, "slot": "A", "life": "A1", "role": "old", "start_pc": T0 - 200 + i, "end_pc": T0 - 199 + i,
-                     "result": "ok", "detail": {"ip": "10.0.0.2"} if op == "lb-add" else None})
+                     "dur_s": 1.0, "result": "ok", "detail": {"ip": "10.0.0.2"} if op == "lb-add" else None})
     cnt["A"], roles["A"] = 1, "old"
     for e in ev:
         if e["op"] == "start":
@@ -95,7 +97,7 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
         life = f"{e['slot']}{cnt[e['slot']]}" if e.get("slot") else None
         det = {"ip": f"10.0.0.{3 + cnt[e['slot']]}"} if e["op"] == "lb-add" else ({"errors": (collect_errors or {}).get(life, [])} if e["op"] == "collect" else None)
         rows.append({"kind": "plan", "step": e["step"], "op": e["op"], "slot": e.get("slot"), "life": life, "role": roles.get(e.get("slot")) if e.get("slot") else "",
-                     "start_pc": T0 + e["t0"], "end_pc": T0 + e["t1"] + 0.01, "result": "ok", "detail": det})
+                     "start_pc": T0 + e["t0"], "end_pc": T0 + e["t1"] + 0.01, "dur_s": e["t1"] - e["t0"] + 0.01, "result": "ok", "detail": det})
         if life:
             lives[life] = roles[e["slot"]]
     end = plan["end_state"]
@@ -423,6 +425,49 @@ def main():
     out, st = summarize.rep_summary(d)
     want = datetime.fromisoformat("2026-10-24T00:00:00+00:00").timestamp() - OFF - T0
     check("⑳ 회차 owner.m = 분 오프셋까지 읽은 시각", abs(((out.get("owner") or {}).get("m") or 0) - want) < 1e-6, f"{(out.get('owner') or {}).get('m')} ≠ {want}")
+    # ㉑ 스모크 사건 길이(CR13-20) — 절차 ④ 스모크 한 회차에 9종이 다 있다 · 기동 시작(start) 길이도 dry-run을 움직인다
+    sd = getattr(plan13, "smoke_durations", None)
+    make_rep(root / "c21", 4, "S4c", 1)
+    d = root / "c21" / "S4c" / "p4" / "rep1"
+    if sd is None:
+        check("㉑ plan13.smoke_durations 있음", False, "없음")
+    else:
+        durs, src, prob = sd([d])
+        check("㉑ 스모크 events.jsonl → 9종 모두 실측 · wait-health 최대 = 20.01초", not prob and set(durs) == set(plan13.OPS) and abs(durs["wait-health"] - 20.01) < 1e-6, f"{durs} {prob}")
+        durs, src, prob = sd([root / "없는 폴더"])
+        check("㉑ 스모크 폴더 없음 → 문제(시작 조건 ⑤ 막음)", bool(prob), str(prob))
+        sm = root / "c21s"
+        sm.mkdir()
+        (sm / "events.jsonl").write_text("\n".join(json.dumps({"kind": "plan", "op": op, "result": "ok", "dur_s": 70.0 if op == "start" else 0.0}) for op in plan13.OPS) + "\n")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "plan13.py"), "--probe-dry-run", "--smoke", str(sm), "--json"], capture_output=True, text=True)
+        b = json.loads(r.stdout).get("boundary_total") if r.stdout.strip().startswith("{") else None
+        check("㉑ 기동 시작(start) 70초만 길고 나머지 0 → dry-run 경계 > 0(start 길이가 판정에 든다) · exit 1", r.returncode == 1 and (b or 0) > 0, f"rc={r.returncode} b={b} {r.stderr[-200:]}")
+    # ㉒ statement_timeout(CR13-17)
+    stf = getattr(plan13, "stmt_timeout_from", None)
+    if stf is None:
+        check("㉒ plan13.stmt_timeout_from 있음", False, "없음")
+    else:
+        for name, atts, want in (("c22a", [{"result": "OK", "valid": "true", "build_s": 250.2}], 751), ("c22b", [{"result": "OK", "valid": "true", "build_s": 90}], 600),
+                                 ("c22c", [{"result": "FAIL", "valid": "false", "build_s": 600}], None)):
+            dd = root / name
+            dd.mkdir()
+            (dd / "pre-apply.json").write_text(json.dumps({"steps": {"3": {"attempts": atts}}}))
+            sec, best, prob = stf([dd])
+            check(f"㉒ 단계 3 실측 {atts[0]['build_s']}초({atts[0]['result']}) → statement_timeout {want}", sec == want and (bool(prob) == (want is None)), f"{sec} {best} {prob}")
+    # ㉓ pageSize(CR13-27)
+    base = {"counterDrift": {"expiryRepair": True, "cleanup": {"mode": "schedule"}, "reconcile": {"enabled": False, "detectShape": "split",
+            "incremental": {"method": "trigger", "enabled": True, "interval": "1s", "pageSize": 100000}, "safetyNet": {"enabled": True}}}, "limitStrategy": "counter-upsert-precheck"}
+    fw = {"prefix": "spring.flyway", "properties": {"locations": plan13.NEW_FLYWAY}}
+    def cc(ps):
+        h = json.loads(json.dumps(base))
+        if ps is None:
+            del h["counterDrift"]["reconcile"]["incremental"]["pageSize"]
+        else:
+            h["counterDrift"]["reconcile"]["incremental"]["pageSize"] = ps
+        return plan13.config_check("new", [{"prefix": "seat.hold", "properties": h}, fw])
+    check("㉓ 새 앱 pageSize 100000 → 일치", cc(100000) == [], str(cc(100000)))
+    check("㉓ 새 앱 pageSize 5000(양수지만 기본값 아님) → 불일치", any("pageSize" in x for x in cc(5000)), str(cc(5000)))
+    check("㉓ 새 앱 pageSize 없음 → 불일치", any("pageSize" in x for x in cc(None)), str(cc(None)))
     # ⑥ 고르는 규칙 — 결정성 · 순환
     vals = {1: {"J1": [5, 5], "J2": [5, 5], "J3": [5, 5], "D1": [0], "D2": [0], "D3": [0]},
             2: {"J1": [0, 0], "J2": [0, 1], "J3": [1, 1], "D1": [1, 2], "D2": [0], "D3": [0]},

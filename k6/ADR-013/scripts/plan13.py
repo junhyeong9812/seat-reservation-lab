@@ -3,10 +3,15 @@
 경계 탐침 판정(DS-10) · 기대 설정(H9). run.sh·campaign.sh·limitprobe.py·summarize.py가 모두 이 파일을 읽는다(값을 두 곳에 두지 않는다).
 
     plan13.py --render <절차 1..5> <S4c|S3e>             → 회차 계획 JSON(표준 출력): 시각표 · 단계(orchestrator가 그대로 실행) · 계획 사건 목록 · 끝 상태 · 탐침 일정
-    plan13.py --probe-dry-run [--startup-s N] [--collect-s N] [--stop-s N] [--drain-s N] [--json]
+    plan13.py --probe-dry-run [--smoke <회차폴더> …] [--op-durations '<{"op": 초, …}>'] [--json]
                                                           → 다섯 절차 × 두 부하의 계획 칸에서 경계 탐침 수(§4.9-20 · §5.8-1 — 0이 아니면 exit 1)
-                                                            민감도: 기동 → UP · 수집 · 내림 · 비움에 걸리는 초(계획 판정은 모두 0 — 계획 시각 그대로 ·
-                                                            --drain-s 없으면 다른 길이가 있을 때 계획 비움 5초). campaign.sh 시작 조건 ⑤는 스모크 실측 길이로 부른다(CR13-8)
+                                                            인자 없음 = 계획 시각(모든 사건이 순간 — §4.9-20). --smoke = 스모크 회차 events.jsonl에서
+                                                            사건 종류(OPS 9종 — start · wait-health · config-check · lb-add · lb-remove · drain · collect · stop · pre-apply)마다
+                                                            성공 사건 dur_s 최대를 직접 계산해 그 길이로(campaign.sh 시작 조건 ⑤ — CR13-20 · 한 종류라도 실측이 없으면 exit 2).
+                                                            --op-durations = 민감도 보기 전용(손값 — 시작 조건에 쓰지 않는다)
+    plan13.py --smoke-durations <회차폴더> …               → 위 실측 길이 JSON {durations, sources, problems} · 문제 있으면 exit 2
+    plan13.py --stmt-timeout <회차폴더> …                  → 적용판 단계 3 statement_timeout 초 = max(⌈스모크 CONCURRENTLY 실측 최대 × 3⌉, 600)(§4.4 DS-8 · CR13-17) ·
+                                                            스모크 pre-apply.json 단계 3 성공 시도의 build_s가 하나도 없으면 exit 2
     plan13.py --config-check <old|shadow|new> <configprops.json>   → 기대 설정 대조(H9 — cond-config-mismatch) · 사유 한 줄씩 · exit 0 일치 · 1 불일치 · 2 판정 불가
     plan13.py --events-check <회차폴더>                    → events-check.json(H3 계획 대 실제 — 빠진 · 계획에 없는 · 순서 · 끝 상태) · exit 0 일치 · 1 불일치
 
@@ -51,6 +56,9 @@ SEATS_PER_SCHEDULE = 10_000
 K_FIXED = {1: (2, 1, 1), 2: (4, 0, 2), 3: (2, 0, 1), 4: (6, 0, 1), 5: (8, 0, 2)}
 CELL_NAMES = ("old", "trans", "new")
 
+# 사건 종류 전부(H3 — run.sh run_action) · dry-run이 길이를 받는 단위(CR13-20)
+OPS = ("start", "wait-health", "config-check", "lb-add", "lb-remove", "drain", "collect", "stop", "pre-apply")
+STMT_TIMEOUT_MIN_S, STMT_TIMEOUT_FACTOR = 600, 3   # §4.4 단계 3 · DS-8 'CONCURRENTLY 실측 시간의 3배 · 최소 600초'
 # 사건 종류 — owner_changed(DS-10)를 만드는 것: lb 넣기·빼기 · 앱 기동(start)·UP(wait-health 끝) · 내림(stop). 파생(DB 기록): 새 앱 첫 증분 틱 · 옛 앱 마지막 C 바퀴 끝
 OWNER_EVENTS = ("lb-add", "lb-remove", "start", "wait-health", "stop")
 
@@ -169,22 +177,20 @@ def classify_probe(inject_s, decide_s, iv, instants):
 
 
 # ---- dry-run(§4.9-20) ---------------------------------------------------------------------------------------------------
-def planned_events_timed(proc, load, startup_s=0.0, collect_s=0.0, stop_s=0.0, drain_s=None):
-    """계획 시각으로 사건 시각을 만든다 — 계획(인자 0)은 모든 사건이 순간(계획 시각표의 '같은 시각' 해석).
-    민감도: startup_s = 기동 → UP · collect_s = 수집 · stop_s = 내림 · drain_s = 비움에 걸리는 초 —
-    drain_s가 없으면 startup_s > 0일 때 계획 비움 시간(DRAIN_S)을 쓴다(앞 동작 그대로)."""
+def planned_events_timed(proc, load, durs=None):
+    """계획 시각으로 사건 시각을 만든다 — durs = {사건 종류: 초}(없는 종류 = 0). durs 없음 = 계획(모든 사건이 순간 — 계획 시각표의 '같은 시각' 해석).
+    한 단계 안의 사건은 차례대로 이어진다(앞 사건 끝 = 다음 사건 시작 — run.sh run_step). 모든 종류가 길이를 받는다(CR13-20 — 기동 시작·설정 확인·lb 포함)."""
     setup, steps, _ = steps_of(proc, load)
     ev, derived = [], []
-    if drain_s is None:
-        drain_s = float(DRAIN_S) if startup_s > 0 else 0.0
+    durs = durs or {}
+    bad = [k for k in durs if k not in OPS]
+    if bad:
+        raise ValueError(f"모르는 사건 종류 {bad} — OPS {OPS}")
+    t = 0.0
     for s in steps:
-        t = float(s["at_s"])
+        t = max(float(s["at_s"]), t)   # 앞 단계가 계획 시각을 넘기면 다음 단계는 늦게 시작한다(run.sh orchestrate — 남은 대기 0)
         for a in s["actions"]:
-            dur = 0.0
-            if startup_s > 0 or collect_s > 0 or stop_s > 0 or drain_s > 0:
-                dur = {"wait-health": startup_s, "drain": drain_s, "collect": collect_s, "stop": stop_s}.get(a["op"], 0.0)
-            if a["op"] == "pre-apply":
-                dur = 0.0   # 적용판은 소유 변경이 아니다(OWNER_EVENTS 밖) — 길이는 dry-run 판정에 들지 않는다
+            dur = float(durs.get(a["op"], 0.0))
             ev.append({"step": s["name"], "op": a["op"], "slot": a.get("slot"), "t0": t, "t1": t + dur})
             if a["op"] == "wait-health" and a.get("slot") and _role_at(steps, s, a) == "new":
                 derived.append((t + dur, f"first-inc-tick:{a['slot']}"))   # 새 앱 첫 증분 틱 ≈ UP
@@ -216,12 +222,62 @@ def _role_before_stop(steps, step, action):
     return role
 
 
-def probe_dry_run(startup_s=0.0, collect_s=0.0, stop_s=0.0, drain_s=None):
+def smoke_durations(dirs):
+    """스모크 회차 폴더들의 events.jsonl → ({사건 종류: 성공 사건 dur_s 최대}, {종류: 그 최대가 나온 폴더}, 문제 목록).
+    문제(하나라도 있으면 시작 조건 ⑤ 막음): 폴더·events.jsonl 없음 · 깨진 줄 · OPS 중 성공 사건 실측이 하나도 없는 종류."""
+    durs, src, problems = {}, {}, []
+    if not dirs:
+        problems.append("스모크 회차 폴더 없음")
+    for d in dirs:
+        f = Path(d) / "events.jsonl"
+        if not f.is_file():
+            problems.append(f"{d}: events.jsonl 없음")
+            continue
+        for i, line in enumerate(f.read_text().splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                problems.append(f"{d}: events.jsonl {i}행 깨짐")
+                continue
+            if e.get("kind", "plan") != "plan" or e.get("result") != "ok" or e.get("op") not in OPS:
+                continue
+            v = e.get("dur_s")
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0:
+                problems.append(f"{d}: {e.get('op')} dur_s {v!r}")
+                continue
+            if v > durs.get(e["op"], -1.0):
+                durs[e["op"]], src[e["op"]] = float(v), str(d)
+    problems += [f"사건 종류 {op} 실측 없음" for op in OPS if op not in durs]
+    return durs, src, problems
+
+
+def stmt_timeout_from(dirs):
+    """적용판 단계 3 statement_timeout 초(CR13-17) = max(⌈스모크 CONCURRENTLY 성공 시도 build_s 최대 × 3⌉, 600) · 실측 없으면 (None, 문제)."""
+    import math
+    best, problems = None, []
+    for d in dirs:
+        try:
+            pa = json.loads((Path(d) / "pre-apply.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            continue   # ①②③ 스모크에는 적용판이 없다
+        for a in (((pa.get("steps") or {}).get("3") or {}).get("attempts") or []):
+            b = a.get("build_s")
+            if a.get("result") == "OK" and a.get("valid") == "true" and isinstance(b, (int, float)) and b >= 0:
+                best = b if best is None else max(best, b)
+    if best is None:
+        problems.append("스모크 pre-apply.json 단계 3 성공 시도(build_s) 없음 — CONCURRENTLY 실측이 없다")
+        return None, best, problems
+    return max(int(math.ceil(best * STMT_TIMEOUT_FACTOR)), STMT_TIMEOUT_MIN_S), best, problems
+
+
+def probe_dry_run(durs=None):
     rows, total = [], 0
     for load in LOADS:
         k6_s = LOADS[load]["k6_s"]
         for proc in range(1, 6):
-            ev, derived = planned_events_timed(proc, load, startup_s, collect_s, stop_s, drain_s)
+            ev, derived = planned_events_timed(proc, load, durs)
             iv = intervals(ev, k6_s)
             inst = owner_instants(ev, derived)
             cells = {c: {"probes": 0, "boundary": 0, "in": {}, "lost": []} for c in CELL_NAMES}
@@ -320,8 +376,8 @@ def config_check(role, props):
         locs = (fw or {}).get("locations")
         if locs is None or [str(x) for x in locs] != NEW_FLYWAY:
             r.append(f"{role}: flyway.locations {locs!r} ≠ {NEW_FLYWAY}(기본 위치 — K1)")
-    if role == "new" and inc.get("pageSize") is not None and not (isinstance(inc.get("pageSize"), int) and inc["pageSize"] > 0):
-        r.append(f"new: incremental.pageSize {inc.get('pageSize')!r} — 양수가 아니다")
+    if role == "new":   # CR13-27 — 새 앱 기본값 100,000(§4.11 · 앱 코드 bb7ecbd2)과 같아야 한다(양수만 보면 다른 값이 통과한다 · 없음도 불일치)
+        want("incremental.pageSize", inc.get("pageSize"), 100000)
     return r
 
 
@@ -380,15 +436,38 @@ def main(argv):
     if len(argv) >= 4 and argv[1] == "--render":
         print(json.dumps(render(int(argv[2]), argv[3]), ensure_ascii=False))
         return 0
-    if len(argv) >= 2 and argv[1] == "--probe-dry-run":
-        opt = lambda k, dflt=0.0: float(argv[argv.index(k) + 1]) if k in argv else dflt
-        su, co, sp, dr = opt("--startup-s"), opt("--collect-s"), opt("--stop-s"), opt("--drain-s", None)
-        total, rows = probe_dry_run(su, co, sp, dr)
-        dr_eff = dr if dr is not None else (float(DRAIN_S) if su > 0 else 0.0)
-        if "--json" in argv:
-            print(json.dumps({"startup_s": su, "collect_s": co, "stop_s": sp, "drain_s": dr_eff, "boundary_total": total, "rows": rows}, ensure_ascii=False))
+    smokes = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--smoke"]
+    if len(argv) >= 3 and argv[1] in ("--smoke-durations", "--stmt-timeout"):
+        dirs = argv[2:]
+        if argv[1] == "--smoke-durations":
+            durs, src, problems = smoke_durations(dirs)
+            print(json.dumps({"durations": durs, "sources": src, "problems": problems}, ensure_ascii=False))
         else:
-            print(f"# 탐침 일정 dry-run(§4.9-20 · §5.8-1) — 기동 → UP {su:g}초 · 수집 {co:g}초 · 내림 {sp:g}초 · 비움 {dr_eff:g}초 · 판정 여유 {PROBE_DECIDE_MARGIN_S}초")
+            sec, best, problems = stmt_timeout_from(dirs)
+            print(json.dumps({"stmt_timeout_s": sec, "concurrently_max_s": best, "problems": problems}, ensure_ascii=False))
+        return 2 if problems else 0
+    if len(argv) >= 2 and argv[1] == "--probe-dry-run":
+        if smokes and "--op-durations" in argv:
+            print("--smoke와 --op-durations는 함께 쓰지 않는다", file=sys.stderr)
+            return 2
+        src_name = "계획 시각(모든 사건 순간)"
+        if smokes:
+            durs, src, problems = smoke_durations(smokes)
+            if problems:
+                print(json.dumps({"durations": durs, "problems": problems, "boundary_total": None}, ensure_ascii=False) if "--json" in argv
+                      else "스모크 실측 길이 문제 — dry-run 하지 않음: " + " · ".join(problems))
+                return 2
+            src_name = f"스모크 실측 {len(smokes)}회차"
+        elif "--op-durations" in argv:
+            durs = {k: float(v) for k, v in json.loads(argv[argv.index("--op-durations") + 1]).items()}
+            src_name = "손값(민감도 보기 전용)"
+        else:
+            durs = {}
+        total, rows = probe_dry_run(durs)
+        if "--json" in argv:
+            print(json.dumps({"source": src_name, "durations": durs, "boundary_total": total, "rows": rows}, ensure_ascii=False))
+        else:
+            print(f"# 탐침 일정 dry-run(§4.9-20 · §5.8-1) — {src_name} · 사건 길이 {json.dumps(durs, ensure_ascii=False)} · 판정 여유 {PROBE_DECIDE_MARGIN_S}초")
             print("부하 | 절차 | 경계 탐침 | 칸별(old/trans/new) 구간 배정 | 경계로 빠진 탐침 | 가장 짧은 칸 끝 여유(초)")
             for r in rows:
                 cells = " · ".join(f"{c}:{dict(sorted(v['in'].items()))}" for c, v in r["cells"].items())
