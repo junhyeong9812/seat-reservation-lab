@@ -35,8 +35,9 @@ class DefaultLimitStartupCheckTest {
     private val seq = AtomicInteger()
 
     /**
-     * 부팅마다 새 DB — ADR-012 기본값 교체(명세 §10) 뒤 키 없는 부팅은 V9·V10을 적용한다. 같은 DB를 기본 위치(db/migration)로 다시 띄우면
-     * Flyway 검증이 '적용됐는데 위치에 없는 마이그레이션'으로 멈춘다(테스트 순서에 따라 갈리지 않게).
+     * 부팅마다 새 DB — ADR-012 기본값 교체(명세 §10) 뒤 키 없는 부팅은 V9 트리거(user_hold_quota_touch)·V10을 적용한다. 같은 DB를
+     * method=none · 위치 db/migration으로 다시 띄우면 Flyway는 그대로 지나가지만 기동 검사(core IncrementalSchemaCheck — method≠trigger인데
+     * 트리거가 있다)가 거부한다(테스트 순서에 따라 갈리지 않게).
      */
     private fun boot(vararg extra: String): ConfigurableApplicationContext {
         val name = "deflimit_${seq.incrementAndGet()}"
