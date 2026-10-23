@@ -8,7 +8,9 @@
 ⑥ 고르는 규칙의 결정성(후보 순서를 바꿔도 같은 결과)과 순환 처리(순환 밖에서 빠진 후보는 되살리지 않는다) ⑦ ① 중단 구간 탐침 = '중단' · J = 단독(새) + lb 편입 뒤 탐침
 ⑧ N = 실제 구간 단독(새)(칸 무관) ⑨ (자) 3회 합 짝 0 칸 = 판정 불가 ⑩ 예상 밖 판정 응답 = probe-anomaly · P9 (바) ⑪ GC 로그 없음·빈 로그 = gc-log-missing
 ⑫ H4 수집 오류·지표 없음 = app-collect-missing ⑬ (마) 응답 섞인 탐침은 두 수에서 뺀다 ⑭ P7 이어 읽기 끝 = page_full 지표 + 행 수 ⑮ 끝 검사 앱 ≠ 계획 = final-app-mismatch
-(코드 리뷰 루프 1 CR13-1~14 · 참고 — ⑦의 J · ①의 J 수는 CR13-1 정정 뒤 값)."""
+⑯ 실행기 끝 행 없음·기록 < 계획 = probe-incomplete(최소 수 충족이어도 — CR13-15) ⑰ 전환 실패(절차) 뒤 산출물 결측은 하네스로 묻지 않음 · 앞의 하네스 사유는 invalid(CR13-18)
+⑱ J 모집단 = 전환 칸만 · ① J = 0(§5.8-3a — CR13-19) ⑲ 앱 끝 검사 v_counter_mismatch = P9 (다)(CR13-23) ⑳ m 시각 오프셋 해석(분 오프셋 · 못 읽음 = m-parse-failed — CR13-28)
+(코드 리뷰 루프 1 CR13-1~14 · 참고 · 루프 2 CR13-15~28 — ①·⑦의 J는 §5.8-3a 정정 뒤 값)."""
 import gzip
 import json
 import random
@@ -236,7 +238,7 @@ def main():
     out, st = make_rep(root / "c1", 3, "S4c", 1)
     check("① 정상 회차 → ok", st == "ok", f"{st} {out.get('harness_reasons')} {out.get('procedure_reasons')}")
     pt = out.get("probe_tables") or {}
-    check("① 짝 수 O = T = 6 · J = 12(전환 6 + 단독(새) 6 — CR13-1) · N = 4 · Q = 4", pt.get("counts") == {"O": 6, "Q": 4, "T": 6, "N": 4, "N_H": 2, "N_L": 2, "J": 12}, str(pt.get("counts")))
+    check("① 짝 수 O = T = 6 · J = 6(전환 칸만 — §5.8-3a · CR13-19) · N = 4 · Q = 4", pt.get("counts") == {"O": 6, "Q": 4, "T": 6, "N": 4, "N_H": 2, "N_L": 2, "J": 6}, str(pt.get("counts")))
     check("① D1 = 0(정지 초 없음)", (out.get("k6") or {}).get("D1") == 0, str((out.get("k6") or {}).get("D1")))
     # ② 짝 제외
     out, st = make_rep(root / "c2", 3, "S4c", 1, old_fail={(30, "H")})
@@ -272,8 +274,9 @@ def main():
     check("⑦ ① 전환 칸 중 중단 구간 탐침 = 중단", len(outage) >= 1 and all(x["cell"] == "trans" for x in outage), str([(x["id"], x["status"]) for x in pr if x["cell"] == "trans"]))
     cnts = (out.get("probe_tables") or {}).get("counts", {})
     after = [x for x in pr if x["cell"] == "trans" and x["status"] == "decision" and x["interval"] == "new" and x["d"] in (5, 30, 75)]
-    check("⑦ ① J = 단독(새) 칸 6 + 전환 칸 중 lb 편입 뒤 판정 탐침(§5.4 '① 6 이상' — CR13-1) · 회차 ok",
-          st == "ok" and len(after) >= 1 and cnts.get("J") == 6 + len(after), f"{st} {cnts} lb 편입 뒤 {[x['id'] for x in after]}")
+    check("⑦ ① J = 0(전환 구간에 섞임 없음 — §5.8-3a 정의) · J 수 묻지 않음 · lb 편입 뒤 전환 칸 탐침이 있어도 J에 들지 않음 · 회차 ok",
+          st == "ok" and len(after) >= 1 and cnts.get("J") is None and (out.get("probe_tables") or {}).get("J") == 0.0,
+          f"{st} {cnts} J={(out.get('probe_tables') or {}).get('J')} lb 편입 뒤 {[x['id'] for x in after]}")
     n_exp = [x for x in pr if x["status"] == "decision" and x["interval"] == "new" and x["d"] in (30, 75)]
     check("⑧ N = 실제 구간 단독(새) 판정 탐침(칸 무관 — CR13-9) · 전환 칸 lb 편입 뒤 d ≥ 30 탐침이 든다",
           cnts.get("N") == len(n_exp) and any(x["cell"] == "trans" for x in n_exp), f"{cnts} 기대 {[(x['id'], x['cell']) for x in n_exp]}")
@@ -322,6 +325,104 @@ def main():
     # ⑮ 끝 검사 앱 ≠ 계획(CR13-참고)
     out, st = make_rep(root / "c15", 2, "S4c", 1, final_app="B")
     check("⑮ 끝 검사 앱 ≠ 계획 → fail:final-app-mismatch", st.startswith("fail:") and "final-app-mismatch" in st, st)
+    # ⑯ 실행기 완료(CR13-15) — 최소 수를 채워도 끝 행 없음·기록 < 계획이면 무효
+    out, st = make_rep(root / "c16a", 3, "S4c", 1, driver_done=False)
+    check("⑯ 실행기 끝 행 없음(최소 수 충족) → invalid:probe-incomplete", st.startswith("invalid:") and "probe-incomplete" in st and not (out.get("probe_tables") or {}).get("short"),
+          f"{st} short={(out.get('probe_tables') or {}).get('short')}")
+    d = root / "c16b" / "S4c" / "p3" / "rep1"
+    make_rep(root / "c16b", 3, "S4c", 1)
+    lines = (d / "probe.jsonl").read_text().splitlines()
+    drop = next(i for i, l in enumerate(lines) if json.loads(l).get("kind") == "probe" and json.loads(l).get("d") == 1)   # d = 1 탐침(최소 수에 들지 않는다) 하나 빠짐
+    (d / "probe.jsonl").write_text("\n".join(l for i, l in enumerate(lines) if i != drop) + "\n")
+    out, st = summarize.rep_summary(d)
+    check("⑯ 탐침 기록 23 < 계획 24(끝 행은 있음) → invalid:probe-incomplete", st.startswith("invalid:") and "probe-incomplete" in st, f"{st} {(out.get('probe') or {}).get('incomplete')}")
+
+    # ⑰ 전환 실패(절차) — 새 앱 health 시한 초과 · 그 뒤 사건 없음 · 증분 행·restart 없음(CR13-18 재현)
+    def tf_health(base, gc_missing_old=False, no_clock=False):
+        make_rep(base, 3, "S4c", 1)
+        d = base / "S4c" / "p3" / "rep1"
+        (d / "transition-failed.json").write_text(json.dumps({"cause": "procedure", "reason": "health-timeout", "op": "wait-health", "slot": "B", "detail": "시한 300초"}))
+        (d / "events-check.json").unlink()
+        rows, keep = [json.loads(l) for l in (d / "events.jsonl").read_text().splitlines()], []
+        for e in rows:
+            if e.get("kind") == "plan" and e.get("step") != "setup" and e.get("op") == "wait-health" and e.get("slot") == "B":
+                keep.append(dict(e, result="fail", cause="procedure", detail={"reason": "health-timeout", "limit_s": 300}))
+                break
+            if e.get("kind") == "plan":
+                keep.append(e)
+        keep.append({"kind": "end-state", "alive": ["A", "B"], "lb": ["A"]})
+        keep.append({"kind": "final-collect", "op": "A", "t_pc": T0 + 1400, "detail": {"life": "A1", "errors": []}})
+        (d / "events.jsonl").write_text("\n".join(json.dumps(r) for r in keep) + "\n")
+        db = json.loads((d / "drift-db.json").read_text())
+        db["reconcile_runs"] = [r for r in db["reconcile_runs"] if not str(r["source"]).startswith("inc-")]
+        db["inc_gaps"] = []
+        (d / "drift-db.json").write_text(json.dumps(db))
+        if gc_missing_old:
+            (d / "app-A1-gc.log.gz").unlink()
+        if no_clock:
+            (d / "clock-offset.json").unlink()
+        return summarize.rep_summary(d)
+    # 리뷰 재현(그 뒤 사건은 그대로 두고 새 앱 wait-health만 실패 · 증분 행 없음) — 상태 문자열까지 같아야 한다
+    make_rep(root / "c17r", 3, "S4c", 1)
+    d = root / "c17r" / "S4c" / "p3" / "rep1"
+    (d / "transition-failed.json").write_text(json.dumps({"cause": "procedure", "reason": "health-timeout", "op": "wait-health", "slot": "B"}))
+    ev = [json.loads(l) for l in (d / "events.jsonl").read_text().splitlines()]
+    for e in ev:
+        if e.get("kind") == "plan" and e.get("op") == "wait-health" and e.get("role") == "new":
+            e["result"] = "fail"
+    (d / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev) + "\n")
+    db = json.loads((d / "drift-db.json").read_text())
+    db["reconcile_runs"] = [r for r in db["reconcile_runs"] if not str(r["source"]).startswith("inc-")]
+    (d / "drift-db.json").write_text(json.dumps(db))
+    out, st = summarize.rep_summary(d)
+    check("⑰ 리뷰 재현 health-timeout + inc 행 없음 → fail:transition-failed:health-timeout", st == "fail:transition-failed:health-timeout", f"{st} {out.get('harness_reasons')}")
+    # 실제 모양(실패 뒤 사건 없음 — 오케스트레이터가 멈춘다): 전환 칸·단독(새) 탐침 부족은 절차 몫(probe-short-by-procedure)이 함께 붙을 수 있다 — 하네스 사유는 없어야 한다
+    out, st = tf_health(root / "c17a")
+    check("⑰ 실패 뒤 사건 없음 + 증분 행 없음 → fail(transition-failed:health-timeout · 하네스 사유 없음 · p7-data-missing는 기록만)",
+          st.startswith("fail:") and "transition-failed:health-timeout" in st and not out.get("harness_reasons") and "p7-data-missing" in (out.get("harness_deferred") or []),
+          f"{st} deferred={out.get('harness_deferred')}")
+    out, st = tf_health(root / "c17b", gc_missing_old=True)
+    check("⑰ + 옛 앱 GC 로그 없음(실패 뒤 회차 끝 수집) → 여전히 fail(gc-log-missing:A1은 기록만)",
+          st.startswith("fail:") and "transition-failed:health-timeout" in st and "gc-log-missing:A1" in (out.get("harness_deferred") or []), f"{st} deferred={out.get('harness_deferred')}")
+    out, st = tf_health(root / "c17c", no_clock=True)
+    check("⑰ + 시계 차 결측(전환 실패 앞의 하네스 사유) → invalid:clock-offset-missing 유지", st == "invalid:clock-offset-missing", f"{st} deferred={out.get('harness_deferred')}")
+    out, st = make_rep(root / "c17d", 3, "S4c", 1, gc_bad={"A1": "missing"})
+    check("⑰ 전환 실패 없음 + GC 로그 없음 → 그대로 invalid:gc-log-missing:A1", st == "invalid:gc-log-missing:A1", st)
+    # ⑱ J 모집단 = 전환 칸만(§5.8-3a — CR13-19): 전환 칸 30H 틀림 · 단독(새) 칸 30H·30L 틀림 → J = 1/6(단독(새) 몫은 들지 않는다)
+    out, st = make_rep(root / "c18", 3, "S4c", 1, verdicts={("trans", 30, "H"): "wrong", ("new", 30, "H"): "wrong", ("new", 30, "L"): "wrong"})
+    pt = out.get("probe_tables") or {}
+    check("⑱ J = Σ(T − O) ÷ 짝 수 = 1/6 · J 수 = T 짝 수 6(단독(새) 칸 틀림은 J 밖 — N 틀림으로만)", pt.get("J") == round(1 / 6, 4) and pt["counts"]["J"] == 6 and pt.get("N_wrong") == 2,
+          f"J={pt.get('J')} counts={pt.get('counts')} N_wrong={pt.get('N_wrong')}")
+    # ⑲ 앱 끝 검사 v_counter_mismatch(CR13-23) → 캠페인 P9 (다)
+    camp4 = root / "camp4"
+    for r in (1, 2, 3):
+        make_rep(camp4, 3, "S4c", r)
+        make_rep(camp4, 3, "S3e", r)
+    d = camp4 / "S4c" / "p3" / "rep2"
+    (d / "consistency.json").write_text(json.dumps({"v_counter_mismatch": 3}))
+    summarize.rep_summary(d)
+    c4 = summarize.campaign(camp4)["cells"]["S4c-p3"]
+    check("⑲ 앱 끝 검사 v_counter_mismatch 3 → P9 (다) 항목", isinstance(c4["P9"], list) and any("(다)" in x and "v_counter_mismatch" in x for x in c4["P9"]), str(c4["P9"]))
+    # ⑳ m 시각(CR13-28) — 분 오프셋 · 소수 초 · 못 읽음
+    from datetime import datetime
+    pg_ts = getattr(summarize, "pg_ts", None)
+    check("⑳ m '+05:30' 오프셋 → 분까지 반영", pg_ts is not None and pg_ts('{"2026-10-24 05:30:00+05:30"}') == datetime.fromisoformat("2026-10-24T00:00:00+00:00").timestamp(),
+          "pg_ts 없음" if pg_ts is None else str(pg_ts('{"2026-10-24 05:30:00+05:30"}')))
+    check("⑳ m 소수 초 · '+00' → 그대로", pg_ts is not None and pg_ts('{"2026-10-24 00:00:01.25+00"}') == datetime.fromisoformat("2026-10-24T00:00:01.250+00:00").timestamp(),
+          "pg_ts 없음" if pg_ts is None else str(pg_ts('{"2026-10-24 00:00:01.25+00"}')))
+    d = root / "c20" / "S4c" / "p3" / "rep1"
+    make_rep(root / "c20", 3, "S4c", 1)
+    ec = json.loads((d / "end-check.json").read_text())
+    (d / "end-check.json").write_text(json.dumps(dict(ec, m="{bogus}")))
+    out, st = summarize.rep_summary(d)
+    check("⑳ m이 있는데 못 읽음 → invalid:m-parse-failed(L*를 restart 하한만으로 줄이지 않는다)", st == "invalid:m-parse-failed", st)
+    d = root / "c20b" / "S4c" / "p3" / "rep1"
+    make_rep(root / "c20b", 3, "S4c", 1)
+    ec = json.loads((d / "end-check.json").read_text())
+    (d / "end-check.json").write_text(json.dumps(dict(ec, m='{"2026-10-24 05:30:00+05:30"}')))
+    out, st = summarize.rep_summary(d)
+    want = datetime.fromisoformat("2026-10-24T00:00:00+00:00").timestamp() - OFF - T0
+    check("⑳ 회차 owner.m = 분 오프셋까지 읽은 시각", abs(((out.get("owner") or {}).get("m") or 0) - want) < 1e-6, f"{(out.get('owner') or {}).get('m')} ≠ {want}")
     # ⑥ 고르는 규칙 — 결정성 · 순환
     vals = {1: {"J1": [5, 5], "J2": [5, 5], "J3": [5, 5], "D1": [0], "D2": [0], "D3": [0]},
             2: {"J1": [0, 0], "J2": [0, 1], "J3": [1, 1], "D1": [1, 2], "D2": [0], "D3": [0]},

@@ -17,10 +17,12 @@
     짝 제외(§5.8-2): (회차, d, 종류)마다 단독(옛) 칸 탐침과 전환 칸 탐침 중 하나가 빠지면 다른 쪽도 뺀다(d ∈ {5, 30, 75}).
     전환 손해(§5.8-3 — §5.4 'min(T) > max(O)'를 대신한다): 부하·절차마다 3회 합으로 (d, 종류) 6칸(먼저 고정)마다 T 틀림 ≤ O 틀림 — 한 칸이라도 T > O면 반증 ·
       3회 합 짝 0인 칸 = 판정 불가(성공 아님 — CR13-2). ①은 해당 없음.
-    J1·J2(§5.5 · §5.8-3 · §5.4 J 행): 회차마다 Σ(X 틀림 − O 틀림) ÷ X 수. X = 같은 (d, 종류)의 전환 칸·단독(새) 칸 탐침 중 실제 구간이 전환·단독(새)인 판정 탐침
-      (O가 판정 탐침일 때만 — 짝 제외). ②~⑤ 12 · ①은 전환 구간이 '중단'이라 단독(새) 6 + 전환 칸 중 lb 편입 뒤 판정 탐침(CR13-1).
+    J1·J2(§5.8-3 · §5.8-3a 정정 — §5.5 'Pᵣ = 전환 + 단독(새)'를 대신한다): 회차마다 Σ(T 틀림 − O 틀림) ÷ 짝 맞춘 T 수.
+      모집단 = 전환 칸(T)만 — (d, 종류)마다 실제 구간이 전환인 전환 칸 판정 탐침과 같은 (d, 종류) 단독(옛) 칸 판정 탐침의 짝(§5.8-2 짝 제외).
+      단독(새) 칸·①의 lb 편입 뒤 탐침은 J에 들지 않는다(CR13-19 — CR13-1을 되돌림). ①은 전환 구간에 섞임이 없어 J = 0(정의 — ①의 손해는 D1·D2).
     최소 판정 탐침 수(§5.4 표 + §5.8-4 — 회차마다 · 짝 제외 뒤): O ≥ 3 · Q(단독(옛) d ∈ {1, 5}) ≥ 2 · T ≥ 3(②~⑤) ·
-      N(실제 구간 단독(새) · 칸 무관 · d ∈ {30, 75} — CR13-9) H ≥ 1 · L ≥ 1 · 합 ≥ 2 · J ≥ 3.
+      N(실제 구간 단독(새) · 칸 무관 · d ∈ {30, 75} — CR13-9) H ≥ 1 · L ≥ 1 · 합 ≥ 2 · J ≥ 3(②~⑤ — J 수 = T 짝 수 · ①은 J = 0 정의라 묻지 않는다).
+    실행기 완료(CR13-15): done 행 없음 · done 계획·끝낸 수 ≠ 계획 · 탐침 기록 수 ≠ 계획 = invalid:probe-incomplete(최소 수를 채워도 — 남은 탐침이 숨는다).
     미달 원인(§5.8-5): 하네스(실행기 끝 행 없음 · 탐침 기록 < 계획 · 주입·스냅숏 SQL 실패 · 실행기 예외) = invalid:probe-short · 그 밖 = fail:probe-short-by-procedure.
     (마) 두 수(스냅숏 > 2 · L 선점 3 = 201)는 응답이 모두 201·409인 탐침만 — 코드 0·5xx 섞인 탐침은 unclean_over로 따로(CR13-11).
   N10 결정성: 판정 요청 직후 스냅숏 실제(홀드 + 확정) = 그 탐침의 201 누계 — 다르면 probe-nondeterministic, 기계적 분류(§5.3 S5-10):
@@ -29,7 +31,10 @@
   가용성 탐침 부족(§5.3): 전환 창(위 창과 같다) **밖**에서 (보낸 요청 + 버린 반복) < 계획(2/s × 길이)의 95% = invalid. 창 안의 부족·버린 반복은 D2 실패다.
   단독(옛) 기준 창 [60, 90)(§5.3 S5-7): S4c 정지 초 > 0 · 두 부하 5xx·502 > 0 = invalid(환경). S3e는 정지 초를 쓰지 않는다(좌석 소진 — DS-6).
   H4 앱별 수집(CR13-5): UP한 생애마다 수집 사건(오류 0) · 지표·configprops · 앱 로그 — 결측 = invalid:app-collect-missing:<생애>:<항목> ·
-    GC 요약 없음·빈 로그·창 없음 = invalid:gc-log-missing:<생애>(CR13-4) — 전환 실패 회차는 묻지 않는다(절차 실패를 하네스 무효로 덮지 않게).
+    GC 요약 없음·빈 로그·창 없음 = invalid:gc-log-missing:<생애>(CR13-4).
+  전환 실패 회차(CR13-18): 절차 사유가 하네스 사유보다 앞선다 — **전환 실패 사건 시작 시각 뒤에 생기는 산출물**의 결측(P7 자료 · N3 그림자 지표 · H4 · GC ·
+    옛 앱 로그(수집이 실패 뒤) · 끝 검사 앱·끝 검사·DB 덤프 · m 해석)은 하네스 사유로 묻지 않고 harness_deferred에 기록만 한다(그 결측은 실패의 결과일 수 있다).
+    전환 실패 앞의 하네스 사유(시드 · 기준 창 · 시계 차 · k6·탐침 기록 등)는 그대로 invalid다(회차 자체를 믿을 수 없다).
   끝 검사 앱 ≠ 계획 final_new = fail:final-app-mismatch(CR13-참고).
 수치는 모두 원시 파일에서 계산한다(손 계산 금지). 없는 파일은 사유로 드러낸다(무음 금지)."""
 import gzip
@@ -68,6 +73,8 @@ N6B_S = 3.0
 MLOCK_STEP_S, MLOCK_MISS = 0.2, 0.10
 AVAIL_MIN_SHARE = 0.95
 BUSINESS = re.compile(r"^seatlab-[AB]-[0-9a-f]+-(old|new|shadow)$")
+# run.sh가 회차 끝(k6·수렴 뒤) 단계에서 남기는 하네스 사유 — 전환 실패 회차에서는 기록만(CR13-18)
+END_HREASONS = {"end-check-failed", "drift-db-failed", "end-pairs-failed", "injected-missing"}
 
 
 def load(p):
@@ -101,6 +108,23 @@ def iso(s):
     if num(s):
         return float(s)
     return datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+
+
+_PG_TS = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2})(?::?(\d{2}))?(?::?(\d{2}))?")
+
+
+def pg_ts(v):
+    """PostgreSQL timestamptz 글(attmissingval '{"2026-10-24 00:00:00.123+09:30"}' 등) → epoch 초 · 못 읽으면 None(CR13-28 — 분 단위 오프셋 · 소수 초 없음)."""
+    from datetime import datetime, timedelta, timezone
+    m = _PG_TS.search(str(v))
+    if not m:
+        return None
+    day, tm, oh, om, osec = m.groups()
+    sign = -1 if oh.startswith("-") else 1
+    off = timedelta(hours=int(oh[1:]), minutes=int(om or 0), seconds=int(osec or 0)) * sign
+    frac = tm.split(".")[1] if "." in tm else ""
+    base = datetime.fromisoformat(f"{day}T{tm.split('.')[0]}").replace(tzinfo=timezone(off))
+    return base.timestamp() + (float("0." + frac) if frac else 0.0)
 
 
 def p99(xs):
@@ -532,14 +556,25 @@ def probe_metrics(d, clk, plan, iv, instants, repaired, end_start_srv, outage_na
         x["repaired_by_end"] = fa is not None and (end_start_srv is None or fa <= end_start_srv)
         out["probes"].append(x)
     out["harness_error"] = harness_err
+    # 실행기 완료(CR13-15): 끝 행 · 계획 = 끝낸 수 = 기록 수 — 최소 수를 채웠어도 아니면 무효(빠진 탐침이 판정에서 조용히 사라지지 않게)
+    inc = []
+    if done is None:
+        inc.append("done 행 없음")
+    else:
+        if done.get("planned") != planned:
+            inc.append(f"done.planned {done.get('planned')} ≠ 계획 {planned}")
+        if done.get("finished") != planned:
+            inc.append(f"done.finished {done.get('finished')} ≠ 계획 {planned}")
+    if len(recs) != planned:
+        inc.append(f"탐침 기록 {len(recs)} ≠ 계획 {planned}")
+    out["incomplete"] = inc
     return out
 
 
 def probe_tables(pm, proc):
     """회차 하나: O · Q · T · N · J 수(짝 제외 뒤) · 칸별 틀림 · J 값 · 최소 수 미달.
-    J 모집단(§5.5 J1·J2 'Pᵣ = 전환 + 단독(새) 구간 판정 탐침' · §5.4 J 행 '②③④⑤ 12 · ① 6 이상' · §5.8-2 짝 제외 — CR13-1):
-      (d, 종류)마다 전환 칸·단독(새) 칸 탐침 중 실제 구간이 전환·단독(새)인 판정 탐침(X) — 같은 (d, 종류) 단독(옛) 칸 탐침(O)이 판정 탐침일 때만 센다.
-      J = Σ(X 틀림 − O 틀림) ÷ X 수(X마다 같은 O와 짝 — §5.8-3 '(T 틀림 − O 틀림) 합 ÷ 짝 맞춘 탐침 수'를 X로 넓힌 것). ①은 전환 구간 탐침이 '중단'이라 lb 편입 뒤 것만 든다.
+    J 모집단(§5.8-3a 정정 — 측정 전 · CR13-19): 전환 칸(T)만 — (d, 종류)마다 실제 구간이 전환인 전환 칸 판정 탐침(T)과 같은 (d, 종류) 단독(옛) 칸 판정 탐침(O)의 짝.
+      J = Σ(T 틀림 − O 틀림) ÷ 짝 수(§5.8-3 문자 그대로). 단독(새) 칸은 들지 않는다. ①은 전환 구간에 섞임이 없어 J = 0(정의 · J 수 = None · 최소 수 묻지 않음).
     N(P9 (가) · 최소 수 — CR13-9) = 실제 구간 단독(새)의 판정 탐침(칸 무관 · 경계 아님) · d ∈ {30, 75}.
     (마) 두 수(스냅숏 > 2 · L 선점 3 = 201 — CR13-11) = 요청 응답이 모두 201·409인 탐침만. 코드 0·5xx가 섞인 탐침은 unclean으로 따로 남긴다."""
     P = {x["id"]: x for x in pm.get("probes") or []}
@@ -557,28 +592,24 @@ def probe_tables(pm, proc):
             o_ok = dec(o, ("old",))
             o_n += o_ok
             t_ok = dec(t, ("trans",)) if proc != 1 else False
-            xs = [x for x in (t, by.get(("new", d, k))) if dec(x, ("trans", "new"))]
-            c = {"O_ok": o_ok, "T_ok": t_ok, "X": [f"{x['cell']}@{x['interval']}" for x in xs]}
+            c = {"O_ok": o_ok, "T_ok": t_ok}
             if proc != 1 and o_ok and t_ok:
                 c["pair_T"] = True
                 c["O_wrong"] = wrong(o)
                 c["T_wrong"] = wrong(t)
                 paired_T += 1
-            if o_ok and xs:
-                c["pair_J"] = len(xs)
-                c["J_O_wrong"] = wrong(o)
-                c["J_X_wrong"] = sum(wrong(x) for x in xs)
-                j_n += len(xs)
-                jsum += c["J_X_wrong"] - len(xs) * c["J_O_wrong"]
+                j_n += 1
+                jsum += c["T_wrong"] - c["O_wrong"]
             cells[f"{d}{k}"] = c
     q = [x for x in P.values() if x["cell"] == "old" and x["d"] in (1, 5) and dec(x, ("old",))]
     n = [x for x in P.values() if x["d"] in (30, 75) and dec(x, ("new",))]
     nH = sum(1 for x in n if x["type"] == "H")
     nL = sum(1 for x in n if x["type"] == "L")
-    counts = {"O": paired_T if proc != 1 else o_n, "Q": len(q), "T": paired_T if proc != 1 else None, "N": len(n), "N_H": nH, "N_L": nL, "J": j_n}
+    counts = {"O": paired_T if proc != 1 else o_n, "Q": len(q), "T": paired_T if proc != 1 else None, "N": len(n), "N_H": nH, "N_L": nL,
+              "J": j_n if proc != 1 else None}
     short = []
     for k in ("O", "Q", "T", "N", "N_H", "N_L", "J"):
-        if k == "T" and proc == 1:
+        if k in ("T", "J") and proc == 1:
             continue
         if (counts[k] or 0) < MIN[k]:
             short.append(f"{k}={counts[k]}<{MIN[k]}")
@@ -588,7 +619,7 @@ def probe_tables(pm, proc):
     return {"cells": cells, "counts": counts, "short": short,
             "Q_wrong": sum(1 for x in q if x["verdict"] == "wrong"), "Q_n": len(q),
             "N_wrong": sum(1 for x in n if x["verdict"] == "wrong"),
-            "J": round(jsum / j_n, 4) if j_n else None,
+            "J": 0.0 if proc == 1 else (round(jsum / j_n, 4) if j_n else None),
             "boundary": [x["id"] for x in P.values() if x.get("status") == "boundary"],
             "L_over_results": sum(1 for x in clean if l_over(x)),
             "snap_over_limit": sum(1 for x in clean if x.get("snap_over_limit")),
@@ -619,9 +650,24 @@ def rep_summary(d):
     pv = plan13.intervals([dict(e, t0=e["t0"], t1=e["t1"]) for e in ev if e["step"] != "setup" and e["t0"] is not None], k6_end_rel)
     lives = lives_of(ev)
     t1_first = pv["trans"][0] if pv else None
+
+    def collect_at(life):
+        """그 생애 산출물(지표·로그·GC)을 받은 시각 — 내림 직전 수집 사건 시작 또는 회차 끝 final-collect(없으면 None = 받지 못함)."""
+        c = (lives.get(life) or {}).get("collect")
+        if c is None:
+            fc = next((r for r in rows if r.get("kind") == "final-collect" and (r.get("detail") or {}).get("life") == life), None)
+            c = clk.pc(fc["t_pc"]) if fc and num(fc.get("t_pc")) else None
+        return c
     # 전환 실패(H3 · §5.3)
     tf = load(d / "transition-failed.json")
     ec = load(d / "events-check.json")
+    # 전환 실패 시각(CR13-18) = 첫 실패 사건(result ≠ ok)의 시작 — 그 뒤에 생기는 산출물 결측은 hpost로(아래 끝에서 나눈다). 실패 사건 행이 없으면 모름(None → 모든 hpost를 뒤로 본다)
+    fail_ev = sorted((e for e in ev if e.get("result") not in (None, "ok") and e["t0"] is not None), key=lambda e: e["t0"])
+    tf_rel = fail_ev[0]["t0"] if (tf and fail_ev) else None
+    post = []   # (사유, 그 산출물이 생기는 회차 기준 초 | None = 회차 끝·모름)
+
+    def hpost(reason, t):
+        post.append((reason, t))
     if tf:
         (procedure if tf.get("cause") != "harness" else harness).append(f"transition-failed:{tf.get('reason')}")
     elif ec is None:
@@ -631,13 +677,13 @@ def rep_summary(d):
     # DB 기록
     db, runs, gaps, dlog, repaired = db_records(d, clk)
     if not db:
-        harness.append("drift-db-missing")
+        hpost("drift-db-missing", None)   # 회차 끝 덤프
     end = load(d / "end-check.json")
     fa = load(d / "final-app.json") or {}
     # 끝 검사 앱(H6)이 계획(plan end_state.final_new)과 다르다(CR13-참고): run.sh가 계획 앱이 health를 못 내면 살아 있는 다른 앱으로 끝 검사를 돌린다 —
     #   계획한 마지막 새 앱이 회차 끝에 살아 있지 않은 것은 절차 이행 실패(P10)라 절차 사유로 드러낸다(원인을 가르지 못한 실패는 절차 — §5.3). 파일 없음 = 하네스.
     if not fa:
-        harness.append("final-app-missing")
+        hpost("final-app-missing", None)   # 회차 끝
     elif fa.get("final_app") != plan["end_state"]["final_new"]:
         procedure.append("final-app-mismatch")
     end_start_srv = (fa.get("end_check_start_pc") or 0) + clk.off if fa.get("end_check_start_pc") else None
@@ -704,6 +750,8 @@ def rep_summary(d):
     # 탐침
     pm = probe_metrics(d, clk, plan, pv, instants, repaired, end_start_srv, proc == 1)
     out["probe"] = pm
+    if pm.get("present") and pm.get("incomplete"):
+        harness.append("probe-incomplete")   # CR13-15 — 실행기 끝 행·계획 대 끝낸 수·기록 수(최소 수 충족과 무관)
     if pm.get("present"):
         pt = probe_tables(pm, proc)
         out["probe_tables"] = pt
@@ -732,9 +780,11 @@ def rep_summary(d):
     newL = next((L for k, L in sorted(lives.items()) if L.get("role") == "new"), None)
     m_val = None
     if end and end.get("m"):
-        mm = re.search(r'"?([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+[+-][0-9]{2})', str(end["m"]))
-        if mm:
-            m_val = clk.srv(iso(mm.group(1).replace(" ", "T") + ":00"))
+        m_srv = pg_ts(end["m"])
+        if m_srv is None:
+            hpost("m-parse-failed", None)   # CR13-28 — m이 있는데 못 읽으면 L*를 restart 하한만으로 줄여 보지 않는다(끝 검사 산출물)
+        else:
+            m_val = clk.srv(m_srv)
     restart = None
     if newL and newL.get("start") is not None:
         rr = sorted((g for g in gaps if g.get("kind") == "restart" and g["at_r"] is not None and g["at_r"] >= newL["start"] - 1), key=lambda g: g["at_r"])
@@ -775,7 +825,7 @@ def rep_summary(d):
         hold = next((b.get("properties") or {} for b in cfg.get("configprops") or [] if b.get("prefix") == "seat.hold"), {})
         ps = (((hold.get("counterDrift") or {}).get("reconcile") or {}).get("incremental") or {}).get("pageSize") or 100000
         if fi is None or restart is None:
-            harness.append("p7-data-missing")
+            hpost("p7-data-missing", newL.get("up"))   # 새 앱 UP 뒤에 생기는 자료(UP 못 했으면 None)
             p7["missing"] = [x for x, v in (("first-inc", fi), ("restart", restart)) if v is None]
         else:
             ticks = sorted((r for r in runs if r["source"] == fi["source"] and r["s"] is not None and r["s"] >= fi["s"]), key=lambda r: r["s"])
@@ -827,7 +877,7 @@ def rep_summary(d):
                 names = a.get("names") or []
                 bad = [n for n in names if n.startswith("seat.hold.counter.reconcile.incremental") or n.startswith("seat.hold.counter.safety")]
                 if a.get("names") is None:
-                    harness.append(f"shadow-metrics-missing:{life}")
+                    hpost(f"shadow-metrics-missing:{life}", collect_at(life))
                 elif bad:
                     n23.append(f"N3: 그림자 앱 {life} 지표 {bad[:3]}")
     out["N2N3"] = n23
@@ -859,8 +909,8 @@ def rep_summary(d):
             except OSError:
                 miss.append("app-log")
         h4[life] = sorted(set(miss))
-        if miss and not tf:
-            harness.append(f"app-collect-missing:{life}:{'+'.join(h4[life])}")
+        if miss:
+            hpost(f"app-collect-missing:{life}:{'+'.join(h4[life])}", collect_at(life))
     out["H4"] = h4
     # GC(P10 — 앱마다 창 [max(UP + 60, k6 시작 + 60), 내림 직전 수집]) — 요약 없음·빈 로그·창 없음 = gc-log-missing(CR13-4 · 무음 통과 금지)
     gcs = {}
@@ -869,20 +919,15 @@ def rep_summary(d):
             continue
         gz = d / f"app-{life}-gc.log.gz"
         w0 = max(L["up"] + 60, 60.0)
-        col = L.get("collect")
-        if col is None:
-            fc = next((r for r in rows if r.get("kind") == "final-collect" and (r.get("detail") or {}).get("life") == life), None)
-            col = clk.pc(fc["t_pc"]) if fc else None
+        col = collect_at(life)
         if gc_summary9 is None or not gz.exists() or col is None or col <= w0:
             gcs[life] = None if (gc_summary9 is None or not gz.exists()) else {"window": None}
-            if not tf:
-                harness.append(f"gc-log-missing:{life}")
+            hpost(f"gc-log-missing:{life}", col)
             continue
         g = gc_summary9(gz, window=(w0 + clk.T0 + clk.off, col + clk.T0 + clk.off), steady_from=w0 + clk.T0 + clk.off)
         if not g or not g.get("lines"):
             gcs[life] = {"window": [round(w0, 1), round(col, 1)], "lines": 0}
-            if not tf:
-                harness.append(f"gc-log-missing:{life}")
+            hpost(f"gc-log-missing:{life}", col)
             continue
         k = g.get("k6") or {}
         gcs[life] = {"window": [round(w0, 1), round(col, 1)], "full": k.get("full"), "stalls": k.get("stalls"), "stop_ms_max": k.get("stop_ms_max"),
@@ -900,7 +945,7 @@ def rep_summary(d):
         except OSError:
             txt = ""
         if not txt:
-            harness.append(f"old-app-log-missing:{life}")
+            hpost(f"old-app-log-missing:{life}", collect_at(life))
             continue
         p11[life] = {"cached_plan": txt.count("cached plan must not change result type"),
                      "error_lines": sum(1 for line in txt.splitlines() if " ERROR " in line)}
@@ -910,7 +955,7 @@ def rep_summary(d):
     # 끝 검사(P9 (다)(마)(사))
     p9 = {}
     if end is None:
-        harness.append("end-check-missing")
+        hpost("end-check-missing", None)   # 회차 끝
     else:
         p9["mismatch_all"] = end.get("mismatch_all")
         p9["over_limit_main"] = end.get("over_limit_main")
@@ -942,10 +987,12 @@ def rep_summary(d):
         inj = load(d / "injected.json") or {}
         ep = load(d / "end-pairs.json") or {}
         if not inj:
-            harness.append("injected-missing")
+            hpost("injected-missing", None)   # 회차 끝에 모은다
         rounds = [r for r in inj.get("rounds") or [] if r.get("ok")]
         if len(rounds) < len((inj.get("plan") or {}).get("rounds") or []):
-            harness.append("inject-round-failed")
+            okat = {r.get("at_s") for r in rounds}
+            miss_at = [r.get("at_s") for r in (inj.get("plan") or {}).get("rounds") or [] if r.get("at_s") not in okat]
+            hpost("inject-round-failed", min((x for x in miss_at if num(x)), default=None))   # 빠진 첫 차례 시각
         j3, j3_missing = [], 0
         for r in rounds:
             for p in r.get("pairs") or []:
@@ -978,7 +1025,22 @@ def rep_summary(d):
             continue
         rs.setdefault(r["source"], []).append(r["f"] - r["s"])
     out["reconcile"] = {k: {"n": len(v), "p50_s": sorted(v)[len(v) // 2], "max_s": max(v)} for k, v in rs.items()}
-    # 상태
+    # 하네스 산출물 결측 나누기(CR13-18): 전환 실패가 있으면 실패 시각 뒤(또는 시각 모름)의 산출물 결측은 기록만 — 앞의 것은 하네스 사유
+    deferred = []
+    for reason, t in post:
+        if tf and (tf_rel is None or t is None or t >= tf_rel):
+            deferred.append(reason)
+        else:
+            harness.append(reason)
+    run_hr = [h for h in harness if h in END_HREASONS]   # run.sh 회차 끝 단계 실패(harness-reasons.txt) — 같은 규칙
+    if tf:
+        deferred += run_hr
+        harness = [h for h in harness if h not in END_HREASONS]
+    out["harness_deferred"] = sorted(set(deferred))
+    out["transition_failed_at"] = tf_rel
+    if deferred:
+        notes.append(f"전환 실패({tf.get('reason')}) 뒤 산출물 결측 — 하네스로 묻지 않음: {sorted(set(deferred))}")
+    # 상태 — 하네스(전환 실패 앞) > 절차 > ok
     harness = sorted(set(harness))
     procedure = sorted(set(procedure))
     status = ("invalid:" + ",".join(harness)) if harness else (("fail:" + ",".join(procedure)) if procedure else "ok")
@@ -1099,6 +1161,8 @@ def campaign(root):
                     p9.append(f"(나) rep{r} 주입 쌍 끝 불일치 {x['inject_end_bad']}")
                 if x.get("mismatch_all"):
                     p9.append(f"(다) rep{r} 끝 불일치 {x['mismatch_all']}")
+                if x.get("v_counter_mismatch"):   # CR13-23 — 앱 끝 검사(/internal/consistency)의 카운터 불일치도 (다) 반증 자료(끝 SQL과 따로 — 둘 중 하나라도)
+                    p9.append(f"(다) rep{r} 앱 끝 검사 v_counter_mismatch {x['v_counter_mismatch']}")
                 if x.get("repairs_outside"):
                     p9.append(f"(라) rep{r} 주입·탐침 밖 복구 {x['repairs_outside']}")
                 # (마) ⓐ 스냅숏 > 2 수 = 결과(L 선점 3 = 201) 수 — 둘 다 응답이 모두 201·409인 탐침만(CR13-11) ·
