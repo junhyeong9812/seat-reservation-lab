@@ -25,6 +25,7 @@ object IncrementalSchemaCheck {
      */
     fun checkConfig(reconcile: ReconcileProperties, externalApp: Boolean) {
         val inc = reconcile.incremental
+        check(inc.pageSize > 0) { "$PREFIX.page-size는 양수여야 한다(지금 ${inc.pageSize}) — 틱 한 번이 읽는 후보 행 상한(ADR-013 §4.11 ②)" }
         if (inc.method == IncrementalMethod.MEMORY) {
             check(inc.enabled) {
                 "$PREFIX.method=memory인데 $PREFIX.enabled=false — 표시만 하는 메모리 집합은 뜻이 없다(다른 프로세스가 볼 수 없다). enabled=true로 켜거나 방식을 바꿔라"
@@ -45,6 +46,8 @@ object IncrementalSchemaCheck {
      * 지금 DB + Flyway가 더할 위치로 내다본 값([afterLocations])을 같은 규칙([checkSchema])에 넣는다 — 앞뒤 판정이 갈리지 않게.
      * @param triggerStates 이 스키마 user_hold_quota의 [TOUCH_TRIGGER] `pg_trigger.tgenabled` 값들(없으면 빈 목록)
      * @param missingV10 없는 [V10_TABLES]
+     * @param updatedAtIndexValid [UPDATED_AT_INDEX]가 `pg_index.indisvalid AND indisready`인가(ADR-013 §4.4 N8 · DS-3 — CONCURRENTLY 실패로 남은 INVALID 인덱스를
+     *   '있음'으로 통과시키지 않는다). 인덱스가 없으면([updatedAtIndex] = false) 뜻 없음
      */
     data class Schema(
         val updatedAtColumn: Boolean,
@@ -52,6 +55,7 @@ object IncrementalSchemaCheck {
         val triggerStates: List<String>,
         val missingV10: List<String>,
         val maxPreparedTransactions: Int,
+        val updatedAtIndexValid: Boolean = true,
     ) {
         /**
          * 이 스키마에 Flyway [locationPaths](location 경로 — `db/migration-incremental` 꼴)를 적용한 뒤의 모양(조합표의 위치 → 객체).
@@ -59,6 +63,8 @@ object IncrementalSchemaCheck {
          * validate-on-migrate=false로 다른 V9판이 적용된 DB · baselineVersion ≥ 9는 예측이 실제와 어긋날 수 있다: 그때는 마이그레이션 뒤 검사가 거부한다 · ADR-012 §7-13 ⑧). 두 V9 위치를 함께 준 경우(조합표 '두 V9' 행)는 여기서 보지 않는다 —
          * Flyway가 마이그레이션 전에 '같은 버전 2개'로 막는다(호출 쪽이 Flyway 검증을 먼저 돌린다).
          * @param reachesV9 Flyway target이 V9까지 가는가(false면 V9 위치는 객체를 더하지 않는다) · [reachesV10] 같은 뜻
+         * 인덱스 유효 여부(DS-3): DB에 인덱스가 **이미 있으면** DB 값 그대로(Flyway V9는 이미 있는 인덱스를 다시 만들지 못한다 — 위치가 기존 INVALID를 덮지 않는다) ·
+         * 없고 V9 위치가 닿으면 '유효'로 본다.
          */
         fun afterLocations(locationPaths: Collection<String>, reachesV9: Boolean = true, reachesV10: Boolean = true): Schema {
             fun has(location: String) = locationPaths.any { it.trim('/') == location || it.trimEnd('/').endsWith("/$location") }
@@ -67,6 +73,7 @@ object IncrementalSchemaCheck {
             return copy(
                 updatedAtColumn = updatedAtColumn || v9Trigger || v9Stmt,
                 updatedAtIndex = updatedAtIndex || v9Trigger || v9Stmt,
+                updatedAtIndexValid = if (updatedAtIndex) updatedAtIndexValid else updatedAtIndexValid || v9Trigger || v9Stmt,
                 triggerStates = if (v9Trigger && triggerStates.isEmpty()) listOf("O") else triggerStates,
                 missingV10 = if (reachesV10 && has(LOCATION_V10)) emptyList() else missingV10,
             )
@@ -79,9 +86,14 @@ object IncrementalSchemaCheck {
             "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_hold_quota' AND column_name = 'updated_at'",
             Int::class.java,
         )!! > 0
-        val index = jdbc.queryForObject(
-            "SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?", Int::class.java, UPDATED_AT_INDEX,
-        )!! > 0
+        // 이름(pg_indexes와 같은 범위 — 이 스키마)과 유효 여부를 함께 읽는다(ADR-013 §4.4 N8 — INVALID 인덱스도 pg_indexes에는 보인다)
+        val indexStates = jdbc.queryForList(
+            "SELECT i.indisvalid AND i.indisready FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace " +
+                "WHERE c.relname = ? AND n.nspname = current_schema()",
+            Boolean::class.java, UPDATED_AT_INDEX,
+        )
+        val index = indexStates.isNotEmpty()
+        val indexValid = indexStates.all { it == true }
         // 이 스키마의 user_hold_quota에 걸린 트리거만(rv43 — 다른 스키마·테이블의 같은 이름 트리거로 판정하지 않는다)
         val states = jdbc.queryForList(
             "SELECT t.tgenabled::text FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace " +
@@ -90,7 +102,7 @@ object IncrementalSchemaCheck {
         )
         val missing = V10_TABLES.filterNot { t -> jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean::class.java, t) == true }
         val prepared = jdbc.queryForObject("SHOW max_prepared_transactions", String::class.java)!!.trim().toInt()
-        return Schema(column, index, states, missing, prepared)
+        return Schema(column, index, states, missing, prepared, indexValid)
     }
 
     /** 설정 쪽([checkConfig]) + 지금 DB 스키마([readSchema] → [checkSchema]). @param externalApp 외부 대조 앱이면 true */
@@ -130,6 +142,11 @@ object IncrementalSchemaCheck {
             check(column && index) {
                 "$PREFIX.method=$m 는 user_hold_quota.updated_at 열과 인덱스($UPDATED_AT_INDEX)가 있어야 한다(열=$column · 인덱스=$index) — " +
                     "spring.flyway.locations에 classpath:${if (method == IncrementalMethod.TRIGGER) LOCATION_V9_TRIGGER else LOCATION_V9_STMT}를 더하라"
+            }
+            // ADR-013 §4.4 N8: INVALID 인덱스(CONCURRENTLY 실패 잔여)는 질의에 쓰이지 않아 증분 창 조회가 매초 쿼터 테이블을 순차로 읽는다 — 증분을 띄우지 않는다
+            check(schema.updatedAtIndexValid) {
+                "$PREFIX.method=$m 인데 인덱스 $UPDATED_AT_INDEX 가 INVALID다(pg_index.indisvalid AND indisready = false — CREATE INDEX CONCURRENTLY 실패 잔여) — " +
+                    "DROP INDEX CONCURRENTLY $UPDATED_AT_INDEX; CREATE INDEX CONCURRENTLY $UPDATED_AT_INDEX ON user_hold_quota (updated_at); 로 지우고 다시 만든 뒤 띄워라"
             }
         }
         if (method == IncrementalMethod.TRIGGER) {
