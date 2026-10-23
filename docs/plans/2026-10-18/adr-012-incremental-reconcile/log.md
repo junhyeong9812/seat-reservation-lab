@@ -98,6 +98,9 @@
 | 10-23 04:37 | 스모크 끝: smoke-adr012r5-s2 ok(쿼터 UPDATE 100 · HOT 0 · hold p99 240.9ms — 1,000건 몰림) · smoke-adr012r5-ae ok(AE 56쌍 · 복구 inc 41 · safety 15 · 최대 0.77초 · R4·R6 위반 0 · unexpected 0 · inc-config paths [EXPIRY]) · **R5 지표 측정 전 고정**: 회차 k6-summary.json `hold_duration` p(99)(회차 전체 — 2단계 표와 같은 '회차 전체' 선점 p99) 3회 중앙값 · 판정 = i-trg-1s ≤ noc × 1.10(S3-a20·S2 각각) · HOT = quota-hot.json(k6 → end 차분) · 본측정 campaign adr012r5 시작(SHA cc906369 · .164) · 사용자 결정: 번호 이동 9차 = ADR-013(Kafka) → 020 · 014~020 → 013~019(측정과 병행 — docs·주석만, k6/ADR-009 손대지 않음) · 그 뒤 ADR-013(새 번호 — 운영 중 매수 방식 전환) 작업 착수 요청 | 진행 |
 | 10-23 04:46 | 번호 이동 9차 회수(Opus 워커): 8c2df227(docs 27파일 · git mv 8) · 826c6874(코드 주석 3줄 · compileKotlin 통과) · 메인 확인: 파일 목록 013 전환~020 Kafka · ADR-020 머리말·상태 줄 · 9차 메모 · k6/·log.md 변경 0 · 메인 보정: ADR-020 선행·후행(순서 뒤집힘) · README ADR-020 행 '보류' | 9차 끝 |
 | 10-23 08:24 | adr012r5 끝(08:21 · 15회 ok · 비정상 0) · 결과 커밋 473ae26c(비밀값 검사: 비-html 매칭 0 · html은 k6 대시보드 base64 오탐) · 집계(메인 python — k6-summary hold_duration p99 · quota-hot · effect.json): S3-a20 noc 1.340 / trg 1.314(−1.9%) · S2 noc 363.5 / trg 266.3(−26.8%) → **R5 성립** · AE 51·39·48쌍 최대 0.95초 · R4·R6·오탐·끝 불일치 0 · ADR §8.9·§8.7 표·§9 행 · RR-1·RR-5 해소 | **task 08b 끝** → task 09 기본값 교체 |
+| 10-23 09:08 | task 09 기본값 교체: 사용자 결정 4건(yml만 · default 거부·A+C 명시 · 혼동 조합 둘 다 거부 · ADR-001~008 키 명시) → 명세 §10 계약 K1~K10 고정 · stakes 높음(기본값·스키마 기본 적용) → 구현 워커(Opus — diff) ∥ blind 테스트 워커(Opus — 명세 §10만, 구현 diff 미열람) · 설계 선검증 생략 사유: 새 동작 불변식 = 기동 거부 2건(K6·K7)뿐이고 기존 강제 위치 HoldStrategyStartupCheck.kt(:99 external+C 거부 · :158·163·166 증분·안전망 조합 거부)와 같은 꼴 — blind 테스트가 계약을 직접 잰다 | 진행 |
+| 10-23 10:31 | 구현 회수(Opus): 39a11a8d(앱 기본값·기동 검사 K6·K7·reconciler yml) · 3acc4cc9(테스트 고정·기본값 테스트) · d40b2195(k6/ADR-009 — default 거부·A+C·키 명시·cond-config 확장) · 3251efe6(ADR-001~008 compose) · 워커 보고 gradle test 661/0 · 옛 SHA dry-run 15세트 바이트 동일 · blind 회수(Opus · worktree): dac158a4 → cherry-pick ea6cd0b9 · 교체 전 16 중 12 실패(기대대로) → 교체 뒤 16/16 통과(메인 실행 1m36s) · 디스크 99% → 사용자 승인 정리(멈춘 컨테이너 1.4G · 볼륨 10.0G · 이미지 34.5G · 옛 ADR-009 blind worktree — 커밋은 main-app/ 경로로 이미 반영 확인) → 55G 여유 · 전체 테스트 재실행(백그라운드) · 코드 듀얼 리뷰 루프 1회차 시작(base 9ab4f768 · 미러 6.0M — k6 결과 제외 · 측정 DB 더미 비밀번호 'seat' 미러에서 redact) | 진행 |
+| 10-23 10:40 | 코드 리뷰 루프 1 회수: codex 1(M) · Opus 6(M 1 · L 5) → 종합 RC-1~7 전부 채택 · 수정 워커(Opus · worktree — 전체 테스트가 메인 작업트리에서 도는 중) | 진행 |
 
 ## 리뷰 ledger
 
@@ -218,3 +221,10 @@
 | RR-5 | 1 | opus F5(M) | AE(만료 경로 앱 주입) 0쌍 — 상한 60을 AH·AL이 소진 · R6 범위 과장 | 채택 — R6 선점 경로 한정 · §8.9에서 AE 확인 | fixed(§8.9 — 트리거 1초 AE 138쌍 위반 0) | 473ae26c |
 | RR-6 | 1 | opus F6(L) + codex F3(L) | 주입 120쌍 · 2,160쌍 오기 | 채택 | fixed | (이번 커밋) |
 | RR-7 | 1 | codex F1(H) + opus F7(L) | R8 유효 조건 사후 재해석 | 채택(문구) — '측정 전 문구로는 보류 · split은 측정 뒤 사용자 결정' 명시 · 결정은 유지(사용자 결정 10-20) | fixed | (이번 커밋) |
+| RC-1 | 1 | opus F1(M) | HoldStrategyStartupCheck.kt:36-42(ApplicationRunner — Flyway 뒤) · :98-101 · IncrementalSchemaCheck.kt:56-60 | 채택 — 설정만으로 판정되는 거부를 Flyway 앞으로 · '거부 → 안내 키 → 같은 DB 재기동' 테스트 | open | — |
+| RC-2 | 1 | codex F1(M) | IncrementalSchemaCheck.kt:39 트리거 존재만 셈(tgenabled 미확인) — 기본 경로가 됨 | 채택 — 활성 트리거만 인정 + 테스트 | open | — |
+| RC-3 | 1 | opus F2(L) | HoldStrategyStartupCheck.kt:131-133 · CLEANUP_HINT — 비카운터에 틀린 안내 | 채택 | open | — |
+| RC-4 | 1 | opus F3(L) | HoldStrategyStartupCheck.kt:188-191 K6 뒤 도달 불가 갈래 · 문구 | 채택 | open | — |
+| RC-5 | 1 | opus F4(L) | k6/ADR-009/scripts/lib.sh:417-423 판정 불가를 '교체 전'으로 접음 · 대소문자 | 채택 — 경로 없음 1 · 그 밖 오류 2 · 소문자 비교 | open | — |
+| RC-6 | 1 | opus F5(L) | application-reconciler.yml:14-21 F 키 없이 → 업무 앱 기본 위치로 V9·V10 적용 | 채택 — yml 주석 + ADR §7 운영 위험 | open | — |
+| RC-7 | 1 | opus F6(L) | K9 하네스 자동 확인 없음 | 채택 — 두 SHA dry-run·판정 함수 원시값을 log에 기록 | open | — |
