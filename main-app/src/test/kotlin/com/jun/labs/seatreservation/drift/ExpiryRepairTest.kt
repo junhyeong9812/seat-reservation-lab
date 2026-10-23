@@ -14,6 +14,11 @@ import com.jun.labs.seatreservation.support.IntegrationTest
 import com.jun.labs.seatreservation.support.PIN_A_OFF
 import com.jun.labs.seatreservation.support.PIN_CLEANUP_OFF
 import com.jun.labs.seatreservation.support.PIN_C_OFF
+import com.jun.labs.seatreservation.support.PIN_FLYWAY_BASE
+import com.jun.labs.seatreservation.support.PIN_INC_OFF
+import com.jun.labs.seatreservation.support.PIN_METHOD_NONE
+import com.jun.labs.seatreservation.support.PIN_SAFETY_OFF
+import com.jun.labs.seatreservation.support.PIN_SHAPE_ONE_SHOT
 import com.jun.labs.seatreservation.support.actualOf
 import com.jun.labs.seatreservation.support.clearAdr009Tables
 import com.jun.labs.seatreservation.support.cntOf
@@ -43,8 +48,14 @@ import kotlin.test.fail
  * 만료 스케줄러 빈을 띄워 둔다(주기 1h — 기동 때 1회 빈 DB에서 돌고 끝) — 틱 지표 `seat.hold.expiry.tick`을 스케줄러 진입점으로 재기 위해서다.
  * 나머지 단언은 기존 진입점 `ExpireHoldsUseCase.expire()`를 직접 부른다.
  */
-// IntegrationTest의 @SpringBootTest를 대신하므로 ADR-009 후보·정리 끔 고정을 다시 적는다(애너테이션은 합쳐지지 않는다) — A를 켜는 하위 클래스는 @TestPropertySource로 덮는다
-@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=true", "seat.hold.expiry-interval=1h", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF])
+// IntegrationTest의 @SpringBootTest를 대신하므로 고정 키(ADR-009 후보·정리 끔 · ADR-012 증분·안전망 끔 · method none · one-shot · 기본 위치)를 다시 적는다
+// (애너테이션은 합쳐지지 않는다) — A를 켜는 하위 클래스는 @TestPropertySource로 덮는다
+@SpringBootTest(
+    properties = [
+        "seat.hold.expiry-scheduler-enabled=true", "seat.hold.expiry-interval=1h", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
+        PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE,
+    ],
+)
 abstract class ExpiryDriftScenario(private val type: UserLimitStrategyType) : IntegrationTest() {
 
     @Autowired lateinit var holdSeat: HoldSeatUseCase

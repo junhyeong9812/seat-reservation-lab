@@ -26,7 +26,8 @@ import kotlin.test.assertTrue
 
 /*
  * 테스트 15 — 새 키 미지정 = 이전과 같음(§3-4 범위 명확화 행 ①동작 ②configprops ③렌더 · §4.2 공통 원칙 ①~④ · §4.2.6 등록 시점).
- * 이 컨텍스트는 새 키를 하나도 주지 않는다(IntegrationTest 기본 고정 + loadtest 프로필 — configprops를 보려고).
+ * 이 컨텍스트는 새 키를 하나도 주지 않는다(IntegrationTest 고정값 — 증분·안전망 끔 · method none · one-shot · 기본 위치(명세 §10 K10) + loadtest 프로필 — configprops를 보려고).
+ * 업무 앱 기본값(application.yml — ADR-012 교체 뒤 증분 켬)은 Adr009DefaultsTest가 본다 — 여기서 '미지정'은 IntegrationTest 고정값이다.
  * ③ 하네스 렌더·계획은 하네스 쪽 비교(run.sh)라 여기서 보지 않는다.
  */
 @ActiveProfiles("loadtest")

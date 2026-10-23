@@ -159,6 +159,7 @@ class ReconcileErrorsImplTest : DriftTestSupport() {
  * L1-5 · L1-10 · L1-13 · L1-18 — 실제 SpringApplication 기동: F 프로필은 업무 컨트롤러가 없고 출처가 reconcile-proc ·
  * F인데 대조 끔이면 실패 · C 또는 external-reconciler인데 A 없음이면 실패(counter-trigger 예외) · F 프로세스는 A 검사를 하지 않는다.
  * ADR-009 기본값 전환(명세 §12 — A·C·정리 ① 켬) 뒤: 업무 앱 조합은 '그 밖은 끔'(전환 전 기본값)을 명시한다. F 프로필은 프로필 yml이 A·정리를 끈다(명시 없음).
+ * ADR-012 기본값 교체(명세 §10 K10) 뒤: 업무 앱 조합은 증분·안전망 끔 · method none · one-shot([OLD]) · 기본 위치([FW_BASE])도 명시한다. F 프로필 부팅은 명시 없이 프로필 yml·업무 앱 기본값으로 뜬다.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Loop1BootImplTest {
@@ -181,9 +182,17 @@ class Loop1BootImplTest {
         )
     }
 
+    /** 업무 앱 옛 동작 고정(ADR-012 증분·안전망 끔 · method none · one-shot · 기본 위치) — 이 클래스의 조합은 ADR-012 교체 전에 쓰였다 */
+    private val OLD = arrayOf(
+        "--seat.hold.counter-drift.reconcile.incremental.enabled=false", "--seat.hold.counter-drift.reconcile.incremental.method=none",
+        "--seat.hold.counter-drift.reconcile.safety-net.enabled=false", "--seat.hold.counter-drift.reconcile.detect-shape=one-shot",
+    )
+    /** 기본 위치(V1~V7) — 위치를 따로 주는 부팅(counter-trigger)에는 붙이지 않는다(명령행의 같은 키 두 번은 값이 쉼표로 합쳐진다) */
+    private val FW_BASE = "--spring.flyway.locations=classpath:db/migration"
+
     private fun assertBootFails(keyword: String, vararg extra: String) {
         val error = try {
-            boot("--seat.hold.expiry-scheduler-enabled=false", *extra).close()
+            boot("--seat.hold.expiry-scheduler-enabled=false", *OLD, FW_BASE, *extra).close()
             fail("떴다: ${extra.toList()}")
         } catch (e: AssertionError) {
             throw e
@@ -208,7 +217,7 @@ class Loop1BootImplTest {
 
     @Test
     fun `업무 앱(C + A) — 컨트롤러가 있고 출처는 reconcile-app`() {
-        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.cleanup.mode=none").use { ctx ->
+        boot("--seat.hold.expiry-scheduler-enabled=false", *OLD, FW_BASE, "--seat.hold.counter-drift.reconcile.enabled=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.cleanup.mode=none").use { ctx ->
             assertEquals(1, ctx.getBeansOfType(SeatHoldController::class.java).size)
             assertEquals("reconcile-app", ctx.getBean(CounterDriftScheduling::class.java).reconcileSource())
         }
@@ -225,14 +234,14 @@ class Loop1BootImplTest {
     @Test
     fun `external-reconciler인데 A 없음 — 기동 실패, A를 켜면 뜬다`() {
         assertBootFails("후보 A(seat.hold.counter-drift.expiry-repair=true)가 필수", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none")
-        boot("--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none").close()
+        boot("--seat.hold.expiry-scheduler-enabled=false", *OLD, FW_BASE, "--seat.hold.counter-drift.external-reconciler=true", "--seat.hold.counter-drift.expiry-repair=true", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none").close()
     }
 
     @Test
     fun `counter-trigger는 예외 — C·external-reconciler에 A 없이 뜬다`() {
         // C와 external-reconciler는 따로 띄운다 — 업무 앱에서 둘을 함께 켜는 것은 대조 중복으로 거부된다(task 07a 리뷰 F1 기동 검사). 각각 A 없이 뜨는지가 이 테스트의 뜻
         val trigger = arrayOf(
-            "--seat.hold.expiry-scheduler-enabled=false", "--seat.hold.limit-strategy=counter-trigger",
+            "--seat.hold.expiry-scheduler-enabled=false", *OLD, "--seat.hold.limit-strategy=counter-trigger",
             "--spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
             "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none",
         )

@@ -39,11 +39,20 @@ class SchemaCombinationTest : BootTestBase() {
 
     // ── 기본 · noc · M0 · M1 ────────────────────────────────────────────────────────────
 
+    // 조합표 '기본' 행 = 새 손잡이 없음(BootSupport 옛 동작 고정 OLD_DEFAULTS — method none · 기본 위치). 업무 앱 기본값(application.yml — ADR-012 교체 뒤)은 아래 다음 테스트
     @Test
-    fun `기본(새 손잡이 없음) — 성공 · V1~V8 지금 스키마(updated_at·인덱스·트리거·V10 테이블 없음 · V9·V10 미적용)`() {
+    fun `옛 기본(새 손잡이 없음 · 기본 위치) — 성공 · V1~V8 지금 스키마(updated_at·인덱스·트리거·V10 테이블 없음 · V9·V10 미적용)`() {
         bootsWith(emptyMap()) { db ->
             assertEquals(mapOf("updated_at" to false, "index" to false, "trigger" to false, "V10" to false), db.schema())
             assertEquals(0, db.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version IN ('9', '10')", Int::class.java))
+        }
+    }
+
+    @Test
+    fun `업무 앱 기본값(키 없음 — application_yml · 명세 §10 K1) — 성공 · V9 트리거 위치 + V10(열·인덱스·트리거·V10 테이블)`() {
+        bootsWith(OLD_DEFAULTS.mapValues { null }) { db ->
+            assertEquals(mapOf("updated_at" to true, "index" to true, "trigger" to true, "V10" to true), db.schema())
+            assertEquals(2, db.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version IN ('9', '10') AND success", Int::class.java))
         }
     }
 

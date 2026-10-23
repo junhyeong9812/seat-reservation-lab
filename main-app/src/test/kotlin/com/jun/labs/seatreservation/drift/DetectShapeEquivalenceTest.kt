@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
 /*
  * ADR-012 R8(task 04c) — 탐지 쿼리 모양 동등성 blind 테스트. 계약 = ADR-012 §4.1 'R8 설계' · 명세 §2 '탐지 쿼리 모양' · §5 '탐지 모양 동등성'.
  *
- * 손잡이 계약(구현 전 가정): 설정 `seat.hold.counter-drift.reconcile.detect-shape` = one-shot(기본) | split | group,
+ * 손잡이 계약(구현 전 가정): 설정 `seat.hold.counter-drift.reconcile.detect-shape` = one-shot(코드 기본 · IntegrationTest 고정값) | split(업무 앱 기본값 — ADR-012 교체 뒤) | group,
  * Kotlin = `SeatHoldProperties.counterDrift.reconcile.detectShape`, 타입 `DetectShape { ONE_SHOT, SPLIT, GROUP }`.
  * 타입이 놓인 자리를 가정하는 곳은 아래 별칭 한 줄뿐이다(CleanupMode처럼 SeatHoldProperties 안 중첩 enum으로 가정) — 다르면 이 줄만 고친다.
  *
@@ -440,7 +440,7 @@ class DetectShapeSplitTest : DetectShapeScenario(DetectShape.SPLIT)
 @Import(ArmedRepairProbeConfig::class)
 class DetectShapeGroupTest : DetectShapeScenario(DetectShape.GROUP)
 
-/** 손잡이 미지정 = one-shot(바인딩 기본값 · 같은 정답 · 대기 문장이 one-shot 모양). */
+/** 손잡이 미지정 = one-shot(IntegrationTest 고정값 — 업무 앱 기본값은 split(명세 §10 K1) · 같은 정답 · 대기 문장이 one-shot 모양). */
 @TestPropertySource(properties = [K3, LOCK_5S])
 @Import(ArmedRepairProbeConfig::class)
 class DetectShapeDefaultTest : DetectShapeScenario(DetectShape.ONE_SHOT)

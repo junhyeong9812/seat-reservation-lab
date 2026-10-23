@@ -11,6 +11,8 @@ import org.junit.jupiter.api.TestInstance
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
 import org.testcontainers.containers.PostgreSQLContainer
+import java.sql.DriverManager
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -30,18 +32,30 @@ class DefaultLimitStartupCheckTest {
     @AfterAll
     fun stopDb() = postgres.stop()
 
-    private fun boot(vararg extra: String): ConfigurableApplicationContext =
-        SpringApplicationBuilder(SeatReservationApplication::class.java).run(
-            "--spring.datasource.url=${postgres.jdbcUrl}",
+    private val seq = AtomicInteger()
+
+    /**
+     * 부팅마다 새 DB — ADR-012 기본값 교체(명세 §10) 뒤 키 없는 부팅은 V9·V10을 적용한다. 같은 DB를 기본 위치(db/migration)로 다시 띄우면
+     * Flyway 검증이 '적용됐는데 위치에 없는 마이그레이션'으로 멈춘다(테스트 순서에 따라 갈리지 않게).
+     */
+    private fun boot(vararg extra: String): ConfigurableApplicationContext {
+        val name = "deflimit_${seq.incrementAndGet()}"
+        DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { c -> c.createStatement().use { it.execute("CREATE DATABASE $name") } }
+        return SpringApplicationBuilder(SeatReservationApplication::class.java).run(
+            "--spring.datasource.url=jdbc:postgresql://${postgres.host}:${postgres.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT)}/$name",
             "--spring.datasource.username=${postgres.username}",
             "--spring.datasource.password=${postgres.password}",
             "--server.port=0",
             "--seat.hold.expiry-scheduler-enabled=false",
             *extra,
         )
+    }
 
+    /** 업무 앱 기본값이 켠 것(ADR-009 A·정리 · ADR-012 증분·안전망 · V9 트리거·V10 위치)을 끈다 — none 기준선(명세 §10 K4 안내 조합) */
     private val adr009OffArgs = arrayOf(
         "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.reconcile.enabled=false", "--seat.hold.counter-drift.cleanup.mode=none",
+        "--seat.hold.counter-drift.reconcile.incremental.enabled=false", "--seat.hold.counter-drift.reconcile.incremental.method=none",
+        "--seat.hold.counter-drift.reconcile.safety-net.enabled=false", "--spring.flyway.locations=classpath:db/migration",
     )
 
     private fun causes(e: Throwable): List<Throwable> = generateSequence(e) { it.cause.takeIf { c -> c !== it } }.toList()
@@ -73,7 +87,7 @@ class DefaultLimitStartupCheckTest {
 
     @Test
     fun `limit-strategy=none 명시 + 좌석 전략 pessimistic — 뜬다`() {
-        // ADR-009 후보·정리 끔도 명시(기본값이 A·C·정리 ① 켬 — none과는 기동 검사가 거부한다. 이 테스트의 의미 = 전환 전 none 기준선)
+        // 업무 앱 기본값이 켠 것도 끔 명시(A·정리 ①·증분·안전망 켬 — none과는 기동 검사가 거부한다. 이 테스트의 의미 = 전환 전 none 기준선)
         boot("--seat.hold.strategy=pessimistic", "--seat.hold.limit-strategy=none", *adr009OffArgs).use { ctx ->
             val props = ctx.getBean(SeatHoldProperties::class.java)
             assertEquals(UserLimitStrategyType.NONE, props.limitStrategy)

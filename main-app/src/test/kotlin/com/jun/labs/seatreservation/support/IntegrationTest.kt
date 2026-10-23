@@ -25,18 +25,32 @@ import java.time.Instant
  * (기동 검사 조합 · 만료 배치 동작 · `properties.copy(...)`로 만든 검사 입력 · 컨텍스트에 상주하는 대조·정리 스케줄러가 테스트 데이터를 고치지 않음).
  * 그래서 [IntegrationTest]가 셋을 끔으로 고정하고(ADR-008 none 고정과 같은 방식), 켜는 테스트는 `@TestPropertySource`로 덮는다 — 그쪽이 우선한다
  * (Spring Boot 우선순위: @TestPropertySource > @SpringBootTest.properties > 프로필 yml. 확인: Adr009DefaultsTest.kt Adr009PinOverrideTest).
- * 기본값 자체는 Adr009DefaultsTest.kt(설정 키 없이 바인딩·기동)가 본다.
+ * ADR-012 기본값 교체(§8.9 · 명세 §10 K10 — 업무 앱 기본값 증분 trigger 1초 · 안전망 · split · V9 트리거·V10 위치)도 같다: 기존 테스트는 증분·안전망 끔 ·
+ * method none · one-shot · 기본 위치(V1~V7 — updated_at·트리거·V10 없음)를 전제로 쓰였으므로 [PIN_INC_OFF]~[PIN_FLYWAY_BASE]로 옛 동작(K2에서 C만 끈 꼴)을 고정한다.
+ * 증분·안전망 테스트는 각자 `@TestPropertySource`로 방식·위치를 지정한다(IncrementalSupport.kt 상수).
+ * 업무 앱 기본값 자체는 Adr009DefaultsTest.kt(설정 키 없이 바인딩·기동 — ADR-012 값)가 본다.
  */
 const val PIN_A_OFF = "seat.hold.counter-drift.expiry-repair=false"
 const val PIN_C_OFF = "seat.hold.counter-drift.reconcile.enabled=false"
 const val PIN_CLEANUP_OFF = "seat.hold.counter-drift.cleanup.mode=none"
+const val PIN_INC_OFF = "seat.hold.counter-drift.reconcile.incremental.enabled=false"
+const val PIN_METHOD_NONE = "seat.hold.counter-drift.reconcile.incremental.method=none"
+const val PIN_SAFETY_OFF = "seat.hold.counter-drift.reconcile.safety-net.enabled=false"
+const val PIN_SHAPE_ONE_SHOT = "seat.hold.counter-drift.reconcile.detect-shape=one-shot"
+const val PIN_FLYWAY_BASE = "spring.flyway.locations=classpath:db/migration"
 
 /**
  * Testcontainers PostgreSQL + 고정 시각. 만료 스케줄러는 끄고 테스트가 UseCase를 직접 호출한다.
  * 모든 테스트가 같은 설정을 쓰므로 Spring 컨텍스트와 컨테이너는 한 번만 뜬다.
- * ADR-009 후보·정리는 끔 고정(위 [PIN_A_OFF] 머리말) — 이 클래스의 `@SpringBootTest`를 다시 다는 하위 클래스는 세 키도 함께 다시 적어야 한다(애너테이션은 합쳐지지 않는다).
+ * ADR-009 후보·정리 · ADR-012 증분·안전망·탐지 모양·Flyway 위치는 옛 동작 고정(위 [PIN_A_OFF] 머리말) — 이 클래스의 `@SpringBootTest`를 다시 다는 하위 클래스는
+ * 고정 키(PIN_*)도 함께 다시 적어야 한다(애너테이션은 합쳐지지 않는다).
  */
-@SpringBootTest(properties = ["seat.hold.expiry-scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF])
+@SpringBootTest(
+    properties = [
+        "seat.hold.expiry-scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
+        PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE,
+    ],
+)
 @Import(TestcontainersConfiguration::class, IntegrationTest.ClockConfig::class)
 abstract class IntegrationTest {
 

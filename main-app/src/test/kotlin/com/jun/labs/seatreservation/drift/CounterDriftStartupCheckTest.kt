@@ -53,7 +53,9 @@ class CounterDriftStartupCheckTest {
     /**
      * [props]가 같은 키를 주면 기본값을 덮는다(명령행 인자에 같은 키를 두 번 넣지 않는다). null 값 = 그 기본 키를 빼라.
      * ADR-009 후보·정리(A·C·정리)는 끔이 기본 키다 — 이 클래스의 조합들은 ADR-009 기본값 전환(명세 §12 — A·C·정리 ① 켬) 전에 '그 밖은 끔'으로 쓰였다.
-     * reconciler 프로필 경우는 세 키를 null로 빼서 프로필 yml(application-reconciler.yml)이 정하게 한다(명령행이 프로필보다 우선하므로).
+     * ADR-012 기본값 교체(명세 §10 K10) 뒤에도 같은 뜻: 증분·안전망 끔 · method none · one-shot · 기본 위치를 함께 기본 키로 둔다
+     * (Flyway target 3처럼 V5 전 스키마를 띄우는 경우 method=trigger 기본값이면 트리거 검사가 먼저 막는다).
+     * reconciler 프로필 경우는 이 키들을 null로 빼서 프로필 yml(application-reconciler.yml)과 업무 앱 기본값(application.yml)이 정하게 한다(명령행이 프로필보다 우선하므로).
      */
     private fun boot(props: Map<String, String?>): ConfigurableApplicationContext {
         val base = mapOf<String, String?>(
@@ -102,8 +104,13 @@ class CounterDriftStartupCheckTest {
             "seat.hold.counter-drift.expiry-repair" to "false",
             "seat.hold.counter-drift.reconcile.enabled" to "false",
             "seat.hold.counter-drift.cleanup.mode" to "none",
+            "seat.hold.counter-drift.reconcile.incremental.enabled" to "false",
+            "seat.hold.counter-drift.reconcile.incremental.method" to "none",
+            "seat.hold.counter-drift.reconcile.safety-net.enabled" to "false",
+            "seat.hold.counter-drift.reconcile.detect-shape" to "one-shot",
+            "spring.flyway.locations" to "classpath:db/migration",
         )
-        /** 세 키를 빼라(앱 기본값·프로필 yml이 정한다) */
+        /** 고정 키를 빼라(업무 앱 기본값·프로필 yml이 정한다) */
         val ADR009_UNSET = ADR009_OFF.mapValues { null }
     }
 

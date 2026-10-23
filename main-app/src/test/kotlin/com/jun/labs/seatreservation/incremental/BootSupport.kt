@@ -48,7 +48,11 @@ abstract class BootTestBase {
     fun jdbcFor(url: String, user: String = dbUser, password: String = dbPassword) =
         JdbcTemplate(DriverManagerDataSource(url, user, password))
 
-    /** 업무 앱 기동. [props]의 값 null = 그 기본 키를 빼라. */
+    /**
+     * 업무 앱 기동. [props]의 값 null = 그 기본 키를 빼라(업무 앱 기본값 — application.yml이 정한다).
+     * 기본 키 = 옛 동작 고정(IntegrationTest와 같은 뜻 — ADR-009 후보·정리 끔 · ADR-012 증분·안전망 끔 · method none · one-shot · 기본 위치 V1~V7, 명세 §10 K10):
+     * 이 테스트들은 업무 앱 기본값이 '손잡이 없음'이던 때 쓰였다 — 각 테스트가 켤 손잡이만 [props]로 준다([incrementalProps]가 방식·위치를 덮는다).
+     */
     fun boot(url: String, props: Map<String, String?>, user: String = dbUser, password: String = dbPassword): ConfigurableApplicationContext {
         val base = mapOf<String, String?>(
             "spring.datasource.url" to url,
@@ -56,10 +60,7 @@ abstract class BootTestBase {
             "spring.datasource.password" to password,
             "server.port" to "0",
             "seat.hold.expiry-scheduler-enabled" to "false",
-            "seat.hold.counter-drift.expiry-repair" to "false",
-            "seat.hold.counter-drift.reconcile.enabled" to "false",
-            "seat.hold.counter-drift.cleanup.mode" to "none",
-        )
+        ) + OLD_DEFAULTS
         val args = (base + props).filterValues { it != null }.map { (k, v) -> "--$k=$v" }
         return SpringApplicationBuilder(SeatReservationApplication::class.java).run(*args.toTypedArray())
     }
@@ -100,6 +101,21 @@ abstract class BootTestBase {
         Int::class.java, scheduleId, userId, scheduleId, userId,
     )!!
 }
+
+/**
+ * 옛 동작 고정 키(명세 §10 K10 — [BootTestBase.boot] 기본 키): ADR-009 후보·정리 끔 + ADR-012 증분·안전망 끔 · method none · one-shot · Flyway 기본 위치.
+ * 값을 null로 바꾸면(`OLD_DEFAULTS.mapValues { null }`) 업무 앱 기본값(application.yml)으로 뜬다.
+ */
+val OLD_DEFAULTS = mapOf<String, String?>(
+    "seat.hold.counter-drift.expiry-repair" to "false",
+    "seat.hold.counter-drift.reconcile.enabled" to "false",
+    "seat.hold.counter-drift.cleanup.mode" to "none",
+    "$INC.enabled" to "false",
+    "$INC.method" to "none",
+    "$SAFE.enabled" to "false",
+    "seat.hold.counter-drift.reconcile.detect-shape" to "one-shot",
+    "spring.flyway.locations" to LOC_BASE,
+)
 
 /** 증분·안전망 공통 기동 키(주기 1h — 진입점을 테스트가 부른다, 가정 S5). */
 fun incrementalProps(method: String, locations: String, vararg extra: Pair<String, String?>): Map<String, String?> = mapOf<String, String?>(
