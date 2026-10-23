@@ -5,7 +5,7 @@
 #     ADR-009 결정(명세 §12)으로 앱 기본값이 A·C·정리 ① 켬이 됐다 — default 밖의 조건은 A·C·정리 세 키를 늘 명시한다(켬이든 끔이든 — 전환 전과 같은 실효 값).
 #     ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 A · 증분 trigger 1초 · 안전망 · split · C 끔): default 밖의 조건은 증분·안전망·탐지 모양도 늘 명시한다 —
 #       A+I·A+X 밖 = incremental.method none · enabled false · safety-net false · detect-shape one-shot(교체 전과 같은 실효 값 — inc_env) · A+X 업무 앱 = 안전망 false · one-shot.
-#       Flyway 위치는 전부터 늘 명시한다(FLYWAY_LOCATIONS). --cond default는 교체 뒤 SHA(lib.sh app_defaults_incremental)면 계획 단계에서 거부한다 — C 셀은 --cond A+C --cleanup schedule.
+#       Flyway 위치는 전부터 늘 명시한다(FLYWAY_LOCATIONS). --cond default는 기본값이 옛 C가 아닌 SHA(lib.sh app_default_is_old_c)면 계획 단계에서 거부한다 — C 셀은 --cond A+C --cleanup schedule.
 #       control         후보 모두 끔(세 키 끔 명시) · 판매 마감 켬(ADR-008 대조군과 같은 실효 설정)
 #       control-noclose control + sales-close.enabled=false(마감 판정 비용 분리 — 명세 §10 D2)
 #       A               counter-drift.expiry-repair=true
@@ -250,13 +250,14 @@ set_cond
 if (( HAS_X )) && ! external_app_supported; then echo "--cond A+X: 외부 앱 오케스트레이션이 없다(lib.sh external_app_*) — 거부" >&2; exit 2; fi
 if (( HAS_X && ! RESUME )) && ! external_app_ready; then echo "--cond A+X: 외부 앱 준비 점검 실패(lib.sh external_app_ready) — 거부" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
-# ADR-012 명세 §10 K9: 업무 앱 기본값이 증분(교체 뒤 SHA)이면 키 없는 앱은 C가 아니다 — default를 조용히 다른 조건으로 재지 않게 계획 단계에서 거부(이어서 실행은 계획 SHA 그대로라 검사하지 않는다)
+# ADR-012 명세 §10 K9: 업무 앱 기본값이 옛 C(lib.sh app_default_is_old_c)가 아닌 SHA(교체 뒤 등)면 키 없는 앱은 C가 아니다 — default를 조용히 다른 조건으로 재지 않게
+#   계획 단계에서 거부(이어서 실행은 계획 SHA 그대로라 검사하지 않는다)
 if [[ "$COND" == default ]] && (( ! RESUME )); then
-  app_defaults_incremental "$SHA"; adi=$?
-  case "$adi" in
-    0) echo "--cond default: $SHA의 업무 앱 기본값은 증분 대조(ADR-012 명세 §10 — C 끔)라 옛 default(C) 셀이 아니다 — C 셀은 --cond A+C --cleanup schedule" >&2; exit 2 ;;
-    1) ;;
-    *) echo "--cond default: $SHA의 application.yml을 읽지 못했다(app_defaults_incremental) — 거부" >&2; exit 2 ;;
+  app_default_is_old_c "$SHA"; oldc=$?
+  case "$oldc" in
+    0) ;;
+    1) echo "--cond default: $SHA의 업무 앱 기본값이 옛 default(C 켬 · 증분 끔)가 아니다(ADR-012 명세 §10 — 교체 뒤는 증분 + 안전망 · C 끔) — C 셀은 --cond A+C --cleanup schedule" >&2; exit 2 ;;
+    *) echo "--cond default: $SHA의 application.yml로 기본값이 옛 C인지 판정하지 못했다(app_default_is_old_c — 파일·키 없음·파싱 실패·조건부 문서) — 거부" >&2; exit 2 ;;
   esac
 fi
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-009(results 제외)가 SHA와 다르면 거부한다.

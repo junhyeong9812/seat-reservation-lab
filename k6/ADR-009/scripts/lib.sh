@@ -409,20 +409,27 @@ limit_config_check() {
     '{sha:$sha, files:$files, application_yml:{precheck:$ok}, spring_config:$sc, reasons:($r | split(" ") | map(select(. != "")))}'
 }
 
-# ---- ADR-012 기본값 교체(명세 §10 K9) — 측정 대상 SHA의 업무 앱 기본값이 증분인가 ------------------------------------------------------------
-# <SHA>의 main-app/src/main/resources/application.yml에서 seat.hold.counter-drift.reconcile.incremental.enabled가 true면 0(교체 뒤 — 키 없는 앱은 C가 아니다 →
-#   run.sh --cond default 거부 · campaign.sh의 C 셀 = --cond A+C --cleanup schedule) · 아니면 1(교체 전 — default = C 그대로).
-#   파일이 없는 SHA(task 04b 전 옛 구조)·키가 없는 SHA = 교체 전(1). 그 밖의 git 오류(없는 SHA·저장소 오류)·YAML 파싱 실패 = 2(호출 쪽이 거부 — 판정을 추측하지 않는다).
-#   '파일 없음'은 커밋이 있는 것을 먼저 확인한 뒤 git cat-file -e <sha>:<path>로만 가른다(다른 git 오류를 교체 전으로 읽지 않게). 값은 소문자로 비교(YAML True·TRUE).
+# ---- ADR-012 기본값 교체(명세 §10 K9) — 측정 대상 SHA의 업무 앱 기본값이 옛 C(ADR-009 default 셀)인가 ------------------------------------------------
+# <SHA>의 업무 앱 application.yml(새 구조 main-app/src/main/resources · 없으면 task 04b 전 옛 구조 src/main/resources)에서
+#   seat.hold.counter-drift.reconcile.enabled == true 그리고 ….reconcile.incremental.enabled != true(키 없음 포함)면 0(옛 C 기본값 — run.sh --cond default 허용 ·
+#   campaign.sh의 C 셀 = --cond default) · reconcile.enabled가 true가 아닌 다른 값이거나 증분이 켜져 있으면 1(옛 C가 아니다 — default 거부 · C 셀 = --cond A+C --cleanup schedule).
+#   2 = 판정 불가(호출 쪽이 거부 — 추측하지 않는다): 없는 SHA·git 오류 · 두 구조 어디에도 application.yml 없음 · YAML 파싱 실패 · 조건부 문서(on-profile 등 — cfgkeys.py) ·
+#   reconcile.enabled 키 없음(ADR-009 기본값 커밋 8e4c92e3 전 SHA — C의 기본은 코드 기본값이 정했고 그 값은 yml로 알 수 없다).
+#   '파일 없음'은 커밋이 있는 것을 먼저 확인한 뒤 git cat-file -e <sha>:<path>로만 가른다(다른 git 오류를 다른 판정으로 읽지 않게). 값은 소문자로 비교(YAML True·TRUE).
 #   교체 커밋 SHA를 상수로 두지 않는다(병합 방식에 따라 조상 관계가 달라진다) — 그 SHA의 파일 내용으로 정한다.
-app_defaults_incremental() {
-  local path=main-app/src/main/resources/application.yml y v
+app_default_is_old_c() {
+  local path y c i key=seat.hold.counter-drift.reconcile
   [[ -n "${1:-}" ]] || return 2
   git -C "$REPO_ROOT" cat-file -e "$1^{commit}" 2>/dev/null || return 2
-  git -C "$REPO_ROOT" cat-file -e "$1:$path" 2>/dev/null || return 1
+  for path in main-app/src/main/resources/application.yml src/main/resources/application.yml ""; do
+    [[ -z "$path" ]] && return 2
+    git -C "$REPO_ROOT" cat-file -e "$1:$path" 2>/dev/null && break
+  done
   y="$(git -C "$REPO_ROOT" show "$1:$path")" || return 2
-  v="$(python3 -I "$LIB_DIR/cfgkeys.py" --value seat.hold.counter-drift.reconcile.incremental.enabled <<< "$y")" || return 2
-  [[ "${v,,}" == true ]] && return 0
+  c="$(python3 -I "$LIB_DIR/cfgkeys.py" --value "$key.enabled" <<< "$y")" || return 2
+  i="$(python3 -I "$LIB_DIR/cfgkeys.py" --value "$key.incremental.enabled" <<< "$y")" || return 2
+  [[ -n "$c" ]] || return 2
+  [[ "${c,,}" == true && "${i,,}" != true ]] && return 0
   return 1
 }
 

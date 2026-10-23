@@ -74,7 +74,7 @@
 #   noc-s3·trg-s3 = noc·i-trg-1s × S3-a20(쿼터 UPDATE가 생기는 흐름 — 확정·만료) · noc-s2·trg-s2 = 같은 둘 × S2(뜨거운 행 반복 UPDATE) — R5(같은 캠페인 noc 대비 선점 p99)
 #   ae = i-trg-1s × S3e-a20 + --inject-app expiry(앱 경로 주입을 만료 경로 AE만 — 선점 경로 AH·AL이 max-pairs를 먼저 쓰지 않게). 순서 = 조건 5개 1칸 회전. 기본 id = <날짜>-adr012r5-<SHA>
 #   [구현 검증] §4 '마지막 주입 + 전체 한 바퀴 시간(스모크 실측) < 끝 검사' — 안 되면 S3e 꼬리를 늘린다(판정 전 고정 — 이 계획은 지금 꼬리 TAIL_S=360 그대로)
-# ADR-012 기본값 교체(명세 §10 K9): 측정 SHA의 업무 앱 기본값이 증분(lib.sh app_defaults_incremental — application.yml 내용으로 판정)이면 run.sh가 --cond default를
+# ADR-012 기본값 교체(명세 §10 K9): 측정 SHA의 업무 앱 기본값이 옛 C(C 켬 · 증분 끔 — lib.sh app_default_is_old_c, application.yml 내용으로 판정)가 아니면 run.sh가 --cond default를
 #   거부한다 — 그래서 default를 쓰던 C 셀(jvm·ADR-011 세트·adr012* 의 c — ADR011_BASE)은 그 SHA에서 --cond A+C --cleanup schedule로 바뀐다(C_COND).
 #   교체 전 SHA는 이전 줄 그대로(--cond default) — 옛 캠페인 폴더를 같은 SHA로 이어서 실행하면 conditions.txt가 바이트까지 같다(새 줄은 새 SHA의 새 캠페인에만).
 # 시한: 시드 회차 starts_at 2026-12-31 19:00+09 — run.sh가 그 1시간 전부터 회차를 거부한다(seed-time-bomb). 캠페인은 약 19.5시간.
@@ -140,11 +140,11 @@ case "$SET" in
 esac
 if [[ -n "$PROBE_BIN_ARG" ]] && [[ "$(k6ver_of "$PROBE_BIN_ARG")" != "k6 v"* ]]; then echo "--probe-k6-bin $PROBE_BIN_ARG: version을 읽지 못함" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
-# ADR-012 명세 §10 K9(머리말): 업무 앱 기본값이 증분인 SHA면 C 셀을 키로 명시한다. 판정 실패(yml 파싱)는 거부 — 추측으로 조건 줄을 정하지 않는다
-( source "$DIR/lib.sh" && app_defaults_incremental "$SHA" ); case $? in
-  0) C_COND="--cond A+C --cleanup schedule" ;;
-  1) C_COND="--cond default" ;;
-  *) echo "$SHA의 업무 앱 application.yml을 읽지 못했다(lib.sh app_defaults_incremental) — 거부" >&2; exit 2 ;;
+# ADR-012 명세 §10 K9(머리말): 업무 앱 기본값이 옛 C인 SHA만 C 셀을 default로 둔다 — 아니면 키로 명시. 판정 불가는 거부 — 추측으로 조건 줄을 정하지 않는다
+( source "$DIR/lib.sh" && app_default_is_old_c "$SHA" ); case $? in
+  0) C_COND="--cond default" ;;
+  1) C_COND="--cond A+C --cleanup schedule" ;;
+  *) echo "$SHA의 업무 앱 application.yml로 기본값이 옛 C인지 판정하지 못했다(lib.sh app_default_is_old_c) — 거부" >&2; exit 2 ;;
 esac
 # ADR-012 외부 앱 의존(머리말): 측정이면 --ext-ready와 lib.sh external_app_ready를 둘 다 통과해야 한다. 계획(--dry-run)은 그대로 된다
 if [[ "$SET" == adr012s2x || "$SET" == adr012effx ]] && (( ! DRY_RUN )); then
