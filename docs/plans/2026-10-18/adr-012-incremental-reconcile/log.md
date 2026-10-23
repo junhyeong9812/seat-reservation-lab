@@ -109,6 +109,7 @@
 | 10-23 13:55 | 사용자 결정 '이대로 마감'(AskUserQuestion — 루프 3 신규 채택 L 3건은 주석·ADR 기록 · 동작 무변경) → **user override 기록**: 잔여 위험 = ADR §7-13 ⑦·⑧(비표준·측정 전용 경로) · 전체 테스트(HEAD 12e3b9fd 코드 · 18m29s rc=0): main-app 679 · 실패 0 · 오류 0(reconciler-app 6 — 변경 없음 up-to-date) · 안전선: 스모크(측정 스모크 2 · K1~K10 부팅 테스트) · diff self-review(리뷰 3루프) · 되돌리기 = 손잡이 K2·K3 · 공개 계약 영향 = 기본 스키마 V9·V10(ADR §7-13) · **검증 완료** → 사이클 마감 | 마감 진행 |
 | 10-23 14:11 | 아카이브(Opus 워커 · study-note 브랜치 archive/2026-10-23 · push 전): issue/shell/argument-size-limit ⓐ 65a42fa9 · issue/cross-cutting/data/heuristic-matching-false-positive ⓒ b1e5e52f · 기존 카드 issue/cross-cutting/os/process-group-and-tree-termination 동일 — 무변경 · issue/kotlin/spring/validate-before-migrate ⓐ 513521e9 · issue/cross-cutting/database/hot-update-and-indexed-columns ⓐ 876a7828 · issue/cross-cutting/database/catalog-presence-vs-enabled ⓐ 0d514551 · 후보 7(명령행 같은 키 쉼표 합침) 제외 — log에 근거 없음(테스트 주석뿐) | 카드 4 + 방안 비교 1 |
 | 10-23 14:11 | 아카이브 노출 스캔: 원 식별자(seat-reservation-lab·seatlab·labs-commerce·HoldStrategy*·IncrementalSchemaCheck·user_hold_quota·192.168.·/home/·pickjog·ADR-0 등) + 시크릿 + 경로·IP — 워커 커밋마다 0 · 메인 재스캔(main..archive 추가 행) 매칭 10건 = authoring-guide:28 관례 'Claude 초안' 표시(기존 카드 339곳 동일 — 오탐) · 실식별자 0 | push 확인 대기 |
+| 10-23 15:31 | 사용자 확인(AskUserQuestion) → push origin feat/adr-012-incremental-reconcile · PR #11(main 대상 · 본문 --body-file · AI 표기 없음) · study-note archive/2026-10-23 → main ff · push fd0f9032..0d514551 | **ADR-012 작업 끝** · 다음: ADR-013(새 작업 폴더) |
 
 ## 리뷰 ledger
 
