@@ -240,7 +240,9 @@ def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan):
     rate = L.get("plan_rate")
     secs = sorted(per)
     lo = int(math.ceil(T0 + ramp)) if load == "S4c" else int(math.ceil(T0))
-    hi = int(math.floor(T0 + k6_end_rel))   # 마지막 완전한 초 끝
+    # 마지막 완전한 초 끝 — k6 프로세스 끝이 아니라 계획 도착 끝(timeline.k6_s)에서 자른다: k6는 도착이 끝난 뒤에도 마무리(진행 중 요청 대기·요약 쓰기)로
+    #   약 12초 더 살아 있고(.164 스모크 2026-10-24 — 1,200초 뒤 요청 0), 그 초들이 '201 0인 초'로 D1·정지 초에 들었다(모든 회차 +11초 — 무중단 이름표 불가)
+    hi = int(math.floor(T0 + min(k6_end_rel, plan["timeline"]["k6_s"])))
     grid = list(range(lo, hi))
 
     def rel(s):
@@ -740,10 +742,13 @@ def rep_summary(d):
                             "cli_class": (((pre or {}).get("record") or {}).get("cli") or {}).get("class"),
                             "steps": {k: {kk: v.get(kk) for kk in ("tries", "lock_timeouts", "wall_s", "drops", "skipped")} for k, v in ((pre or {}).get("steps") or {}).items()},
                             "m": (pre or {}).get("m")}
-        t1ev = [e for e in ev if e["step"] == "T1"]
-        late = max([e.get("late_s") or 0 for e in t1ev[:1]], default=0)
+        # pre-apply-late(§4.2) = 적용판이 T1 계획 시각까지 끝나지 않아 T1을 미룬 초(적용판 끝 − T1 계획 시각). T1 첫 사건의 late_s는
+        #   오케스트레이터 지연(약 0.5초)이 섞여 적용판이 일찍 끝나도 문턱을 넘었다(.164 스모크 2026-10-24 — 적용판 끝 100초 · late_s 0.505)
+        pa_ev = [e for e in ev if e["op"] == "pre-apply" and e["t1"] is not None]
+        t1_at = next((s_["at_s"] for s_ in plan["steps"] if s_["name"] == "T1"), None)
+        late = max(0.0, pa_ev[0]["t1"] - t1_at) if pa_ev and t1_at is not None else 0.0
         out["pre_apply"]["late_s"] = late
-        if late > 0.5:
+        if late > 0:
             flags.append("pre-apply-late")
         if pre and pre.get("record") and pre["record"].get("cli") and pre["record"]["cli"].get("class") not in ("ok", None):
             notes.append(f"기록 ① 분류 {pre['record']['cli']['class']}")
