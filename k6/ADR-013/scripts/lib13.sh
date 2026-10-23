@@ -116,14 +116,16 @@ app_collect() {
   local slot="$1" life="$2" dir="$3" c url lf
   c=$(ctr_of "$slot"); url=$(url_of "$slot")
   python3 -I "$LIB13_DIR/appcollect.py" "$url" "$dir/app-$life-actuator.json" 2>>"$dir/errors.log" || echo "actuator"
+  # 원격 읽기가 실패하거나 비면 파일을 남기지 않는다(CR13-4 — 빈 gz가 '로그 있음 · GC 0'으로 읽히지 않게) · 사유 한 줄
+  local ps b
   lf="$dir/app-$life-gc.log.gz"
-  remote "docker exec $c cat /dev/shm/gc.log" | gzip > "$lf"
-  echo "$life gc pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/logs-status.txt"
-  [[ "$(zcat "$lf" 2>/dev/null | wc -c)" -gt 0 ]] || echo "gc-log"
+  remote "docker exec $c cat /dev/shm/gc.log" | gzip > "$lf"; ps="${PIPESTATUS[0]}/${PIPESTATUS[1]}"; b=$(zcat "$lf" 2>/dev/null | wc -c)
+  echo "$life gc pipe=$ps bytes=$b" >> "$dir/logs-status.txt"
+  [[ "$ps" == 0/0 && "$b" -gt 0 ]] || { rm -f "$lf"; echo "gc-log"; }
   lf="$dir/app-$life.log.gz"
-  remote "docker logs $c 2>&1" | gzip > "$lf"
-  echo "$life log pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/logs-status.txt"
-  [[ "$(zcat "$lf" 2>/dev/null | wc -c)" -gt 0 ]] || echo "app-log"
+  remote "docker logs $c 2>&1" | gzip > "$lf"; ps="${PIPESTATUS[0]}/${PIPESTATUS[1]}"; b=$(zcat "$lf" 2>/dev/null | wc -c)
+  echo "$life log pipe=$ps bytes=$b" >> "$dir/logs-status.txt"
+  [[ "$ps" == 0/0 && "$b" -gt 0 ]] || { rm -f "$lf"; echo "app-log"; }
   remote "docker inspect $c --format '{{json .State}} {{json .HostConfig.NanoCpus}} {{json .HostConfig.Memory}} {{json .Image}} {{json .Config.Image}}'" > "$dir/app-$life-inspect.txt" 2>>"$dir/errors.log" || echo "inspect"
 }
 
@@ -198,14 +200,18 @@ SQL
 
 # ---- 기준 DB(seat_ref): 같은 SHA 새 앱 Flyway(11.7.2 CLI · 같은 SQL 파일)가 V1~V10을 빈 DB에 적용한 결과 — 적용판 동치 확인(§4.4 단계 4)·이력 체크섬(§4.7.2)의 출처
 FLYWAY_IMAGE="${FLYWAY_IMAGE:-flyway/flyway:11.7.2}"
-flyway_run_cmd() {   # 인자: 새 SHA 배포폴더 → 원격에서 flyway 인자를 받는 명령 한 줄(로컬 bash -c로 부른다 — 뒤 인자는 ssh가 원격 셸에 붙인다)
-  echo "ssh -o BatchMode=yes -o ConnectTimeout=10 $SERVER cd $REMOTE_BASE/$1 '&&' docker run --rm --pull=never --network seatlab_default -v \\\$PWD/main-app/src/main/resources/db:/db:ro $FLYWAY_IMAGE"
+flyway_run_cmd() {   # 인자: 새 SHA 배포폴더 → 원격에서 flyway 인자를 받는 명령 한 줄(로컬 eval로 부른다 — 뒤 인자는 ssh가 원격 셸에 붙인다)
+  # 비밀번호(CR13-14): 부르는 셸의 FLYWAY_PASSWORD를 ssh 표준 입력 한 줄로 넘기고 원격 셸이 IFS= read -r로 받아 docker run -e FLYWAY_PASSWORD(값 없이 — 환경에서)로
+  #   Flyway CLI 환경변수에 둔다 — 명령 인자·원격 명령 문자열·셸 이력에 값이 없다(ADR-009 external_app_up 방식). printf는 셸 내장(인자 목록에 안 보인다).
+  echo "printf '%s\\n' \"\$FLYWAY_PASSWORD\" | ssh -o BatchMode=yes -o ConnectTimeout=10 $SERVER 'IFS= read -r FLYWAY_PASSWORD && export FLYWAY_PASSWORD &&' cd $REMOTE_BASE/$1 '&&' docker run --rm --pull=never --network seatlab_default -e FLYWAY_PASSWORD -v \\\$PWD/main-app/src/main/resources/db:/db:ro $FLYWAY_IMAGE"
 }
 PSQL_HEAD=$'\\set QUIET on\n\\pset tuples_only on\n\\pset format unaligned\n'
 ref_db() {   # 인자: 새SHA배포폴더 회차폴더 → ref-catalog.json · ref-history.json · ref-flyway.log — 실패면 1
   local nd="$1" dir="$2"
   db_scalar "DROP DATABASE IF EXISTS seat_ref" > /dev/null 2>&1; db_scalar "CREATE DATABASE seat_ref" >> "$dir/ref-flyway.log" 2>&1 || return 1
-  eval "$(flyway_run_cmd "$nd") -url=jdbc:postgresql://db:5432/seat_ref -user=seat -password=seat -locations=filesystem:/db/migration,filesystem:/db/migration-updated-at-trigger,filesystem:/db/migration-incremental migrate" >> "$dir/ref-flyway.log" 2>&1 || return 1
+  [[ -n "${EXT_DB_PASSWORD:-}" ]] || { echo "ref_db: 측정 DB 비밀번호 없음(ext_db_password)" >> "$dir/ref-flyway.log"; return 1; }
+  ( FLYWAY_PASSWORD="$EXT_DB_PASSWORD"
+    eval "$(flyway_run_cmd "$nd") -url=jdbc:postgresql://db:5432/seat_ref -user=seat -locations=filesystem:/db/migration,filesystem:/db/migration-updated-at-trigger,filesystem:/db/migration-incremental migrate" ) >> "$dir/ref-flyway.log" 2>&1 || return 1
   { echo "$PSQL_HEAD"; cat "$OPS_DIR/04-catalog.sql"; } | remote "docker exec -i seatlab-db-1 psql -X -q -U seat -d seat_ref" 2>>"$dir/ref-flyway.log" | tail -1 > "$dir/ref-catalog.json"
   { echo "$PSQL_HEAD"; cat "$OPS_DIR/05-history.sql"; } | remote "docker exec -i seatlab-db-1 psql -X -q -U seat -d seat_ref" 2>>"$dir/ref-flyway.log" | tail -1 > "$dir/ref-history.json"
   remote "docker exec -i seatlab-db-1 psql -X -q -U seat -d seat_ref -tAc \"SELECT coalesce(json_agg(json_build_object('version', version, 'checksum', checksum, 'script', script, 'success', success) ORDER BY installed_rank), '[]') FROM flyway_schema_history\"" > "$dir/ref-history-all.json" 2>>"$dir/ref-flyway.log"

@@ -3,9 +3,10 @@
 경계 탐침 판정(DS-10) · 기대 설정(H9). run.sh·campaign.sh·limitprobe.py·summarize.py가 모두 이 파일을 읽는다(값을 두 곳에 두지 않는다).
 
     plan13.py --render <절차 1..5> <S4c|S3e>             → 회차 계획 JSON(표준 출력): 시각표 · 단계(orchestrator가 그대로 실행) · 계획 사건 목록 · 끝 상태 · 탐침 일정
-    plan13.py --probe-dry-run [--startup-s N] [--collect-s N] [--stop-s N] [--json]
+    plan13.py --probe-dry-run [--startup-s N] [--collect-s N] [--stop-s N] [--drain-s N] [--json]
                                                           → 다섯 절차 × 두 부하의 계획 칸에서 경계 탐침 수(§4.9-20 · §5.8-1 — 0이 아니면 exit 1)
-                                                            민감도: 기동 → UP · 수집 · 내림에 걸리는 초(계획 판정은 모두 0 — 계획 시각 그대로)
+                                                            민감도: 기동 → UP · 수집 · 내림 · 비움에 걸리는 초(계획 판정은 모두 0 — 계획 시각 그대로 ·
+                                                            --drain-s 없으면 다른 길이가 있을 때 계획 비움 5초). campaign.sh 시작 조건 ⑤는 스모크 실측 길이로 부른다(CR13-8)
     plan13.py --config-check <old|shadow|new> <configprops.json>   → 기대 설정 대조(H9 — cond-config-mismatch) · 사유 한 줄씩 · exit 0 일치 · 1 불일치 · 2 판정 불가
     plan13.py --events-check <회차폴더>                    → events-check.json(H3 계획 대 실제 — 빠진 · 계획에 없는 · 순서 · 끝 상태) · exit 0 일치 · 1 불일치
 
@@ -168,17 +169,20 @@ def classify_probe(inject_s, decide_s, iv, instants):
 
 
 # ---- dry-run(§4.9-20) ---------------------------------------------------------------------------------------------------
-def planned_events_timed(proc, load, startup_s=0.0, collect_s=0.0, stop_s=0.0):
+def planned_events_timed(proc, load, startup_s=0.0, collect_s=0.0, stop_s=0.0, drain_s=None):
     """계획 시각으로 사건 시각을 만든다 — 계획(인자 0)은 모든 사건이 순간(계획 시각표의 '같은 시각' 해석).
-    민감도: startup_s = 기동 → UP · collect_s = 수집 · stop_s = 내림에 걸리는 초 — startup_s > 0이면 비움도 계획 비움 시간(DRAIN_S)을 쓴다."""
+    민감도: startup_s = 기동 → UP · collect_s = 수집 · stop_s = 내림 · drain_s = 비움에 걸리는 초 —
+    drain_s가 없으면 startup_s > 0일 때 계획 비움 시간(DRAIN_S)을 쓴다(앞 동작 그대로)."""
     setup, steps, _ = steps_of(proc, load)
     ev, derived = [], []
+    if drain_s is None:
+        drain_s = float(DRAIN_S) if startup_s > 0 else 0.0
     for s in steps:
         t = float(s["at_s"])
         for a in s["actions"]:
             dur = 0.0
-            if startup_s > 0 or collect_s > 0 or stop_s > 0:
-                dur = {"wait-health": startup_s, "drain": float(DRAIN_S) if startup_s > 0 else 0.0, "collect": collect_s, "stop": stop_s}.get(a["op"], 0.0)
+            if startup_s > 0 or collect_s > 0 or stop_s > 0 or drain_s > 0:
+                dur = {"wait-health": startup_s, "drain": drain_s, "collect": collect_s, "stop": stop_s}.get(a["op"], 0.0)
             if a["op"] == "pre-apply":
                 dur = 0.0   # 적용판은 소유 변경이 아니다(OWNER_EVENTS 밖) — 길이는 dry-run 판정에 들지 않는다
             ev.append({"step": s["name"], "op": a["op"], "slot": a.get("slot"), "t0": t, "t1": t + dur})
@@ -212,12 +216,12 @@ def _role_before_stop(steps, step, action):
     return role
 
 
-def probe_dry_run(startup_s=0.0, collect_s=0.0, stop_s=0.0):
+def probe_dry_run(startup_s=0.0, collect_s=0.0, stop_s=0.0, drain_s=None):
     rows, total = [], 0
     for load in LOADS:
         k6_s = LOADS[load]["k6_s"]
         for proc in range(1, 6):
-            ev, derived = planned_events_timed(proc, load, startup_s, collect_s, stop_s)
+            ev, derived = planned_events_timed(proc, load, startup_s, collect_s, stop_s, drain_s)
             iv = intervals(ev, k6_s)
             inst = owner_instants(ev, derived)
             cells = {c: {"probes": 0, "boundary": 0, "in": {}, "lost": []} for c in CELL_NAMES}
@@ -377,13 +381,14 @@ def main(argv):
         print(json.dumps(render(int(argv[2]), argv[3]), ensure_ascii=False))
         return 0
     if len(argv) >= 2 and argv[1] == "--probe-dry-run":
-        opt = lambda k: float(argv[argv.index(k) + 1]) if k in argv else 0.0
-        su, co, sp = opt("--startup-s"), opt("--collect-s"), opt("--stop-s")
-        total, rows = probe_dry_run(su, co, sp)
+        opt = lambda k, dflt=0.0: float(argv[argv.index(k) + 1]) if k in argv else dflt
+        su, co, sp, dr = opt("--startup-s"), opt("--collect-s"), opt("--stop-s"), opt("--drain-s", None)
+        total, rows = probe_dry_run(su, co, sp, dr)
+        dr_eff = dr if dr is not None else (float(DRAIN_S) if su > 0 else 0.0)
         if "--json" in argv:
-            print(json.dumps({"startup_s": su, "boundary_total": total, "rows": rows}, ensure_ascii=False))
+            print(json.dumps({"startup_s": su, "collect_s": co, "stop_s": sp, "drain_s": dr_eff, "boundary_total": total, "rows": rows}, ensure_ascii=False))
         else:
-            print(f"# 탐침 일정 dry-run(§4.9-20 · §5.8-1) — 기동 → UP {su:g}초 · 수집 {co:g}초 · 내림 {sp:g}초 · 판정 여유 {PROBE_DECIDE_MARGIN_S}초")
+            print(f"# 탐침 일정 dry-run(§4.9-20 · §5.8-1) — 기동 → UP {su:g}초 · 수집 {co:g}초 · 내림 {sp:g}초 · 비움 {dr_eff:g}초 · 판정 여유 {PROBE_DECIDE_MARGIN_S}초")
             print("부하 | 절차 | 경계 탐침 | 칸별(old/trans/new) 구간 배정 | 경계로 빠진 탐침 | 가장 짧은 칸 끝 여유(초)")
             for r in rows:
                 cells = " · ".join(f"{c}:{dict(sorted(v['in'].items()))}" for c, v in r["cells"].items())

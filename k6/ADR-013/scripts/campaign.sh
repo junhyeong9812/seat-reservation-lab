@@ -11,7 +11,9 @@
 #   ② 옛·새 이미지 ID 고정(--images — run.sh --prepare-images · DS-11)
 #   ③ 부하 중 V9 스모크 두 경로(§4.5 DS-13) — ds13_smoke.done = true(오류가 나와도 막지 않는다 — P11 판정 자료)
 #   ④ §4.9 [구현 검증] 결과 — impl_verify.done = true
-#   ⑤ 탐침 일정 dry-run 경계 탐침 0(§4.9-20 · §5.8-1 — 0이 아니면 시작하지 않는다)
+#   ⑤ 탐침 일정 dry-run 경계 탐침 0(§4.9-20 · §5.8-1 · §5.8-0 '캠페인 전에 .164 스모크로 잰 사건 길이로 다시 dry-run') — 시작 조건 JSON
+#      smoke_durations.{startup_s, collect_s, stop_s, drain_s}(스모크 events.jsonl 실측 — 기동 → UP · 수집 · 내림 · 비움의 최대 초) 필수 ·
+#      그 값으로 plan13.py --probe-dry-run을 돌려 0이 아니거나 값이 없으면 시작하지 않는다(사건 길이 0 dry-run은 판정 자료가 아니다 — CR13-8)
 # 재측정(§5.3 · §5.8-5): status invalid:*(하네스)만 — 같은 (부하, 절차, 회차) 자리 최대 2번 · 캠페인 끝에 원래 순서대로(--attempt n → 결과 표 'rerun').
 #   fail:*(절차 원인)·ok는 다시 재지 않는다(다시 재서 ok가 나오면 실패가 가려진다).
 #   멈추고 보고(자동 재실행 없음 — 사용자 확인): invalid의 사유에 probe-nondeterministic(하네스 분류 — 그 부하 15회 전체 재실행 · §5.3 S5-10 · §5.7-5) ·
@@ -65,8 +67,16 @@ cond_lines() {   # 시작 조건 줄(§5.3) — 판정 결과는 마지막 열
   if [[ -s "$IMAGES" ]] && jq -e '[.old.id, .new.id] | all(test("^sha256:"))' "$IMAGES" > /dev/null 2>&1; then
     echo "② 이미지 ID 고정 — 옛 $(jq -r '.old.tag + " " + (.old.id[7:19])' "$IMAGES") · 새 $(jq -r '.new.tag + " " + (.new.id[7:19])' "$IMAGES") → 통과"
   else echo "② 이미지 ID 고정 — --images 없음·형식 아님 → 막음"; ok=0; fi
-  local b; b=$(python3 -I "$SRC/plan13.py" --probe-dry-run --json | jq -r .boundary_total)
-  [[ "$b" == 0 ]] && echo "⑤ 탐침 일정 dry-run 경계 탐침 $b → 통과" || { echo "⑤ 탐침 일정 dry-run 경계 탐침 ${b:-판정 실패} → 막음"; ok=0; }
+  local b dur=""
+  [[ -s "$START" ]] && jq -e '.smoke_durations as $s | [$s.startup_s, $s.collect_s, $s.stop_s, $s.drain_s] | all(type == "number" and . >= 0)' "$START" > /dev/null 2>&1 \
+    && dur=$(jq -r '.smoke_durations | "--startup-s \(.startup_s) --collect-s \(.collect_s) --stop-s \(.stop_s) --drain-s \(.drain_s)"' "$START")
+  if [[ -z "$dur" ]]; then
+    echo "⑤ 탐침 일정 dry-run — 시작 조건 smoke_durations(startup_s·collect_s·stop_s·drain_s 스모크 실측) 없음·형식 아님 → 막음"; ok=0
+  else
+    # shellcheck disable=SC2086
+    b=$(python3 -I "$SRC/plan13.py" --probe-dry-run $dur --json | jq -r .boundary_total)
+    [[ "$b" == 0 ]] && echo "⑤ 탐침 일정 dry-run($dur) 경계 탐침 $b → 통과" || { echo "⑤ 탐침 일정 dry-run($dur) 경계 탐침 ${b:-판정 실패} → 막음"; ok=0; }
+  fi
   return $(( ! ok ))
 }
 if (( DRY )); then

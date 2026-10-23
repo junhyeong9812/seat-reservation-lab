@@ -12,18 +12,25 @@
   서버형 느린 초(ADR-012 tail.py 정의): 램프 뒤 초 중 hold(코드 0 제외) 최대 응답 > 50ms이고 그 요청의 waiting > blocked + sending + receiving인 초.
   D1 = S4c 정지 초 수 [90, k6 끝) · D2 = S3e 가용성 탐침 실패 수(코드 0 · 5xx · 502 · 요청 시한 · 버린 반복 — §5.1) · D3 = S4c [T1 첫 사건, k6 끝) 서버형 느린 초.
   한도 탐침(§4.7.1 · §5.8): 판정 탐침 = 주입·판정이 한 구간 · 경계 아님(owner_changed 없음 — DS-10) · 판정 요청 응답이 201·409 · 중단 아님.
-    맞음/틀림 — H: 선점 2 201 = 맞음 · 409 HOLD_LIMIT_EXCEEDED = 틀림(부당 거절). L: 선점 2 201 · 선점 3 409 HOLD_LIMIT_EXCEEDED = 맞음 · 선점 3 201 = 틀림(한도 초과). 그 밖 = 이상(판정에서 뺀다 · 기록).
+    맞음/틀림 — H: 선점 2 201 = 맞음 · 409 HOLD_LIMIT_EXCEEDED = 틀림(부당 거절). L: 선점 2 201 · 선점 3 409 HOLD_LIMIT_EXCEEDED = 맞음 · 선점 3 201 = 틀림(한도 초과).
+      그 밖(응답은 모두 201·409인데 모양이 다름) = 예상 밖 판정 응답 — 판정에서 빼고 flags probe-anomaly · 캠페인 P9 (바)(정합 분류 — §5.3 N10 기준과 같다 · CR13-3).
     짝 제외(§5.8-2): (회차, d, 종류)마다 단독(옛) 칸 탐침과 전환 칸 탐침 중 하나가 빠지면 다른 쪽도 뺀다(d ∈ {5, 30, 75}).
-    전환 손해(§5.8-3 — §5.4 'min(T) > max(O)'를 대신한다): 부하·절차마다 3회 합으로 (d, 종류) 6칸마다 T 틀림 ≤ O 틀림 — 한 칸이라도 T > O면 반증. ①은 해당 없음.
-    J1·J2(§5.8-3): 회차마다 6칸의 (X 틀림 − O 틀림) 합 ÷ 짝 맞춘 탐침 수. X = ②~⑤는 T(전환 칸 · 전환 구간 판정 탐침 — §5.8-3 그대로) ·
-      ①은 T가 없으므로 같은 (d, 종류)의 전환 칸 탐침이 lb 편입 뒤 판정이면 그것, 아니면 단독(새) 칸 탐침(§5.4 J 행 '① 6 이상'의 뜻을 짝 하나로 옮긴 해석 · README '해석 메모').
-    최소 판정 탐침 수(§5.4 표 + §5.8-4 — 회차마다 · 짝 제외 뒤): O ≥ 3 · Q(단독(옛) d ∈ {1, 5}) ≥ 2 · T ≥ 3(②~⑤) · N(단독(새) d ∈ {30, 75}) H ≥ 1 · L ≥ 1 · 합 ≥ 2 · J ≥ 3.
+    전환 손해(§5.8-3 — §5.4 'min(T) > max(O)'를 대신한다): 부하·절차마다 3회 합으로 (d, 종류) 6칸(먼저 고정)마다 T 틀림 ≤ O 틀림 — 한 칸이라도 T > O면 반증 ·
+      3회 합 짝 0인 칸 = 판정 불가(성공 아님 — CR13-2). ①은 해당 없음.
+    J1·J2(§5.5 · §5.8-3 · §5.4 J 행): 회차마다 Σ(X 틀림 − O 틀림) ÷ X 수. X = 같은 (d, 종류)의 전환 칸·단독(새) 칸 탐침 중 실제 구간이 전환·단독(새)인 판정 탐침
+      (O가 판정 탐침일 때만 — 짝 제외). ②~⑤ 12 · ①은 전환 구간이 '중단'이라 단독(새) 6 + 전환 칸 중 lb 편입 뒤 판정 탐침(CR13-1).
+    최소 판정 탐침 수(§5.4 표 + §5.8-4 — 회차마다 · 짝 제외 뒤): O ≥ 3 · Q(단독(옛) d ∈ {1, 5}) ≥ 2 · T ≥ 3(②~⑤) ·
+      N(실제 구간 단독(새) · 칸 무관 · d ∈ {30, 75} — CR13-9) H ≥ 1 · L ≥ 1 · 합 ≥ 2 · J ≥ 3.
     미달 원인(§5.8-5): 하네스(실행기 끝 행 없음 · 탐침 기록 < 계획 · 주입·스냅숏 SQL 실패 · 실행기 예외) = invalid:probe-short · 그 밖 = fail:probe-short-by-procedure.
+    (마) 두 수(스냅숏 > 2 · L 선점 3 = 201)는 응답이 모두 201·409인 탐침만 — 코드 0·5xx 섞인 탐침은 unclean_over로 따로(CR13-11).
   N10 결정성: 판정 요청 직후 스냅숏 실제(홀드 + 확정) = 그 탐침의 201 누계 — 다르면 probe-nondeterministic, 기계적 분류(§5.3 S5-10):
     하네스 = ⓐ 그 탐침 요청 중 201·409가 아닌 응답 ≥ 1 또는 ⓑ 다시 센 201 수 = 스냅숏 실제이고 홀드 행이 모두 201 요청 창 안 · 정합 = 그 밖(P9 (바)).
   촘촘한 락 표본 결측(§5.3): ADR 창 [T1 첫 사건 − 10, 마지막 lb 넣기 끝 + 30](④⑤ + [적용판 시작 − 10, 끝 + 30])에서 0.2초 표본 기대 수 대비 결측 > 10% = invalid.
   가용성 탐침 부족(§5.3): 전환 창(위 창과 같다) **밖**에서 (보낸 요청 + 버린 반복) < 계획(2/s × 길이)의 95% = invalid. 창 안의 부족·버린 반복은 D2 실패다.
   단독(옛) 기준 창 [60, 90)(§5.3 S5-7): S4c 정지 초 > 0 · 두 부하 5xx·502 > 0 = invalid(환경). S3e는 정지 초를 쓰지 않는다(좌석 소진 — DS-6).
+  H4 앱별 수집(CR13-5): UP한 생애마다 수집 사건(오류 0) · 지표·configprops · 앱 로그 — 결측 = invalid:app-collect-missing:<생애>:<항목> ·
+    GC 요약 없음·빈 로그·창 없음 = invalid:gc-log-missing:<생애>(CR13-4) — 전환 실패 회차는 묻지 않는다(절차 실패를 하네스 무효로 덮지 않게).
+  끝 검사 앱 ≠ 계획 final_new = fail:final-app-mismatch(CR13-참고).
 수치는 모두 원시 파일에서 계산한다(손 계산 금지). 없는 파일은 사유로 드러낸다(무음 금지)."""
 import gzip
 from array import array
@@ -461,6 +468,7 @@ def probe_metrics(d, clk, plan, iv, instants, repaired, end_start_srv, outage_na
         codes = [q["code"] for q in r.get("requests") or []]
         h1 = reqs.get("hold1")
         x["codes"] = codes
+        x["clean"] = bool(codes) and all(c in (201, 409) for c in codes)   # (마) 두 수의 모집단(CR13-11)
         if h1 is None or h1["code"] != 201 or x["inject_rel"] is None:
             t = clk.pc(h1["sent_pc"]) if h1 else None
             x["status"] = "outage" if outage_name and plan13.interval_of(t, iv) == "trans" else ("failed-response" if h1 and h1["code"] != 201 else "harness-error")
@@ -528,63 +536,64 @@ def probe_metrics(d, clk, plan, iv, instants, repaired, end_start_srv, outage_na
 
 
 def probe_tables(pm, proc):
-    """회차 하나: O · Q · T · N · J 수(짝 제외 뒤) · 칸별 틀림 · J 값 · 최소 수 미달."""
+    """회차 하나: O · Q · T · N · J 수(짝 제외 뒤) · 칸별 틀림 · J 값 · 최소 수 미달.
+    J 모집단(§5.5 J1·J2 'Pᵣ = 전환 + 단독(새) 구간 판정 탐침' · §5.4 J 행 '②③④⑤ 12 · ① 6 이상' · §5.8-2 짝 제외 — CR13-1):
+      (d, 종류)마다 전환 칸·단독(새) 칸 탐침 중 실제 구간이 전환·단독(새)인 판정 탐침(X) — 같은 (d, 종류) 단독(옛) 칸 탐침(O)이 판정 탐침일 때만 센다.
+      J = Σ(X 틀림 − O 틀림) ÷ X 수(X마다 같은 O와 짝 — §5.8-3 '(T 틀림 − O 틀림) 합 ÷ 짝 맞춘 탐침 수'를 X로 넓힌 것). ①은 전환 구간 탐침이 '중단'이라 lb 편입 뒤 것만 든다.
+    N(P9 (가) · 최소 수 — CR13-9) = 실제 구간 단독(새)의 판정 탐침(칸 무관 · 경계 아님) · d ∈ {30, 75}.
+    (마) 두 수(스냅숏 > 2 · L 선점 3 = 201 — CR13-11) = 요청 응답이 모두 201·409인 탐침만. 코드 0·5xx가 섞인 탐침은 unclean으로 따로 남긴다."""
     P = {x["id"]: x for x in pm.get("probes") or []}
     by = {}
     for x in P.values():
         by[(x["cell"], x["d"], x["type"])] = x
     dec = lambda x, iv: x is not None and x.get("status") == "decision" and x.get("interval") in iv
+    wrong = lambda x: int(x["verdict"] == "wrong")
     cells = {}
-    paired_O = paired_X = 0
-    o_unpaired = 0
-    jsum = 0
+    paired_T = o_n = j_n = jsum = 0
     for d in D_SET:
         for k in KINDS:
             o = by.get(("old", d, k))
             t = by.get(("trans", d, k))
             o_ok = dec(o, ("old",))
-            o_unpaired += o_ok
+            o_n += o_ok
             t_ok = dec(t, ("trans",)) if proc != 1 else False
-            if proc != 1:
-                x_ok = t_ok   # §5.8-3 — J는 T 짝(②~⑤)
-            else:
-                # ①(T 없음 — 전환 칸은 중단): 같은 (d, 종류)의 전환 칸 탐침이 lb 편입 뒤(단독(새)) 판정이면 그것, 아니면 단독(새) 칸 탐침
-                # (§5.4 J 행 '① 6 이상(전환 칸 중 lb 편입 뒤 탐침이 더해진다)' — 원래 J 모집단 '전환 + 단독(새)'을 짝 하나로 옮긴 해석 · README 해석 메모)
-                x_ok = dec(t, ("new",))
-                if not x_ok:
-                    t = by.get(("new", d, k))
-                    x_ok = dec(t, ("new",))
-            c = {"O_ok": o_ok, "T_ok": t_ok, "X_ok": x_ok, "X_cell": t["cell"] if (x_ok and t) else None}
+            xs = [x for x in (t, by.get(("new", d, k))) if dec(x, ("trans", "new"))]
+            c = {"O_ok": o_ok, "T_ok": t_ok, "X": [f"{x['cell']}@{x['interval']}" for x in xs]}
             if proc != 1 and o_ok and t_ok:
                 c["pair_T"] = True
-                c["O_wrong"] = int(o["verdict"] == "wrong")
-                c["T_wrong"] = int(t["verdict"] == "wrong")
-                paired_O += 1
-            if o_ok and x_ok:
-                c["pair_J"] = True
-                c["J_O_wrong"] = int(o["verdict"] == "wrong")
-                c["J_X_wrong"] = int(t["verdict"] == "wrong")
-                paired_X += 1
-                jsum += c["J_X_wrong"] - c["J_O_wrong"]
+                c["O_wrong"] = wrong(o)
+                c["T_wrong"] = wrong(t)
+                paired_T += 1
+            if o_ok and xs:
+                c["pair_J"] = len(xs)
+                c["J_O_wrong"] = wrong(o)
+                c["J_X_wrong"] = sum(wrong(x) for x in xs)
+                j_n += len(xs)
+                jsum += c["J_X_wrong"] - len(xs) * c["J_O_wrong"]
             cells[f"{d}{k}"] = c
     q = [x for x in P.values() if x["cell"] == "old" and x["d"] in (1, 5) and dec(x, ("old",))]
-    n = [x for x in P.values() if x["cell"] == "new" and x["d"] in (30, 75) and dec(x, ("new",))]
+    n = [x for x in P.values() if x["d"] in (30, 75) and dec(x, ("new",))]
     nH = sum(1 for x in n if x["type"] == "H")
     nL = sum(1 for x in n if x["type"] == "L")
-    counts = {"O": paired_O if proc != 1 else o_unpaired, "Q": len(q), "T": paired_O if proc != 1 else None, "N": len(n), "N_H": nH, "N_L": nL, "J": paired_X}
+    counts = {"O": paired_T if proc != 1 else o_n, "Q": len(q), "T": paired_T if proc != 1 else None, "N": len(n), "N_H": nH, "N_L": nL, "J": j_n}
     short = []
     for k in ("O", "Q", "T", "N", "N_H", "N_L", "J"):
         if k == "T" and proc == 1:
             continue
         if (counts[k] or 0) < MIN[k]:
             short.append(f"{k}={counts[k]}<{MIN[k]}")
+    l_over = lambda x: x["type"] == "L" and len(x.get("codes") or []) >= 3 and x["codes"][2] == 201
+    clean = [x for x in P.values() if x.get("clean")]
+    unclean = [x for x in P.values() if x.get("codes") and not x.get("clean") and (x.get("snap_over_limit") or l_over(x))]
     return {"cells": cells, "counts": counts, "short": short,
             "Q_wrong": sum(1 for x in q if x["verdict"] == "wrong"), "Q_n": len(q),
             "N_wrong": sum(1 for x in n if x["verdict"] == "wrong"),
-            "J": round(jsum / paired_X, 4) if paired_X else None,
+            "J": round(jsum / j_n, 4) if j_n else None,
             "boundary": [x["id"] for x in P.values() if x.get("status") == "boundary"],
-            "L_over_results": sum(1 for x in P.values() if x["type"] == "L" and x.get("codes") and len(x["codes"]) >= 3 and x["codes"][2] == 201),
-            "snap_over_limit": sum(1 for x in P.values() if x.get("snap_over_limit"))}
+            "L_over_results": sum(1 for x in clean if l_over(x)),
+            "snap_over_limit": sum(1 for x in clean if x.get("snap_over_limit")),
+            "unclean_over": [{"id": x["id"], "codes": x["codes"], "snap_over_limit": bool(x.get("snap_over_limit"))} for x in unclean],
+            "unclean_snap_over": sum(1 for x in unclean if x.get("snap_over_limit"))}
 
 
 # ---- 회차 판정 -----------------------------------------------------------------------------------------------------------------
@@ -625,6 +634,12 @@ def rep_summary(d):
         harness.append("drift-db-missing")
     end = load(d / "end-check.json")
     fa = load(d / "final-app.json") or {}
+    # 끝 검사 앱(H6)이 계획(plan end_state.final_new)과 다르다(CR13-참고): run.sh가 계획 앱이 health를 못 내면 살아 있는 다른 앱으로 끝 검사를 돌린다 —
+    #   계획한 마지막 새 앱이 회차 끝에 살아 있지 않은 것은 절차 이행 실패(P10)라 절차 사유로 드러낸다(원인을 가르지 못한 실패는 절차 — §5.3). 파일 없음 = 하네스.
+    if not fa:
+        harness.append("final-app-missing")
+    elif fa.get("final_app") != plan["end_state"]["final_new"]:
+        procedure.append("final-app-mismatch")
     end_start_srv = (fa.get("end_check_start_pc") or 0) + clk.off if fa.get("end_check_start_pc") else None
     # 파생 소유 변경 순간: 새 앱 첫 증분 틱 · 옛 앱 마지막 C 바퀴 끝(옛 앱 내림 전)
     derived = []
@@ -697,6 +712,12 @@ def rep_summary(d):
         if nd_h:
             harness.append("probe-nondeterministic")   # 하네스 분류 — 그 부하 15회 전체(캠페인이 멈추고 보고 — §5.3 · §5.7-5)
         out["probe_nondet_integrity"] = len(nd_i)
+        # 예상 밖 판정 응답(CR13-3): 응답이 모두 201·409인데 맞음·틀림 모양이 아니다(H 선점 2 = 409 다른 코드 · L 선점 2 ≠ 201 · L 선점 3 = 409 다른 코드).
+        #   §5.3 N10 기계적 분류와 같은 기준 — 하네스 몫은 '201·409가 아닌 응답이 있을 때'뿐이고(서버 커밋 여부를 모름) 그 밖은 서버가 확정해 답한 것이라
+        #   앱 판정 결함 = 정합 분류다. 회차는 유효로 두고 캠페인 P9 (바) 반증 항목으로 센다(판정에서 빠져 숨지 않게 — 무음 금지).
+        out["probe_anomaly"] = list(pm.get("anomaly") or [])
+        if out["probe_anomaly"]:
+            flags.append("probe-anomaly")
         if pt["short"]:
             if pm["harness_error"]:
                 harness.append("probe-short")
@@ -732,11 +753,25 @@ def rep_summary(d):
         own["gap_probes"] = len(gap_probes)
         own["gap_probes_unrepaired"] = sum(1 for x in gap_probes if not x.get("repaired_by_end"))
     out["owner"] = own
+    # §4.11 ② page_full(찬 페이지 수 — 판정 자료) — 새 앱 생애마다 마지막 수집 지표(COUNT). P7 이어 읽기 끝 판정이 쓴다(CR13-참고)
+    page_full = {}
+    for life, L in lives.items():
+        if L.get("role") != "new":
+            continue
+        a = load(d / f"app-{life}-actuator.json") or {}
+        for n, m in (a.get("metrics") or {}).items():
+            if n.endswith(".page_full") and m:
+                page_full[life] = next((x.get("value") for x in m.get("measurements") or [] if x.get("statistic") == "COUNT"), 0) or 0
+                if page_full[life] > 0:
+                    flags.append("page_full")
     # P7(첫 틱 — §4.11) — 판정 자료 결측은 하네스 사유
     p7 = {"applicable": newL is not None}
+    if page_full:
+        p7["page_full"] = page_full
     if newL:
         fi = newL.get("first_inc")
-        cfg = load(d / f"app-{next(k for k, L in lives.items() if L is newL)}-config.json") or {}
+        new_life = next(k for k, L in lives.items() if L is newL)
+        cfg = load(d / f"app-{new_life}-config.json") or {}
         hold = next((b.get("properties") or {} for b in cfg.get("configprops") or [] if b.get("prefix") == "seat.hold"), {})
         ps = (((hold.get("counterDrift") or {}).get("reconcile") or {}).get("incremental") or {}).get("pageSize") or 100000
         if fi is None or restart is None:
@@ -744,11 +779,18 @@ def rep_summary(d):
             p7["missing"] = [x for x, v in (("first-inc", fi), ("restart", restart)) if v is None]
         else:
             ticks = sorted((r for r in runs if r["source"] == fi["source"] and r["s"] is not None and r["s"] >= fi["s"]), key=lambda r: r["s"])
+            # 이어 읽기 끝(CR13-참고): 찬 페이지 = 행 수(pairs_scanned — 읽은 행 + 되돌림 재시도 쌍) ≥ page-size **이고** 그 생애 page_full 지표 몫이 남았을 때만.
+            #   pairs_scanned만 보면 되돌림 재시도 쌍이 더해진 안 찬 틱도 찬 것으로 이어 붙는다. 지표가 없으면 행 수만(출처 기록).
+            pf_left = page_full.get(new_life)
+            p7["carry_end_source"] = "page_full+rows" if pf_left is not None else "rows"
             carry = []
             for r in ticks:
                 carry.append(r)
-                if (r.get("pairs_scanned") or 0) < ps:
+                full = (r.get("pairs_scanned") or 0) >= ps and (pf_left is None or pf_left > 0)
+                if not full:
                     break
+                if pf_left is not None:
+                    pf_left -= 1
             W = carry[-1]["s"] - restart["to_r"] if restart.get("to_r") is not None else None
             tot = sum(r.get("pairs_scanned") or 0 for r in carry)
             p7.update(page_size=ps, carry_ticks=len(carry), first_pairs=fi.get("pairs_scanned"), carry_pairs=tot, W_s=W,
@@ -763,16 +805,6 @@ def rep_summary(d):
                 refute.append("carry_ticks > 60")
             p7["refuted"] = refute
     out["P7"] = p7
-    for life, L in lives.items():   # §4.11 ② page_full(찬 페이지 수 — 판정 자료) · carry_ticks — 새 앱 생애마다 마지막 수집 지표
-        if L.get("role") != "new":
-            continue
-        a = load(d / f"app-{life}-actuator.json") or {}
-        for n, m in (a.get("metrics") or {}).items():
-            if n.endswith(".page_full") and m:
-                c = next((x.get("value") for x in m.get("measurements") or [] if x.get("statistic") == "COUNT"), 0) or 0
-                p7.setdefault("page_full", {})[life] = c
-                if c > 0:
-                    flags.append("page_full")
     clamped = sum(1 for g in gaps if g.get("kind") == "window_clamped")
     if clamped:
         flags.append("window_clamped")
@@ -799,23 +831,60 @@ def rep_summary(d):
                 elif bad:
                     n23.append(f"N3: 그림자 앱 {life} 지표 {bad[:3]}")
     out["N2N3"] = n23
-    # GC(P10 — 앱마다 창 [max(UP + 60, k6 시작 + 60), 내림 직전 수집])
+    # H4 앱별 수집(CR13-5): UP한 생애마다 수집(내림 직전 collect 사건 또는 회차 끝 final-collect) · 수집 오류 0 · 지표·configprops · 앱 로그 · GC 로그.
+    #   결측 = 하네스 사유(P10 GC · P11 · P7 · N3 판정 자료). 전환 실패 회차(transition-failed)는 뒤 사건이 그 결과라 묻지 않는다 — 절차 실패를 하네스 무효로 덮지 않게.
+    collected = {}
+    for e in ev:
+        if e["op"] == "collect" and e["result"] == "ok" and e.get("life"):
+            collected[e["life"]] = (e.get("detail") or {}).get("errors")
+    for r in rows:
+        if r.get("kind") == "final-collect" and (r.get("detail") or {}).get("life"):
+            collected[r["detail"]["life"]] = r["detail"].get("errors")
+    errs_of = lambda v: [x for x in (v.split() if isinstance(v, str) else (v or [])) if x]
+    h4 = {}
+    for life, L in lives.items():
+        if L.get("up") is None:
+            continue
+        miss = []
+        if life not in collected:
+            miss.append("collect")
+        else:
+            miss += [f"collect-{x}" for x in errs_of(collected[life])]
+            a = load(d / f"app-{life}-actuator.json")
+            if not a or a.get("names") is None or a.get("configprops") is None:
+                miss.append("actuator")
+            try:
+                if not gzip.open(d / f"app-{life}.log.gz", "rt", errors="replace").read(1):
+                    miss.append("app-log")
+            except OSError:
+                miss.append("app-log")
+        h4[life] = sorted(set(miss))
+        if miss and not tf:
+            harness.append(f"app-collect-missing:{life}:{'+'.join(h4[life])}")
+    out["H4"] = h4
+    # GC(P10 — 앱마다 창 [max(UP + 60, k6 시작 + 60), 내림 직전 수집]) — 요약 없음·빈 로그·창 없음 = gc-log-missing(CR13-4 · 무음 통과 금지)
     gcs = {}
     for life, L in lives.items():
-        gz = d / f"app-{life}-gc.log.gz"
-        if gc_summary9 is None or not gz.exists() or L.get("up") is None:
-            gcs[life] = None
+        if L.get("up") is None:
             continue
+        gz = d / f"app-{life}-gc.log.gz"
         w0 = max(L["up"] + 60, 60.0)
         col = L.get("collect")
         if col is None:
             fc = next((r for r in rows if r.get("kind") == "final-collect" and (r.get("detail") or {}).get("life") == life), None)
             col = clk.pc(fc["t_pc"]) if fc else None
-        if col is None or col <= w0:
-            gcs[life] = {"window": None}
+        if gc_summary9 is None or not gz.exists() or col is None or col <= w0:
+            gcs[life] = None if (gc_summary9 is None or not gz.exists()) else {"window": None}
+            if not tf:
+                harness.append(f"gc-log-missing:{life}")
             continue
         g = gc_summary9(gz, window=(w0 + clk.T0 + clk.off, col + clk.T0 + clk.off), steady_from=w0 + clk.T0 + clk.off)
-        k = (g or {}).get("k6") or {}
+        if not g or not g.get("lines"):
+            gcs[life] = {"window": [round(w0, 1), round(col, 1)], "lines": 0}
+            if not tf:
+                harness.append(f"gc-log-missing:{life}")
+            continue
+        k = g.get("k6") or {}
         gcs[life] = {"window": [round(w0, 1), round(col, 1)], "full": k.get("full"), "stalls": k.get("stalls"), "stop_ms_max": k.get("stop_ms_max"),
                      "collector": (g or {}).get("collector"),
                      "violation": bool(k) and ((k.get("full") or 0) > 0 or (k.get("stalls") or 0) > 0 or (k.get("stop_ms_max") or 0) >= 10)}
@@ -1032,11 +1101,17 @@ def campaign(root):
                     p9.append(f"(다) rep{r} 끝 불일치 {x['mismatch_all']}")
                 if x.get("repairs_outside"):
                     p9.append(f"(라) rep{r} 주입·탐침 밖 복구 {x['repairs_outside']}")
+                # (마) ⓐ 스냅숏 > 2 수 = 결과(L 선점 3 = 201) 수 — 둘 다 응답이 모두 201·409인 탐침만(CR13-11) ·
+                #     ⓒ S4c 끝 검사 탐침 회차 한도 초과 쌍(DB 전체) = 그 결과 수 + 응답이 섞인 탐침 중 스냅숏 > 2(unclean — 따로 기록한 몫)
                 if x.get("over_limit_main") or (pt and pt.get("snap_over_limit") != pt.get("L_over_results")) or \
-                   (load_ == "S4c" and pt and x.get("over_limit_probe") is not None and x["over_limit_probe"] != pt.get("L_over_results")):
-                    p9.append(f"(마) rep{r} 한도 초과 대조 — 주 부하 {x.get('over_limit_main')} · 스냅숏 {pt.get('snap_over_limit')} · 결과 {pt.get('L_over_results')} · 끝 탐침 {x.get('over_limit_probe')}")
+                   (load_ == "S4c" and pt and x.get("over_limit_probe") is not None
+                    and x["over_limit_probe"] != (pt.get("L_over_results") or 0) + (pt.get("unclean_snap_over") or 0)):
+                    p9.append(f"(마) rep{r} 한도 초과 대조 — 주 부하 {x.get('over_limit_main')} · 스냅숏 {pt.get('snap_over_limit')} · 결과 {pt.get('L_over_results')} · "
+                              f"끝 탐침 {x.get('over_limit_probe')} · 응답 섞인 탐침 스냅숏 > 2 {pt.get('unclean_snap_over')}")
                 if s.get("probe_nondet_integrity"):
                     p9.append(f"(바) rep{r} 결정성 위반(정합 분류) {s['probe_nondet_integrity']}")
+                if s.get("probe_anomaly"):
+                    p9.append(f"(바) rep{r} 예상 밖 판정 응답(201·409 — 정합 분류 · CR13-3) {s['probe_anomaly']}")
                 if x.get("schema"):
                     p9.append(f"(사) rep{r} {x['schema']}")
                 if (s.get("owner") or {}).get("gap_probes_unrepaired"):
@@ -1045,9 +1120,9 @@ def campaign(root):
                     p9.append(f"(차) rep{r} J3 대상 첫 복구 없음 {x['J3_missing']}")
                 if "end-check-timeout" in (s.get("flags") or []):
                     p9.append(f"판정 불가: rep{r} 끝 검사 시한")
-            # (자) 칸별 T ≤ O(§5.8-3)
+            # (자) 칸별 T ≤ O(§5.8-3) — 6칸(d ∈ {5, 30, 75} × H·L)을 먼저 고정한다. 3회 합 짝 수 0인 칸 = 판정 불가(성공 아님 — §5.4 · CR13-2)
             if proc != 1:
-                tot = {}
+                tot = {f"{dd}{kk}": [0, 0, 0] for dd in D_SET for kk in KINDS}
                 for s in vr.values():
                     for c, cc in ((s.get("probe_tables") or {}).get("cells") or {}).items():
                         if cc.get("pair_T"):
@@ -1059,6 +1134,9 @@ def campaign(root):
                 bad = [c for c, (tw, ow, n) in tot.items() if tw > ow]
                 if bad:
                     p9.append(f"(자) 칸 {bad} T 틀림 > O 틀림")
+                zero = [c for c, (tw, ow, n) in tot.items() if n == 0]
+                if zero:
+                    p9.append(f"판정 불가: (자) 칸 {zero} 3회 합 짝 0")
             cell["P9"] = p9 or "성립"
             if p9:
                 ok_all = False

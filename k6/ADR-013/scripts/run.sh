@@ -238,6 +238,8 @@ do_lb_remove() {
   local s="$1"; lb_apply "$STEP" lb-remove "$s" "$(echo "$LB_SET" | xargs -n1 | grep -vx "$(svc_of "$s")" | xargs)"
 }
 do_drain() {   # 슬롯 — 비움 5초 → 빼기 효력 뒤 그 주소로 시작한 요청 0 · 진행 중 0(최대 5초 × 2번 더) — 아니면 transition-failed(원인 분류 §5.3)
+  #   잴 수 없는 값(접근 기록·진행 중 지표 읽기 실패)은 0으로 보지 않는다(CR13-6): 같은 재시도 안에서 다시 재고, 끝까지 모르면
+  #   시작한 요청 0인데 진행 중을 모름 = inflight_unknown · 시작한 요청 수를 모름 = started_after_unknown(둘 다 하네스 — 측정 실패).
   local s="$1" t0 n inf k=0 det; t0=$(now)
   sleep "$(jq -r .fixed.drain_s "$DIR/plan.json")"
   while :; do
@@ -245,16 +247,28 @@ do_drain() {   # 슬롯 — 비움 5초 → 빼기 효력 뒤 그 주소로 시�
     n=$(lb_started_after "${IP[$s]}" "$LAST_EFF" "$LAST_BYTES"); inf=$(app_inflight "$(url_of "$s")")
     det=$(jq -nc --arg n "$n" --arg inf "$inf" --argjson k "$k" --arg ip "${IP[$s]}" --arg eff "$LAST_EFF" \
           '{started_after: ($n | tonumber? // null), inflight: ($inf | tonumber? // null), extra_rounds: $k, ip: $ip, effective: ($eff | tonumber? // null)}')
-    if [[ "$n" == 0 ]] && [[ -z "$inf" || "$inf" == 0 ]]; then ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" ok "" "$det"; return 0; fi
+    if [[ "$n" == 0 && "$inf" =~ ^0(\.0+)?$ ]]; then ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" ok "" "$det"; return 0; fi
     (( k >= $(jq -r .fixed.drain_extra_max "$DIR/plan.json") )) && break
     k=$((k + 1)); sleep "$(jq -r .fixed.drain_extra_s "$DIR/plan.json")"
   done
-  local lc cause=harness; lc=$(drain_lock_cause "$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")")
-  jq -e '.blocked_by_migration > 0' <<< "$lc" > /dev/null 2>&1 && cause=procedure   # 남은 요청이 마이그레이션·적용판 세션 락에 막힘 = 절차
-  ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" fail "$cause" "$(jq -c --argjson lc "${lc:-null}" '. + {reason: "drain-incomplete", lock: $lc}' <<< "$det")"
-  tfail "$cause" drain-incomplete drain "$s" "$det"; return 1
+  local why=""
+  if ! [[ "$n" =~ ^[0-9]+$ ]]; then why=started_after_unknown
+  elif [[ "$n" == 0 ]] && ! [[ "$inf" =~ ^[0-9.]+$ ]]; then why=inflight_unknown; fi
+  if [[ -n "$why" ]]; then
+    ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" fail harness "$(jq -c --arg w "$why" '. + {reason: $w}' <<< "$det")"
+    tfail harness "$why" drain "$s" "$det"; return 1
+  fi
+  # 비움 미완료의 원인(§5.3): 마이그레이션·적용판 세션 락에 막힘 = 절차 · 남은 요청이 락 대기 아님 = 하네스 ·
+  #   락 대기인데 막은 쪽이 그 밖 · 원인 질의 실패 = 원인을 가르지 못함 → 절차(cause_unknown — §5.3 '절차로 본다 · 실패를 숨기지 않는 쪽')
+  local lc cause cls; lc=$(drain_lock_cause "$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")")
+  if jq -e '.blocked_by_migration > 0' <<< "$lc" > /dev/null 2>&1; then cause=procedure cls=blocked_by_migration
+  elif jq -e '.lock_wait == 0' <<< "$lc" > /dev/null 2>&1; then cause=harness cls=not_lock_wait
+  elif jq -e '.lock_wait > 0' <<< "$lc" > /dev/null 2>&1; then cause=procedure cls=cause_unknown
+  else cause=procedure cls=cause_unknown lc=null; fi
+  ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" fail "$cause" "$(jq -c --argjson lc "${lc:-null}" --arg cls "$cls" '. + {reason: "drain-incomplete", lock: $lc, cause_class: $cls}' <<< "$det")"
+  tfail "$cause" drain-incomplete drain "$s" "$(jq -c --arg cls "$cls" '. + {cause_class: $cls}' <<< "$det")"; return 1
 }
-do_collect() {   # 슬롯 — H4(내리기 직전). 수집 실패는 회차를 멈추지 않는다(사건 detail · 요약기가 옛 앱 로그 결측을 하네스 사유로)
+do_collect() {   # 슬롯 — H4(내리기 직전). 수집 실패는 회차를 멈추지 않는다(사건 detail errors → 요약기가 app-collect-missing·gc-log-missing 하네스 사유로 — CR13-5)
   local s="$1" t0 errs; t0=$(now)
   errs=$(app_collect "$s" "$(lname "$s")" "$DIR" | xargs)
   ev "$STEP" collect "$s" "$PA" "$t0" "$(now)" ok "" "$(jq -nc --arg e "$errs" '{errors: ($e | split(" ") | map(select(length > 0)))}')"
@@ -272,7 +286,7 @@ do_stop() {
 }
 do_pre_apply() {   # §4.4 적용판(④⑤) — 실패 = 절차 원인(pre-apply-failed)
   local t0 rc; t0=$(now)
-  bash "$OPS_DIR/apply.sh" --psql "ssh -o BatchMode=yes -o ConnectTimeout=10 $SERVER docker exec -i -e PGAPPNAME=seatlab-online-v9 seatlab-db-1 psql -X -q -U seat -d seat" \
+  FLYWAY_PASSWORD="$EXT_DB_PASSWORD" bash "$OPS_DIR/apply.sh" --psql "ssh -o BatchMode=yes -o ConnectTimeout=10 $SERVER docker exec -i -e PGAPPNAME=seatlab-online-v9 seatlab-db-1 psql -X -q -U seat -d seat" \
     --flyway "$(flyway_run_cmd "$SHA_NEW8")" --ref-catalog "$DIR/ref-catalog.json" --ref-history "$DIR/ref-history.json" --out "$DIR/pre-apply.json" \
     --stmt-timeout "$STMT_TIMEOUT" >> "$DIR/pre-apply.log" 2>&1; rc=$?
   if (( rc == 0 )); then ev "$STEP" pre-apply "" "$PA" "$t0" "$(now)" ok "" "$(jq -c '{method: .record.method, wall_s, m}' "$DIR/pre-apply.json" 2>/dev/null || echo null)"; return 0; fi
@@ -397,6 +411,9 @@ else
   jq -e '.quota_rows == 0 and .holds == 0 and .mismatch == 0 and .seats == 20000' "$DIR/seed-check.json" > /dev/null 2>&1 || abort13 seed-mismatch
 fi
 SEED_DONE=$(now)
+# 측정 DB 비밀번호(CR13-14): ADR-009 lib.sh ext_db_password — 셸 환경 EXT_DB_PASSWORD 또는 하네스 SHA의 k6/ADR-009/compose.yml POSTGRES_PASSWORD(측정 DB 고정 더미 ·
+#   이 compose가 .164 측정 DB를 만든다). 명령줄 인자로 넘기지 않는다 — apply.sh에는 환경변수 · 원격 Flyway에는 ssh 표준 입력(flyway_run_cmd).
+ext_db_password "$SHA" || abort13 db-password-missing
 ref_db "$SHA_NEW8" "$DIR" || abort13 ref-db-failed   # 기준 DB seat_ref(같은 SHA Flyway — 동치 확인·이력 체크섬)
 pg_settings > "$DIR/pg-settings.json" 2>>"$DIR/errors.log"
 db_state > "$DIR/db-state-k6.json" 2>>"$DIR/errors.log"
@@ -478,7 +495,7 @@ fi
 # ---- 살아 있는 앱 수집(H4 — 회차 끝) · lb 접근 기록 · DB 로그 · 정리 -----------------------------------------------------------------------
 for s in $(jq -r '.alive[]' "$DIR/.orch-state.json"); do
   LIFE[$s]=$(jq -r --arg s "$s" '.lives[$s] | ltrimstr($s)' "$DIR/.orch-state.json")
-  errs=$(app_collect "$s" "$s${LIFE[$s]}" "$DIR" | xargs); evx final-collect "$s" "$(jq -nc --arg l "$s${LIFE[$s]}" --arg e "$errs" '{life: $l, errors: $e}')"
+  errs=$(app_collect "$s" "$s${LIFE[$s]}" "$DIR" | xargs); evx final-collect "$s" "$(jq -nc --arg l "$s${LIFE[$s]}" --arg e "$errs" '{life: $l, errors: ($e | split(" ") | map(select(length > 0)))}')"
 done
 for p in $BG_PIDS; do pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; done; BG_PIDS=""
 remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1

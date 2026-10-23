@@ -5,7 +5,10 @@
 
 확인하는 것: ① 정상 회차 → ok · 칸별 짝 수 ② 짝 제외(§5.8-2 — 단독(옛) 칸 탐침이 실패 응답이면 같은 (d, 종류) 전환 칸 탐침도 빠진다)
 ③ 칸별 T ≤ O(§5.8-3 — 한 칸 T > O면 P9 (자) 반증) ④ N10 결정성 위반 분류(하네스 = 실패 응답 있음 · 정합 = 그 밖) ⑤ 최소 수 미달 원인(절차 지연 = fail · 실행기 = invalid)
-⑥ 고르는 규칙의 결정성(후보 순서를 바꿔도 같은 결과)과 순환 처리(순환 밖에서 빠진 후보는 되살리지 않는다) ⑦ ① 중단 구간 탐침 = '중단' · J는 lb 편입 뒤 탐침."""
+⑥ 고르는 규칙의 결정성(후보 순서를 바꿔도 같은 결과)과 순환 처리(순환 밖에서 빠진 후보는 되살리지 않는다) ⑦ ① 중단 구간 탐침 = '중단' · J = 단독(새) + lb 편입 뒤 탐침
+⑧ N = 실제 구간 단독(새)(칸 무관) ⑨ (자) 3회 합 짝 0 칸 = 판정 불가 ⑩ 예상 밖 판정 응답 = probe-anomaly · P9 (바) ⑪ GC 로그 없음·빈 로그 = gc-log-missing
+⑫ H4 수집 오류·지표 없음 = app-collect-missing ⑬ (마) 응답 섞인 탐침은 두 수에서 뺀다 ⑭ P7 이어 읽기 끝 = page_full 지표 + 행 수 ⑮ 끝 검사 앱 ≠ 계획 = final-app-mismatch
+(코드 리뷰 루프 1 CR13-1~14 · 참고 — ⑦의 J · ①의 J 수는 CR13-1 정정 뒤 값)."""
 import gzip
 import json
 import random
@@ -61,8 +64,12 @@ def avail_rows(k6_s, fail_from=None, fail_to=None):
 
 
 def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_codes=False, nondet=None, extra_boundary=False, driver_done=True,
-             old_fail=None):
-    """verdicts[(cell, d, kind)] = 'right'|'wrong' · old_fail = {(d, kind)}: 단독(옛) 칸 탐침을 실패 응답(코드 0)으로."""
+             old_fail=None, anomaly=None, l_hold2_fail=None, gc_bad=None, collect_errors=None, no_actuator=None, page_size=100000,
+             inc_pairs=None, page_full=None, final_app=None):
+    """verdicts[(cell, d, kind)] = 'right'|'wrong' · old_fail = {(d, kind)}: 단독(옛) 칸 탐침을 실패 응답(코드 0)으로.
+    anomaly = {(cell, d, kind): (code, body)}: 판정 요청을 201·409지만 맞음·틀림 모양이 아닌 응답으로 · l_hold2_fail = {(cell, d)}: L 선점 2 = 코드 0 · 선점 3 = 201(CR13-11)
+    gc_bad = {생애: 'missing'|'empty'} · collect_errors = {생애: [..]} · no_actuator = {생애} · inc_pairs = 첫 증분 틱부터 pairs_scanned 목록 ·
+    page_full = 새 앱 생애 page_full COUNT · final_app = final-app.json의 끝 검사 앱(계획과 다르게)."""
     d = root / load / f"p{proc}" / f"rep{rep}"
     d.mkdir(parents=True)
     plan = plan13.render(proc, load)
@@ -84,13 +91,17 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
             cnt[e["slot"]] += 1
             roles[e["slot"]] = next(a["role"] for s in plan["steps"] if s["name"] == e["step"] for a in s["actions"] if a["op"] == "start" and a["slot"] == e["slot"])
         life = f"{e['slot']}{cnt[e['slot']]}" if e.get("slot") else None
+        det = {"ip": f"10.0.0.{3 + cnt[e['slot']]}"} if e["op"] == "lb-add" else ({"errors": (collect_errors or {}).get(life, [])} if e["op"] == "collect" else None)
         rows.append({"kind": "plan", "step": e["step"], "op": e["op"], "slot": e.get("slot"), "life": life, "role": roles.get(e.get("slot")) if e.get("slot") else "",
-                     "start_pc": T0 + e["t0"], "end_pc": T0 + e["t1"] + 0.01, "result": "ok",
-                     "detail": {"ip": f"10.0.0.{3 + cnt[e['slot']]}"} if e["op"] == "lb-add" else None})
+                     "start_pc": T0 + e["t0"], "end_pc": T0 + e["t1"] + 0.01, "result": "ok", "detail": det})
         if life:
             lives[life] = roles[e["slot"]]
     end = plan["end_state"]
     rows.append({"kind": "end-state", "alive": end["alive"], "lb": end["lb"]})
+    for sl in end["alive"]:   # 회차 끝 살아 있는 앱 수집(run.sh evx final-collect)
+        life = f"{sl}{cnt[sl]}"
+        rows.append({"kind": "final-collect", "op": sl, "t_pc": T0 + k6_s + plan["timeline"]["converge_s"] + 5,
+                     "detail": {"life": life, "errors": (collect_errors or {}).get(life, [])}})
     (d / "events.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     plan13.events_check(d)
     iv = plan13.intervals([dict(e, t0=e["t0"], t1=e["t1"] + 0.01) for e in ev], k6_s)
@@ -124,10 +135,11 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
         runs.append({"source": "reconcile-app", "started_at": iso(t), "finished_at": iso(t + 10), "pairs_scanned": 1000})
         t += 60
     t = new_life_up + 1
-    first = True
+    i = 0
     while t < k6_s:
-        runs.append({"source": "inc-app-trg-1s", "started_at": iso(t), "finished_at": iso(t + 0.05), "pairs_scanned": 200 if first else 50})
-        first = False
+        pairs = inc_pairs[i] if inc_pairs and i < len(inc_pairs) else (200 if i == 0 else 50)
+        runs.append({"source": "inc-app-trg-1s", "started_at": iso(t), "finished_at": iso(t + 0.05), "pairs_scanned": pairs})
+        i += 1
         t += 1
     gaps = [{"kind": "restart", "at": iso(new_life_up), "to_at": iso(new_life_up - 60), "detail": "m=..."}]
     log = []
@@ -148,13 +160,17 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
             plines.append(json.dumps(rec))
             continue
         fail_dec = old_fail and cell == "old" and (p["d"], p["kind"]) in old_fail
+        an = (anomaly or {}).get((cell, p["d"], p["kind"]))
         if p["kind"] == "H":
             c2 = 0 if fail_dec else (201 if v == "right" else 409)
             reqs.append({"name": "hold2", "sent_pc": T0 + dec - 0.02, "done_pc": T0 + dec, "code": c2, "body_code": "OK" if c2 == 201 else ("HOLD_LIMIT_EXCEEDED" if c2 == 409 else None)})
         else:
-            reqs.append({"name": "hold2", "sent_pc": T0 + dec - 0.05, "done_pc": T0 + dec - 0.03, "code": 201, "body_code": "OK"})
-            c3 = 0 if fail_dec else (409 if v == "right" else 201)
+            h2f = l_hold2_fail and (cell, p["d"]) in l_hold2_fail
+            reqs.append({"name": "hold2", "sent_pc": T0 + dec - 0.05, "done_pc": T0 + dec - 0.03, "code": 0 if h2f else 201, "body_code": None if h2f else "OK"})
+            c3 = 0 if fail_dec else (201 if h2f else (409 if v == "right" else 201))
             reqs.append({"name": "hold3", "sent_pc": T0 + dec - 0.02, "done_pc": T0 + dec, "code": c3, "body_code": "HOLD_LIMIT_EXCEEDED" if c3 == 409 else ("OK" if c3 == 201 else None)})
+        if an:
+            reqs[-1].update(code=an[0], body_code=an[1])
         snaps = []
         cum = 0
         for q in reqs:
@@ -180,13 +196,21 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
                                                   "updated_at_null": 0, "m": '{"2026-10-24 00:00:00+00"}', "trigger": {"enabled": "O"}, "index": {"valid": True, "ready": True},
                                                   "flyway": [dict(r, success=True) for r in ref]}))
     (d / "consistency.json").write_text(json.dumps({"v_counter_mismatch": 0}))
-    (d / "final-app.json").write_text(json.dumps({"final_app": end["final_new"], "end_check_start_pc": T0 + k6_s + plan["timeline"]["converge_s"]}))
+    (d / "final-app.json").write_text(json.dumps({"final_app": final_app or end["final_new"], "planned": end["final_new"],
+                                                  "end_check_start_pc": T0 + k6_s + plan["timeline"]["converge_s"]}))
     for life, role in list(lives.items()) + [("A1", "old")]:
-        (d / f"app-{life}-config.json").write_text(json.dumps({"configprops": [{"prefix": "seat.hold", "properties": {"counterDrift": {"reconcile": {"incremental": {"pageSize": 100000}}}}}]}))
-        if role == "shadow":
-            (d / f"app-{life}-actuator.json").write_text(json.dumps({"names": ["seat.hold.counter.drift.repair"]}))
-    with gzip.open(d / "app-A1.log.gz", "wt") as f:
-        f.write("2026-10-24 INFO started\n")
+        cp = [{"prefix": "seat.hold", "properties": {"counterDrift": {"reconcile": {"incremental": {"pageSize": page_size}}}}}]
+        (d / f"app-{life}-config.json").write_text(json.dumps({"configprops": cp}))
+        names = ["seat.hold.counter.drift.repair"] + (["seat.hold.counter.reconcile.incremental.page_full"] if role == "new" else [])
+        metrics = {"seat.hold.counter.reconcile.incremental.page_full": {"measurements": [{"statistic": "COUNT", "value": page_full or 0}]}} if role == "new" else {}
+        if life not in (no_actuator or ()):
+            (d / f"app-{life}-actuator.json").write_text(json.dumps({"names": names, "configprops": cp, "metrics": metrics}))
+        with gzip.open(d / f"app-{life}.log.gz", "wt") as f:
+            f.write("2026-10-24 INFO started\n")
+        bad = (gc_bad or {}).get(life)
+        if bad != "missing":
+            with gzip.open(d / f"app-{life}-gc.log.gz", "wt") as f:
+                f.write("" if bad == "empty" else "[2026-10-24T00:00:00.000+0000][info][gc] Using The Z Garbage Collector\n")
     if load == "S3e":
         (d / "injected.json").write_text(json.dumps({"plan": {"rounds": [{"at_s": 270}, {"at_s": 450}, {"at_s": 630}]}, "rounds": [
             {"at_s": a, "ok": True, "at_epoch": T0 + OFF + a, "pairs": [{"kind": "H", "schedule_id": 1, "user_id": 300000 + a}]} for a in (270, 450, 630)]}))
@@ -212,7 +236,7 @@ def main():
     out, st = make_rep(root / "c1", 3, "S4c", 1)
     check("① 정상 회차 → ok", st == "ok", f"{st} {out.get('harness_reasons')} {out.get('procedure_reasons')}")
     pt = out.get("probe_tables") or {}
-    check("① 짝 수 O = T = 6 · J = 6 · N = 4 · Q = 4", pt.get("counts") == {"O": 6, "Q": 4, "T": 6, "N": 4, "N_H": 2, "N_L": 2, "J": 6}, str(pt.get("counts")))
+    check("① 짝 수 O = T = 6 · J = 12(전환 6 + 단독(새) 6 — CR13-1) · N = 4 · Q = 4", pt.get("counts") == {"O": 6, "Q": 4, "T": 6, "N": 4, "N_H": 2, "N_L": 2, "J": 12}, str(pt.get("counts")))
     check("① D1 = 0(정지 초 없음)", (out.get("k6") or {}).get("D1") == 0, str((out.get("k6") or {}).get("D1")))
     # ② 짝 제외
     out, st = make_rep(root / "c2", 3, "S4c", 1, old_fail={(30, "H")})
@@ -246,10 +270,58 @@ def main():
     pr = (out.get("probe") or {}).get("probes") or []
     outage = [x for x in pr if x["status"] == "outage"]
     check("⑦ ① 전환 칸 중 중단 구간 탐침 = 중단", len(outage) >= 1 and all(x["cell"] == "trans" for x in outage), str([(x["id"], x["status"]) for x in pr if x["cell"] == "trans"]))
-    cells = (out.get("probe_tables") or {}).get("cells", {})
-    check("⑦ ① J 짝 = 6(전환 칸 lb 편입 뒤 + 나머지는 단독(새) 칸) · 회차 ok", (out.get("probe_tables") or {}).get("counts", {}).get("J") == 6 and st == "ok"
-          and any(c.get("X_cell") == "trans" for c in cells.values()) and any(c.get("X_cell") == "new" for c in cells.values()), f"{st} {(out.get('probe_tables') or {}).get('counts')}")
+    cnts = (out.get("probe_tables") or {}).get("counts", {})
+    after = [x for x in pr if x["cell"] == "trans" and x["status"] == "decision" and x["interval"] == "new" and x["d"] in (5, 30, 75)]
+    check("⑦ ① J = 단독(새) 칸 6 + 전환 칸 중 lb 편입 뒤 판정 탐침(§5.4 '① 6 이상' — CR13-1) · 회차 ok",
+          st == "ok" and len(after) >= 1 and cnts.get("J") == 6 + len(after), f"{st} {cnts} lb 편입 뒤 {[x['id'] for x in after]}")
+    n_exp = [x for x in pr if x["status"] == "decision" and x["interval"] == "new" and x["d"] in (30, 75)]
+    check("⑧ N = 실제 구간 단독(새) 판정 탐침(칸 무관 — CR13-9) · 전환 칸 lb 편입 뒤 d ≥ 30 탐침이 든다",
+          cnts.get("N") == len(n_exp) and any(x["cell"] == "trans" for x in n_exp), f"{cnts} 기대 {[(x['id'], x['cell']) for x in n_exp]}")
     check("⑦ ① 중단 구간이 정지 초로 보인다(D1 > 0)", ((out.get("k6") or {}).get("D1") or 0) > 0, str((out.get("k6") or {}).get("D1")))
+    # ⑨ (자) 6칸 고정 — 3회 모두 단독(옛) 75H 실패 응답 → 75H 짝 0 → 판정 불가(CR13-2)
+    camp2 = root / "camp2"
+    for r in (1, 2, 3):
+        make_rep(camp2, 3, "S4c", r, old_fail={(75, "H")})
+        make_rep(camp2, 3, "S3e", r)
+    res2 = summarize.campaign(camp2)
+    c2 = res2["cells"]["S4c-p3"]
+    check("⑨ (자) 3회 합 짝 0인 칸(75H) = 판정 불가 → P9 항목 · 성공 아님",
+          isinstance(c2["P9"], list) and any("판정 불가" in x and "(자)" in x and "75H" in x for x in c2["P9"]) and not res2["success"][3]["success"]
+          and c2["T_vs_O"].get("75H") == [0, 0, 0], f"{c2['P9']} {c2.get('T_vs_O')}")
+    # ⑩ 예상 밖 판정 응답(201·409인데 모양이 아님) → 회차 flags · P9 (바)(CR13-3)
+    out, st = make_rep(root / "c10", 3, "S4c", 1, anomaly={("trans", 30, "H"): (409, "SEAT_NOT_AVAILABLE")})
+    check("⑩ 예상 밖 판정 응답 → probe-anomaly 기록(회차 유효)", st == "ok" and "probe-anomaly" in (out.get("flags") or []) and len(out.get("probe_anomaly") or []) == 1,
+          f"{st} {out.get('flags')} {out.get('probe_anomaly')}")
+    camp3 = root / "camp3"
+    for r in (1, 2, 3):
+        make_rep(camp3, 3, "S4c", r, anomaly={("trans", 30, "H"): (409, "SEAT_NOT_AVAILABLE")} if r == 2 else None)
+        make_rep(camp3, 3, "S3e", r)
+    c3 = summarize.campaign(camp3)["cells"]["S4c-p3"]
+    check("⑩ 예상 밖 판정 응답 → 캠페인 P9 (바) 항목(정합 분류)", isinstance(c3["P9"], list) and any("(바)" in x and "예상 밖" in x for x in c3["P9"]), str(c3["P9"]))
+    # ⑪ GC 로그 결측·빈 로그 → gc-log-missing(CR13-4)
+    out, st = make_rep(root / "c11a", 3, "S4c", 1, gc_bad={"B1": "missing"})
+    check("⑪ 새 앱 GC 로그 없음 → invalid:gc-log-missing:B1", st.startswith("invalid:") and "gc-log-missing:B1" in st, st)
+    out, st = make_rep(root / "c11b", 3, "S4c", 1, gc_bad={"A1": "empty"})
+    check("⑪ 옛 앱 GC 로그 빈 파일 → invalid:gc-log-missing:A1", st.startswith("invalid:") and "gc-log-missing:A1" in st, st)
+    # ⑫ H4 필수 산출물(CR13-5)
+    out, st = make_rep(root / "c12a", 3, "S4c", 1, collect_errors={"A1": ["app-log"]})
+    check("⑫ 수집 사건 detail 오류 → invalid:app-collect-missing:A1", st.startswith("invalid:") and "app-collect-missing:A1" in st, st)
+    out, st = make_rep(root / "c12b", 3, "S4c", 1, no_actuator={"B1"})
+    check("⑫ 새 앱 지표·configprops 파일 없음 → invalid:app-collect-missing:B1(actuator)", st.startswith("invalid:") and "app-collect-missing:B1:actuator" in st, st)
+    # ⑬ (마) 응답 섞인 탐침은 두 수에서 빠지고 따로(CR13-11)
+    out, st = make_rep(root / "c13", 3, "S4c", 1, l_hold2_fail={("trans", 30)})
+    pt = out.get("probe_tables") or {}
+    check("⑬ L 선점 2 코드 0 · 선점 3 201 탐침 → (마) 결과 수에서 빠짐 · unclean 기록", pt.get("L_over_results") == pt.get("snap_over_limit") == 0
+          and [u["id"] for u in pt.get("unclean_over") or []] == [x["id"] for x in out["probe"]["probes"] if x["cell"] == "trans" and x["d"] == 30 and x["type"] == "L"],
+          f"{pt.get('L_over_results')} {pt.get('snap_over_limit')} {pt.get('unclean_over')}")
+    # ⑭ P7 이어 읽기 끝 = page_full 지표 + 행 수(CR13-참고) — 되돌림 재시도로 pairs_scanned ≥ page-size인 안 찬 틱
+    out, st = make_rep(root / "c14", 3, "S4c", 1, page_size=100, inc_pairs=[100, 120, 50], page_full=0)
+    check("⑭ page_full 0이면 첫 틱 pairs_scanned ≥ page-size여도 이어 읽기 = 1틱", (out.get("P7") or {}).get("carry_ticks") == 1, str(out.get("P7")))
+    out, st = make_rep(root / "c14b", 3, "S4c", 1, page_size=100, inc_pairs=[100, 100, 50], page_full=2)
+    check("⑭ page_full 2 · 두 틱 찬 페이지 → 이어 읽기 = 3틱", (out.get("P7") or {}).get("carry_ticks") == 3, str(out.get("P7")))
+    # ⑮ 끝 검사 앱 ≠ 계획(CR13-참고)
+    out, st = make_rep(root / "c15", 2, "S4c", 1, final_app="B")
+    check("⑮ 끝 검사 앱 ≠ 계획 → fail:final-app-mismatch", st.startswith("fail:") and "final-app-mismatch" in st, st)
     # ⑥ 고르는 규칙 — 결정성 · 순환
     vals = {1: {"J1": [5, 5], "J2": [5, 5], "J3": [5, 5], "D1": [0], "D2": [0], "D3": [0]},
             2: {"J1": [0, 0], "J2": [0, 1], "J3": [1, 1], "D1": [1, 2], "D2": [0], "D3": [0]},
