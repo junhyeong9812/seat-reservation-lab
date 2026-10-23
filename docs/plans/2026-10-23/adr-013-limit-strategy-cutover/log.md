@@ -25,6 +25,7 @@
 | 10-24 00:43 | 하네스·적용판 회수(Opus b0a01e6e — k6/ADR-013 19파일 · ops/online-v9 · 로컬 PG로 apply.sh·SQL·탐침 실행기 확인 · selftest 17) · 위험: 사건 실제 길이에서 ②⑤ 단독(새) 탐침 전부 경계(N=0 → 매 회차 실패) → §5.8-1 규정대로 측정 전 일정 정정(칸별 첫 오프셋 30·60·120초 — a8190c9b · 기동 40초 가정 dry-run 경계 0 · selftest 고정값 갱신 17/17) · 해석 수용: ① J 짝 = lb 편입 뒤 전환 칸 + 단독(새) · 오탐 = 주입·탐침 밖 repaired | 코드 듀얼 리뷰 루프 1 |
 | 10-24 00:55 | 코드 리뷰 루프 1(base 16fb81df · 미러 rv13c — k6 결과 제외 · 측정 DB 더미 비밀번호 redact): codex 6(H 4 · M 2) · Opus 10(H 1 · M 4 · L 5) — 앱 코드 결함 0(두 리뷰 공통) → 종합 CR13-1~14 채택 · 수정 워커 | 진행 |
 | 10-24 01:19 | 루프 1 수정 회수(Opus): 3289c3d5(적용판) · 5048ab39(하네스) · 09acde2d(README·ADR §4.9-17) · bbba7264(앱 WARN 문구) · selftest 29/29(새 13 — 수정 전 13 실패 확인) · 로컬 PG apply.sh 경우 7 · incremental 테스트 131/0 · 메인 판단: anomaly = P9 (바) 정합 · 결측 무효는 transition-failed 없을 때 · final-app-mismatch = 절차 · inflight_unknown = 하네스(옛 앱 active 지표 유무는 스모크 확인) | 전체 테스트 + 루프 2 |
+| 10-24 01:30 | 코드 리뷰 루프 2 회수: codex 3(H 2 · M 1) · Opus 12(H 1 · M 4 · L 7) · 앱 결함 0 → CR13-15~29 채택 · **정지 규칙 주의**: 비움 inflight는 CR13-6 → CR13-16(2회째) — 함수 하나로 모으고 조회 실패 = 모름 전파 · 또 깨지면 비움 방식 재설계 · 메인 결정: J 모집단 = §5.8-3 문자(전환 칸만 — 사용자 기준 '전환이 만든 손해') · ① J = 0(섞임 없음) → 측정 전 정정 행 · 수정 워커 | 진행 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -77,6 +78,20 @@
 | CR13-13 | 1 | opus F9(L) | k6/ADR-013/README.md:87-91 정정 전 서술 | 채택 | fixed | 루프 1 수정 |
 | CR13-14 | 1 | codex F6(H) + opus F10(L) | apply.sh:35·192 · lib13.sh:208 비밀번호 명령줄 · 기본값 박힘 | 채택 — 환경변수 전달 · 값은 측정 DB 고정 더미(기존 compose와 같음 — ADR-012 RX-9 선례 잔여 위험) | fixed | 루프 1 수정 |
 | CR13-참고 | 1 | opus 참고 | summarize.py:750 P7 이어 읽기 판정 · run.sh:468 끝 검사 앱 대체 | 채택 — page_full 기준 · final_app ≠ 계획 = 사유 | fixed | 루프 1 수정 |
+| CR13-15 | 2 | codex(H) | summarize.py:445·721 탐침 실행기 done 누락이 최소 수 충족 시 ok | 채택 — 완료 행 누락·계획 대 완료 불일치 = invalid | open | — |
+| CR13-16 | 2 | codex(H) + opus L2 | lib13.sh:92 · run.sh:247 URI별 조회 실패 → v=0 · 주석 불일치 | 채택 — 함수 하나·실패 전파·inflight_unknown(2회째 — 정지 규칙) | open | — |
+| CR13-17 | 2 | codex(M) | run.sh:34·287 statement_timeout 600 고정 | 채택 — max(실측 × 3, 600) · 시작 전 검증 | open | — |
+| CR13-18 | 2 | opus H1(H) | summarize.py:776-778·830·984 절차 원인 전환 실패가 하네스 무효로 덮임 | 채택 — 절차 사유 우선 · 전환 실패 뒤 결측은 묻지 않음 · selftest | open | — |
+| CR13-19 | 2 | opus M1(M) | ADR §5.8-3 대 summarize.py:546-576 J 모집단 | 채택 — 메인 결정 §5.8-3 문자(전환 칸만) · ① J = 0 · ADR 정정 행 | open | — |
+| CR13-20 | 2 | opus M2(M) | campaign.sh:71-72 · plan13.py:211-216 사건 길이 0·손값 · op 누락 | 채택 — 스모크 events.jsonl에서 op별 최대 dur_s 계산 · 모든 op | open | — |
+| CR13-21 | 2 | opus M3(M) | run.sh:16-24 · campaign.sh:26·133 하네스 SHA 미고정 | 채택 — git diff --quiet 또는 git archive 동결 · 해시 기록·대조 | open | — |
+| CR13-22 | 2 | opus M4(M) | §4.8 N5·N7 blind 테스트 없음 | 채택 — 로컬 PG 테스트(ops/online-v9) | open | — |
+| CR13-23 | 2 | opus L1 | summarize.py:938 v_counter_mismatch 미사용 | 채택 | open | — |
+| CR13-24 | 2 | opus L3 | lib13.sh:107-110 막은 쪽 판정 시간 창 없음 | 채택 | open | — |
+| CR13-25 | 2 | opus L4 | apply.sh:98 · 04-catalog.sql:13 트리거 표 미한정 | 채택 | open | — |
+| CR13-26 | 2 | opus L5 | apply.sh:279-282 기록 뒤 확인 실패 시 이력 남음 | 채택 — ② 같은 트랜잭션 검증 후 COMMIT · ①은 사유에 명시 | open | — |
+| CR13-27 | 2 | opus L6 | plan13.py:323-324 pageSize 양수만 | 채택 — new = 100000 | open | — |
+| CR13-28 | 2 | opus L7 | summarize.py:744-746 오프셋 파싱 | 채택 | open | — |
 
 ## 생략한 검증 (긴급 경로 빚 — DEBT=1인 동안 정본)
 
