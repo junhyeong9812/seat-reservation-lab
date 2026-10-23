@@ -161,6 +161,7 @@ abort13() { hreason "$1"; finish13 "invalid:$1"; exit 0; }
 OFF=0   # 서버 − PC(초). k6 전에 잰 값으로 바꾼다
 declare -A LIFE=([A]=0 [B]=0) ROLE=([A]="" [B]="") ALIVE=([A]=0 [B]=0) IP=() SHA_OF=([A]="" [B]="")
 LB_SET=""; LAST_EFF="" LAST_BYTES=""
+declare -A MIG_FROM=() ; MIG_WIN=()   # 마이그레이션 창(CR13-24): 새·그림자 앱 생애마다 '앱이름|기동 시작|UP'(서버 epoch) — drain_lock_cause 입력
 lname() { echo "$1${LIFE[$1]}"; }
 ev() {   # 인자: step op slot planned_at t0 t1 result [cause] [detail-json]
   local line
@@ -198,13 +199,17 @@ do_start() {   # 슬롯 역할
   if ! slot_up "$DEPLOY_ID" "$s" >> "$DIR/compose.log" 2>&1; then
     ev "$STEP" start "$s" "$PA" "$t0" "$(now)" fail harness '{"reason":"compose-up-failed"}'; tfail harness compose-up-failed start "$s" ""; return 1
   fi
-  t1=$(now); ALIVE[$s]=1
+  t1=$(now); ALIVE[$s]=1; MIG_FROM[$s]=$(awk -v t="$t0" -v o="$OFF" 'BEGIN { printf "%.3f", t + o }')
   local img; img=$(ctr_image "$(ctr_of "$s")")
   ev "$STEP" start "$s" "$PA" "$t0" "$t1" ok "" "$(jq -nc --arg img "$img" --arg app "$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")" '{image: $img, app_name: $app}')"
 }
 do_wait_health() {   # 슬롯 시한
   local s="$1" lim="$2" t0; t0=$(now)
-  if wait_health_url "$(url_of "$s")" "$lim"; then ev "$STEP" wait-health "$s" "$PA" "$t0" "$(now)" ok; return 0; fi
+  if wait_health_url "$(url_of "$s")" "$lim"; then
+    ev "$STEP" wait-health "$s" "$PA" "$t0" "$(now)" ok
+    [[ "${ROLE[$s]}" == new || "${ROLE[$s]}" == shadow ]] && MIG_WIN+=("$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")|${MIG_FROM[$s]}|$(awk -v t="$(now)" -v o="$OFF" 'BEGIN { printf "%.3f", t + o }')")
+    return 0
+  fi
   # 절차 원인(§5.3): health 시한 초과 · Flyway 실패 — 로그 끝을 남긴다
   remote "docker logs --tail 200 $(ctr_of "$s") 2>&1" > "$DIR/app-$(lname "$s")-health-fail.log" 2>&1
   ev "$STEP" wait-health "$s" "$PA" "$t0" "$(now)" fail procedure "$(jq -nc --argjson l "$lim" '{reason: "health-timeout", limit_s: $l}')"
@@ -238,29 +243,29 @@ do_lb_remove() {
   local s="$1"; lb_apply "$STEP" lb-remove "$s" "$(echo "$LB_SET" | xargs -n1 | grep -vx "$(svc_of "$s")" | xargs)"
 }
 do_drain() {   # 슬롯 — 비움 5초 → 빼기 효력 뒤 그 주소로 시작한 요청 0 · 진행 중 0(최대 5초 × 2번 더) — 아니면 transition-failed(원인 분류 §5.3)
-  #   잴 수 없는 값(접근 기록·진행 중 지표 읽기 실패)은 0으로 보지 않는다(CR13-6): 같은 재시도 안에서 다시 재고, 끝까지 모르면
-  #   시작한 요청 0인데 진행 중을 모름 = inflight_unknown · 시작한 요청 수를 모름 = started_after_unknown(둘 다 하네스 — 측정 실패).
-  local s="$1" t0 n inf k=0 det; t0=$(now)
+  #   성공 여부 = lib13 drain_verdict 하나(CR13-16). 잴 수 없는 값(lb_started_after · app_inflight가 빈 출력 + 종료 1)은 0으로 보지 않는다:
+  #   같은 재시도 안에서 다시 재고, 끝까지 모르면 started_after_unknown · inflight_unknown(둘 다 하네스 — 측정 실패 · 성공 아님).
+  local s="$1" t0 n inf k=0 det vd; t0=$(now)
   sleep "$(jq -r .fixed.drain_s "$DIR/plan.json")"
   while :; do
     sleep 1.2   # 접근 기록 비움 주기(flush=1s) 뒤에 읽는다
-    n=$(lb_started_after "${IP[$s]}" "$LAST_EFF" "$LAST_BYTES"); inf=$(app_inflight "$(url_of "$s")")
-    det=$(jq -nc --arg n "$n" --arg inf "$inf" --argjson k "$k" --arg ip "${IP[$s]}" --arg eff "$LAST_EFF" \
-          '{started_after: ($n | tonumber? // null), inflight: ($inf | tonumber? // null), extra_rounds: $k, ip: $ip, effective: ($eff | tonumber? // null)}')
-    if [[ "$n" == 0 && "$inf" =~ ^0(\.0+)?$ ]]; then ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" ok "" "$det"; return 0; fi
+    n=$(lb_started_after "${IP[$s]}" "$LAST_EFF" "$LAST_BYTES") || n=""
+    inf=$(app_inflight "$(url_of "$s")") || inf=""
+    vd=$(drain_verdict "$n" "$inf")
+    det=$(jq -nc --arg n "$n" --arg inf "$inf" --argjson k "$k" --arg ip "${IP[$s]}" --arg eff "$LAST_EFF" --arg vd "$vd" \
+          '{started_after: ($n | tonumber? // null), inflight: ($inf | tonumber? // null), verdict: $vd, extra_rounds: $k, ip: $ip, effective: ($eff | tonumber? // null)}')
+    if [[ "$vd" == ok ]]; then ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" ok "" "$det"; return 0; fi
     (( k >= $(jq -r .fixed.drain_extra_max "$DIR/plan.json") )) && break
     k=$((k + 1)); sleep "$(jq -r .fixed.drain_extra_s "$DIR/plan.json")"
   done
-  local why=""
-  if ! [[ "$n" =~ ^[0-9]+$ ]]; then why=started_after_unknown
-  elif [[ "$n" == 0 ]] && ! [[ "$inf" =~ ^[0-9.]+$ ]]; then why=inflight_unknown; fi
-  if [[ -n "$why" ]]; then
-    ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" fail harness "$(jq -c --arg w "$why" '. + {reason: $w}' <<< "$det")"
-    tfail harness "$why" drain "$s" "$det"; return 1
+  if [[ "$vd" == started_after_unknown || "$vd" == inflight_unknown ]]; then
+    ev "$STEP" drain "$s" "$PA" "$t0" "$(now)" fail harness "$(jq -c --arg w "$vd" '. + {reason: $w}' <<< "$det")"
+    tfail harness "$vd" drain "$s" "$det"; return 1
   fi
   # 비움 미완료의 원인(§5.3): 마이그레이션·적용판 세션 락에 막힘 = 절차 · 남은 요청이 락 대기 아님 = 하네스 ·
   #   락 대기인데 막은 쪽이 그 밖 · 원인 질의 실패 = 원인을 가르지 못함 → 절차(cause_unknown — §5.3 '절차로 본다 · 실패를 숨기지 않는 쪽')
-  local lc cause cls; lc=$(drain_lock_cause "$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")")
+  #   마이그레이션 창 = 새·그림자 앱 생애마다 [기동 시작, UP](서버 epoch — CR13-24)
+  local lc cause cls; lc=$(drain_lock_cause "$( [[ $s == A ]] && echo "$SLOT_A_APPNAME" || echo "$SLOT_B_APPNAME")" "${MIG_WIN[@]}")
   if jq -e '.blocked_by_migration > 0' <<< "$lc" > /dev/null 2>&1; then cause=procedure cls=blocked_by_migration
   elif jq -e '.lock_wait == 0' <<< "$lc" > /dev/null 2>&1; then cause=harness cls=not_lock_wait
   elif jq -e '.lock_wait > 0' <<< "$lc" > /dev/null 2>&1; then cause=procedure cls=cause_unknown

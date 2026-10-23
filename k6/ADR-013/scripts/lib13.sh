@@ -82,32 +82,66 @@ printf '{"test_rc":0,"reload_rc":%s,"reload_sent":%s,"effective":%s,"log_bytes":
 [ "$rc" = 0 ] && [ "$te" != null ]
 REMOTE
 }
-# 비움 확인(H2 ⓒ · N9): 빼기 reload가 효력을 낸 뒤(effective) 그 앱 주소로 **시작한** 요청 수 — 시작 = $msec − $request_time.
-# 인자: ip 효력epoch 그때의로그바이트 → 숫자(실패면 빈 출력). 효력 시각 뒤에 끝난 줄만 그 바이트 뒤에 있으므로 거기서부터만 읽는다
+# ---- 비움 확인(H2 ⓒ · N9) — 잴 수 없는 값은 어느 경로에서도 0으로 바꾸지 않는다(CR13-6 → CR13-16: 같은 결함 2회째 — 아래 세 함수만 쓴다) -------------------
+#   출력 규약(세 함수 공통): 알 때만 숫자(또는 판정 낱말) 한 줄 + 종료 0 · 모름(원격·HTTP 실패 · 파싱 실패 · 빈 값 · 숫자 아님) = 빈 출력 + 종료 1.
+#   do_drain(run.sh)은 drain_verdict만으로 성공을 정한다 — 모름이면 성공이 아니다(started_after_unknown · inflight_unknown — 하네스).
+# 빼기 reload가 효력을 낸 뒤(effective) 그 앱 주소로 **시작한** 요청 수 — 시작 = $msec − $request_time. 효력 시각 뒤에 끝난 줄만 그 바이트 뒤에 있으므로 거기서부터만 읽는다.
+#   인자: ip 효력epoch 그때의로그바이트. 기록 파일이 없거나 읽을 수 없거나 그 바이트보다 짧으면(잘림·교체) 모름(전에는 tail 실패에도 awk가 0을 찍었다).
+LB_ACCESS_LOG="${LB_ACCESS_LOG:-/var/log/nginx/cut.log}"
 lb_started_after() {
-  remote "docker exec seatlab-lb-1 sh -c \"tail -c +$(( $3 + 1 )) /var/log/nginx/cut.log | awk -v ip='$1:8101' -v t='$2' 'index(\\\$3, ip) == 1 && (\\\$1 - \\\$2) > t {n++} END {print n + 0}'\"" 2>/dev/null | tr -d '[:space:]'
+  local out
+  [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ && "$3" =~ ^[0-9]+$ ]] || return 1
+  out=$(remote "docker exec -i seatlab-lb-1 sh -s -- '$1:8101' '$2' '$3' '$LB_ACCESS_LOG'" 2>/dev/null <<'SH'
+(set -o pipefail) 2>/dev/null && set -o pipefail   # busybox ash(nginx alpine)는 된다 — 없는 sh면 아래 파일 확인만
+f="$4"; [ -r "$f" ] || exit 3
+sz=$(wc -c < "$f") || exit 3
+[ "$sz" -ge "$3" ] || exit 4
+tail -c +$(( $3 + 1 )) "$f" | awk -v ip="$1" -v t="$2" 'index($3, ip) == 1 && ($1 - $2) > t {n++} END {print n + 0}'
+SH
+) || return 1
+  out=$(tr -d '[:space:]' <<< "$out")
+  [[ "$out" =~ ^[0-9]+$ ]] || return 1
+  echo "$out"
 }
-# 진행 중 요청(그 앱 — 업무 URI만): http.server.requests.active(Spring Boot 장기 작업 타이머) ACTIVE_TASKS 합 · 지표가 없으면 빈 출력(판정 불가 — 기록)
-HOLD_URI='/api/schedules/{scheduleId}/seats/{seatId}/hold' CONFIRM_URI='/api/holds/{holdId}/confirm'
+# 진행 중 업무 요청(그 앱): http.server.requests.active(장기 작업 타이머) ACTIVE_TASKS 중 method POST(업무 = 선점·확정 POST뿐 — 하네스 actuator 조회는 GET).
+#   uri 태그로 거르지 않는 이유: 장기 작업 타이머는 요청 **시작** 때 태그가 정해져 uri가 아직 경로 패턴이 아닐 수 있다(UNKNOWN) —
+#   그러면 URI별 조회가 '없음'으로 보여 진행 중 요청을 0으로 놓친다(같은 결함의 다른 길). method는 시작 때 이미 정해진다.
+#   ① 지표 전체(태그 없음)를 읽어 availableTags를 확인 — HTTP·파싱 실패 · availableTags 없음 = 모름.
+#   ② method 값에 POST가 없으면 그 앱은 POST를 한 번도 시작하지 않았다(타이머는 첫 시작 때 생기고 남는다) = 알고 있는 0.
+#   ③ 있으면 ?tag=method:POST — HTTP 실패(404 포함) · 파싱 실패 · ACTIVE_TASKS가 정확히 한 값이 아님 · 숫자 아님 = 모름.
 app_inflight() {
-  local url="$1" n=0 u v names
-  names=$(curl -fsS --max-time 5 "$url/actuator/metrics" 2>/dev/null | jq -c '.names' 2>/dev/null) || return 1
-  jq -e 'index("http.server.requests.active") != null' <<< "$names" > /dev/null 2>&1 || return 1
-  for u in "$HOLD_URI" "$CONFIRM_URI"; do
-    v=$(curl -sS --max-time 5 "$url/actuator/metrics/http.server.requests.active?tag=uri:$(sed 's/{/%7B/g; s/}/%7D/g' <<< "$u")" 2>/dev/null \
-        | jq -r '[.measurements[]? | select(.statistic == "ACTIVE_TASKS") | .value][0] // 0' 2>/dev/null)
-    [[ "$v" =~ ^[0-9.]+$ ]] || v=0
-    n=$(awk -v a="$n" -v b="$v" 'BEGIN { print a + b }')
-  done
-  echo "$n"
+  local base="$1/actuator/metrics/http.server.requests.active" body methods v
+  body=$(curl -fsS --max-time 5 "$base" 2>/dev/null) || return 1
+  methods=$(jq -ce 'if (.availableTags | type) == "array" then [.availableTags[] | select(.tag == "method") | .values[]?] else error("availableTags 없음") end' <<< "$body" 2>/dev/null) || return 1
+  if ! jq -e 'index("POST") != null' <<< "$methods" > /dev/null 2>&1; then echo 0; return 0; fi
+  body=$(curl -fsS --max-time 5 "$base?tag=method:POST" 2>/dev/null) || return 1
+  v=$(jq -er '[.measurements[]? | select(.statistic == "ACTIVE_TASKS") | .value] | if length == 1 then .[0] else error("ACTIVE_TASKS 수 \(length)") end' <<< "$body" 2>/dev/null) || return 1
+  [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  echo "$v"
 }
-# 비움 미완료의 원인(§5.3): 그 앱 세션 중 Lock 대기이고 막은 쪽이 마이그레이션(새·그림자 앱 — Flyway는 앱 커넥션 이름)·적용판 세션인 수
-drain_lock_cause() {   # 인자: 그 앱의 ApplicationName → 한 줄 JSON
+# 판정(do_drain의 유일한 기준): 인자 = 시작한 요청 수 · 진행 중 수(빈 값 = 모름) → ok · started_after_unknown · incomplete · inflight_unknown
+#   순서: 시작한 요청을 모르면 그것부터(비움 자체를 모름) · 시작한 요청 > 0이면 미완료(진행 중 값과 무관) · 0인데 진행 중을 모르면 inflight_unknown · 진행 중 > 0이면 미완료
+drain_verdict() {
+  [[ "$1" =~ ^[0-9]+$ ]] || { echo started_after_unknown; return 0; }
+  (( $1 > 0 )) && { echo incomplete; return 0; }
+  [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo inflight_unknown; return 0; }
+  awk -v x="$2" 'BEGIN { exit !(x == 0) }' && echo ok || echo incomplete
+}
+# 비움 미완료의 원인(§5.3): 그 앱 세션 중 Lock 대기이고 막은 쪽이 마이그레이션·적용판 세션인 수.
+#   마이그레이션 = 인자 '이름|from|to'(서버 epoch) 창마다 — 그 이름(새·그림자 앱 — Flyway는 앱 커넥션 이름)의 세션 중 **트랜잭션이 그 앱의 기동 → UP 창 안에서
+#   시작한 것만**(CR13-24 — lb에 든 뒤의 업무 트랜잭션이 옛 앱을 막은 것은 마이그레이션이 아니다) · 적용판(seatlab-online-v9)은 언제든.
+drain_lock_cause() {   # 인자: 그 앱의 ApplicationName [이름|from|to …] → 한 줄 JSON
+  local app="$1" w cond="false" nm a b; shift
+  for w in "$@"; do
+    IFS='|' read -r nm a b <<< "$w"
+    [[ "$nm" =~ ^seatlab-[AB]-[0-9a-f]+-(new|shadow)$ && "$a" =~ ^[0-9]+(\.[0-9]+)?$ && "$b" =~ ^[0-9]+(\.[0-9]+)?$ ]] || continue
+    cond="$cond OR (b.application_name = '$nm' AND b.xact_start BETWEEN to_timestamp($a) AND to_timestamp($b))"
+  done
   db_json <<SQL
 SELECT json_build_object('lock_wait', count(*), 'blocked_by_migration', count(*) FILTER (WHERE EXISTS (
     SELECT 1 FROM pg_stat_activity b WHERE b.pid = ANY (pg_blocking_pids(a.pid))
-      AND (b.application_name LIKE 'seatlab-%-new' OR b.application_name LIKE 'seatlab-%-shadow' OR b.application_name = 'seatlab-online-v9'))))
-FROM pg_stat_activity a WHERE a.application_name = '$1' AND a.wait_event_type = 'Lock';
+      AND (b.application_name = 'seatlab-online-v9' OR $cond))))
+FROM pg_stat_activity a WHERE a.application_name = '$app' AND a.wait_event_type = 'Lock';
 SQL
 }
 
@@ -249,7 +283,7 @@ SELECT json_build_object('db_now', extract(epoch FROM clock_timestamp()),
   'over_limit_main', (SELECT count(*) FROM actual WHERE total > 2 AND schedule_id <> $pr),
   'over_limit_probe', (SELECT count(*) FROM actual WHERE total > 2 AND schedule_id = $pr),
   $ua,
-  'trigger', (SELECT json_build_object('exists', true, 'enabled', tgenabled::text) FROM pg_trigger WHERE tgname = 'user_hold_quota_touch' AND NOT tgisinternal),
+  'trigger', (SELECT json_build_object('exists', true, 'enabled', tgenabled::text) FROM pg_trigger WHERE tgname = 'user_hold_quota_touch' AND tgrelid = 'user_hold_quota'::regclass AND NOT tgisinternal),
   'index', (SELECT json_build_object('valid', indisvalid, 'ready', indisready) FROM pg_index WHERE indexrelid = to_regclass('idx_user_hold_quota_updated_at')),
   'v10_tables', (SELECT coalesce(json_agg(table_name ORDER BY table_name), '[]') FROM information_schema.tables
                  WHERE table_schema = current_schema() AND table_name IN ('counter_safety_run', 'counter_inc_gap', 'counter_app_inject')),
