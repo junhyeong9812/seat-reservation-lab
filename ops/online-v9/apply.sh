@@ -32,8 +32,10 @@
 #     기록 ② 직전: 같은 트랜잭션(이력 표 SHARE ROW EXCLUSIVE)에서 V9 이력 0을 다시 확인 — 있으면 넣지 않고 멈춘다(① 일부 기록과 겹치지 않게 — CR13-7).
 #     실패하면(어느 단계든 · 이력 표가 있을 때) V9 이력을 다시 읽어 record.history_after_fail에 남긴다.
 #     기록 ② 직접: ref V9 이력 행(version · description · type · script · checksum)을 installed_rank = 다음 번호 · success = true로 넣는다
-#       (Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶이는 한계).
-#     기록 뒤 확인: V9 행 1개 · success · 체크섬 = ref.
+#       (Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶이는 한계). **같은 트랜잭션 안에서** V9 행 1개 · success · 체크섬 = ref를 확인한 뒤에만 COMMIT —
+#       아니면 ROLLBACK(이력이 남지 않는다 — CR13-26).
+#     기록 뒤 확인: V9 행 1개 · success · 체크섬 = ref. ①(Flyway CLI)은 트랜잭션 밖이라 확인 실패 때 이미 쓴 이력이 남는다 — 사유에 그렇게 적고
+#       history_after_fail에 남긴 행을 둔다(지우지 않는다 — 사람이 확인).
 # 결과: --out JSON(단계별 시도·벽시계·lock_timeout 수 · m · 동치 · 기록 방법·분류 · result ok|failed · fail_step · reason). exit 0 = 기록까지 끝 · 1 = 실패(기록하지 않음 — N7) · 2 = 인자.
 set -uo pipefail
 
@@ -95,7 +97,7 @@ finish() {
 s0=$(psql_run "SELECT json_build_object(
   'col', EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'user_hold_quota'::regclass AND attname = 'updated_at' AND NOT attisdropped),
   'fn', EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.proname = 'trg_quota_touch' AND n.nspname = current_schema()),
-  'trg', EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'user_hold_quota_touch' AND NOT tgisinternal),
+  'trg', EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'user_hold_quota_touch' AND tgrelid = 'user_hold_quota'::regclass AND NOT tgisinternal),
   'idx', to_regclass('idx_user_hold_quota_updated_at') IS NOT NULL,
   'idx_valid', (SELECT indisvalid AND indisready FROM pg_index WHERE indexrelid = to_regclass('idx_user_hold_quota_updated_at')),
   'hist_table', to_regclass('flyway_schema_history') IS NOT NULL,
@@ -254,24 +256,32 @@ SELECT 'ALREADY ' || :v9_rows;
 \\else
 INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
 SELECT coalesce(max(installed_rank), 0) + 1, '9', \$v13\$$desc\$v13\$, \$v13\$$typ\$v13\$, \$v13\$$scr\$v13\$, $ck, current_user, 0, true FROM flyway_schema_history;
+SELECT count(*) AS v9_n, (count(*) = 1 AND bool_and(success) AND bool_and(checksum = $ck)) AS v9_ok FROM flyway_schema_history WHERE version = '9' \\gset
+\\if :v9_ok
 COMMIT;
 SELECT 'OK';
+\\else
+ROLLBACK;
+SELECT 'VERIFY_FAIL ' || :v9_n;
+\\endif
 \\endif"); local rc=$?; pc1=$(now)
-  local already; already=$(awk '$1 == "ALREADY" {print $2}' <<< "$out" | tail -1)
-  REC=$(jq -c --argjson rc "$rc" --arg out "$out" --arg al "$already" --arg err "$(head -c 300 "$W/err")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
-        '(. // {}) + {direct: {rc: $rc, ok: ($out | test("(^|\n)OK$")), precheck_v9_rows: (if $al == "" then 0 else ($al | tonumber) end), err: $err, start_pc: $pc0, end_pc: $pc1,
+  local already vf; already=$(awk '$1 == "ALREADY" {print $2}' <<< "$out" | tail -1); vf=$(awk '$1 == "VERIFY_FAIL" {print $2}' <<< "$out" | tail -1)
+  REC=$(jq -c --argjson rc "$rc" --arg out "$out" --arg al "$already" --arg vf "$vf" --arg err "$(head -c 300 "$W/err")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
+        '(. // {}) + {direct: {rc: $rc, ok: ($out | test("(^|\n)OK$")), precheck_v9_rows: (if $al == "" then 0 else ($al | tonumber) end),
+                                in_tx_verify_failed: ($vf != ""), in_tx_v9_rows: (if $vf == "" then null else ($vf | tonumber) end), err: $err, start_pc: $pc0, end_pc: $pc1,
                                 limit: "Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶인다"}}' <<< "${REC:-null}")
   [[ -z "$already" ]] || return 3
+  [[ -z "$vf" ]] || return 4   # 같은 트랜잭션 확인 실패 — ROLLBACK(이력 없음 — CR13-26)
   (( rc == 0 )) && grep -qx OK <<< "$out"
 }
 method=""
 case "$RECORD" in
   cli) rec_cli && method=cli || fail 4 "기록 ① 실패($(jq -r .cli.class <<< "$REC")) — ②로 넘어가지 않는다(--record cli)" ;;
-  direct) rec_direct && method=direct || fail 4 "기록 ② 실패($(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))" ;;
+  direct) rec_direct && method=direct || fail 4 "기록 ② 실패($(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" elif .direct.in_tx_verify_failed then "같은 트랜잭션 확인 실패(V9 \(.direct.in_tx_v9_rows)행 · 성공·체크섬) — ROLLBACK · 이력 남지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))" ;;
   auto)
     if [[ -n "$FLYWAY" ]] && rec_cli; then method=cli
     elif [[ -z "$FLYWAY" ]] || [[ "$(jq -r .cli.class <<< "$REC")" == edition-limit ]]; then
-      rec_direct && method=direct || fail 4 "기록 ② 실패(① $( [[ -z "$FLYWAY" ]] && echo '없음' || echo 'edition-limit') · $(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))"
+      rec_direct && method=direct || fail 4 "기록 ② 실패(① $( [[ -z "$FLYWAY" ]] && echo '없음' || echo 'edition-limit') · $(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" elif .direct.in_tx_verify_failed then "같은 트랜잭션 확인 실패(V9 \(.direct.in_tx_v9_rows)행 · 성공·체크섬) — ROLLBACK · 이력 남지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))"
     else
       fail 4 "기록 ① 실패 — $(jq -r .cli.class <<< "$REC")(검증 오류·분류 불가는 ②로 넘어가지 않는다 · §4.4)"
     fi ;;
@@ -279,6 +289,9 @@ esac
 h1=$(verify_hist)
 REC=$(jq -c --arg m "$method" --argjson h "${h1:-null}" --arg want "$want_ck" \
       '. + {method: $m, history: $h, verify_ok: (($h | type) == "array" and ($h | length) == 1 and $h[0].success == true and ($h[0].checksum | tostring) == $want)}' <<< "$REC")
-[[ "$(jq -r .verify_ok <<< "$REC")" == true ]] || fail 4 "기록 뒤 확인 실패 — V9 이력 $h1 · 기대 체크섬 $want_ck"
+if [[ "$(jq -r .verify_ok <<< "$REC")" != true ]]; then
+  if [[ "$method" == cli ]]; then fail 4 "기록 뒤 확인 실패 — V9 이력 $h1 · 기대 체크섬 $want_ck · 기록 ①(Flyway CLI — 트랜잭션 밖)이 쓴 이력은 남아 있다(history_after_fail · 사람이 확인 — CR13-26)"
+  else fail 4 "기록 뒤 확인 실패 — V9 이력 $h1 · 기대 체크섬 $want_ck(기록 ②는 같은 트랜잭션 확인을 통과했다 — COMMIT 뒤 다른 세션이 바꿨을 수 있다)"; fi
+fi
 finish ok
 exit 0

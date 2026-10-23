@@ -11,7 +11,7 @@ SELECT json_build_object(
   'function', (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                WHERE p.proname = 'trg_quota_touch' AND n.nspname = current_schema()),
   'trigger', (SELECT json_build_object('def', pg_get_triggerdef(t.oid), 'enabled', t.tgenabled::text)
-              FROM pg_trigger t WHERE t.tgname = 'user_hold_quota_touch' AND NOT t.tgisinternal),
+              FROM pg_trigger t WHERE t.tgname = 'user_hold_quota_touch' AND t.tgrelid = 'user_hold_quota'::regclass AND NOT t.tgisinternal),
   'volatile', (SELECT json_build_object('atthasmissing', a.atthasmissing, 'attmissingval', a.attmissingval::text,
                                         'index_oid', to_regclass('idx_user_hold_quota_updated_at')::oid)
                FROM pg_attribute a WHERE a.attrelid = 'user_hold_quota'::regclass AND a.attname = 'updated_at' AND NOT a.attisdropped),
