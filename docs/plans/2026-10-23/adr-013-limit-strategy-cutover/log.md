@@ -22,6 +22,7 @@
 | 10-23 23:58 | task 05 착수 — 워커 3(Opus) 병렬: 앱 코드(§4.11 첫 창 m 제외·키셋 페이지 · N8 · 지표 — reconcile-core·main-app) ∥ blind 테스트(worktree test/adr013-blind · 16fb81df 기준 계약만) ∥ 하네스·적용판(k6/ADR-013 · ops/online-v9 — 접속 없이 dry-run) · 같은 작업트리 두 워커는 경로 분리 · 커밋 각자 경로만 | 진행 |
 | 10-24 00:10 | blind 회수(Opus · worktree test/adr013-blind b7e05822): Adr013FirstWindowContractTest 7 + Adr013InvalidIndexContractTest 1 · 구현 전(16fb81df) 8/8 기대 단언에서 실패(그린 위장 1건 발견·전제 추가로 고침) · 해석 H1~H11(지표 이름 page_full·carry_ticks · page-size 0 = 기동 검사 거부 · carry_ticks DistributionSummary 등) · PG16 실측: VACUUM FULL → atthasmissing false · 빈 표 ADD COLUMN도 atthasmissing true | 앱 구현 회수 뒤 cherry-pick·실행 |
 | 10-24 00:32 | 앱 코드 회수(Opus bb7ecbd2): m 제외(attmissingval · 두 범위) · 키셋 페이지(page-size 기본 100,000 — ADR-012 결과 최대 틱 후보 26,591 × 2 이하 근거) · t₀ 기준 하한 · page_full·carry_ticks · N8(Schema.updatedAtIndexValid · afterLocations가 기존 INVALID 유지 · 게이트 migrate 전 거부) · 구현자 테스트 7 · 워커 전체 테스트 692/0(18m50s) · §4.9-16 PG16 확인 · blind cherry-pick → 구현 위에서 Adr013* 8/8 통과(1m27s) · 남은 §4.9-17(대량 시드 EXPLAIN)은 스모크 몫 | 하네스 회수 대기 |
+| 10-24 00:43 | 하네스·적용판 회수(Opus b0a01e6e — k6/ADR-013 19파일 · ops/online-v9 · 로컬 PG로 apply.sh·SQL·탐침 실행기 확인 · selftest 17) · 위험: 사건 실제 길이에서 ②⑤ 단독(새) 탐침 전부 경계(N=0 → 매 회차 실패) → §5.8-1 규정대로 측정 전 일정 정정(칸별 첫 오프셋 30·60·120초 — a8190c9b · 기동 40초 가정 dry-run 경계 0 · selftest 고정값 갱신 17/17) · 해석 수용: ① J 짝 = lb 편입 뒤 전환 칸 + 단독(새) · 오탐 = 주입·탐침 밖 repaired | 코드 듀얼 리뷰 루프 1 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
