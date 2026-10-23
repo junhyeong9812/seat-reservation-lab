@@ -37,9 +37,11 @@ HEALTH_IN_REP_S = 300        # §5.1 health 시한(회차 안 모든 기동)
 DRAIN_S, DRAIN_EXTRA_S, DRAIN_EXTRA_MAX = 5, 5, 2   # §4.2 lb 규칙 · H2 ⓒ(비움 5초 · 더 5초 최대 2번)
 MLOCK_BEFORE_S, MLOCK_AFTER_S = 10, 30              # §4.5-2 촘촘한 표본 창 [T1 − 10, 마지막 lb 넣기 + 30] · ④⑤ [적용판 시작 − 10, 끝 + 30]
 AVAIL = {"rate": 2, "timeout_s": 5, "vus": 20, "seat_offset": 5000}   # §5.1 가용성 탐침(초당 2 · 시한 5초 · VU 20/20 · 좌석 5,001~10,000)
-# §5.8-1 탐침 일정: 칸 시작 + 30초부터 6초 간격 · d 내림차순 · H 먼저
+# §5.8-1 탐침 일정: 칸 시작 + 칸별 첫 오프셋부터 6초 간격 · d 내림차순 · H 먼저
+# 칸별 첫 오프셋(§5.8-1 정정 2026-10-24 — 사건 실제 길이 dry-run: 단독(새) 칸 T2 + 30초는 ②⑤ T2 단계(기동·수집·내림·비움) 안이라 탐침이 경계로 빠짐)
 PROBE_ORDER = [(75, "H"), (75, "L"), (30, "H"), (30, "L"), (5, "H"), (5, "L"), (1, "H"), (1, "L")]
-PROBE_FIRST_S, PROBE_GAP_S = 30, 6
+PROBE_FIRST_S = {"old": 30, "trans": 60, "new": 120}   # 칸 시작 기준 첫 탐침 초
+PROBE_GAP_S = 6
 PROBE_DECIDE_MARGIN_S = 2    # dry-run: 판정 요청 2번(L)·주입 문장 왕복을 덮는 여유(보수적 — 늦게 끝나는 쪽으로 본다)
 PROBE_USER_BASE, PROBE_SEAT_STRIDE = 90_000_000, 3   # 탐침마다 새 사용자 · 좌석 3석(L은 선점 3번)
 AVAIL_USER_BASE = 80_000_000
@@ -100,7 +102,7 @@ def probe_schedule(load):
     for cell, c0 in zip(CELL_NAMES, (0, L["T1"], L["T2"])):
         for k, (d, kind) in enumerate(PROBE_ORDER):
             seat0 = (L["probe_schedule"] - 1) * SEATS_PER_SCHEDULE + 1 + idx * PROBE_SEAT_STRIDE
-            out.append({"id": idx, "cell": cell, "kind": kind, "d": d, "at_s": c0 + PROBE_FIRST_S + k * PROBE_GAP_S,
+            out.append({"id": idx, "cell": cell, "kind": kind, "d": d, "at_s": c0 + PROBE_FIRST_S[cell] + k * PROBE_GAP_S,
                         "schedule_id": L["probe_schedule"], "user_id": PROBE_USER_BASE + idx, "seats": [seat0, seat0 + 1, seat0 + 2]})
             idx += 1
     assert idx * PROBE_SEAT_STRIDE <= AVAIL["seat_offset"], "한도 탐침 좌석이 가용성 탐침 범위(5,001~)를 넘는다"

@@ -242,7 +242,7 @@ def main():
     out, st = make_rep(root / "c5b", 4, "S4c", 1, old_fail=allfail, driver_done=False)
     check("⑤ 최소 수 미달 + 실행기 끝 행 없음 → invalid:probe-short", st.startswith("invalid:") and "probe-short" in st, st)
     # ⑦ ① 중단 탐침
-    out, st = make_rep(root / "c7", 1, "S4c", 1, startup=45.0)
+    out, st = make_rep(root / "c7", 1, "S4c", 1, startup=70.0)   # 전환 칸 첫 탐침 T1 + 60초(§5.8-1 정정) — 중단이 그보다 길어야 중단 탐침이 생긴다
     pr = (out.get("probe") or {}).get("probes") or []
     outage = [x for x in pr if x["status"] == "outage"]
     check("⑦ ① 전환 칸 중 중단 구간 탐침 = 중단", len(outage) >= 1 and all(x["cell"] == "trans" for x in outage), str([(x["id"], x["status"]) for x in pr if x["cell"] == "trans"]))
