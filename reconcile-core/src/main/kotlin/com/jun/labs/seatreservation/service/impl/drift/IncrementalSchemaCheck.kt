@@ -18,17 +18,26 @@ object IncrementalSchemaCheck {
     /** V10(선택 위치 `db/migration-incremental`) 테이블 3개 */
     val V10_TABLES = listOf("counter_safety_run", "counter_app_inject", "counter_inc_gap")
 
-    /** @param externalApp 외부 대조 앱이면 true — 메모리 집합(ⓐ)은 다른 프로세스가 볼 수 없어 거부한다 */
-    fun check(jdbc: JdbcTemplate, reconcile: ReconcileProperties, externalApp: Boolean) {
+    /**
+     * 설정만으로 판정되는 쪽(DB를 보지 않는다) — 업무 앱은 Flyway 마이그레이션 앞에서도 부른다(거부된 기동이 스키마를 바꾸지 않게). [check]가 첫머리에서 다시 부른다.
+     * @param externalApp 외부 대조 앱이면 true — 메모리 집합(ⓐ)은 다른 프로세스가 볼 수 없어 거부한다
+     */
+    fun checkConfig(reconcile: ReconcileProperties, externalApp: Boolean) {
         val inc = reconcile.incremental
-        val method = inc.method
-        val m = method.name.lowercase()
-        if (method == IncrementalMethod.MEMORY) {
+        if (inc.method == IncrementalMethod.MEMORY) {
             check(inc.enabled) {
                 "$PREFIX.method=memory인데 $PREFIX.enabled=false — 표시만 하는 메모리 집합은 뜻이 없다(다른 프로세스가 볼 수 없다). enabled=true로 켜거나 방식을 바꿔라"
             }
             check(!externalApp) { "$PREFIX.method=memory는 외부 대조 앱에서 쓸 수 없다 — 메모리 집합은 업무 앱 프로세스 안에서만 성립한다(trigger·stmt만)" }
         }
+    }
+
+    /** 설정 쪽([checkConfig]) + 스키마 쪽. @param externalApp 외부 대조 앱이면 true */
+    fun check(jdbc: JdbcTemplate, reconcile: ReconcileProperties, externalApp: Boolean) {
+        checkConfig(reconcile, externalApp)
+        val inc = reconcile.incremental
+        val method = inc.method
+        val m = method.name.lowercase()
         val column = jdbc.queryForObject(
             "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_hold_quota' AND column_name = 'updated_at'",
             Int::class.java,
