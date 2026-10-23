@@ -24,6 +24,7 @@
 | 10-24 00:32 | 앱 코드 회수(Opus bb7ecbd2): m 제외(attmissingval · 두 범위) · 키셋 페이지(page-size 기본 100,000 — ADR-012 결과 최대 틱 후보 26,591 × 2 이하 근거) · t₀ 기준 하한 · page_full·carry_ticks · N8(Schema.updatedAtIndexValid · afterLocations가 기존 INVALID 유지 · 게이트 migrate 전 거부) · 구현자 테스트 7 · 워커 전체 테스트 692/0(18m50s) · §4.9-16 PG16 확인 · blind cherry-pick → 구현 위에서 Adr013* 8/8 통과(1m27s) · 남은 §4.9-17(대량 시드 EXPLAIN)은 스모크 몫 | 하네스 회수 대기 |
 | 10-24 00:43 | 하네스·적용판 회수(Opus b0a01e6e — k6/ADR-013 19파일 · ops/online-v9 · 로컬 PG로 apply.sh·SQL·탐침 실행기 확인 · selftest 17) · 위험: 사건 실제 길이에서 ②⑤ 단독(새) 탐침 전부 경계(N=0 → 매 회차 실패) → §5.8-1 규정대로 측정 전 일정 정정(칸별 첫 오프셋 30·60·120초 — a8190c9b · 기동 40초 가정 dry-run 경계 0 · selftest 고정값 갱신 17/17) · 해석 수용: ① J 짝 = lb 편입 뒤 전환 칸 + 단독(새) · 오탐 = 주입·탐침 밖 repaired | 코드 듀얼 리뷰 루프 1 |
 | 10-24 00:55 | 코드 리뷰 루프 1(base 16fb81df · 미러 rv13c — k6 결과 제외 · 측정 DB 더미 비밀번호 redact): codex 6(H 4 · M 2) · Opus 10(H 1 · M 4 · L 5) — 앱 코드 결함 0(두 리뷰 공통) → 종합 CR13-1~14 채택 · 수정 워커 | 진행 |
+| 10-24 01:19 | 루프 1 수정 회수(Opus): 3289c3d5(적용판) · 5048ab39(하네스) · 09acde2d(README·ADR §4.9-17) · bbba7264(앱 WARN 문구) · selftest 29/29(새 13 — 수정 전 13 실패 확인) · 로컬 PG apply.sh 경우 7 · incremental 테스트 131/0 · 메인 판단: anomaly = P9 (바) 정합 · 결측 무효는 transition-failed 없을 때 · final-app-mismatch = 절차 · inflight_unknown = 하네스(옛 앱 active 지표 유무는 스모크 확인) | 전체 테스트 + 루프 2 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -61,21 +62,21 @@
 | S5-12 | 1 | opus F10(L) | 순환 처리 | 채택 — 순환 후보만 남김 | fixed | 54f88ebc · §5.8 |
 | S5-13 | 1 | opus F11(L) | P12 문턱 4 | 채택 — 설명 가설 문턱 재검토 | fixed | 54f88ebc · §5.8 |
 | S5-14 | 1 | opus F12(L) | P9(마) 첫 항 구조상 0 | 채택 — 판정 자료 아님 주석 | fixed | 54f88ebc · §5.8 |
-| CR13-1 | 1 | codex F1(H) | k6/ADR-013/scripts/summarize.py:547 J가 단독(새) 칸 제외 | 채택 | open | — |
-| CR13-2 | 1 | codex F2(H) | summarize.py:1048 칸별 T≤O가 짝 남은 칸만 | 채택 — 6칸 고정 · 짝 0 칸 = 판정 불가 | open | — |
-| CR13-3 | 1 | codex F3(H) | summarize.py:477·689 예상 밖 응답 anomaly가 사유 아님 | 채택 | open | — |
-| CR13-4 | 1 | opus F1(H) | summarize.py:805-818·1069 · lib13.sh:120-122 GC 자료 없으면 P10 통과 | 채택 — gc-log-missing 무효 | open | — |
-| CR13-5 | 1 | codex F5(M) | run.sh:257 앱별 수집 실패에도 collect ok | 채택 — H4 필수 산출물 결측 = 무효 | open | — |
-| CR13-6 | 1 | codex F4(M) + opus F7(L) | run.sh:245-253 inflight 결측 = 0 · 원인 불명 = harness | 채택 — inflight_unknown · 원인 불명 = 절차 | open | — |
-| CR13-7 | 1 | opus F2(M) | ops/online-v9/apply.sh:198·228 'Edition' 배너로 판 제한 오분류 · V9 이력 중복 | 채택 — 고정 문구로만 · 직접 기록 전 이력 0 재확인 · 실패 경로 이력 기록 | open | — |
-| CR13-8 | 1 | opus F3(M) | campaign.sh:68 탐침 dry-run이 사건 길이 0 | 채택 — 스모크 실측 길이 필수 · 없으면 막음 | open | — |
-| CR13-9 | 1 | opus F4(M) | summarize.py:571 P9(가)가 계획 칸 'new'만 | 채택 — 실제 구간 new | open | — |
-| CR13-10 | 1 | opus F5(M) | IncrementalReconciler.kt:504-507 · V9 인덱스 단일 열 — 'm 없음'에서 같은 값 묶음 비용 무상한 | 채택(기록) — WARN 문구 + ADR §4.9-17 한계 · 코드 무변경(V9 파일 금지) | open | — |
-| CR13-11 | 1 | opus F6(L) | summarize.py:520·586 (마) 두 수 집합 다름 | 채택 — 판정 탐침으로 한정 | open | — |
-| CR13-12 | 1 | opus F8(L) | apply.sh:150·172 INVALID DROP 결과 미확인 | 채택 | open | — |
-| CR13-13 | 1 | opus F9(L) | k6/ADR-013/README.md:87-91 정정 전 서술 | 채택 | open | — |
-| CR13-14 | 1 | codex F6(H) + opus F10(L) | apply.sh:35·192 · lib13.sh:208 비밀번호 명령줄 · 기본값 박힘 | 채택 — 환경변수 전달 · 값은 측정 DB 고정 더미(기존 compose와 같음 — ADR-012 RX-9 선례 잔여 위험) | open | — |
-| CR13-참고 | 1 | opus 참고 | summarize.py:750 P7 이어 읽기 판정 · run.sh:468 끝 검사 앱 대체 | 채택 — page_full 기준 · final_app ≠ 계획 = 사유 | open | — |
+| CR13-1 | 1 | codex F1(H) | k6/ADR-013/scripts/summarize.py:547 J가 단독(새) 칸 제외 | 채택 | fixed | 루프 1 수정 |
+| CR13-2 | 1 | codex F2(H) | summarize.py:1048 칸별 T≤O가 짝 남은 칸만 | 채택 — 6칸 고정 · 짝 0 칸 = 판정 불가 | fixed | 루프 1 수정 |
+| CR13-3 | 1 | codex F3(H) | summarize.py:477·689 예상 밖 응답 anomaly가 사유 아님 | 채택 | fixed | 루프 1 수정 |
+| CR13-4 | 1 | opus F1(H) | summarize.py:805-818·1069 · lib13.sh:120-122 GC 자료 없으면 P10 통과 | 채택 — gc-log-missing 무효 | fixed | 루프 1 수정 |
+| CR13-5 | 1 | codex F5(M) | run.sh:257 앱별 수집 실패에도 collect ok | 채택 — H4 필수 산출물 결측 = 무효 | fixed | 루프 1 수정 |
+| CR13-6 | 1 | codex F4(M) + opus F7(L) | run.sh:245-253 inflight 결측 = 0 · 원인 불명 = harness | 채택 — inflight_unknown · 원인 불명 = 절차 | fixed | 루프 1 수정 |
+| CR13-7 | 1 | opus F2(M) | ops/online-v9/apply.sh:198·228 'Edition' 배너로 판 제한 오분류 · V9 이력 중복 | 채택 — 고정 문구로만 · 직접 기록 전 이력 0 재확인 · 실패 경로 이력 기록 | fixed | 루프 1 수정 |
+| CR13-8 | 1 | opus F3(M) | campaign.sh:68 탐침 dry-run이 사건 길이 0 | 채택 — 스모크 실측 길이 필수 · 없으면 막음 | fixed | 루프 1 수정 |
+| CR13-9 | 1 | opus F4(M) | summarize.py:571 P9(가)가 계획 칸 'new'만 | 채택 — 실제 구간 new | fixed | 루프 1 수정 |
+| CR13-10 | 1 | opus F5(M) | IncrementalReconciler.kt:504-507 · V9 인덱스 단일 열 — 'm 없음'에서 같은 값 묶음 비용 무상한 | 채택(기록) — WARN 문구 + ADR §4.9-17 한계 · 코드 무변경(V9 파일 금지) | fixed | 루프 1 수정 |
+| CR13-11 | 1 | opus F6(L) | summarize.py:520·586 (마) 두 수 집합 다름 | 채택 — 판정 탐침으로 한정 | fixed | 루프 1 수정 |
+| CR13-12 | 1 | opus F8(L) | apply.sh:150·172 INVALID DROP 결과 미확인 | 채택 | fixed | 루프 1 수정 |
+| CR13-13 | 1 | opus F9(L) | k6/ADR-013/README.md:87-91 정정 전 서술 | 채택 | fixed | 루프 1 수정 |
+| CR13-14 | 1 | codex F6(H) + opus F10(L) | apply.sh:35·192 · lib13.sh:208 비밀번호 명령줄 · 기본값 박힘 | 채택 — 환경변수 전달 · 값은 측정 DB 고정 더미(기존 compose와 같음 — ADR-012 RX-9 선례 잔여 위험) | fixed | 루프 1 수정 |
+| CR13-참고 | 1 | opus 참고 | summarize.py:750 P7 이어 읽기 판정 · run.sh:468 끝 검사 앱 대체 | 채택 — page_full 기준 · final_app ≠ 계획 = 사유 | fixed | 루프 1 수정 |
 
 ## 생략한 검증 (긴급 경로 빚 — DEBT=1인 동안 정본)
 
