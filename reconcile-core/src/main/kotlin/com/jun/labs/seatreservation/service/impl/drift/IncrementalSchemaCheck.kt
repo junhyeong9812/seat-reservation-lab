@@ -45,12 +45,15 @@ object IncrementalSchemaCheck {
         val index = jdbc.queryForObject(
             "SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?", Int::class.java, UPDATED_AT_INDEX,
         )!! > 0
-        val trigger = jdbc.queryForObject(
-            // 이 스키마의 user_hold_quota에 걸린 트리거만(rv43 — 다른 스키마·테이블의 같은 이름 트리거로 판정하지 않는다)
-            "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace " +
+        // 이 스키마의 user_hold_quota에 걸린 트리거만(rv43 — 다른 스키마·테이블의 같은 이름 트리거로 판정하지 않는다).
+        // tgenabled: O(보통 세션에서 발화)·A(늘 발화)만 '활성' — D(DISABLE TRIGGER)·R(복제 세션에서만)은 업무 세션에서 updated_at을 남기지 않는다
+        val states = jdbc.queryForList(
+            "SELECT t.tgenabled::text FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace " +
                 "WHERE t.tgname = ? AND NOT t.tgisinternal AND c.relname = 'user_hold_quota' AND n.nspname = current_schema()",
-            Int::class.java, TOUCH_TRIGGER,
-        )!! > 0
+            String::class.java, TOUCH_TRIGGER,
+        )
+        val trigger = states.isNotEmpty()
+        val triggerActive = states.any { it == "O" || it == "A" }
         val updatedAtMethod = method == IncrementalMethod.TRIGGER || method == IncrementalMethod.STMT
         if (updatedAtMethod) {
             check(column && index) {
@@ -62,7 +65,13 @@ object IncrementalSchemaCheck {
             check(trigger) {
                 "$PREFIX.method=trigger인데 트리거 $TOUCH_TRIGGER 가 없다 — spring.flyway.locations에 classpath:db/migration-updated-at-trigger를 더하라(문장 위치가 아니라)"
             }
+            // 트리거가 꺼져 있으면 쿼터 변경이 updated_at을 남기지 않아 증분이 그 쌍을 못 본다(유실 — 명세 §2) — 이름만 있는 트리거로 통과하지 않는다
+            check(triggerActive) {
+                "$PREFIX.method=trigger인데 트리거 $TOUCH_TRIGGER 가 비활성이다(pg_trigger.tgenabled=$states — O·A만 활성) — " +
+                    "ALTER TABLE user_hold_quota ENABLE TRIGGER $TOUCH_TRIGGER 로 켜거나 방식을 바꿔라"
+            }
         } else {
+            // 비활성(D)이어도 '있음'으로 본다(보수적 — 다시 켜지면 비용이 다른 셀에 샌다). 지우려면 새 마이그레이션 또는 수동 DROP
             check(!trigger) {
                 "$PREFIX.method=$m 인데 트리거 $TOUCH_TRIGGER(V9 트리거 위치)가 있다 — 트리거 비용이 다른 셀에 샌다. " +
                     "classpath:db/migration-updated-at-trigger는 method=trigger에서만 더하라"
