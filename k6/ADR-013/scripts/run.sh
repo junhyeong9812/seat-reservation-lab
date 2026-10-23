@@ -245,6 +245,10 @@ lb_apply() {   # 인자: step op 슬롯 새구성원(서비스 이름 목록) �
 }
 do_lb_add() {
   local s="$1"; IP[$s]=$(ctr_ip "$(ctr_of "$s")")   # 그 생애의 컨테이너 IP(H2 ⓒ — 비움 확인 · 접근 기록 대조)
+  if ! [[ "${IP[$s]}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then   # 루프 3 — IP를 모르면 그 생애의 비움을 잴 수 없다(무음 금지)
+    ev "$STEP" lb-add "$s" "$PA" "$(now)" "$(now)" fail harness "$(jq -nc --arg ip "${IP[$s]}" '{reason: "ip-unknown", ip: $ip}')"
+    tfail harness ip-unknown lb-add "$s" "${IP[$s]}"; return 1
+  fi
   lb_apply "$STEP" lb-add "$s" "$(echo "$LB_SET $(svc_of "$s")" | xargs -n1 | sort -u | xargs)"
 }
 do_lb_remove() {
@@ -497,7 +501,12 @@ sleep "$(awk -v e="$K6_END" -v c="$CONV_S" -v n="$(now)" 'BEGIN { d = e + c - n;
 FINAL=$(jq -r .end_state.final_new "$DIR/plan.json")
 wait_health_url "$(url_of "$FINAL")" 5 || { for s in A B; do wait_health_url "$(url_of "$s")" 5 && { FINAL=$s; break; }; done; }
 echo "{\"final_app\":\"$FINAL\",\"planned\":\"$(jq -r .end_state.final_new "$DIR/plan.json")\",\"end_check_start_pc\":$(now)}" > "$DIR/final-app.json"
-BASE_URL="$(url_of "$FINAL")" CONSISTENCY_TIMEOUT=600 consistency 20 > "$DIR/consistency.json" 2>>"$DIR/errors.log" || { echo "$(date -Is) consistency 실패·시한 — P9 판정 불가(요약기 end-check-timeout)" >> "$DIR/errors.log"; rm -f "$DIR/consistency.json"; }
+BASE_URL="$(url_of "$FINAL")" CONSISTENCY_TIMEOUT=600 consistency 20 > "$DIR/consistency.json" 2>>"$DIR/errors.log"; crc=$?
+if (( crc != 0 )); then
+  rm -f "$DIR/consistency.json"; echo "$crc" > "$DIR/consistency.rc"
+  # 루프 3 — curl 28(--max-time 초과)만 끝 검사 시한 = P9 판정 불가(§5.2) · 그 밖(연결·HTTP 실패)은 측정 프로세스 실패 = 하네스 → 재측정(§5.3)
+  if [[ "$crc" == 28 ]]; then echo "$(date -Is) consistency 시한(600초) 초과 — P9 판정 불가" >> "$DIR/errors.log"; else echo "$(date -Is) consistency 실패 rc=$crc — 하네스" >> "$DIR/errors.log"; hreason end-check-app-failed; fi
+fi
 end_check_sql "$PROBE_SCH" > "$DIR/end-check.json" 2>>"$DIR/errors.log" || hreason end-check-failed
 drift_db_dump $( [[ "$(db_scalar "SELECT to_regclass('counter_inc_gap') IS NOT NULL" | tr -d '[:space:]')" == t ]] && echo v10) > "$DIR/drift-db.json" 2>>"$DIR/errors.log" || hreason drift-db-failed
 if [[ "$LOAD" == S3e ]]; then

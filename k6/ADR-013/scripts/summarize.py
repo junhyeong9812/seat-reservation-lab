@@ -74,7 +74,7 @@ MLOCK_STEP_S, MLOCK_MISS = 0.2, 0.10
 AVAIL_MIN_SHARE = 0.95
 BUSINESS = re.compile(r"^seatlab-[AB]-[0-9a-f]+-(old|new|shadow)$")
 # run.sh가 회차 끝(k6·수렴 뒤) 단계에서 남기는 하네스 사유 — 전환 실패 회차에서는 기록만(CR13-18)
-END_HREASONS = {"end-check-failed", "drift-db-failed", "end-pairs-failed", "injected-missing"}
+END_HREASONS = {"end-check-failed", "end-check-app-failed", "drift-db-failed", "end-pairs-failed", "injected-missing"}
 
 
 def load(p):
@@ -766,6 +766,8 @@ def rep_summary(d):
         out["probe_anomaly"] = list(pm.get("anomaly") or [])
         if out["probe_anomaly"]:
             flags.append("probe-anomaly")
+        if pm["harness_error"]:
+            harness.append("probe-error")   # 루프 3 — 주입·스냅숏·실행기 오류가 한 건이라도 있으면 최소 수와 관계없이 하네스 무효(그 탐침이 집계에서 조용히 빠지지 않게)
         if pt["short"]:
             if pm["harness_error"]:
                 harness.append("probe-short")
@@ -978,7 +980,12 @@ def rep_summary(d):
         out["flyway"] = [{k: r.get(k) for k in ("version", "execution_time", "installed_rank", "success")} for r in end.get("flyway") or [] if r.get("version") in ("9", "10")]
     cons = load(d / "consistency.json")
     if cons is None:
-        flags.append("end-check-timeout")   # 끝 검사 시한 초과 → 그 회차 P9 판정 불가(§5.2 P9 판정 불가 칸)
+        crc = (d / "consistency.rc").read_text().strip() if (d / "consistency.rc").exists() else ""
+        if crc == "28":
+            flags.append("end-check-timeout")   # 끝 검사 시한 초과(curl 28)만 → 그 회차 P9 판정 불가(§5.2 P9 판정 불가 칸)
+        elif not crc:
+            harness.append("end-check-app-failed")   # 파일도 원인도 없다 — 측정 프로세스 실패로 본다(루프 3)
+        # 그 밖의 rc는 run.sh가 hreason end-check-app-failed를 남겼다(하네스 → 재측정 · 전환 실패 회차면 END_HREASONS 규칙으로 기록만)
     else:
         p9["v_counter_mismatch"] = cons.get("v_counter_mismatch")
     # 주입(S3e — P9 (나) · J3 · (차))

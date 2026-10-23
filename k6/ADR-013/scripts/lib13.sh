@@ -90,7 +90,8 @@ REMOTE
 LB_ACCESS_LOG="${LB_ACCESS_LOG:-/var/log/nginx/cut.log}"
 lb_started_after() {
   local out
-  [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ && "$3" =~ ^[0-9]+$ ]] || return 1
+  # 입력 셋 모두 형식 검증 — IP가 비면 awk 조건이 어떤 줄과도 안 맞아 0을 냈다(루프 3 — 같은 종류 3회째: 판정 입력은 이 한 곳에서 검증한다)
+  [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ && "$2" =~ ^[0-9]+(\.[0-9]+)?$ && "$3" =~ ^[0-9]+$ ]] || return 1
   out=$(remote "docker exec -i seatlab-lb-1 sh -s -- '$1:8101' '$2' '$3' '$LB_ACCESS_LOG'" 2>/dev/null <<'SH'
 (set -o pipefail) 2>/dev/null && set -o pipefail   # busybox ash(nginx alpine)는 된다 — 없는 sh면 아래 파일 확인만
 f="$4"; [ -r "$f" ] || exit 3
