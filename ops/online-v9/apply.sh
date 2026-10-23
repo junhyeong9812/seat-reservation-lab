@@ -10,6 +10,10 @@
 #               세션 이름은 호출자가 정한다(하네스 = seatlab-online-v9 · H5). 출력 형식은 이 스크립트가 \pset으로 정한다.
 #   --ref-catalog · --ref-history   같은 SHA 새 앱 Flyway(V1~V10)를 빈 DB에 적용한 뒤 04-catalog.sql · 05-history.sql의 결과(하네스가 seat_ref DB로 만든다).
 #   --flyway    기록 방법 ①의 Flyway CLI(11.7.2 공식 이미지 — 뒤에 Flyway 인자가 붙는다). 없으면 ①을 건너뛰고 ② 직접 기록(--record auto일 때).
+#               비밀번호는 명령줄로 넘기지 않는다(CR13-14): **환경변수 FLYWAY_PASSWORD 필수**(--flyway가 있을 때 — 없으면 멈춘다 · 기본값 없음).
+#               이 명령은 그 값을 Flyway에 환경으로 넘겨야 한다(예: docker run -e FLYWAY_PASSWORD … — Flyway CLI가 FLYWAY_PASSWORD를 읽는다 ·
+#               원격이면 ssh 표준 입력 — 하네스 lib13.sh flyway_run_cmd). 사용자 = FLYWAY_USER(기본 seat — 비밀 아님).
+#               psql에 비밀번호가 필요하면 --psql 명령이 PGPASSWORD 환경을 쓴다(명령줄 금지).
 #   --locations Flyway CLI 위치 = 새 SHA의 **전체 위치 중 V10 뺀 것**(기본 위치 + V9 트리거 위치 — DS-4 · target=9).
 #
 # 단계(§4.4 표):
@@ -22,7 +26,11 @@
 #     빼는 값(DS-14): atthasmissing·attmissingval(m — 기록만) · OID 등.
 #     기록 ① Flyway CLI: migrate -target=9 -skipExecutingMigrations=true -locations=<전체 위치 중 V10 뺀 것>.
 #       실패 원인 분류: 검증 오류(Validate failed · checksum mismatch · 해석 못 한 적용 버전) = 위치·파일이 틀림 → 멈춘다(②로 가지 않는다 — ②도 같은 이력에서 실패한다) ·
-#       판 제한(Teams/Enterprise 기능 요구) → ② · 그 밖 = 멈춘다(분류 불가 — 숨기지 않는다).
+#       판 제한(유료판 기능 요구 — Flyway 11.7.2 고정 문구·예외 이름으로만: FlywayEditionUpgradeRequiredException '<판> upgrade required: <기능> is not supported by <판>' ·
+#       FlywayRedgateEditionRequiredException 'Redgate Edition Required: <기능> is not supported by OSS Edition' · 옛 FlywayTeamsUpgradeRequiredException) → ② ·
+#       그 밖 = 멈춘다(분류 불가 — 숨기지 않는다). 판 이름 낱말만으로는 분류하지 않는다(시작 배너 'Flyway OSS Edition …'이 늘 찍힌다 — CR13-7).
+#     기록 ② 직전: 같은 트랜잭션(이력 표 SHARE ROW EXCLUSIVE)에서 V9 이력 0을 다시 확인 — 있으면 넣지 않고 멈춘다(① 일부 기록과 겹치지 않게 — CR13-7).
+#     실패하면(어느 단계든 · 이력 표가 있을 때) V9 이력을 다시 읽어 record.history_after_fail에 남긴다.
 #     기록 ② 직접: ref V9 이력 행(version · description · type · script · checksum)을 installed_rank = 다음 번호 · success = true로 넣는다
 #       (Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶이는 한계).
 #     기록 뒤 확인: V9 행 1개 · success · 체크섬 = ref.
@@ -32,7 +40,7 @@ set -uo pipefail
 PSQL="" FLYWAY="" REF_CAT="" REF_HIST="" OUT="" RECORD=auto LOCK_TIMEOUT=2s RETRIES=30 STMT_TIMEOUT=600s INDEX_RETRIES=2
 LOCATIONS="filesystem:/db/migration,filesystem:/db/migration-updated-at-trigger"
 FLYWAY_URL="jdbc:postgresql://db:5432/seat?ApplicationName=seatlab-online-v9"
-FLYWAY_USER=seat FLYWAY_PASSWORD=seat
+FLYWAY_USER="${FLYWAY_USER:-seat}"
 while (( $# )); do
   case "$1" in
     --psql) PSQL="$2"; shift 2 ;;
@@ -53,6 +61,7 @@ done
 [[ -n "$PSQL" && -n "$REF_CAT" && -n "$REF_HIST" && -n "$OUT" ]] || { echo "--psql · --ref-catalog · --ref-history · --out 필수" >&2; exit 2; }
 [[ "$RECORD" =~ ^(auto|cli|direct)$ ]] || { echo "--record auto|cli|direct" >&2; exit 2; }
 [[ "$RECORD" != cli || -n "$FLYWAY" ]] || { echo "--record cli는 --flyway가 필요하다" >&2; exit 2; }
+[[ -z "$FLYWAY" || -n "${FLYWAY_PASSWORD:-}" ]] || { echo "--flyway는 환경변수 FLYWAY_PASSWORD가 필요하다(명령줄·기본값 없음)" >&2; exit 2; }
 [[ "$LOCK_TIMEOUT" =~ ^[0-9]+(ms|s)$ && "$STMT_TIMEOUT" =~ ^[0-9]+(ms|s|min)$ && "$RETRIES$INDEX_RETRIES" =~ ^[0-9]+$ ]] || { echo "시한·재시도 형식" >&2; exit 2; }
 jq -e '.column != null and .index != null and .function != null and .trigger != null' "$REF_CAT" > /dev/null 2>&1 || { echo "--ref-catalog: V9 객체 4종이 든 카탈로그가 아니다" >&2; exit 2; }
 jq -e 'type == "array" and length == 1 and .[0].version == "9" and .[0].success == true' "$REF_HIST" > /dev/null 2>&1 || { echo "--ref-history: V9 성공 행 1개가 아니다" >&2; exit 2; }
@@ -62,8 +71,14 @@ HEAD=$'\\set QUIET on\n\\pset tuples_only on\n\\pset format unaligned\n\\set VER
 
 psql_run() { bash -c "$PSQL" <<< "$HEAD$1" 2>"$W/err"; }   # 표준 출력 = 결과 줄 · 오류는 $W/err
 now() { date +%s.%N; }
-fail() {   # 인자: 단계 사유 — 기록하지 않고 끝낸다(N7)
-  FAIL_STEP="$1" REASON="$2"; finish failed; exit 1
+fail() {   # 인자: 단계 사유 — 기록하지 않고 끝낸다(N7). 이력 표가 있으면 실패 뒤 V9 이력을 다시 읽어 남긴다(CR13-7 — 기록 ①이 일부 쓰고 실패했는지 드러낸다)
+  FAIL_STEP="$1" REASON="$2"
+  if [[ "${HIST_TABLE:-false}" == true ]]; then
+    local hf; hf=$(psql_run "$(cat "$HERE/05-history.sql")" | tail -1)
+    jq -e 'type == "array"' <<< "$hf" > /dev/null 2>&1 || hf=$(jq -nc --arg e "$(head -c 300 "$W/err")" '{read_failed: $e}')
+    REC=$(jq -c --argjson h "$hf" '(. // {}) + {history_after_fail: $h}' <<< "${REC:-null}")
+  fi
+  finish failed; exit 1
 }
 STEPS='{}'; M=null; EQUIV=null; REC=null; STATE0=null; FAIL_STEP=null REASON=null; T_START=$(now)
 step_put() { STEPS=$(jq -c --arg k "$1" --argjson v "$2" '. + {($k): $v}' <<< "$STEPS"); }
@@ -89,7 +104,8 @@ s0=$(psql_run "SELECT json_build_object(
 jq -e 'type == "object"' <<< "$s0" > /dev/null 2>&1 || { STATE0=null; fail 0 "사전 확인 실패: $(head -c 300 "$W/err")"; }
 STATE0="$s0"
 [[ "$(jq -r .owner_ok <<< "$s0")" == true ]] || fail 0 "접속 역할 $(jq -r .role <<< "$s0")이 user_hold_quota 소유자가 아니다"
-[[ "$(jq -r .hist_table <<< "$s0")" == true ]] || fail 0 "flyway_schema_history 없음 — Flyway 이력이 있는 DB가 아니다(baseline 경로는 다루지 않는다 · §4.4 (마))"
+HIST_TABLE=$(jq -r .hist_table <<< "$s0")
+[[ "$HIST_TABLE" == true ]] || fail 0 "flyway_schema_history 없음 — Flyway 이력이 있는 DB가 아니다(baseline 경로는 다루지 않는다 · §4.4 (마))"
 h0=$(psql_run "$(cat "$HERE/05-history.sql")" | tail -1)
 jq -e 'type == "array"' <<< "$h0" > /dev/null 2>&1 || fail 0 "V9 이력 조회 실패: $(head -c 300 "$W/err")"
 if (( $(jq 'length' <<< "$h0") > 0 )); then fail 0 "already-recorded — V9 이력이 이미 있다($h0)"; fi
@@ -143,11 +159,28 @@ fi
 
 # ---- 3 인덱스(CONCURRENTLY) -------------------------------------------------------------------------------------------------
 idx_valid() { psql_run "SELECT coalesce((SELECT (indisvalid AND indisready)::text FROM pg_index WHERE indexrelid = to_regclass('idx_user_hold_quota_updated_at')), 'none');" | tail -1; }
+DROPS='[]'
+drop_idx() {   # INVALID 인덱스 지우기(DROP INDEX CONCURRENTLY) → to_regclass로 정말 없는지 확인해 DROPS에 실제 상태를 남긴다(CR13-12). 남았으면 1
+  local pc0 out gone; pc0=$(now)
+  out=$(psql_run "RESET lock_timeout; SET statement_timeout = '$STMT_TIMEOUT'; DROP INDEX CONCURRENTLY IF EXISTS idx_user_hold_quota_updated_at;
+\\if :ERROR
+SELECT 'FAIL ' || :'LAST_ERROR_SQLSTATE';
+\\else
+SELECT 'OK';
+\\endif
+SELECT 'GONE ' || (to_regclass('idx_user_hold_quota_updated_at') IS NULL)::text;")
+  gone=$(awk '$1 == "GONE" {print $2}' <<< "$out" | tail -1)
+  DROPS=$(jq -c --arg r "$(awk '$1 == "OK" || $1 == "FAIL" {print $0}' <<< "$out" | tail -1)" --arg g "${gone:-unknown}" --argjson pc0 "$pc0" --argjson pc1 "$(now)" \
+          --arg err "$(head -c 300 "$W/err")" '. + [{result: (if $r == "" then "none" else $r end), gone: (if $g == "true" then true elif $g == "false" then false else null end),
+          start_pc: $pc0, end_pc: $pc1} + (if $g == "true" then {} else {err: $err} end)]' <<< "$DROPS")
+  [[ "$gone" == true ]]
+}
 if [[ "$(jq -r .idx_valid <<< "$s0")" == true ]]; then step_put 3 '{"skipped": "valid-exists"}'
 else
-  atts='[]' drops=0 w0=$(now) ok=0
+  atts='[]' drops=0 w0=$(now) ok=0 dropfail=0
   if [[ "$(jq -r .idx <<< "$s0")" == true ]]; then   # 이어서: 남은 INVALID 인덱스 — 지우고 다시
-    psql_run "RESET lock_timeout; SET statement_timeout = '$STMT_TIMEOUT'; DROP INDEX CONCURRENTLY IF EXISTS idx_user_hold_quota_updated_at;" > /dev/null; drops=$((drops + 1))
+    drops=$((drops + 1))
+    drop_idx || { step_put 3 "$(jq -nc --argjson d "$DROPS" '{drops_detail: $d, failed: true}')"; fail 3 "남은 INVALID 인덱스 DROP 뒤에도 인덱스가 있다 — 만들지 않고 멈춘다"; }
   fi
   for (( i = 0; i <= INDEX_RETRIES; i++ )); do
     pc0=$(now)
@@ -168,12 +201,14 @@ SELECT 'OK ' || extract(epoch FROM clock_timestamp());
       '. + [{t0_db: $t0, t1_db: $t1, build_s: (if $t0 and $t1 then $t1 - $t0 else null end), result: $tag, sqlstate: (if $st == "" then null else $st end),
              valid: $v, start_pc: $pc0, end_pc: $pc1} + (if $tag == "OK" then {} else {err: $err} end)]' <<< "$atts")
     if [[ "$v" == true ]]; then ok=1; break; fi
-    # INVALID(statement_timeout 끊김 포함) 또는 없음 — 지우고 다시(§4.4 단계 3)
-    psql_run "RESET lock_timeout; SET statement_timeout = '$STMT_TIMEOUT'; DROP INDEX CONCURRENTLY IF EXISTS idx_user_hold_quota_updated_at;" > /dev/null; drops=$((drops + 1))
+    # INVALID(statement_timeout 끊김 포함) 또는 없음 — 지우고 다시(§4.4 단계 3). DROP 뒤 인덱스가 남으면 다시 만들지 않고 멈춘다(CR13-12)
+    drops=$((drops + 1))
+    drop_idx || { dropfail=1; break; }
   done
-  step_put 3 "$(jq -c --argjson w0 "$w0" --argjson w1 "$(now)" --argjson drops "$drops" --argjson ok "$ok" \
-    '{attempts: ., tries: length, drops: $drops, start_pc: $w0, end_pc: $w1, wall_s: ($w1 - $w0)} + (if $ok == 1 then {} else {failed: true} end)' <<< "$atts")"
-  (( ok )) || fail 3 "인덱스가 유효해지지 않았다(시도 $((INDEX_RETRIES + 1))번) — INVALID 인덱스는 지웠다 · 기록하지 않음"
+  step_put 3 "$(jq -c --argjson w0 "$w0" --argjson w1 "$(now)" --argjson drops "$drops" --argjson dd "$DROPS" --argjson ok "$ok" \
+    '{attempts: ., tries: length, drops: $drops, drops_detail: $dd, start_pc: $w0, end_pc: $w1, wall_s: ($w1 - $w0)} + (if $ok == 1 then {} else {failed: true} end)' <<< "$atts")"
+  (( dropfail )) && fail 3 "INVALID 인덱스 DROP 뒤에도 인덱스가 있다(to_regclass) — 기록하지 않음 · 인덱스 상태는 drops_detail"
+  (( ok )) || fail 3 "인덱스가 유효해지지 않았다(시도 $((INDEX_RETRIES + 1))번) — INVALID 인덱스는 지웠다(drops_detail gone) · 기록하지 않음"
 fi
 
 # ---- 4 동치 확인 ---------------------------------------------------------------------------------------------------------------
@@ -189,13 +224,13 @@ EQUIV=$(jq -c --slurpfile r "$REF_CAT" '
 want_ck=$(jq -r '.[0].checksum' "$REF_HIST")
 verify_hist() { psql_run "$(cat "$HERE/05-history.sql")" | tail -1; }
 rec_cli() {
-  local args=(-url="$FLYWAY_URL" -user="$FLYWAY_USER" -password="$FLYWAY_PASSWORD" -locations="$LOCATIONS" -target=9 -skipExecutingMigrations=true migrate)
+  local args=(-url="$FLYWAY_URL" -user="$FLYWAY_USER" -locations="$LOCATIONS" -target=9 -skipExecutingMigrations=true migrate)
   local pc0 pc1 rc out cls
-  pc0=$(now); out=$(eval "$FLYWAY $(printf '%q ' "${args[@]}")" 2>&1); rc=$?; pc1=$(now)
+  pc0=$(now); out=$(export FLYWAY_PASSWORD; eval "$FLYWAY $(printf '%q ' "${args[@]}")" 2>&1); rc=$?; pc1=$(now)   # 비밀번호 = 환경(CR13-14)
   cls=ok
   if (( rc != 0 )); then
     if grep -qiE 'Validate failed|checksum mismatch|Detected applied migration not resolved|Detected resolved migration not applied|VALIDATE_ERROR' <<< "$out"; then cls=validate-error
-    elif grep -qiE 'Teams|Enterprise|Edition|upgrade to|not supported in|FlywayEditionUpgradeRequired|FlywayTeamsUpgradeRequired' <<< "$out"; then cls=edition-limit
+    elif grep -qE 'FlywayEditionUpgradeRequiredException|FlywayRedgateEditionRequiredException|FlywayTeamsUpgradeRequiredException| upgrade required: .+ is not supported by |Redgate Edition Required: .+ is not supported by ' <<< "$out"; then cls=edition-limit
     else cls=unknown; fi
   fi
   REC=$(jq -nc --argjson rc "$rc" --arg cls "$cls" --arg tail "$(tail -c 1500 <<< "$out")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
@@ -208,25 +243,35 @@ rec_direct() {
   [[ "$ck" =~ ^-?[0-9]+$ && "$ver" == 9 ]] || return 1
   for v in "$desc" "$typ" "$scr"; do [[ "$v" != *'$v13$'* ]] || return 1; done
   pc0=$(now)
+  # 넣기 직전 V9 이력 0 재확인(CR13-7): 같은 트랜잭션 · 표 락 뒤 — 있으면 넣지 않고 ROLLBACK(ALREADY n)
   out=$(psql_run "\\set ON_ERROR_STOP on
 BEGIN;
 LOCK TABLE flyway_schema_history IN SHARE ROW EXCLUSIVE MODE;
+SELECT count(*) AS v9_rows, count(*) > 0 AS v9_exists FROM flyway_schema_history WHERE version = '9' \\gset
+\\if :v9_exists
+ROLLBACK;
+SELECT 'ALREADY ' || :v9_rows;
+\\else
 INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
 SELECT coalesce(max(installed_rank), 0) + 1, '9', \$v13\$$desc\$v13\$, \$v13\$$typ\$v13\$, \$v13\$$scr\$v13\$, $ck, current_user, 0, true FROM flyway_schema_history;
 COMMIT;
-SELECT 'OK';"); local rc=$?; pc1=$(now)
-  REC=$(jq -c --argjson rc "$rc" --arg out "$out" --arg err "$(head -c 300 "$W/err")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
-        '(. // {}) + {direct: {rc: $rc, ok: ($out | test("OK")), err: $err, start_pc: $pc0, end_pc: $pc1, limit: "Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶인다"}}' <<< "${REC:-null}")
-  (( rc == 0 )) && [[ "$out" == *OK* ]]
+SELECT 'OK';
+\\endif"); local rc=$?; pc1=$(now)
+  local already; already=$(awk '$1 == "ALREADY" {print $2}' <<< "$out" | tail -1)
+  REC=$(jq -c --argjson rc "$rc" --arg out "$out" --arg al "$already" --arg err "$(head -c 300 "$W/err")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
+        '(. // {}) + {direct: {rc: $rc, ok: ($out | test("(^|\n)OK$")), precheck_v9_rows: (if $al == "" then 0 else ($al | tonumber) end), err: $err, start_pc: $pc0, end_pc: $pc1,
+                                limit: "Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶인다"}}' <<< "${REC:-null}")
+  [[ -z "$already" ]] || return 3
+  (( rc == 0 )) && grep -qx OK <<< "$out"
 }
 method=""
 case "$RECORD" in
   cli) rec_cli && method=cli || fail 4 "기록 ① 실패($(jq -r .cli.class <<< "$REC")) — ②로 넘어가지 않는다(--record cli)" ;;
-  direct) rec_direct && method=direct || fail 4 "기록 ② 실패" ;;
+  direct) rec_direct && method=direct || fail 4 "기록 ② 실패($(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))" ;;
   auto)
     if [[ -n "$FLYWAY" ]] && rec_cli; then method=cli
     elif [[ -z "$FLYWAY" ]] || [[ "$(jq -r .cli.class <<< "$REC")" == edition-limit ]]; then
-      rec_direct && method=direct || fail 4 "기록 ② 실패(① $( [[ -z "$FLYWAY" ]] && echo '없음' || echo 'edition-limit'))"
+      rec_direct && method=direct || fail 4 "기록 ② 실패(① $( [[ -z "$FLYWAY" ]] && echo '없음' || echo 'edition-limit') · $(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))"
     else
       fail 4 "기록 ① 실패 — $(jq -r .cli.class <<< "$REC")(검증 오류·분류 불가는 ②로 넘어가지 않는다 · §4.4)"
     fi ;;
