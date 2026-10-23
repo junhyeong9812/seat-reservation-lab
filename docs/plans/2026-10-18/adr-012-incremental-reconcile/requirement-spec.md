@@ -126,3 +126,20 @@ seat-reservation-lab에서 ADR-011이 찾은 C(앱 안 대조)의 규모 한계�
 | 08 | 2단계 측정 + 효과 측정 | 06·07 | 전부 ok |
 | 08b | **재합의 2026-10-23**(결과 리뷰 RR-1·RR-5 → 사용자 '추가 측정 후 판정' · 측정안 '그대로 진행'): R5(updated_at 비용 가설)를 쿼터 UPDATE가 생기는 부하에서 판정 + AE(만료 경로 앱 주입) 확인. 세트 `adr012r5`(.164 · 같은 캠페인 · 조건 5개 회차마다 1칸 회전 × 3 = 15회 · 약 3.5시간): {noc(대조 없음 — `--cond A --cleanup schedule`), i-trg-1s(앱 안 ⓑ 트리거 1초 + 안전망 + split)} × {S3-a20(입장→선점→확정 · 이탈 20%), S2(사용자 100명 × 좌석 10개 동시)} + ae(i-trg-1s × S3e-a20 · 앱 경로 주입 만료 경로만 — 하네스 `--inject-app expiry`). **판정 규칙(측정 전 고정)**: R5 성립 = S3-a20·S2 둘 다 i-trg-1s 선점 p99 중앙값 ≤ 같은 캠페인 noc 중앙값 × 1.10(ADR-009 허용선) — 하나라도 넘으면 R5 기각(ⓑ 셀 실패 → §6 규칙대로 성공 셀 중에서 고름). HOT 비율 기록. AE: 앱 경로 AE 쌍이 0보다 많고 R4·R6 위반 0이면 '만료 경로 확인' — AE 0이면 판정 불가(사유 기록). M3 셀 R5는 측정하지 않는다(규칙 2 '앱 안 > 외부 앱' — 보류로 기록) | 08 | 15회 ok · R5·AE 판정 |
 | 09 | 판정 · 기본값 교체(별도 커밋) · 문서 · 리뷰 · NEXT · 측정로그 · 아카이브 | 08 | 결과 문서 듀얼 1패스 신규 0 |
+
+## 10. task 09 기본값 교체 계약 (재합의 2026-10-23 — 사용자 결정 4건 + 메인 판단 · 근거 ADR-012 §8.9 · 영향 조사 워커 보고)
+
+**사용자 결정(AskUserQuestion 2026-10-23)**: ① 새 기본값은 `main-app/src/main/resources/application.yml`에만 둔다(core `ReconcileProperties` 기본값·reconciler-app 무변경) ② 하네스 `--cond default`는 새 SHA에서 거부하고 C 셀은 `--cond A+C --cleanup schedule`로 명시(옛 결과의 cond=default 해석은 C 그대로) ③ 혼동 조합 둘 다 기동 거부 ④ ADR-001~008 하네스 compose에 키를 명시해 새 SHA에서도 옛 실효값으로 돈다(ADR-009 선례 9b0ca984).
+**메인 판단(추천안)**: F(reconciler 프로필)와 A+C·B+C 셀의 탐지 모양 = one-shot 고정(하네스 명시) · 하네스 렌더 변화 수용 — 불변식 61행 '렌더 그대로'는 교체 뒤 '옛 조건은 키를 명시해 실효값이 같다'로 바뀐다(ADR-009 선례) · 운영 위험은 ADR §7에 기록.
+
+**동작 계약(테스트 기준 — 구현과 독립)**
+- K1 **키 없이 기동**(loadtest 아닌 기본 프로필 · 매수 방식 기본 counter-upsert-precheck): Flyway 위치 = `db/migration` + `db/migration-updated-at-trigger`(V9 ⓑ) + `db/migration-incremental`(V10) → 스키마에 `user_hold_quota.updated_at` 열·인덱스·트리거 + V10 테이블 3개. 실효값 = A(expiry-repair) 켬 · C(`reconcile.enabled`) 끔 · `incremental.method=trigger` · `incremental.enabled=true` · `incremental.interval=1s` · `safety-net.enabled=true` · `detect-shape=split` · 정리 schedule. 증분 스레드·안전망 스레드가 돌고 C 스레드는 없다 · 기록 source `inc-app-trg-1s`·`safety-app`.
+- K2 **옛 방식 복귀(새 DB)**: `reconcile.enabled=true` · `incremental.enabled=false` · `incremental.method=none` · `safety-net.enabled=false` · `detect-shape=one-shot` · `spring.flyway.locations=classpath:db/migration` → ADR-009 기본값과 같은 동작(C 60초 · one-shot · 스키마 V1~V7 · updated_at 없음).
+- K3 **옛 방식 복귀(V9·V10 적용된 기존 DB)**: K2에서 method=trigger · 위치 기본값 유지 → 기동되고 C만 돈다(트리거는 남음 — ADR §7 기록).
+- K4 **비카운터 매수 방식**(none·quota-*·advisory*·serializable* 등): 키 없이 기동하면 거부 + 끌 키 안내(A·정리·증분·안전망). 그 키들 + `incremental.method=none` + 위치 `db/migration`이면 기동.
+- K5 **counter-trigger(B)**: 지금 규칙(A·B 함께 금지 등) 유지 + 증분 끔 필요 — 안내 문구에 포함.
+- K6 **거부 ①**: `external-reconciler=true`(F 사용 업무 앱)인데 `incremental.enabled=true` 또는 `safety-net.enabled=true` → 기동 거부(대조 중복 · 끌 키 안내).
+- K7 **거부 ②**: `reconcile.enabled=true`(C)인데 `incremental.enabled=true` → 기동 거부(옛 방식 복귀 착각 방지 · K2 조합 안내).
+- K8 **reconciler 프로필(F)**: 키 없이 기동 → F는 C 전체 대조만(증분·안전망 끔 — 프로필 yml) · 탐지 모양은 하네스가 명시.
+- K9 **하네스**: `--cond default` + 새 SHA(이 교체 커밋 이후) → 계획 단계 거부(안내: A+C). 옛 SHA 계획 resume·옛 결과 집계(summarize·tail)의 default = C 해석 유지. 모든 옛 조건(control·A·B·A+C·A+F·B+C)은 증분·안전망 끔 + method none + 탐지 모양 one-shot(지정 없을 때) + 위치 명시로 실효값이 교체 전과 같다 · 앱 cond-config-mismatch가 incremental·safetyNet·detectShape도 대조. ADR-001~008 compose도 같은 키 명시.
+- K10 **테스트 고정**: 통합 테스트 공통 고정(IntegrationTest 등)은 옛 동작(K2) 고정 — 증분 테스트는 각자 지정. 테스트 전부 green.
