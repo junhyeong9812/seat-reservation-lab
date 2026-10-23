@@ -412,13 +412,17 @@ limit_config_check() {
 # ---- ADR-012 기본값 교체(명세 §10 K9) — 측정 대상 SHA의 업무 앱 기본값이 증분인가 ------------------------------------------------------------
 # <SHA>의 main-app/src/main/resources/application.yml에서 seat.hold.counter-drift.reconcile.incremental.enabled가 true면 0(교체 뒤 — 키 없는 앱은 C가 아니다 →
 #   run.sh --cond default 거부 · campaign.sh의 C 셀 = --cond A+C --cleanup schedule) · 아니면 1(교체 전 — default = C 그대로).
-#   파일이 없는 SHA(task 04b 전 옛 구조)·키가 없는 SHA = 교체 전(1). YAML 파싱 실패 = 2(호출 쪽이 거부 — 판정을 추측하지 않는다).
+#   파일이 없는 SHA(task 04b 전 옛 구조)·키가 없는 SHA = 교체 전(1). 그 밖의 git 오류(없는 SHA·저장소 오류)·YAML 파싱 실패 = 2(호출 쪽이 거부 — 판정을 추측하지 않는다).
+#   '파일 없음'은 커밋이 있는 것을 먼저 확인한 뒤 git cat-file -e <sha>:<path>로만 가른다(다른 git 오류를 교체 전으로 읽지 않게). 값은 소문자로 비교(YAML True·TRUE).
 #   교체 커밋 SHA를 상수로 두지 않는다(병합 방식에 따라 조상 관계가 달라진다) — 그 SHA의 파일 내용으로 정한다.
 app_defaults_incremental() {
-  local y v
-  y="$(git -C "$REPO_ROOT" show "$1:main-app/src/main/resources/application.yml" 2>/dev/null)" || return 1
+  local path=main-app/src/main/resources/application.yml y v
+  [[ -n "${1:-}" ]] || return 2
+  git -C "$REPO_ROOT" cat-file -e "$1^{commit}" 2>/dev/null || return 2
+  git -C "$REPO_ROOT" cat-file -e "$1:$path" 2>/dev/null || return 1
+  y="$(git -C "$REPO_ROOT" show "$1:$path")" || return 2
   v="$(python3 -I "$LIB_DIR/cfgkeys.py" --value seat.hold.counter-drift.reconcile.incremental.enabled <<< "$y")" || return 2
-  [[ "$v" == true ]] && return 0
+  [[ "${v,,}" == true ]] && return 0
   return 1
 }
 
