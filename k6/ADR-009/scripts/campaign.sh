@@ -74,6 +74,9 @@
 #   noc-s3·trg-s3 = noc·i-trg-1s × S3-a20(쿼터 UPDATE가 생기는 흐름 — 확정·만료) · noc-s2·trg-s2 = 같은 둘 × S2(뜨거운 행 반복 UPDATE) — R5(같은 캠페인 noc 대비 선점 p99)
 #   ae = i-trg-1s × S3e-a20 + --inject-app expiry(앱 경로 주입을 만료 경로 AE만 — 선점 경로 AH·AL이 max-pairs를 먼저 쓰지 않게). 순서 = 조건 5개 1칸 회전. 기본 id = <날짜>-adr012r5-<SHA>
 #   [구현 검증] §4 '마지막 주입 + 전체 한 바퀴 시간(스모크 실측) < 끝 검사' — 안 되면 S3e 꼬리를 늘린다(판정 전 고정 — 이 계획은 지금 꼬리 TAIL_S=360 그대로)
+# ADR-012 기본값 교체(명세 §10 K9): 측정 SHA의 업무 앱 기본값이 증분(lib.sh app_defaults_incremental — application.yml 내용으로 판정)이면 run.sh가 --cond default를
+#   거부한다 — 그래서 default를 쓰던 C 셀(jvm·ADR-011 세트·adr012* 의 c — ADR011_BASE)은 그 SHA에서 --cond A+C --cleanup schedule로 바뀐다(C_COND).
+#   교체 전 SHA는 이전 줄 그대로(--cond default) — 옛 캠페인 폴더를 같은 SHA로 이어서 실행하면 conditions.txt가 바이트까지 같다(새 줄은 새 SHA의 새 캠페인에만).
 # 시한: 시드 회차 starts_at 2026-12-31 19:00+09 — run.sh가 그 1시간 전부터 회차를 거부한다(seed-time-bomb). 캠페인은 약 19.5시간.
 set -uo pipefail
 if [[ "${CAMPAIGN_FROZEN:-0}" != 1 ]]; then
@@ -137,6 +140,12 @@ case "$SET" in
 esac
 if [[ -n "$PROBE_BIN_ARG" ]] && [[ "$(k6ver_of "$PROBE_BIN_ARG")" != "k6 v"* ]]; then echo "--probe-k6-bin $PROBE_BIN_ARG: version을 읽지 못함" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
+# ADR-012 명세 §10 K9(머리말): 업무 앱 기본값이 증분인 SHA면 C 셀을 키로 명시한다. 판정 실패(yml 파싱)는 거부 — 추측으로 조건 줄을 정하지 않는다
+( source "$DIR/lib.sh" && app_defaults_incremental "$SHA" ); case $? in
+  0) C_COND="--cond A+C --cleanup schedule" ;;
+  1) C_COND="--cond default" ;;
+  *) echo "$SHA의 업무 앱 application.yml을 읽지 못했다(lib.sh app_defaults_incremental) — 거부" >&2; exit 2 ;;
+esac
 # ADR-012 외부 앱 의존(머리말): 측정이면 --ext-ready와 lib.sh external_app_ready를 둘 다 통과해야 한다. 계획(--dry-run)은 그대로 된다
 if [[ "$SET" == adr012s2x || "$SET" == adr012effx ]] && (( ! DRY_RUN )); then
   (( EXT_READY )) || { echo "--set $SET: 외부 앱(.158 reconciler-app) 셀이 있다 — 준비를 확인했으면 --ext-ready(task 07)" >&2; exit 2; }
@@ -192,7 +201,7 @@ fi
 [[ "$SET" == adr012eff ]] && { REPS=3 BLOCKS="adr012eff" BLOCK_adr012eff="i-mem-1s i-mem-5s i-trg-1s i-trg-5s i-stmt-1s i-stmt-5s" EXPECT_TOTAL=18 BLOCK_STEP=0 COND_STEP_DIV=6 COND_ROT=1; }
 [[ "$SET" == adr012r5 ]] && { REPS=3 BLOCKS="adr012r5" BLOCK_adr012r5="noc-s3 trg-s3 noc-s2 trg-s2 ae" EXPECT_TOTAL=15 BLOCK_STEP=0 COND_STEP_DIV=5 COND_ROT=1; }
 [[ "$SET" == adr012effx ]] && { REPS=3 BLOCKS="adr012effx" BLOCK_adr012effx="x-trg-1s x-trg-5s x-stmt-1s x-stmt-5s" EXPECT_TOTAL=12 BLOCK_STEP=0 COND_STEP_DIV=4 COND_ROT=1; }
-ADR011_BASE="--cond default --cells 'S4c4200' --pg-preset tmpfs --app-gc zgc"
+ADR011_BASE="$C_COND --cells 'S4c4200' --pg-preset tmpfs --app-gc zgc"   # C_COND = --cond default(교체 전 SHA) | --cond A+C --cleanup schedule(머리말 ADR-012 기본값 교체)
 PROBE_TAIL="${PROBE_BIN_ARG:+ --probe-k6-bin $PROBE_BIN_ARG}"
 args_of() {  # 인자: 묶음 조건 → run.sh 인자
   case "$1" in
@@ -202,16 +211,16 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
     s3a20)     echo "--cond $2 --cells 'S3-a20' --pg-preset default" ;;
     s3e)       echo "--cond $2 --cells 'S3e-a20' --pg-preset default" ;;
     s3c)       echo "--cond control --cleanup $2 --cells 'S3c-a20' --pg-preset default" ;;
-    jvm)       echo "--cond default --cells 'S4c4200' --pg-preset tmpfs --app-mem ${2%-*} --app-gc ${2##*-}" ;;   # 조건 = <메모리>-<수집기>
+    jvm)       echo "$C_COND --cells 'S4c4200' --pg-preset tmpfs --app-mem ${2%-*} --app-gc ${2##*-}" ;;   # 조건 = <메모리>-<수집기>
     # ADR-011(머리말) — 조건 줄에 바이너리 경로까지 든다(이어서 실행 때 conditions.txt 대조 · run.sh가 plan.json k6_bin·k6_version 대조)
     k6ver)     echo "$ADR011_BASE --app-mem 2g --k6-bin $([[ "$2" == v220 ]] && echo "$K6_V220" || echo "$K6_V230") --probes$([[ "$2" == v230gc ]] && echo " --gctrace")$PROBE_TAIL" ;;
     pretouch)  echo "$ADR011_BASE --app-mem 4g --k6-bin $K6_BIN_ARG --probes$(case "$2" in xms) echo " --app-xms-full" ;; pt) echo " --app-xms-full --app-pretouch" ;; esac)$PROBE_TAIL" ;;
     soak)      echo "$ADR011_BASE --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800$PROBE_TAIL" ;;
-    soakrc)    echo "$([[ "$2" == noc ]] && echo "${ADR011_BASE/--cond default/--cond A --cleanup schedule}" || echo "$ADR011_BASE") --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$PROBE_TAIL" ;;
+    soakrc)    echo "$([[ "$2" == noc ]] && echo "${ADR011_BASE/"$C_COND"/--cond A --cleanup schedule}" || echo "$ADR011_BASE") --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$PROBE_TAIL" ;;
     # ADR-012 1단계(머리말): noc·c = soakrc와 같은 줄 · f = default에서 C 대신 F(A+F — 정리 schedule을 명시해 default의 실효 정리와 같게)
-    adr012s1)  echo "$(case "$2" in noc) echo "${ADR011_BASE/--cond default/--cond A --cleanup schedule}" ;; f) echo "${ADR011_BASE/--cond default/--cond A+F --cleanup schedule}" ;; *) echo "$ADR011_BASE" ;; esac) --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$PROBE_TAIL" ;;
+    adr012s1)  echo "$(case "$2" in noc) echo "${ADR011_BASE/"$C_COND"/--cond A --cleanup schedule}" ;; f) echo "${ADR011_BASE/"$C_COND"/--cond A+F --cleanup schedule}" ;; *) echo "$ADR011_BASE" ;; esac) --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$PROBE_TAIL" ;;
     # ADR-012 R8(머리말): f = adr012s1 f 줄 그대로 · f-split·f-group = 그 줄 + --reconcile-shape(측정기 인자 앞)
-    adr012r8)  echo "${ADR011_BASE/--cond default/--cond A+F --cleanup schedule} --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$(case "$2" in f-split) echo " --reconcile-shape split" ;; f-group) echo " --reconcile-shape group" ;; esac)$PROBE_TAIL" ;;
+    adr012r8)  echo "${ADR011_BASE/"$C_COND"/--cond A+F --cleanup schedule} --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$(case "$2" in f-split) echo " --reconcile-shape split" ;; f-group) echo " --reconcile-shape group" ;; esac)$PROBE_TAIL" ;;
     # ADR-012 2단계·2'(머리말): noc·c = adr012s1 줄 그대로 · i-<방식>-<주기> = A+I · x-<방식>-<주기> = A+X(정리 schedule 명시 — noc·f와 같다)
     adr012s2|adr012s2x) echo "$(adr012_cond "$2") --app-mem 2g --k6-bin $K6_BIN_ARG --probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12$PROBE_TAIL" ;;
     # ADR-012 효과(머리말): S3e-a20 · tmpfs 12g · 2g ZGC · 탐지 모양 split · 앱 경로 주입 — 측정기 없음
@@ -226,9 +235,9 @@ args_of() {  # 인자: 묶음 조건 → run.sh 인자
 }
 adr012_cond() {  # 인자: 조건 이름(noc | c | i-<방식>-<주기> | x-<방식>-<주기>) → --cond … --cells 'S4c4200' --pg-preset tmpfs --app-gc zgc(i-*·x-*는 + --reconcile-shape split — 머리말 '탐지 모양')
   case "$1" in
-    noc) echo "${ADR011_BASE/--cond default/--cond A --cleanup schedule}" ;;
+    noc) echo "${ADR011_BASE/"$C_COND"/--cond A --cleanup schedule}" ;;
     c)   echo "$ADR011_BASE" ;;
-    i-*|x-*) local m="${1#?-}"; echo "${ADR011_BASE/--cond default/--cond A+$([[ "$1" == i-* ]] && echo I || echo X) --cleanup schedule} --incremental ${m%-*} --incremental-interval ${m##*-} --reconcile-shape split" ;;
+    i-*|x-*) local m="${1#?-}"; echo "${ADR011_BASE/"$C_COND"/--cond A+$([[ "$1" == i-* ]] && echo I || echo X) --cleanup schedule} --incremental ${m%-*} --incremental-interval ${m##*-} --reconcile-shape split" ;;
   esac
 }
 name_of() { case "$1" in s3c) echo "close-$2-s3c" ;; jvm) echo "$2-jvm" ;; *) echo "$2-$1" ;; esac; }

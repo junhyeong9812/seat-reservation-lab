@@ -3,6 +3,9 @@
 #   명세: docs/plans/2026-10-12/adr-009-counter-drift/requirement-spec.md §5·§10·§11 · 설계 design-v2.md §9·§10.
 #   --cond control|control-noclose|A|A+C|A+F|B|B+C|default — 앱에 넣는 키(compose.yml 머리말):
 #     ADR-009 결정(명세 §12)으로 앱 기본값이 A·C·정리 ① 켬이 됐다 — default 밖의 조건은 A·C·정리 세 키를 늘 명시한다(켬이든 끔이든 — 전환 전과 같은 실효 값).
+#     ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 A · 증분 trigger 1초 · 안전망 · split · C 끔): default 밖의 조건은 증분·안전망·탐지 모양도 늘 명시한다 —
+#       A+I·A+X 밖 = incremental.method none · enabled false · safety-net false · detect-shape one-shot(교체 전과 같은 실효 값 — inc_env) · A+X 업무 앱 = 안전망 false · one-shot.
+#       Flyway 위치는 전부터 늘 명시한다(FLYWAY_LOCATIONS). --cond default는 교체 뒤 SHA(lib.sh app_defaults_incremental)면 계획 단계에서 거부한다 — C 셀은 --cond A+C --cleanup schedule.
 #       control         후보 모두 끔(세 키 끔 명시) · 판매 마감 켬(ADR-008 대조군과 같은 실효 설정)
 #       control-noclose control + sales-close.enabled=false(마감 판정 비용 분리 — 명세 §10 D2)
 #       A               counter-drift.expiry-repair=true
@@ -11,6 +14,7 @@
 #       B               limit-strategy=counter-trigger + spring.flyway.locations에 classpath:db/migration-trigger(V8)
 #       B+C             B + reconcile(60s) — A 없이(명세 §11: 트리거가 마감 회차를 건너뛴다)
 #       default         ADR-009 기본값(task 07a): 조건 키를 하나도 넣지 않는다 — 앱 기본값 A 켬 · C 켬(60s) · 정리 ① schedule · 마감 켬 · counter-upsert-precheck.
+#                       교체 전 SHA에서만(ADR-012 명세 §10 K9 — 이어서 실행·옛 결과 집계의 default = C 해석은 그대로)
 #                       --cleanup은 받지 않는다(정리 방식도 앱 기본값 — 기대값·plan.json의 cleanup은 schedule). 키가 없다는 증거 = limit-key.json의 drift 개수 0
 #     매수 방식 키는 B·B+C에서만 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(counter-upsert-precheck)을 대조한다 — limit-key.json의 기대 개수가 조건마다 다르다(B = 1, 나머지 0).
 #   --cleanup none|schedule|zero — counter-drift.cleanup.mode(마감 임박 셀 S3c — 명세 §10 D6). 기본 none(default 조건 밖에서는 none도 키로 넣는다)
@@ -246,6 +250,15 @@ set_cond
 if (( HAS_X )) && ! external_app_supported; then echo "--cond A+X: 외부 앱 오케스트레이션이 없다(lib.sh external_app_*) — 거부" >&2; exit 2; fi
 if (( HAS_X && ! RESUME )) && ! external_app_ready; then echo "--cond A+X: 외부 앱 준비 점검 실패(lib.sh external_app_ready) — 거부" >&2; exit 2; fi
 SHA="$(git -C "$REPO_ROOT" rev-parse --short "$SHA")" || exit 2
+# ADR-012 명세 §10 K9: 업무 앱 기본값이 증분(교체 뒤 SHA)이면 키 없는 앱은 C가 아니다 — default를 조용히 다른 조건으로 재지 않게 계획 단계에서 거부(이어서 실행은 계획 SHA 그대로라 검사하지 않는다)
+if [[ "$COND" == default ]] && (( ! RESUME )); then
+  app_defaults_incremental "$SHA"; adi=$?
+  case "$adi" in
+    0) echo "--cond default: $SHA의 업무 앱 기본값은 증분 대조(ADR-012 명세 §10 — C 끔)라 옛 default(C) 셀이 아니다 — C 셀은 --cond A+C --cleanup schedule" >&2; exit 2 ;;
+    1) ;;
+    *) echo "--cond default: $SHA의 application.yml을 읽지 못했다(app_defaults_incremental) — 거부" >&2; exit 2 ;;
+  esac
+fi
 # 실행하는 하네스 = 기록되는 SHA: 작업트리의 k6/ADR-009(results 제외)가 SHA와 다르면 거부한다.
 # 캠페인에서 불렸으면 캠페인이 시작 때 이미 확인했다 — 이틀 도는 동안 작업트리를 고쳐도 남은 조건이 멈추지 않게 건너뛴다.
 # --worktree(스모크)는 이 검사 대신 하네스 트리 해시를 기록한다.
@@ -393,17 +406,20 @@ cond_env() {
        "DRIFT_A=$a DRIFT_EXTERNAL=$( ((HAS_F || HAS_X)) && echo 1) DRIFT_C_ENABLED=$c DRIFT_C=$ci" \
        "DRIFT_CLEANUP=$cl RECONCILE_INTERVAL=$RECONCILE_INTERVAL$( ((HAS_F)) && echo "${RECONCILE_SHAPE:+ RECONCILE_DETECT_SHAPE=$RECONCILE_SHAPE}")$(inc_env)"
 }
-# ADR-012 2단계 업무 앱 키(compose.yml 머리말 — 새 조건에서만 붙는다: 이전 조건의 cond_env·meta app_env는 한 글자도 바뀌지 않는다).
-#   A+I: 방식 · 틱 켬 · 주기 · 안전망 켬(+ 탐지 모양) · A+X: 방식 · 틱 끔(표시만 — 안전망은 기본 끔). 효과 셀 --inject-app on: track-inject(두 앱 — §4.2.9 ④) + 앱 경로 주입
+# ADR-012 업무 앱 키(compose.yml 머리말).
+#   A+I: 방식 · 틱 켬 · 주기 · 안전망 켬 · 탐지 모양(--reconcile-shape, 없으면 one-shot) · A+X: 방식 · 틱 끔(표시만) · 안전망 끔 · one-shot.
+#   효과 셀 --inject-app on: track-inject(두 앱 — §4.2.9 ④) + 앱 경로 주입.
+#   그 밖의 조건(default 제외 — 명세 §10 K9): method none · 틱 끔 · 안전망 끔 · one-shot을 늘 넣는다 — 업무 앱 기본값 교체(증분 켬) 뒤에도 교체 전과 같은 실효 값.
+#   (교체 전에는 이 키들이 A+I·A+X에서만 붙어 이전 조건의 렌더가 그대로였다 — 교체 뒤 렌더 변화는 ADR-009 선례 46f5b04d와 같이 받아들인다.) default = 키 없음
 INC_BLANK_ENV="INC_METHOD= INC_ENABLED= INC_INTERVAL= INC_TRACK= SAFETY_ENABLED= APP_DETECT_SHAPE= INJECT_APP= INJECT_APP_PATHS="
 inc_method_key() { case "$1" in mem) echo memory ;; trg) echo trigger ;; *) echo "$1" ;; esac; }
 inc_env() {
-  (( HAS_INC )) || return 0
+  (( IS_DEFAULT )) && return 0
+  if (( ! HAS_INC )); then printf ' INC_METHOD=none INC_ENABLED=false SAFETY_ENABLED=false APP_DETECT_SHAPE=one-shot'; return 0; fi
   if (( HAS_I )); then
-    printf ' INC_METHOD=%s INC_ENABLED=true INC_INTERVAL=%s SAFETY_ENABLED=true' "$(inc_method_key "$INC_METHOD")" "$INC_INTERVAL"
-    [[ -n "$RECONCILE_SHAPE" ]] && printf ' APP_DETECT_SHAPE=%s' "$RECONCILE_SHAPE"
+    printf ' INC_METHOD=%s INC_ENABLED=true INC_INTERVAL=%s SAFETY_ENABLED=true APP_DETECT_SHAPE=%s' "$(inc_method_key "$INC_METHOD")" "$INC_INTERVAL" "${RECONCILE_SHAPE:-one-shot}"
   else
-    printf ' INC_METHOD=%s INC_ENABLED=false' "$(inc_method_key "$INC_METHOD")"
+    printf ' INC_METHOD=%s INC_ENABLED=false SAFETY_ENABLED=false APP_DETECT_SHAPE=one-shot' "$(inc_method_key "$INC_METHOD")"
   fi
   (( INJECT_APP )) && printf ' INC_TRACK=1 INJECT_APP=1'
   [[ -n "$INJECT_APP_PATHS" ]] && printf ' INJECT_APP_PATHS=%s' "$INJECT_APP_PATHS"
@@ -1417,19 +1433,27 @@ rep_status() {  # 인자: 폴더 base k6_exit k6_started k6_ended
   if zgrep -qsE 'PANIC|terminated by signal|No space left on device' "$dir/db.log.gz" 2>/dev/null; then reasons+=("db-log-fatal"); fi
   # ---- ADR-009 조건 적용·카운터 어긋남 수집(명세 §5·§10·§11 · 설계 §9) ----
   # 적용 설정(configprops seat.hold): 조건이 켠 키만 켜졌나 — counterDrift.{expiryRepair, externalReconciler, reconcile.enabled, reconcile.interval, cleanup.mode} · salesClose.enabled
+  #   + ADR-012 명세 §10 K9: reconcile.{incremental.method, incremental.enabled, safetyNet.enabled, detectShape}(업무 앱 — inc_env와 같은 기대: A+I = 방식·켬·켬·모양 ·
+  #   A+X = 방식·끔·끔·ONE_SHOT · 그 밖(default 포함 — 교체 전 SHA 앱 기본값) = NONE·끔·끔·ONE_SHOT)
   if jq empty "$dir/app-config.json" 2>/dev/null; then
     local cfg_want cfg_got
     cfg_want="$(jq -nc --argjson a "$HAS_A" --argjson f "$(( HAS_F || HAS_X ))" --argjson c "$HAS_C" --arg cl "$CLEANUP" --arg noc "$([[ "$COND" == control-noclose ]] && echo 1)" \
-      '{expiryRepair: ($a == 1), externalReconciler: ($f == 1), reconcile: ($c == 1), interval: (if $c == 1 then "PT1M" else null end), cleanup: ($cl | ascii_upcase), salesClose: ($noc != "1")}')"
+      --arg im "$( ((HAS_INC)) && inc_method_key "$INC_METHOD" | tr 'a-z' 'A-Z' || echo NONE)" --argjson ion "$HAS_I" \
+      --arg ds "$( ((HAS_I)) && tr 'a-z-' 'A-Z_' <<< "${RECONCILE_SHAPE:-one-shot}" || echo ONE_SHOT)" \
+      '{expiryRepair: ($a == 1), externalReconciler: ($f == 1), reconcile: ($c == 1), interval: (if $c == 1 then "PT1M" else null end), cleanup: ($cl | ascii_upcase), salesClose: ($noc != "1"),
+        incMethod: $im, incEnabled: ($ion == 1), safetyNet: ($ion == 1), detectShape: $ds}')"
     cfg_got="$(jq -c '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] as $p
       | {expiryRepair: $p.counterDrift.expiryRepair, externalReconciler: $p.counterDrift.externalReconciler, reconcile: $p.counterDrift.reconcile.enabled,
-         interval: (if $p.counterDrift.reconcile.enabled then $p.counterDrift.reconcile.interval else null end), cleanup: $p.counterDrift.cleanup.mode, salesClose: $p.salesClose.enabled}' "$dir/app-config.json" 2>/dev/null)"
+         interval: (if $p.counterDrift.reconcile.enabled then $p.counterDrift.reconcile.interval else null end), cleanup: $p.counterDrift.cleanup.mode, salesClose: $p.salesClose.enabled,
+         incMethod: $p.counterDrift.reconcile.incremental.method, incEnabled: $p.counterDrift.reconcile.incremental.enabled,
+         safetyNet: $p.counterDrift.reconcile.safetyNet.enabled, detectShape: $p.counterDrift.reconcile.detectShape}' "$dir/app-config.json" 2>/dev/null)"
     [[ -n "$cfg_got" && "$cfg_got" == "$cfg_want" ]] || { reasons+=("cond-config-mismatch"); echo "$(date -Is) cond-config want=$cfg_want got=${cfg_got:-없음}" >> "$dir/errors.log"; }
   fi
   # F: 대조 컨테이너 설정(대조 켬 · 주기 60s · A 끔 · 정리 끔 — ADR-009 기본값 전환 뒤에는 application-reconciler.yml이 A·정리를 끈다) — 못 읽었으면 같은 사유
+  #   ADR-012 명세 §10 K8·K9: 증분·안전망 끔(프로필 yml) · 방식 NONE(compose.reconciler.yml이 명시)
   # ADR-012 R8: 탐지 모양 = --reconcile-shape(지정 안 하면 앱 기본 ONE_SHOT — configprops는 enum 이름) — 조용히 one-shot으로 돌지 않게
   local want_shape; want_shape="$(tr 'a-z-' 'A-Z_' <<< "${RECONCILE_SHAPE:-one-shot}")"
-  if (( HAS_F )) && ! jq -e --arg ds "$want_shape" '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false and .counterDrift.cleanup.mode == "NONE" and .counterDrift.reconcile.detectShape == $ds' "$dir/reconciler-config.json" > /dev/null 2>&1; then
+  if (( HAS_F )) && ! jq -e --arg ds "$want_shape" '[.configprops[] | select(.prefix=="seat.hold") | .properties][0] | .counterDrift.reconcile.enabled == true and .counterDrift.reconcile.interval == "PT1M" and .counterDrift.expiryRepair == false and .counterDrift.cleanup.mode == "NONE" and .counterDrift.reconcile.detectShape == $ds and .counterDrift.reconcile.incremental.method == "NONE" and .counterDrift.reconcile.incremental.enabled == false and .counterDrift.reconcile.safetyNet.enabled == false' "$dir/reconciler-config.json" > /dev/null 2>&1; then
     reasons+=("reconciler-config-mismatch")
   fi
   # 트리거(V8) ⇔ B: pg_trigger 두 이름(seat_hold_quota·reservation_quota)이 B·B+C면 둘 다, 그 밖은 없어야 한다

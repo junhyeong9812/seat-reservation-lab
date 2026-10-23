@@ -11,10 +11,11 @@
 #   DRIFT_C_ENABLED=true|false → "counter-drift.reconcile.enabled"(A+C·B+C = true, 나머지 전환 전 조건 = false, default = 비움)
 #   DRIFT_C=<주기>         → "counter-drift.reconcile.interval"(대조를 켜는 조건만)
 #   DRIFT_CLEANUP=<모드>   → "counter-drift.cleanup.mode"(none|schedule|zero — 전환 전 조건은 늘 넣는다(--cleanup, 기본 none), default = 비움)
-#   ADR-012 2단계(run.sh --cond A+I·A+X — 아래 변수는 그 조건에서만 넘긴다. 비면 키 자체가 없어 이전 조건의 렌더가 그대로다):
-#   INC_METHOD=memory|trigger|stmt → "counter-drift.reconcile.incremental.method" · INC_ENABLED=true|false → ".incremental.enabled"(A+X 업무 앱 = false — 표시만) ·
+#   ADR-012 2단계(run.sh --cond A+I·A+X에서 방식별 값을 넘긴다). ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 증분 trigger 1초 · 안전망 · split) 뒤에는
+#   default 밖의 모든 조건이 INC_METHOD·INC_ENABLED·SAFETY_ENABLED·APP_DETECT_SHAPE를 늘 넘긴다(그 밖 = none · false · false · one-shot — 교체 전과 같은 실효 값). default만 비운다:
+#   INC_METHOD=none|memory|trigger|stmt → "counter-drift.reconcile.incremental.method" · INC_ENABLED=true|false → ".incremental.enabled"(A+X 업무 앱 = false — 표시만) ·
 #   INC_INTERVAL=<주기> → ".incremental.interval" · INC_TRACK=1 → ".incremental.track-inject":true(효과 셀 --inject-app on) ·
-#   SAFETY_ENABLED=true → "counter-drift.reconcile.safety-net.enabled"(A+I) · APP_DETECT_SHAPE=<모양> → "counter-drift.reconcile.detect-shape"(A+I --reconcile-shape) ·
+#   SAFETY_ENABLED=true|false → "counter-drift.reconcile.safety-net.enabled"(A+I = true) · APP_DETECT_SHAPE=<모양> → "counter-drift.reconcile.detect-shape"(A+I --reconcile-shape · 그 밖 one-shot) ·
 #   INJECT_APP=1 → "loadtest.inject-app.enabled":true(효과 셀 앱 경로 주입 — loadtest 프로필 빈만, ADR-012 §4.2.7) · INJECT_APP_PATHS=expiry → "loadtest.inject-app.paths"(--inject-app expiry)
 #   점(.)이 든 키는 Spring이 그대로 이어 붙인다(seat.hold + counter-drift.expiry-repair) — 적용 값은 회차마다 configprops로 대조한다(run.sh cond-config-mismatch).
 # DB 세션 구분(IV-009-7): 앱 커넥션 ApplicationName=seatlab-app, F 컨테이너 seatlab-reconciler(compose.reconciler.yml). C는 앱 풀을 같이 쓰므로(명세 §10 D8)

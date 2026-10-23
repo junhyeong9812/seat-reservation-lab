@@ -409,6 +409,19 @@ limit_config_check() {
     '{sha:$sha, files:$files, application_yml:{precheck:$ok}, spring_config:$sc, reasons:($r | split(" ") | map(select(. != "")))}'
 }
 
+# ---- ADR-012 기본값 교체(명세 §10 K9) — 측정 대상 SHA의 업무 앱 기본값이 증분인가 ------------------------------------------------------------
+# <SHA>의 main-app/src/main/resources/application.yml에서 seat.hold.counter-drift.reconcile.incremental.enabled가 true면 0(교체 뒤 — 키 없는 앱은 C가 아니다 →
+#   run.sh --cond default 거부 · campaign.sh의 C 셀 = --cond A+C --cleanup schedule) · 아니면 1(교체 전 — default = C 그대로).
+#   파일이 없는 SHA(task 04b 전 옛 구조)·키가 없는 SHA = 교체 전(1). YAML 파싱 실패 = 2(호출 쪽이 거부 — 판정을 추측하지 않는다).
+#   교체 커밋 SHA를 상수로 두지 않는다(병합 방식에 따라 조상 관계가 달라진다) — 그 SHA의 파일 내용으로 정한다.
+app_defaults_incremental() {
+  local y v
+  y="$(git -C "$REPO_ROOT" show "$1:main-app/src/main/resources/application.yml" 2>/dev/null)" || return 1
+  v="$(python3 -I "$LIB_DIR/cfgkeys.py" --value seat.hold.counter-drift.reconcile.incremental.enabled <<< "$y")" || return 2
+  [[ "$v" == true ]] && return 0
+  return 1
+}
+
 # ---- ADR-009 카운터 어긋남(명세 §5·§10·§11 · 설계 §9) --------------------------------------------------------------------------------
 # DB 한 번 묻기 — SQL은 표준 입력(여러 문장·트랜잭션 가능, ON_ERROR_STOP), 마지막 SELECT가 한 줄 JSON을 낸다. -q라 BEGIN·INSERT 등 명령 태그는 나오지 않는다.
 # 실패(접속·SQL 오류·시간 초과)면 0이 아닌 종료 — 호출자가 사유로 드러낸다

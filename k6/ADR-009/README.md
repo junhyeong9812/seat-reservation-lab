@@ -29,6 +29,12 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 (`counter-drift.expiry-repair` · `counter-drift.reconcile.enabled` · `counter-drift.cleanup.mode`)를 **늘 명시**한다 — 아래 표에 없는 쪽은 끔(`false` · `false` · `--cleanup` 값, 기본 `none`)으로 넣어
 전환 전과 같은 실효 설정으로 뜬다(렌더 대조: 전환 전·후 조건별 실효 값 동일).
 
+ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 A · 앱 안 증분 ⓑ 트리거 1초 · 안전망 · split · C 끔 · V9 트리거·V10 위치)도 같은 방식이다.
+`default` 밖의 조건은 증분·안전망·탐지 모양도 **늘 명시**한다 — `A+I`·`A+X` 밖 = `incremental.method=none` · `incremental.enabled=false` · `safety-net.enabled=false` ·
+`detect-shape=one-shot`(`A+I`는 방식·켬·켬·`--reconcile-shape`(없으면 one-shot) · `A+X` 업무 앱은 방식·끔·끔·one-shot). Flyway 위치는 전부터 늘 명시한다.
+F 컨테이너(`compose.reconciler.yml`)는 `incremental.method=none`과 탐지 모양(없으면 one-shot)을 넣고, 증분·안전망은 `application-reconciler.yml`이 끈다.
+교체 뒤 렌더는 바뀌지만 조건별 실효 값은 교체 전과 같다(ADR-009 선례 46f5b04d와 같이 받아들임).
+
 | 조건 | 업무 앱에 넣는 키(세 키 밖은 키 없음 = 앱 기본값) | 그 밖 |
 |------|------|------|
 | `control` | 세 키 끔 (후보 끔 · 판매 마감 켬 — ADR-008 대조군과 같은 실효 설정) | |
@@ -38,13 +44,13 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `A+F` | A + `counter-drift.external-reconciler=true` | `compose.reconciler.yml`(대조 60s) |
 | `B` | `limit-strategy=counter-trigger` | `spring.flyway.locations += classpath:db/migration-trigger`(V8) |
 | `B+C` | B + reconcile 60s(A 없이 — 명세 §11) | 효과 셀만 |
-| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C |
+| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C. **ADR-012 기본값 교체 뒤 SHA에서는 계획 단계에서 거부**(`lib.sh app_defaults_incremental` — 그 SHA의 `application.yml`이 증분을 켜면) — C 셀은 `--cond A+C --cleanup schedule`. 교체 전 SHA의 이어서 실행·옛 결과 집계(`summarize.py`·`tail.py`)는 default = C 그대로 |
 
 - `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c). `default` 밖에서는 `none`도 키로 넣는다.
 - 한계: `default` 조건의 키 없음 확인(`drift`·`drift_cmd`)은 앱 컨테이너 **환경변수·명령줄만** 본다 — 프로필 yml(`application-*.yml`)이 세 키를 바꾸는 경우는 configprops 대조(`cond-config-mismatch` — 기대 = A 켬 · C 켬 · SCHEDULE)가 잡는다.
 - 매수 방식 키는 **B·B+C에서만** 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(`counter-upsert-precheck`)을 configprops로 대조한다.
   `limit-key.json`의 기대 개수가 조건마다 다르다(앱 환경 등장 수 B = 1 · 나머지 0 · F 컨테이너 늘 0).
-- 적용 확인(회차마다): configprops `seat.hold.counterDrift`·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch`) ·
+- 적용 확인(회차마다): configprops `seat.hold.counterDrift`(ADR-012 교체 뒤 `reconcile.incremental.method`·`incremental.enabled`·`safetyNet.enabled`·`detectShape` 포함)·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch` — 증분·안전망 끔 · 방식 NONE 포함) ·
   `pg_trigger` 두 이름 ⇔ B(`trigger-mismatch`).
   F 컨테이너는 `application-reconciler.yml`이 A·정리를 끈다(대조 전용 — `reconciler-config-mismatch`가 A 끔·정리 NONE도 본다).
 
@@ -78,7 +84,8 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 - 시작 = 시드 끝 → 첫 요청 맞춤 sleep 직전(PC는 배경 프로세스, 서버는 배경 ssh — 시한 `PROBE_UP_TIMEOUT_S` 120초, 넘으면 기동 rc 124 → `probe-missing` · 맞춤을 밀지 않는다) · 끝 = 주 k6가 끝나자마자 신호(SIGINT·SIGTERM → k6 정상 종료 105, CSV를 닫는다). 길이 = 램프 + 구간 × 30 + 180초(그보다 오래 돌면 스스로 끝난다).
 - 상태 `probe-status.json`(시작·끝 시각 · 종료 코드 · 수거) · 판정 `probe-check.json`(`tail.py --probe-check`: 종료 코드 0·105 · CSV 무결 · 창(램프 끝 ~ 주 k6 끝) 안 응답만으로 공백 ≤ 10초(창 시작 → 첫 응답 · 응답 사이 · 마지막 응답 → 창 끝) · 건수 ≥ 0.9 × 50/s × 창 · 200 아닌 응답 ≤ 1%). 도중에 끝나면 EXIT 트랩이 PC 측정기를 끈다.
 
-**캠페인 세트(ADR-011 §3 — 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정 = ABAB)**:
+**캠페인 세트(ADR-011 §3 — 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정 = ABAB)**.
+ADR-012 기본값 교체 뒤 SHA에서는 아래 세트·`jvm-*`의 `default`(C 셀 — `c-*` 포함)가 `--cond A+C --cleanup schedule`로 바뀐다(`campaign.sh` `C_COND` — 교체 전 SHA는 이전 줄 그대로라 옛 캠페인 폴더의 이어서 실행 `conditions.txt` 대조가 깨지지 않는다):
 
 | 세트 | 조건(폴더) | 회차 | 손잡이 | 기본 id |
 |------|------|------|------|------|
