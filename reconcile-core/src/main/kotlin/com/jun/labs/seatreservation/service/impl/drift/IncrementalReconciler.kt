@@ -419,7 +419,8 @@ class UpdatedAtCandidates(
         val detail = if (m != null) "$lookback · m $m" else "$lookback · m 없음"
         if (m == null) {
             log.warn(
-                "증분 기동 — user_hold_quota.updated_at의 빠른 기본값 m(pg_attribute.attmissingval)이 없다{} — 첫 창에서 V9 앞 기존 행을 빼지 않는다(첫 하한 {} · 후보는 page-size {} 로 나눠 읽는다)",
+                "증분 기동 — user_hold_quota.updated_at의 빠른 기본값 m(pg_attribute.attmissingval)이 없다{} — 첫 창에서 V9 앞 기존 행을 빼지 않는다(첫 하한 {} · 후보는 page-size {} 로 나눠 읽는다) · " +
+                    "같은 updated_at 묶음이 크면 틱 비용이 page-size로 묶이지 않는다(인덱스 단일 열 — 키셋 (updated_at, schedule_id, user_id) 비교가 묶음 안을 훑고 정렬한다)",
                 why?.let { " (읽기 실패: $it)" } ?: "", first, properties.incremental.pageSize,
             )
         }
