@@ -94,7 +94,7 @@ class HoldStrategyStartupCheck(
         )!! > 0
         check(uniqueIndex == (strategy == HoldStrategyType.UNIQUE)) {
             "전략 $strategy 와 유니크 인덱스(${UniqueConstraintHoldStrategy.UNIQUE_HOLD_INDEX}) 존재=$uniqueIndex 가 맞지 않는다 " +
-                "— UNIQUE 전략은 spring.flyway.locations에 classpath:db/migration-unique를 더하고, 다른 전략은 빼야 한다"
+                "— UNIQUE 전략은 spring.flyway.locations에 classpath:db/migration-unique를 더하고, 다른 전략은 빼야 한다" + LOCATIONS_LIST_HINT
         }
         if (strategy == HoldStrategyType.REDIS_NX || strategy == HoldStrategyType.REDIS_LOCK) {
             redis.connectionFactory!!.connection.use { check(it.ping() == "PONG") { "Redis 응답 없음" } }
@@ -122,7 +122,7 @@ class HoldStrategyStartupCheck(
         val trigger = triggers == 2
         check(trigger == (limit == COUNTER_TRIGGER)) {
             "매수 방식 $limit 와 카운터 트리거(V8 — $HOLD_TRIGGER·$RESERVATION_TRIGGER) 존재=$trigger 가 맞지 않는다 " +
-                "— counter-trigger는 spring.flyway.locations에 classpath:db/migration-trigger를 더하고, 다른 방식은 빼야 한다(앱 증감과 트리거가 겹친다)"
+                "— counter-trigger는 spring.flyway.locations에 classpath:db/migration-trigger를 더하고, 다른 방식은 빼야 한다(앱 증감과 트리거가 겹친다)" + LOCATIONS_LIST_HINT
         }
         val drift = properties.counterDrift
         val reconcile = drift.reconcile
@@ -296,6 +296,12 @@ class HoldStrategyStartupCheck(
             " seat.hold.counter-drift.reconcile.enabled=true · ${IncrementalSchemaCheck.PREFIX}.enabled=false · ${IncrementalSchemaCheck.PREFIX}.method=none · " +
                 "${IncrementalSchemaCheck.SAFETY_PREFIX}.enabled=false · seat.hold.counter-drift.reconcile.detect-shape=one-shot · " +
                 "spring.flyway.locations=classpath:db/migration(새 DB — V9·V10을 이미 적용한 DB면 method=trigger · 위치 기본값 그대로)"
+        /**
+         * 측정 전용 위치(V4 unique · V8 counter-trigger) 거부 안내 — 이 두 검사는 DB 상태로만 판정해 마이그레이션 뒤에 돈다(명세 §10 · 사용자 결정 2026-10-23 '범위 밖으로 기록').
+         * 위치를 빠뜨린 기동은 기본 위치의 V9 트리거·V10을 이미 적용했을 수 있다 — 그 DB에는 V4·V8을 나중에 더할 수 없다(버전이 낮다 · ADR-012 §7-13 ⑦)
+         */
+        private const val LOCATIONS_LIST_HINT =
+            " · spring.flyway.locations는 목록 전체를 덮어쓴다 — 기본 위치를 포함한 전체 목록을 명시하라(빠뜨린 채 띄웠으면 V9·V10이 이미 적용됐을 수 있다 — 새 DB로 다시 띄워라)"
         const val HOLD_TRIGGER = "seat_hold_quota"
         const val RESERVATION_TRIGGER = "reservation_quota"
     }
