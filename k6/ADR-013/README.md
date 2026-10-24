@@ -32,20 +32,20 @@ k6/ADR-013/scripts/campaign.sh --sha <SHA> --dry-run                 # 하네스
 python3 k6/ADR-013/scripts/selftest.py && bash k6/ADR-013/scripts/selftest-drain.sh
 bash ops/online-v9/test-local.sh                                      # 로컬 PG16 — 적용판 동치·이력·실패 주입(CR13-22)
 # 1) 이미지 고정(캠페인 전에 한 번 — DS-11)
-k6/ADR-013/scripts/run.sh --prepare-images --sha-old 93dd610a --sha-new <SHA> --out k6/ADR-013/images-<SHA>.json
+k6/ADR-013/scripts/run.sh --prepare-images --sha-old 93dd610a --sha-new <SHA> --out k6/ADR-013/results/images-<SHA>.json
 # 2) 보정 1회(§4.1 DS-12): load 먼저(쿼터 행 수 N) → seed --pairs N → 비
-k6/ADR-013/scripts/run.sh --calibrate load --sha <SHA> --images <images.json> --id calib-<날짜>
-k6/ADR-013/scripts/run.sh --calibrate seed --pairs <N> --sha <SHA> --images <images.json> --id calib-<날짜>
+k6/ADR-013/scripts/run.sh --calibrate load --sha <SHA> --images k6/ADR-013/results/images-<SHA>.json --id calib-<날짜>
+k6/ADR-013/scripts/run.sh --calibrate seed --pairs <N> --sha <SHA> --images k6/ADR-013/results/images-<SHA>.json --id calib-<날짜>
 python3 k6/ADR-013/scripts/summarize.py --calibration results/calib-<날짜>/calibrate-seed/calibrate.json results/calib-<날짜>/calibrate-load/calibrate.json
 # 3) 스모크(--worktree 가능) — 회차 하나
-k6/ADR-013/scripts/run.sh --sha <SHA> --images <images.json> --proc 4 --load S4c --rep 1 --id smoke13-<날짜> [--worktree]
+k6/ADR-013/scripts/run.sh --sha <SHA> --images k6/ADR-013/results/images-<SHA>.json --proc 4 --load S4c --rep 1 --id smoke13-<날짜> [--worktree]
 python3 k6/ADR-013/scripts/summarize.py --rep k6/ADR-013/results/smoke13-<날짜>/S4c/p4/rep1
 # 4) 캠페인(시작 조건 JSON: {"calibration":{"c_round_ratio":…,"create_index_ratio":…},"ds13_smoke":{"done":true,…},"impl_verify":{"done":true,…},
 #    "smoke_dirs":["k6/ADR-013/results/smoke13-<날짜>/S4c/p4/rep1", …]} — 스모크 회차 폴더: plan13.py가 그 events.jsonl에서 사건 종류 9종마다 성공 dur_s 최대를
 #    직접 계산해 ⑤ dry-run을 돌고(한 종류라도 실측 없으면 막음 — CR13-20) · 그 pre-apply.json 단계 3 CONCURRENTLY 실측으로 ⑥ statement_timeout = max(⌈× 3⌉, 600)초(CR13-17)
 #    ④⑤ 스모크(적용판 있음)가 하나는 들어야 ⑥이 통과한다. 하네스 경로가 --sha와 다르거나 미추적 파일이 있으면 ⓪ 막음)
 #    측정 DB 비밀번호는 명령줄로 넘기지 않는다 — 셸 환경 EXT_DB_PASSWORD 또는 하네스 SHA의 k6/ADR-009/compose.yml POSTGRES_PASSWORD(ADR-009 ext_db_password) → apply.sh 환경 FLYWAY_PASSWORD · 원격 Flyway는 ssh 표준 입력
-k6/ADR-013/scripts/campaign.sh --sha <SHA> --images <images.json> --start-conditions <json>
+k6/ADR-013/scripts/campaign.sh --sha <SHA> --images k6/ADR-013/results/images-<SHA>.json --start-conditions <json>
 ```
 
 ## 회차 결과(status) · 사유(§5.3 · §5.8-5)
@@ -64,6 +64,7 @@ k6/ADR-013/scripts/campaign.sh --sha <SHA> --images <images.json> --start-condit
 | `transition-failed:events-check`(사건 누락·계획에 없는 사건·순서·끝 상태 — 실패 사건 행 없이) · `event-write-failed` · `orchestrator-overrun` · `meta-write-failed` | 하네스 | summarize · run.sh |
 | `baseline-unstable` — [60, 90) S4c 정지 초 > 0 · 5xx·502 > 0 | 하네스(환경) | summarize `k6_metrics` |
 | `avail-short-outside-window` — 전환 창 밖 (보낸 + 버린) < 95% | 하네스 | summarize `avail_metrics` |
+| `lb-artifact-window-missing` — reload를 보낸 lb 사건(nginx -t 통과)인데 시작·효력(`detail.effective`) 시각이 없거나 창이 빔 → lb 아티팩트 창을 못 만듦(코드 0을 무음으로 빼지 않는다 · 전환 실패 뒤면 기록만) | 하네스 | summarize `lb_windows`(§5.8-3b ⓐ) |
 | `mlock-samples-missing` — ADR 창 표본 결측 > 10% | 하네스 | summarize `mlock_metrics` |
 | `p7-data-missing` · `old-app-log-missing:<생애>` · `k6-exit-*` · `*-missing` · `db-password-missing` | 하네스 | summarize · run.sh |
 | `app-collect-missing:<생애>:<항목>`(H4 — UP한 생애의 수집 없음 · 수집 사건 detail 오류 · 지표·configprops · 앱 로그) · `gc-log-missing:<생애>`(GC 요약 없음 · 빈 로그 · 창 없음) | 하네스 | summarize(lib13 `app_collect`는 읽기 실패·빈 로그면 파일을 남기지 않는다) |
@@ -82,7 +83,7 @@ k6/ADR-013/scripts/campaign.sh --sha <SHA> --images <images.json> --start-condit
 | H | 구현 |
 |---|---|
 | H1 혼재 오버레이 · digest 고정 | `compose.cutover.yml`(이미지 태그 · `pull_policy: never` · `build: !reset null`) · `run.sh --prepare-images`(없을 때만 빌드 → `images.json` ID) · 회차 시작 + 기동마다 `image_id` = plan 값(`cond-image-mismatch`) · `up --no-build --no-deps` |
-| H2 lb 구성원 | `lib13.sh lb_members`(include 파일 다시 쓰기 → `nginx -t` 실패면 되돌리고 실패 · reload → 새 작업자 pid가 옛 집합과 겹치지 않을 때 효력 시각) · 자리표시 서버 `127.0.0.1:9 down` 늘 · `lb_started_after`(효력 뒤 그 IP로 시작한 요청 — 효력 시각의 기록 바이트부터) · `app_inflight`(업무 URI 진행 중) |
+| H2 lb 구성원 | `lib13.sh lb_members`(include 파일 = `lb_members_conf` 렌더 — 앱 server 줄마다 `max_fails=0`(§5.8-3b ⓑ — nginx 수동 장애 판정 끔) · 다시 쓰기 → `nginx -t` 실패면 되돌리고 실패 · reload → 새 작업자 pid가 옛 집합과 겹치지 않을 때 효력 시각) · 자리표시 서버 `127.0.0.1:9 down` 늘 · `lb_started_after`(효력 뒤 그 IP로 시작한 요청 — 효력 시각의 기록 바이트부터) · `app_inflight`(업무 URI 진행 중) |
 | H3 오케스트레이션 · 사건 기록 · 계획 대 실제 | `run.sh orchestrate`/`run_step`/`do_*` → `events.jsonl` · 실패 `transition-failed.json`(첫 실패 · 원인) · `plan13.py --events-check` → `events-check.json` |
 | H4 앱별 수집 | `lib13.sh app_collect`(내리기 직전 + 회차 끝 살아 있는 앱) → `app-<생애>-actuator.json` · `-gc.log.gz` · `.log.gz` · `-inspect.txt` · 1초 표본 `timeline-app-<슬롯>.jsonl` |
 | H5 ApplicationName | `seatlab-<슬롯>-<sha8>-<old|shadow|new>` · 적용판 `seatlab-online-v9` · 탐침·주입 `seatlab-harness` · 락 표본 `seatlab-harness-locks` |
@@ -107,3 +108,8 @@ k6/ADR-013/scripts/campaign.sh --sha <SHA> --images <images.json> --start-condit
 5. **보정**은 두 DB를 같은 쌍 수로 만든다(load = 옛 앱 S4c 30분 · seed = `--pairs`로 같은 수) — 쌍 수가 다르면 비가 규모 차이를 잰다.
 6. **한도 탐침 요청 시한**은 30초(주 부하 `common.js`와 같다 — ADR에 값 없음). 실패 응답 탐침은 판정에서 빠진다(다운타임 자료).
 7. S3e 단독(옛) 기준 창은 5xx·502만 본다(정지 초는 좌석 소진 구간이라 쓰지 않는다 — DS-6).
+8. **lb 아티팩트**(§5.8-3b ⓐ — 측정 전 정정 2026-10-24): 셋업 밖 lb-add·lb-remove 사건마다 창 [사건 시작, `detail.effective` + 1초]의 응답 코드 0을 `lb_artifact`로 따로 센다(사건별 · 합계 — `rep-summary.json` `lb_artifact` · `k6.lb_artifact` · `avail.lb_artifact`) ·
+   k6 주 부하는 CSV 시각이 정수 초(완료 내림)라 **그 초 [s, s+1)이 창과 겹치면** 창 안이다(창 시작 = 사건 시작이 reload 보냄보다 약 0.5초 앞) · 가용성 탐침은 받은 시각(ms)으로.
+   빼는 곳: k6 `code0`(by_interval — 뺀 수는 `lb_artifact`) · 탐침 `fail`·D2·연속 실패 길이(`D2_raw` = 빼기 전).
+   D1은 '그 초의 201 = 0'이라 코드 0을 빼도 직접 바뀌지 않는다 — 창과 겹치는 정지 초 중 **hold 응답이 있고 모두 코드 0인 초**만 '아티팩트 초'로 정지 초·D1에서 빼고 근거를 `k6.lb_artifact.stall_secs`에 남긴다(`D1_raw` = 빼기 전).
+   결과 표: RESULT §3 절차별 lb 아티팩트 범위(부하별) · §6 TAIL 회차별 k6·탐침 · 아티팩트 초.

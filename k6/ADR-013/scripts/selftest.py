@@ -12,9 +12,11 @@
 ⑱ J 모집단 = 전환 칸만 · ① J = 0(§5.8-3a — CR13-19) ⑲ 앱 끝 검사 v_counter_mismatch = P9 (다)(CR13-23) ⑳ m 시각 오프셋 해석(분 오프셋 · 못 읽음 = m-parse-failed — CR13-28)
 ㉑ 시작 조건 ⑤ 스모크 사건 길이 = events.jsonl op별 최대(모든 op — 기동 시작 길이도 dry-run에 든다 · CR13-20) ㉒ 단계 3 statement_timeout = max(⌈실측 × 3⌉, 600)(CR13-17)
 ㉓ 새 앱 incremental.pageSize = 100,000(CR13-27)
+㉔ lb 아티팩트(§5.8-3b ⓐ — 창 안 코드 0은 k6·탐침 집계·D1·D2에서 빠지고 창 밖 코드 0·5xx는 남는다 · 효력 없음 = lb-artifact-window-missing) · 구성원 렌더 max_fails=0(ⓑ)
 (코드 리뷰 루프 1 CR13-1~14 · 참고 · 루프 2 CR13-15~28 — ①·⑦의 J는 §5.8-3a 정정 뒤 값)."""
 import gzip
 import json
+import math
 import random
 import shutil
 import subprocess
@@ -45,10 +47,15 @@ def write_csv(path, rows):
             f.write(r + "\n")
 
 
-def k6_rows(k6_s, stall_from=None, stall_to=None):
+def k6_rows(k6_s, stall_from=None, stall_to=None, override=None):
+    """override = {회차 기준 정수 초: [(이름, 상태), ...]} — 그 초의 행을 이것으로 바꾼다(lb 아티팩트 경우)."""
     out = []
     for s in range(int(T0), int(T0 + k6_s)):
         rel = s - T0
+        if override and rel in override:
+            for name, st in override[rel]:
+                out.append(f"http_req_duration,{s},5.0,,,,true,,POST,{name},HTTP/1.1,s4,,{st},,,u,,")
+            continue
         if stall_from is not None and stall_from <= rel < stall_to:
             continue
         for _ in range(3):
@@ -57,8 +64,9 @@ def k6_rows(k6_s, stall_from=None, stall_to=None):
     return out
 
 
-def avail_rows(k6_s, fail_from=None, fail_to=None):
-    out = []
+def avail_rows(k6_s, fail_from=None, fail_to=None, extra=None):
+    """extra = [(받은 회차 기준 초, 코드), ...] — 더 넣는 탐침 행(lb 아티팩트 경우)."""
+    out = [f"avail_req,{int((T0 + t) * 1000)},1,,,,,,,,,avail,,,,,,t0={int((T0 + t - 0.01) * 1000)}&code={c}&dur=10," for t, c in (extra or [])]
     t = T0
     while t < T0 + k6_s:
         code = "502" if fail_from is not None and fail_from <= t - T0 < fail_to else "201"
@@ -69,11 +77,13 @@ def avail_rows(k6_s, fail_from=None, fail_to=None):
 
 def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_codes=False, nondet=None, extra_boundary=False, driver_done=True,
              old_fail=None, anomaly=None, l_hold2_fail=None, gc_bad=None, collect_errors=None, no_actuator=None, page_size=100000,
-             inc_pairs=None, page_full=None, final_app=None):
+             inc_pairs=None, page_full=None, final_app=None, lb_eff=True, lb_art=False):
     """verdicts[(cell, d, kind)] = 'right'|'wrong' · old_fail = {(d, kind)}: 단독(옛) 칸 탐침을 실패 응답(코드 0)으로.
     anomaly = {(cell, d, kind): (code, body)}: 판정 요청을 201·409지만 맞음·틀림 모양이 아닌 응답으로 · l_hold2_fail = {(cell, d)}: L 선점 2 = 코드 0 · 선점 3 = 201(CR13-11)
     gc_bad = {생애: 'missing'|'empty'} · collect_errors = {생애: [..]} · no_actuator = {생애} · inc_pairs = 첫 증분 틱부터 pairs_scanned 목록 ·
-    page_full = 새 앱 생애 page_full COUNT · final_app = final-app.json의 끝 검사 앱(계획과 다르게)."""
+    page_full = 새 앱 생애 page_full COUNT · final_app = final-app.json의 끝 검사 앱(계획과 다르게) ·
+    lb_eff = False: lb 사건 detail에 효력 시각 없음(§5.8-3b ⓐ 창 계산 불가) · lb_art = True: 첫 lb-remove 창 안 코드 0(k6 한 초 전부 · 탐침 2) ·
+    창 밖 코드 0·5xx(k6 30초 앞 초 + 그다음 초는 코드 0만 · 탐침 코드 0 1 · 503 1)."""
     d = root / load / f"p{proc}" / f"rep{rep}"
     d.mkdir(parents=True)
     plan = plan13.render(proc, load)
@@ -96,6 +106,8 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
             roles[e["slot"]] = next(a["role"] for s in plan["steps"] if s["name"] == e["step"] for a in s["actions"] if a["op"] == "start" and a["slot"] == e["slot"])
         life = f"{e['slot']}{cnt[e['slot']]}" if e.get("slot") else None
         det = {"ip": f"10.0.0.{3 + cnt[e['slot']]}"} if e["op"] == "lb-add" else ({"errors": (collect_errors or {}).get(life, [])} if e["op"] == "collect" else None)
+        if e["op"] in ("lb-add", "lb-remove"):   # lib13 lb_members 출력 모양(서버 시각) — 효력 = 사건 끝 바로 앞
+            det = dict(det or {}, test_rc=0, reload_rc=0, reload_sent=T0 + OFF + (e["t0"] + e["t1"]) / 2, effective=(T0 + OFF + e["t1"]) if lb_eff else None)
         rows.append({"kind": "plan", "step": e["step"], "op": e["op"], "slot": e.get("slot"), "life": life, "role": roles.get(e.get("slot")) if e.get("slot") else "",
                      "start_pc": T0 + e["t0"], "end_pc": T0 + e["t1"] + 0.01, "dur_s": e["t1"] - e["t0"] + 0.01, "result": "ok", "detail": det})
         if life:
@@ -110,8 +122,16 @@ def make_rep(root, proc, load, rep, verdicts=None, startup=20.0, outage_fail_cod
     plan13.events_check(d)
     iv = plan13.intervals([dict(e, t0=e["t0"], t1=e["t1"] + 0.01) for e in ev], k6_s)
     outage = (iv["trans"][0], iv["trans"][1]) if proc == 1 else (None, None)
-    write_csv(d / "k6-requests.csv.gz", k6_rows(k6_s, *outage))
-    write_csv(d / "k6-avail.csv.gz", avail_rows(k6_s, *outage))
+    ov, aex = None, None
+    if lb_art:
+        rm = next(e for e in ev if e["op"] == "lb-remove")
+        a, b = rm["t0"], rm["t1"] + 1.0   # 창 [사건 시작, 효력 + 1초]
+        s_in = int(math.ceil(a)) if math.ceil(a) + 1 <= b else int(math.floor(a))
+        s_out = int(math.floor(a)) - 30
+        ov = {s_in: [("hold", "0")] * 3, s_out: [("hold", "201")] * 3 + [("hold", "0")] * 2 + [("hold", "503")], s_out + 1: [("hold", "0")] * 2}
+        aex = [(a + 0.3, "0"), (a + 0.4, "0"), (s_out + 0.5, "0"), (s_out + 0.6, "503")]
+    write_csv(d / "k6-requests.csv.gz", k6_rows(k6_s, *outage, override=ov))
+    write_csv(d / "k6-avail.csv.gz", avail_rows(k6_s, *outage, extra=aex))
     # 촘촘한 락 표본: 0.2초마다 [첫 창 시작, 끝 창 끝]
     ws = summarize.adr_windows([dict(e, result="ok") | {"t1": e["t1"] + 0.01} for e in ev], {}, plan)
     lo, hi = min(a for a, _ in ws), max(b for _, b in ws)
@@ -242,6 +262,35 @@ def main():
     pt = out.get("probe_tables") or {}
     check("① 짝 수 O = T = 6 · J = 6(전환 칸만 — §5.8-3a · CR13-19) · N = 4 · Q = 4", pt.get("counts") == {"O": 6, "Q": 4, "T": 6, "N": 4, "N_H": 2, "N_L": 2, "J": 6}, str(pt.get("counts")))
     check("① D1 = 0(정지 초 없음)", (out.get("k6") or {}).get("D1") == 0, str((out.get("k6") or {}).get("D1")))
+    lba = out.get("lb_artifact") or {}
+    n_lb = sum(1 for e in plan13.planned_events_timed(3, "S4c", {"wait-health": 20.0, "drain": float(plan13.DRAIN_S)})[0] if e["op"] in ("lb-add", "lb-remove"))
+    check("① lb 아티팩트(§5.8-3b ⓐ): 사건마다 창 · 코드 0 없음 → 합계 0", lba.get("total") == 0 and len(lba.get("by_event") or []) == n_lb, str(lba))
+    # ㉔ lb 아티팩트(§5.8-3b ⓐ) — 창 안 코드 0은 빠지고 창 밖 코드 0·5xx는 남는다 · 효력 없음 = 하네스 사유 · max_fails=0 렌더
+    out, st = make_rep(root / "c24a", 3, "S4c", 1, lb_art=True)
+    k, av, lba = out.get("k6") or {}, out.get("avail") or {}, out.get("lb_artifact") or {}
+    bi = k.get("by_interval") or {}
+    check("㉔ 회차 ok(창 밖 5xx는 기준 창 밖)", st == "ok", st)
+    check("㉔ k6: 창 안 코드 0 3건 = lb 아티팩트 · 창 밖 코드 0 4건은 code0에 남음", (k.get("lb_artifact") or {}).get("n") == 3
+          and sum((bi.get(n) or {}).get("code0") or 0 for n in ("old", "trans", "new")) == 4, f"{k.get('lb_artifact')} {[(n, (bi.get(n) or {}).get('code0')) for n in bi]}")
+    check("㉔ k6: 창 밖 503 1건은 5xx에 남음", sum((bi.get(n) or {}).get("e5xx") or 0 for n in ("old", "trans", "new")) == 1, str([(n, (bi.get(n) or {}).get("e5xx")) for n in bi]))
+    check("㉔ D1: 창 안 '코드 0뿐인 초' = 아티팩트 초로 빠짐 · 창 밖 '코드 0뿐인 초'는 남음 → D1 1 · D1_raw 2",
+          k.get("D1") == 1 and k.get("D1_raw") == 2 and len((k.get("lb_artifact") or {}).get("stall_secs") or []) == 1, f"D1={k.get('D1')} raw={k.get('D1_raw')} {k.get('lb_artifact')}")
+    check("㉔ 탐침: 창 안 코드 0 2건 = lb 아티팩트 · 창 밖 코드 0·503 → D2 2(D2_raw 4)",
+          (av.get("lb_artifact") or {}).get("n") == 2 and av.get("D2") == 2 and av.get("D2_raw") == 4 and av.get("fail") == 2, f"{av.get('lb_artifact')} D2={av.get('D2')} raw={av.get('D2_raw')}")
+    check("㉔ 회차 lb_artifact 합계 = k6 3 + 탐침 2 = 5 · 사건별 한 사건에 5",
+          lba.get("total") == 5 and sorted((x.get("k6") or 0) + (x.get("avail") or 0) for x in lba.get("by_event") or [])[-1] == 5, str(lba))
+    out, st = make_rep(root / "c24b", 3, "S4c", 1, lb_eff=False)
+    check("㉔ lb 사건 효력 시각 없음 → invalid:lb-artifact-window-missing(무음으로 빼지 않음)", st.startswith("invalid:") and "lb-artifact-window-missing" in st, st)
+    stub = root / "stub9"
+    stub.mkdir()
+    (stub / "lib.sh").write_text("")
+    r = subprocess.run(["bash", "-c", 'source "$1"; lb_members_conf app app2; echo ---; lb_members_conf; echo ---; type lb_members', "_", str(HERE / "lib13.sh")],
+                       capture_output=True, text=True, env={"LIB9_DIR": str(stub), "PATH": "/usr/bin:/bin"})
+    parts = r.stdout.split("---\n")
+    check("㉔ lb 구성원 렌더: 앱 server 줄마다 max_fails=0 · 자리표시 down 그대로(§5.8-3b ⓑ)",
+          len(parts) == 3 and parts[0] == "server 127.0.0.1:9 down;\nserver app:8101 max_fails=0;\nserver app2:8101 max_fails=0;\n"
+          and parts[1] == "server 127.0.0.1:9 down;\n", r.stdout[:300] + r.stderr[-300:])
+    check("㉔ lb_members가 그 렌더를 쓴다(원격에 함수를 함께 보냄)", len(parts) == 3 and "declare -f lb_members_conf" in parts[2] and 'lb_members_conf "$@"' in parts[2], parts[-1][-400:])
     # ② 짝 제외
     out, st = make_rep(root / "c2", 3, "S4c", 1, old_fail={(30, "H")})
     c = (out.get("probe_tables") or {}).get("cells", {})

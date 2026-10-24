@@ -36,6 +36,13 @@
     옛 앱 로그(수집이 실패 뒤) · 끝 검사 앱·끝 검사·DB 덤프 · m 해석)은 하네스 사유로 묻지 않고 harness_deferred에 기록만 한다(그 결측은 실패의 결과일 수 있다).
     전환 실패 앞의 하네스 사유(시드 · 기준 창 · 시계 차 · k6·탐침 기록 등)는 그대로 invalid다(회차 자체를 믿을 수 없다).
   끝 검사 앱 ≠ 계획 final_new = fail:final-app-mismatch(CR13-참고).
+  lb 아티팩트(§5.8-3b ⓐ — 측정 전 정정 2026-10-24): lb reload 사건(lb-add·lb-remove · 셋업 제외 — k6 전)마다 창 [사건 시작, 효력(detail.effective) + 1초]의
+    연결 오류(응답 코드 0)는 'lb_artifact'로 따로 세고(사건별 · 합계) 5xx·실패 수 · D1 · D2에서 뺀다(다섯 절차 같은 규칙).
+    k6 주 부하 CSV 시각은 정수 초(완료 내림)라 그 초 [s, s+1)이 창과 겹치면 창 안으로 본다(창 시작 = 사건 시작이 reload 보냄보다 약 0.5초 앞이라 그 여유 안).
+    D1(그 초의 201 = 0)은 코드 0을 빼도 201 수가 그대로라 직접 바뀌지 않는다 — 창과 겹치는 정지 초 중 hold 응답이 있고 그것이 모두 코드 0(아티팩트)인 초만
+    '아티팩트 초'로 정지 초·D1에서 빼고 근거(초 · hold 응답 수 · 코드 0 수 · 사건)를 k6.lb_artifact.stall_secs에 남긴다(D1_raw = 빼기 전).
+    가용성 탐침은 받은 시각(ms)이 창 안인 코드 0 요청 — fail·D2에서 빼고 연속 실패 길이에서도 건너뛴다(D2_raw = 빼기 전).
+    reload를 보낸 사건(nginx -t 통과)인데 시작·효력 시각이 없거나 창이 비면 = invalid:lb-artifact-window-missing(무음으로 빼지 않는다 — 전환 실패 뒤면 기록만).
 수치는 모두 원시 파일에서 계산한다(손 계산 금지). 없는 파일은 사유로 드러낸다(무음 금지)."""
 import gzip
 from array import array
@@ -73,6 +80,7 @@ N6B_S = 3.0
 MLOCK_STEP_S, MLOCK_MISS = 0.2, 0.10
 AVAIL_MIN_SHARE = 0.95
 BUSINESS = re.compile(r"^seatlab-[AB]-[0-9a-f]+-(old|new|shadow)$")
+LB_ART_AFTER_S = 1.0   # §5.8-3b ⓐ 창 끝 = reload 효력 + 1초
 # run.sh가 회차 끝(k6·수렴 뒤) 단계에서 남기는 하네스 사유 — 전환 실패 회차에서는 기록만(CR13-18)
 END_HREASONS = {"end-check-failed", "end-check-app-failed", "drift-db-failed", "end-pairs-failed", "injected-missing"}
 
@@ -187,8 +195,9 @@ def lives_of(ev):
 
 # ---- 주 k6 CSV ---------------------------------------------------------------------------------------------------------------
 def main_csv(path, T0):
-    """초(정수 PC 초)별: n(hold 응답) · c201 · c201_send(보낸 초 기준) · e5xx · e502 · c0 · mx · comp(waiting, blocked, sending, receiving) · durs(코드 0 제외)."""
+    """초(정수 PC 초)별: n(hold 응답) · c201 · c201_send(보낸 초 기준) · e5xx · e502 · c0 · h0(hold 코드 0) · mx · comp(waiting, blocked, sending, receiving) · durs(코드 0 제외)."""
     per = {}
+    new = lambda: {"n": 0, "c201": 0, "c201_send": 0, "e5xx": 0, "e502": 0, "c0": 0, "h0": 0, "mx": -1.0, "comp": None, "durs": array("f"), "all": 0}
     if not path.exists():
         return None
     with gzip.open(path, "rt", newline="") as f:
@@ -199,7 +208,7 @@ def main_csv(path, T0):
 
         def close(c):
             s, dur, st, name, comp = c
-            e = per.setdefault(s, {"n": 0, "c201": 0, "c201_send": 0, "e5xx": 0, "e502": 0, "c0": 0, "mx": -1.0, "comp": None, "durs": array("f"), "all": 0})
+            e = per.get(s) or per.setdefault(s, new())
             e["all"] += 1
             if st.startswith("5"):
                 e["e5xx"] += 1
@@ -210,10 +219,12 @@ def main_csv(path, T0):
             if name != "hold":
                 return
             e["n"] += 1
+            if st in ("0", ""):
+                e["h0"] += 1
             if st == "201":
                 e["c201"] += 1
                 ss = int(math.floor(s + 0.5 - dur / 1000.0))   # 보낸 초 ≈ 완료 − 지연(행 시각이 정수 초라 ±1초 격자)
-                per.setdefault(ss, {"n": 0, "c201": 0, "c201_send": 0, "e5xx": 0, "e502": 0, "c0": 0, "mx": -1.0, "comp": None, "durs": array("f"), "all": 0})["c201_send"] += 1
+                (per.get(ss) or per.setdefault(ss, new()))["c201_send"] += 1
             if st not in ("0", ""):
                 e["durs"].append(dur)
                 if dur > e["mx"]:
@@ -234,7 +245,31 @@ def main_csv(path, T0):
     return per
 
 
-def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan):
+def lb_windows(ev, clk):
+    """§5.8-3b ⓐ lb reload 창(회차 기준 초) — 셋업 밖 lb-add·lb-remove 사건마다 [사건 시작, 효력(서버 시각 → PC) + 1초].
+    nginx -t 실패(test_rc ≠ 0 — reload를 보내지 않음)는 창이 없다(닫힐 옛 작업자 연결이 없다). 그 밖에 시작·효력 시각이 없거나 창이 비면 missing."""
+    wins, missing = [], []
+    for e in ev:
+        if e["op"] not in ("lb-add", "lb-remove") or e["step"] == "setup":
+            continue
+        det = e.get("detail") or {}
+        if det.get("test_rc") not in (None, 0):
+            continue
+        eff = det.get("effective")
+        b = clk.srv(eff) + LB_ART_AFTER_S if num(eff) else None
+        if e["t0"] is None or b is None or b <= e["t0"]:
+            missing.append({"op": e["op"], "step": e["step"], "life": e.get("life"), "t0": e["t0"], "effective": eff})
+            continue
+        wins.append({"op": e["op"], "step": e["step"], "life": e.get("life"), "w": [round(e["t0"], 3), round(b, 3)]})
+    return wins, missing
+
+
+def lb_hit(lbw, t0, t1):
+    """[t0, t1)(회차 기준 초)과 겹치는 첫 lb 창 번호 — 없으면 None."""
+    return next((i for i, (a, b) in enumerate(lbw) if t0 < b and t1 > a), None)
+
+
+def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan, lbw=()):
     L = plan["load_conf"]
     ramp = L.get("ramp_s") or 0
     rate = L.get("plan_rate")
@@ -247,8 +282,21 @@ def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan):
 
     def rel(s):
         return s + 0.5 - T0
+    lbw = [tuple(x) for x in lbw]
     out = {"grid": [lo - T0, hi - T0], "by_interval": {}}
-    stall = [s for s in grid if per.get(s, {}).get("c201", 0) == 0]
+    # lb 아티팩트(§5.8-3b ⓐ): 초 [s, s+1)이 창과 겹치면 그 초의 코드 0 = 아티팩트 · 정지 초 중 hold 응답이 모두 코드 0인 초 = 아티팩트 초
+    art, art_ev = {}, [0] * len(lbw)
+    for s in secs:
+        i = lb_hit(lbw, s - T0, s + 1 - T0) if per[s]["c0"] else None
+        if i is not None:
+            art[s] = (i, per[s]["c0"])
+            art_ev[i] += per[s]["c0"]
+    stall_raw = [s for s in grid if per.get(s, {}).get("c201", 0) == 0]
+    art_secs = [s for s in stall_raw if s in art and per[s]["n"] > 0 and per[s]["h0"] == per[s]["n"]]
+    art_set = set(art_secs)
+    stall = [s for s in stall_raw if s not in art_set]
+    out["lb_artifact"] = {"n": sum(n for _, n in art.values()), "by_event": art_ev,
+                          "stall_secs": [{"rel": round(rel(s), 1), "hold": per[s]["n"], "hold_code0": per[s]["h0"], "code0": per[s]["c0"], "event": art[s][0]} for s in art_secs]}
     stall_send = [s for s in grid if per.get(s, {}).get("c201_send", 0) == 0]
     half = [s for s in grid if rate and per.get(s, {}).get("c201", 0) < 0.5 * rate]
     server = [s for s in grid if per.get(s) and per[s]["mx"] > SLOW_MS and per[s]["comp"] and per[s]["comp"][0] > sum(per[s]["comp"][1:])]
@@ -271,14 +319,15 @@ def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan):
             "secs": len(g), "stall": sum(1 for s in stall if a <= rel(s) < b), "stall_longest": longest([s for s in stall if a <= rel(s) < b]),
             "stall_send": sum(1 for s in stall_send if a <= rel(s) < b), "stall_send_longest": longest([s for s in stall_send if a <= rel(s) < b]),
             "half_rate": sum(1 for s in half if a <= rel(s) < b), "server_slow": sum(1 for s in server if a <= rel(s) < b),
-            "e5xx": sum(per[s]["e5xx"] for s in allg), "e502": sum(per[s]["e502"] for s in allg), "code0": sum(per[s]["c0"] for s in allg),
-            "p99_ms": p99(durs), "sec_p99_max_ms": max([x for x in sp if x is not None], default=None)}
+            "e5xx": sum(per[s]["e5xx"] for s in allg), "e502": sum(per[s]["e502"] for s in allg), "code0": sum(per[s]["c0"] - art.get(s, (0, 0))[1] for s in allg),
+            "lb_artifact": sum(art.get(s, (0, 0))[1] for s in allg), "p99_ms": p99(durs), "sec_p99_max_ms": max([x for x in sp if x is not None], default=None)}
     bw = plan["fixed"]["baseline_window"]
     bg = [s for s in secs if bw[0] <= rel(s) < bw[1]]
     out["baseline"] = {"window": bw, "stall": sum(1 for s in stall if bw[0] <= rel(s) < bw[1]) if load == "S4c" else None,
                        "e5xx": sum(per[s]["e5xx"] for s in bg), "e502": sum(per[s]["e502"] for s in bg)}
     d1f = plan["fixed"]["d1_from"]
     out["D1"] = sum(1 for s in stall if rel(s) >= d1f) if load == "S4c" else None
+    out["D1_raw"] = sum(1 for s in stall_raw if rel(s) >= d1f) if load == "S4c" else None
     out["D1_send"] = sum(1 for s in stall_send if rel(s) >= d1f) if load == "S4c" else None
     out["D3"] = sum(1 for s in server if t1_first is not None and rel(s) >= t1_first) if load == "S4c" else None
     p12 = plan["fixed"]["p12_window"]
@@ -312,11 +361,21 @@ def avail_rows(path):
     return rows, dropped
 
 
-def avail_metrics(rows, dropped, T0, iv, windows, rate):
+def avail_metrics(rows, dropped, T0, iv, windows, rate, lbw=()):
     if rows is None:
         return None
-    fail = lambda r: r["code"] in ("0", "") or (r["code"] or "").startswith("5")
-    out = {"by_interval": {}, "n": len(rows), "dropped": sum(v for _, v in dropped)}
+    lbw = [tuple(x) for x in lbw]
+    fail_raw = lambda r: r["code"] in ("0", "") or (r["code"] or "").startswith("5")
+    # lb 아티팩트(§5.8-3b ⓐ): 받은 시각이 lb 창 안인 코드 0 요청 — 실패·D2에서 빼고 연속 실패 길이에서도 건너뛴다(성공으로 보지도 않는다)
+    art_ev = [0] * len(lbw)
+    for r in rows:
+        t = r["done_ms"] / 1000 - T0
+        i = lb_hit(lbw, t, t + 1e-9) if r["code"] in ("0", "") else None
+        r["art"] = i is not None
+        if r["art"]:
+            art_ev[i] += 1
+    fail = lambda r: fail_raw(r) and not r["art"]
+    out = {"by_interval": {}, "n": len(rows), "dropped": sum(v for _, v in dropped), "lb_artifact": {"n": sum(art_ev), "by_event": art_ev}}
     srel = lambda r: r["sent_ms"] / 1000 - T0
     for name in ("old", "trans", "new"):
         a, b = iv[name] if iv else (0, 0)
@@ -324,9 +383,9 @@ def avail_metrics(rows, dropped, T0, iv, windows, rate):
         dd = sum(v for t, v in dropped if a <= t / 1000 - T0 < b)
         out["by_interval"][name] = {"sent": len(rr), "ok": sum(1 for r in rr if r["code"] in ("201", "409")),
                                     "fail": sum(1 for r in rr if fail(r)), "e502": sum(1 for r in rr if r["code"] == "502"),
-                                    "code0": sum(1 for r in rr if r["code"] in ("0", "")), "dropped": dd,
+                                    "code0": sum(1 for r in rr if r["code"] in ("0", "") and not r["art"]), "lb_artifact": sum(1 for r in rr if r["art"]), "dropped": dd,
                                     "exhausted": sum(1 for r in rr if r["code"] == "seat-exhausted")}
-    rows_s = sorted(rows, key=lambda r: r["sent_ms"])
+    rows_s = sorted((r for r in rows if not r["art"]), key=lambda r: r["sent_ms"])
     best = cur = 0.0
     start = None
     for r in rows_s:
@@ -337,7 +396,7 @@ def avail_metrics(rows, dropped, T0, iv, windows, rate):
         else:
             start = None
     out["longest_fail_send_s"] = round(best, 3)
-    rows_c = sorted(rows, key=lambda r: r["done_ms"])
+    rows_c = sorted((r for r in rows if not r["art"]), key=lambda r: r["done_ms"])
     best = 0.0
     start = None
     for r in rows_c:
@@ -349,6 +408,7 @@ def avail_metrics(rows, dropped, T0, iv, windows, rate):
     out["longest_fail_done_s"] = round(best, 3)
     out["fail"] = sum(1 for r in rows if fail(r))
     out["D2"] = out["fail"] + out["dropped"]
+    out["D2_raw"] = sum(1 for r in rows if fail_raw(r)) + out["dropped"]
     # 전환 창 밖 부족(§5.3)
     k6a, k6b = 0.0, iv["new"][1] if iv else 0.0
     def in_win(t):
@@ -704,13 +764,18 @@ def rep_summary(d):
     instants = plan13.owner_instants([e for e in ev if e["step"] != "setup"], derived)
     out = {"proc": proc, "load": load_, "rep_dir": str(d), "T0": clk.T0, "offset_s": clk.off, "intervals": pv, "lives": lives,
            "outage": [round(x, 3) for x in pv["trans"]] if (pv and proc == 1) else None}
+    # lb 아티팩트 창(§5.8-3b ⓐ) — 창을 못 만들면 무음으로 빼지 않는다(하네스 · 전환 실패 뒤면 기록만)
+    lbw_ev, lbw_miss = lb_windows(ev, clk)
+    lbw = [x["w"] for x in lbw_ev]
+    for m in lbw_miss:
+        hpost("lb-artifact-window-missing", m["t0"])
     # k6 주 부하
     per = main_csv(d / "k6-requests.csv.gz", clk.T0)
     if per is None:
         harness.append("k6-csv-missing")
         km = None
     else:
-        km = k6_metrics(per, clk.T0, pv, load_, k6_end_rel, t1_first, plan) if pv else None
+        km = k6_metrics(per, clk.T0, pv, load_, k6_end_rel, t1_first, plan, lbw) if pv else None
         out["k6"] = km
         if km:
             bl = km["baseline"]
@@ -724,10 +789,16 @@ def rep_summary(d):
     if rows_a is None:
         harness.append("avail-csv-missing")
     else:
-        am = avail_metrics(rows_a, dropped, clk.T0, pv, windows, plan["avail"]["rate"])
+        am = avail_metrics(rows_a, dropped, clk.T0, pv, windows, plan["avail"]["rate"], lbw)
         out["avail"] = am
         if am and am["outside"]["short"]:
             harness.append("avail-short-outside-window")
+    # lb 아티팩트 회차 기록(§5.8-3b ⓐ — 사건별 · 합계)
+    ka = (km or {}).get("lb_artifact") or {}
+    aa = (out.get("avail") or {}).get("lb_artifact") or {}
+    be = [dict(x, k6=(ka.get("by_event") or [None] * len(lbw))[i], avail=(aa.get("by_event") or [None] * len(lbw))[i]) for i, x in enumerate(lbw_ev)]
+    out["lb_artifact"] = {"window_after_s": LB_ART_AFTER_S, "by_event": be, "missing": lbw_miss, "k6": ka.get("n"), "avail": aa.get("n"),
+                          "stall_secs": len(ka.get("stall_secs") or []), "total": (ka.get("n") or 0) + (aa.get("n") or 0)}
     # 락 표본
     pre = load(d / "pre-apply.json")
     ml = mlock_metrics(d, clk, ev, lives, windows, pre)
@@ -1243,6 +1314,7 @@ def campaign(root):
                 if len(v["D2"]) < 3:
                     ok_all = False
                     why.append("D2가 유효 3회 모두 계산되지 않음")
+            cell["lb_artifact"] = col(lambda s: (s.get("lb_artifact") or {}).get("total"))
             cell["explain"] = explain_cell(load_, proc, vr)
             res["cells"][f"{load_}-p{proc}"] = cell
         for lv in ("S4c", "S3e"):
@@ -1299,12 +1371,14 @@ def result_md(res, reps):
     L += ["", "## 2. 캠페인 유효 조건(P7 · P8)", ""]
     for k, v in res["campaign_valid"].items():
         L.append(f"- {k}: {v}")
-    L += ["", "## 3. 절차별 성공(§5.4)", "", "| 절차 | 성공 | J1 | J2 | J3 | D1 | D2 | D3 | K | 실패 항목 |", "|---|---|---|---|---|---|---|---|---|---|"]
+    L += ["", "## 3. 절차별 성공(§5.4)", "", "lb 아티팩트(§5.8-3b ⓐ) = lb reload 창의 코드 0 — D1·D2·실패 수에서 뺀 수(유효 회차 [최소–최대] · k6 + 가용성 탐침).", "",
+          "| 절차 | 성공 | J1 | J2 | J3 | D1 | D2 | D3 | lb 아티팩트 S4c | lb 아티팩트 S3e | K | 실패 항목 |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for p in range(1, 6):
         s = res["success"][p]
         v = s["values"]
+        la = lambda ld: rng((res["cells"].get(f"{ld}-p{p}") or {}).get("lb_artifact") or [])
         L.append(f"| {p} | {'성공' if s['success'] else '아님'} | {rng(v.get('J1', []))} | {rng(v.get('J2', []))} | {rng(v.get('J3', []))} | {rng(v.get('D1', []))} | "
-                 f"{rng(v.get('D2', []))} | {rng(v.get('D3', []))} | {plan13.K_FIXED[p][0]} | {'; '.join(s['why'][:6]) or '—'} |")
+                 f"{rng(v.get('D2', []))} | {rng(v.get('D3', []))} | {la('S4c')} | {la('S3e')} | {plan13.K_FIXED[p][0]} | {'; '.join(s['why'][:6]) or '—'} |")
     L += ["", "## 4. 전환 손해 칸별(§5.8-3 — 3회 합 T 틀림 / O 틀림 / 짝 수)", ""]
     for key, c in res["cells"].items():
         if "T_vs_O" in c:
@@ -1314,15 +1388,16 @@ def result_md(res, reps):
     L.append(f"- 후보: {sel['candidates']} → **{'고르지 않음(규칙 4)' if sel['picked'] is None else '절차 ' + str(sel['picked'])}**")
     for t in sel["trace"]:
         L.append(f"  - {t}")
-    L += ["", "## 6. TAIL(S4c 구간별 — 회차별)", "", "| 절차 | 회차 | 정지 초(old/trans/new) | 가장 긴 정지(trans) | 서버형 느린 초(old/trans/new) | 1초 p99 최대 ms(trans) | 5xx·502(trans) | P12 서버형 |",
-          "|---|---|---|---|---|---|---|---|"]
+    L += ["", "## 6. TAIL(S4c 구간별 — 회차별)", "", "| 절차 | 회차 | 정지 초(old/trans/new) | 가장 긴 정지(trans) | 서버형 느린 초(old/trans/new) | 1초 p99 최대 ms(trans) | 5xx·502(trans) | lb 아티팩트(k6·탐침 · 아티팩트 초) | P12 서버형 |",
+          "|---|---|---|---|---|---|---|---|---|"]
     for p in range(1, 6):
         for r, s in sorted((reps.get(("S4c", p)) or {}).items()):
             bi = (s.get("k6") or {}).get("by_interval") or {}
             g = lambda n, k: (bi.get(n) or {}).get(k)
+            la = s.get("lb_artifact") or {}
             L.append(f"| {p} | {r} | {g('old', 'stall')}/{g('trans', 'stall')}/{g('new', 'stall')} | {g('trans', 'stall_longest')} | "
                      f"{g('old', 'server_slow')}/{g('trans', 'server_slow')}/{g('new', 'server_slow')} | {g('trans', 'sec_p99_max_ms')} | "
-                     f"{g('trans', 'e5xx')}·{g('trans', 'e502')} | {((s.get('k6') or {}).get('P12') or {}).get('server_slow')} |")
+                     f"{g('trans', 'e5xx')}·{g('trans', 'e502')} | {la.get('k6')}·{la.get('avail')} · {la.get('stall_secs')} | {((s.get('k6') or {}).get('P12') or {}).get('server_slow')} |")
     return "\n".join(L) + "\n"
 
 

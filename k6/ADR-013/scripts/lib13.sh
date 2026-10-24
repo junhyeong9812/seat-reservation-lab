@@ -58,13 +58,20 @@ wait_health_url() {   # 인자: URL 시한초 — health UP까지(ADR-009 wait_h
 
 # lb 구성원(H2): include 파일을 다시 쓰고 nginx -t 통과 뒤에만 reload — 새 작업자가 뜰 때까지 본다(옛 작업자 pid 집합과 겹치지 않는 '살아 있는' 작업자).
 # 인자: 서비스 이름…(빈 인자 = 자리표시 서버만). 출력 한 줄 JSON {test_rc, reload_sent, effective, log_bytes, members}(서버 epoch) · 실패면 1(test 실패면 옛 파일로 되돌린다 — 설정은 그대로)
+# 구성원 include 렌더(단일 출처 — 원격에도 이 함수를 그대로 보낸다 · selftest가 렌더를 확인한다): 자리표시 서버는 늘 down ·
+#   앱 server 줄마다 max_fails=0(ADR-013 §5.8-3b ⓑ — 앱이 하나뿐인 구간에서 시한 초과 1회로 그 앱을 10초 빼는 nginx 기본 수동 장애 판정을 끈다.
+#   .164 스모크 ①에서 약 14초 100% 502 두 번 — 측정 대상이 아니다. 앱 생존은 하네스의 구성원 관리(health 확인 뒤 넣기)가 맡는다)
+lb_members_conf() {
+  local s
+  echo "server 127.0.0.1:9 down;"
+  for s in "$@"; do echo "server $s:8101 max_fails=0;"; done
+}
 lb_members() {
-  remote "bash -s -- $*" <<'REMOTE'
+  { declare -f lb_members_conf; cat <<'REMOTE'; } | remote "bash -s -- $*"
 c=seatlab-lb-1
 workers() { docker exec $c sh -c "ps -o pid,args | grep 'nginx: worker process' | grep -v 'shutting down' | grep -v grep | awk '{print \$1}'" | sort | tr '\n' ' '; }
 old=$(workers)
-members="server 127.0.0.1:9 down;"; for s in "$@"; do members="$members
-server $s:8101;"; done
+members=$(lb_members_conf "$@")
 if ! docker exec -i $c sh -c 'M=/etc/nginx/members/members.conf; cp $M $M.bak; cat > $M; if nginx -t > /tmp/nginx-t.log 2>&1; then exit 0; else cp $M.bak $M; exit 3; fi' <<< "$members"; then
   printf '{"test_rc":3,"test_log":"%s","members":"%s"}\n' "$(docker exec $c cat /tmp/nginx-t.log | tr -d '"\\' | tr '\n' ' ' | head -c 400)" "$*"
   exit 3
