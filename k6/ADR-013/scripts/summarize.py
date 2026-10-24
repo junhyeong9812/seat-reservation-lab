@@ -216,6 +216,8 @@ def main_csv(path, T0):
                     e["e502"] += 1
             if st in ("0", ""):
                 e["c0"] += 1
+                # 보낸 초(완료 − 지연) — lb 아티팩트는 보낸 시각으로 가른다(§5.8-3b ⓐ 정정: 빼기 창 안에서 보내 30초 시한으로 끝난 요청도 아티팩트)
+                e.setdefault("c0_ss", []).append(int(math.floor(s + 0.5 - dur / 1000.0)))
             if name != "hold":
                 return
             e["n"] += 1
@@ -287,12 +289,16 @@ def k6_metrics(per, T0, iv, load, k6_end_rel, t1_first, plan, lbw=()):
     # lb 아티팩트(§5.8-3b ⓐ): 초 [s, s+1)이 창과 겹치면 그 초의 코드 0 = 아티팩트 · 정지 초 중 hold 응답이 모두 코드 0인 초 = 아티팩트 초
     art, art_ev = {}, [0] * len(lbw)
     for s in secs:
-        i = lb_hit(lbw, s - T0, s + 1 - T0) if per[s]["c0"] else None
-        if i is not None:
-            art[s] = (i, per[s]["c0"])
-            art_ev[i] += per[s]["c0"]
+        if not per[s]["c0"]:
+            continue
+        hits = [lb_hit(lbw, ss - T0, ss + 1 - T0) for ss in per[s].get("c0_ss") or []]   # 보낸 초 [ss, ss+1)이 창과 겹치면 아티팩트
+        hits = [i for i in hits if i is not None]
+        if hits:
+            art[s] = (hits[0], len(hits))
+            for i in hits:
+                art_ev[i] += 1
     stall_raw = [s for s in grid if per.get(s, {}).get("c201", 0) == 0]
-    art_secs = [s for s in stall_raw if s in art and per[s]["n"] > 0 and per[s]["h0"] == per[s]["n"]]
+    art_secs = [s for s in stall_raw if s in art and art[s][1] == per[s]["c0"] and per[s]["n"] > 0 and per[s]["h0"] == per[s]["n"]]   # 그 초의 코드 0이 모두 아티팩트일 때만
     art_set = set(art_secs)
     stall = [s for s in stall_raw if s not in art_set]
     out["lb_artifact"] = {"n": sum(n for _, n in art.values()), "by_event": art_ev,
