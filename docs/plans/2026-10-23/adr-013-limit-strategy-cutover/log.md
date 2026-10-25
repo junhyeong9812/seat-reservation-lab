@@ -124,3 +124,45 @@
 ## 생략한 검증 (긴급 경로 빚 — DEBT=1인 동안 정본)
 
 - (없음)
+
+## 완료 요약 (2026-10-26 — 스니펫은 git 출력 그대로)
+
+**무엇이 됐나**
+- 주제: 운영 중 카운터 대조 구성 전환(ADR-009 구성 main 93dd610a → ADR-012 구성 · 기존 데이터 · 롤링 배포 · 앱 2대 혼재) — 질문의 일반형 = 트래픽을 받기 위해 구조를 더할 때 운영 중 데이터·스키마를 안전하게 전환하는 법(사용자 2026-10-23).
+- 측정: 캠페인 20261025-adr013-ed2af264 — 5절차(① 멈추고 바꾸기 · ② 그림자 · ③ 대조로 따라잡기 · ④ 트리거 먼저 · ⑤ 적용판 + 그림자) × S4c·S3e × 3 = 30회 유효(재측정 1) · 앞 캠페인 0b870178은 루프 결함(1회만 실행)으로 대체.
+- 결정: 기본 전환 절차 = **③**(정합 단 ③④ · 멈춤·꼬리 동률 · K 2 대 6) · ADR-012 기본값 유지 · 일반화 원칙 6(측정 범위/가설 구분).
+- 함께 고친 ADR-012 결함(사용자 결정 — 명세 §2 예외): 기존 데이터 위 첫 증분 창이 기존 행 전부를 읽음 → V9 값 m(attmissingval)인 행 제외 + 키셋 페이지(page-size 100,000) · INVALID 인덱스 마이그레이션 전 거부(bb7ecbd2 · blind ea6cd0b9 류 b7e05822).
+- 하네스 k6/ADR-013(새) · 운영 중 적용판 ops/online-v9(Flyway 밖 열→트리거→인덱스 CONCURRENTLY + 동치 확인 뒤 V9 이력).
+
+**핵심 diff**
+
+① `reconcile-core/.../IncrementalReconciler.kt` — 첫 창 m 제외(두 범위)·키셋
+```kotlin
+356: * - 페이지가 덜 찼다(다 읽음): `L = max(min(pending, next_k), t₀ − max-overlap − 1초)` — t₀ = 이 이어 읽기를 시작한 틱의 문장 1 시각(이어 읽기가 없으면 t₀ = t · pending 없음 → `L = next_k` — ADR-012 규칙 그대로).
+372:    /** 이어 읽기 상태(§4.11 ② — 틱 스케줄러 한 스레드만 take를 부른다): 키셋 위치 p · 최솟값 pending · t₀ · 이어진 틱 수 · 겹침 상한 넘김 WARN 여부 */
+475:                log.warn("증분 이어 읽기가 max-overlap({})보다 오래 이어진다 — 시작 {} · {}틱째 · page-size {} — 다 읽은 뒤 하한은 t₀ − max-overlap 앞으로 가지 않는다", inc.maxOverlap, t0, ticks, pageSize)
+479:            // 다 읽었다 — L = max(min(pending, next_k), t₀ − max-overlap − 1초)(재점검 NF-1)
+480:            val guard = t0.minus(inc.maxOverlap).minus(MARGIN)
+481:            if (pending.isBefore(guard)) {
+```
+
+② `ops/online-v9/` 파일 목록
+```
+ops/online-v9/01-column.sql
+ops/online-v9/02-function.sql
+ops/online-v9/02-trigger.sql
+ops/online-v9/03-index.sql
+ops/online-v9/04-catalog.sql
+ops/online-v9/05-history.sql
+ops/online-v9/apply.sh
+ops/online-v9/test-local.sh
+```
+
+③ `k6/ADR-013/scripts/campaign.sh` — 루프 결함 수정
+```bash
+173:# 계획 대 실행 대조 — 모든 자리에 status가 있어야 끝 집계로 간다(무음 금지 — 2026-10-25 루프가 1회 뒤 끝났는데도 집계로 갔다)
+```
+
+**검증**: 설계 선검증 듀얼(DS-1~16) + 재점검(NF-1·2) · 측정 전 고정 듀얼(S5-1~14) + 재점검(NF-1~4) · blind 8(구현 전 8 실패 → 구현 뒤 8/8) · 전체 테스트 700/0 · 코드 루프 3회(CR13-1~33 — 루프 3 신규 채택 3 → user override · L 4 user-deferred) · .164 스모크 6 + 재스모크 2(하네스 버그 3 수정) · 본측정 30회 · 결과 문서 듀얼(RD-1~9) + 재점검(신규 0 · RD-4 메인 정정).
+**배운 것**: ① 측정 전 고정 규칙도 실서버 사건 길이를 넣은 dry-run을 거쳐야 한다(탐침 경계 · 루프 stdin — 둘 다 dry-run이 사건 길이 0 · run.sh 미실행이라 못 잡음) ② lb·JVM 같은 측정 도구의 동작(reload 리셋 · max_fails · 차가운 JVM)이 절차 손해를 부풀린다 — 측정 대상과 도구 아티팩트를 측정 전에 갈라 둔다 ③ 리뷰가 조용한 실패 경로를 계속 찾으면 판정 입력을 한 곳에서 검증하는 구조로 바꾼다(비움 판정 3회째).
+**남은 빚**: 없음(DEBT=0). PR은 사용자 확인 대기(PR #11 미병합 — 대상 브랜치 결정 필요). 후속 = NEXT N0c.
