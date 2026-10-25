@@ -145,7 +145,7 @@ run_one() {   # 인자: rep load proc attempt
   echo "$(date -Is) RUN rep$1 $2 p$3 attempt$4" >> "$LOG"
   CAMPAIGN13=1 HARNESS_HASH13="$C13_HHASH" REPO_ROOT="$REPO" ADR13_DIR="$ADR13" bash "$SRC/run.sh" --sha "$SHA" --sha-new "${SHA_NEW:-$SHA}" \
     --images "$ROOT/images.json" --proc "$3" --load "$2" --rep "$1" --id "$CID" --attempt "$4" --k6-bin "$K6_BIN" --pg-tmpfs-size "$PG_TMPFS" \
-    --stmt-timeout "${STMT_S}s" >> "$ROOT/runner.log" 2>&1
+    --stmt-timeout "${STMT_S}s" < /dev/null >> "$ROOT/runner.log" 2>&1   # stdin 차단 — run.sh(ssh·docker)가 회차 루프의 here-string을 읽어 첫 회차 뒤 루프가 끝났다(2026-10-25 캠페인 1회만 실행)
   local st; st=$(st_of "$2" "$3" "$1")
   echo "$(date -Is) END rep$1 $2 p$3 attempt$4 ${st:-상태없음}" >> "$LOG"
   if [[ "$st" == *probe-nondeterministic* ]]; then
@@ -170,6 +170,9 @@ for att in 2 3; do
     run_one "$k" "$ld" "$p" "$att"
   done <<< "$ORDER"
 done
+# 계획 대 실행 대조 — 모든 자리에 status가 있어야 끝 집계로 간다(무음 금지 — 2026-10-25 루프가 1회 뒤 끝났는데도 집계로 갔다)
+missing=$(while read -r seq k ld p; do [[ -n "$(st_of "$ld" "$p" "$k")" ]] || echo "rep$k $ld p$p"; done <<< "$ORDER")
+if [[ -n "$missing" ]]; then echo "멈춤: 계획한 자리 중 실행되지 않은 회차 $(wc -l <<< "$missing")개 — $(tr '\n' ' ' <<< "$missing")" | tee -a "$LOG" >&2; exit 6; fi
 # 회차가 쓴 하네스 = 동결본(CR13-21): 모든 회차(앞 시도 포함) meta.json harness_hash 대조 — 다르면 집계하지 않고 멈춘다
 bad=$(for m in "$ROOT"/*/p*/rep*/meta.json; do [[ -f "$m" ]] || continue; [[ "$(jq -r '.harness_hash // ""' "$m")" == "$C13_HHASH" ]] || echo "$m"; done)
 if [[ -n "$bad" ]]; then echo "멈춤: 동결본과 다른 하네스 해시의 회차 — $bad" | tee -a "$LOG" >&2; exit 5; fi
