@@ -1,0 +1,121 @@
+# k6/ADR-014 — 홀드 만료 방식(A sweep · B lazy · C lazy-sweep · D derived) 측정 하네스
+
+설계·판정 기준: `docs/adr/ADR-014-hold-expiry.md` **'측정 전 고정 규칙'**(측정-0~12 — 리뷰 MR-1~17 · 결정 MQ1~10 반영) · §설계-8.3(방식별 기대값).
+ADR-009 하네스(`k6/ADR-009/scripts/lib.sh` · `scenarios/` · `compose.yml` · `compose.tmpfs.yml` · `compose.probe.yml`)는 **수정하지 않고** 동결 사본에서 source·`-f`로 쓴다(측정-3.6 · ADR-013 선례).
+측정 조건(측정-1): 서버 .164 · **앱 1대 · lb 없음**(k6 PC → 앱 8101 직접) · L4 · DB tmpfs 12g(DB 14g) · 앱 2g 세대형 ZGC · 카운터 구성 = 업무 앱 기본값 · 배치 주기 10초 · Flyway = 기본 위치 + `classpath:db/migration-seat-map`(V11) · 주입 없음 · `--probes` 켬 · 이미지 고정.
+
+## 구성
+
+| 파일 | 역할 |
+|------|------|
+| `scripts/plan14.py` | **계획의 단일 출처** — 셀(주 16 + 비용 4) · 순서(회차 우선 · 묶음 a20-t30 → a50-t30 → a20-t300 → a50-t300 → S4c4200 · 방식 ABCD를 (r + g) mod 4칸 회전) · 공통 난수 씨앗(= 회차 번호) · 셀 렌더(앱 설정 · k6 환경 · 탐침 일정 · 사용자·좌석 대역 · 판정 창) · 기대 설정(`--config-check`) · `--dry-run`(시작 조건 ③) · `--darr-extend`(시작 조건 ⑥ — MR-13 식) |
+| `scenarios/s14-flow.js` | 주 셀 한 실행 — 시나리오 `blind`(맹목 300/s) · `map`(지도 10/s — `GET /api/schedules/1/seats` → 보이는 AVAILABLE) · 재방문(이탈 세션이 자기 만료 e + δ에 같은 좌석 — 같은 반복 안) · `pr1`·`pr2`·`pr3`(탐침 회차 2). 고정 도착률 · 공통 난수 · 탐침 송신 직전 ms 기록(MR-2) · 원인 표지 헤더 집계 |
+| `scenarios/lib14.js` | 결정적 난수(FNV-1a + mulberry32 — (r, 흐름, 세션 번호)) · 세션 속성 해시(crn — MR-11) · 호출 · `X-Seatlab-Reject` 읽기 · 응답 분류(ADR-009 `common.js` errorCodeOf 재사용) |
+| `scenarios/warmup14.js` | 예열 — 선점 + 좌석 맵 + 확정, 회차 1·2, 20초(측정-3.6 · '차가운 JVM') |
+| 비용 셀 | `k6/ADR-009/scenarios/s4-throughput.js` 그대로(S4c4200 — 램프 60초 + 30초 × 12 · 시드 200회차) |
+| `compose.expiry.yml` | ADR-009 compose 위 오버레이 — 앱 이미지 고정(`seatlab-app:<sha8>` · `build: !reset null` · `pull_policy: never`) · `SPRING_APPLICATION_JSON`을 통째로(만료 방식 · TTL · 배치 주기 · Flyway 위치 · 풀). 카운터 키는 넣지 않는다 |
+| `scripts/run.sh` | 회차 하나: 내리기 → 이미지 확인 → 기동 → 예열 → 시드 · 시드 확인 → 표본기 → 시작 대기(87 ± 5초) → k6 · 측정기 → 직후 스냅숏(k6 끝 + 11초) → 수렴(TTL + 22초) → 끝 판정기 · 기록 덤프 → 수집 → `summarize.py --rep`. `--prepare-image` · `--dry-run` · `--simulate` · `--worktree`(스모크) |
+| `scripts/lib14.sh` | ADR-009 `lib.sh` source + compose 렌더 · 이미지 ID · 설정 수집 · 시드 확인 · 테이블 통계 · 앱−DB 시각 · 표본기 기동·복구 · 측정기(ADR-009 run.sh probes_start/stop 복사) |
+| `scripts/psql-sampler.sh` | 서버 쪽 표본기(표준 입력으로 보낸다 — 배포 불필요): `state` 1초(측정-5 머리 SQL + `sample_ms`) · `h4` 0.5초(`/* seatlab:h4-reclaim */` 활성·Lock 대기 — M10). 시작 시각 격자(간격이 쌓여 늘지 않게) |
+| `scripts/actsnap14.py` | 앱 지표 스냅숏 — `seat.hold.rejected{cause}` · `seat.hold.reclaim` · `seat.hold.expiry.{deleted,missing_pairs,skip_locked,revert,chunk,missing_mismatch,tick}` · 정리 ①. 카운터·틱·증분·안전망은 ADR-009 `actsnap.py`가 같은 시점에 |
+| `scripts/campaign.sh` | 60자리 · 시작 조건 ⓪~⑦ · `--sha` 동결(git archive · 해시) · 이어서 실행 대조 · 재측정(환경 2번 · 하네스 2번 따로) · 멈춤 규칙 · 루프 안 `run.sh < /dev/null` · 끝 집계 전 계획 대 실행 대조(exit 6) · `--dry-run` · `--simulate` · `--check` |
+| `scripts/hhash.sh` | 하네스 경로·해시 단일 출처(캠페인 동결본 대 회차 원본 대조) |
+| `scripts/summarize.py` | `--rep`(회차 사유 → status · 지표 M1~M14 · 방식 위반 자료) · 캠페인(성공 · 고르는 규칙 1~4단 · 관문 G1~G4 · 결론 · 가설 자료 · `RESULT.md`) · `--crn-check` · `--early-check` · `--sample-cost` · `--r0`. **판정 입력은 `Inputs` 한 곳에서 읽고 검증** — 결측은 0이 아니라 그 입력의 사유(INPUT_REASON)로 무효 · 캠페인에서 None은 판정 불가 |
+| `scripts/selftest.py` | 가짜 원자료 단위 확인(회차 사유 · 판정 불가 · 고르는 규칙 분기) · `--campaign` = `campaign.sh --simulate` 루프 시험(60자리 · stdin · 재측정 상한 · `--check`) |
+
+### compose를 사본이 아니라 오버레이로 둔 이유
+앱 1대 · lb 없음이라 ADR-013의 혼재 오버레이(`app2` · lb · nginx)는 쓸 데가 없다. db · redis · 앱 자원 · JVM 옵션 · `ApplicationName=seatlab-app`(대기 표본 `by_src`의 `app` 갈래 — env-stall ①) · tmpfs · 서버 측정기가 **ADR-009 정의 그대로여야** ADR-009·012·013 결과와 조건이 같고, 바꿀 것은 앱 `SPRING_APPLICATION_JSON` 하나와 이미지 고정뿐이다. 사본을 두면 같은 정의가 두 곳에 생긴다. `nginx.conf`는 두지 않는다.
+
+## 셀 · 시간(측정-2 — 값은 plan14.py)
+
+| 셀 | 이탈 | TTL | 생각 시간 | D_arr | gracefulStop | 수렴 | 탐침 칸 | 탐침 수(PR-1 · PR-2 · PR-3) | 회차 추정 |
+|---|---|---|---|---|---|---|---|---|---|
+| a20-t30 | 0.2 | 30초 | 3–24초 | 240초 | 10초 | 52초 | [10, 185) · 1/s | 175 · 175 · 175 | 약 8분 |
+| a50-t30 | 0.5 | 30초 | 3–24초 | 360초 | 10초 | 52초 | [10, 305) · 1/s | 295 · 295 · 295 | 약 10분 |
+| a20-t300 | 0.2 | 5분 | 30–240초 | 1,200초 | 330초 | 322초 | [60, 875) · 0.25 · 0.25 · 0.2/s | 204 · 204 · 163 | 약 29분 |
+| a50-t300 | 0.5 | 5분 | 30–240초 | 2,220초 | 330초 | 322초 | [60, 1895) | 459 · 459 · 367 | 약 46분 |
+| S4c4200 | — | 60분 | — | 램프 60 + 360초 | — | — | — | — | 약 13분 |
+
+합계 60회 · 약 21.3시간(추정) + 재측정 · 스모크. 사용자 대역: 맹목 1,000,000+ · 지도 3,000,000+ · PR-1 5,000,000+ · PR-2 6,000,000+ · PR-3 u 7,000,000+ · v 8,000,000+ · 예열 9,000,000+. 탐침 좌석(회차 2 = 10,001~20,000): PR-1 10,001+ · PR-2 11,001+(3석씩) · PR-3 13,001+.
+
+## 실행 순서(서버 .164 — 메인)
+
+```bash
+# 0) 접속 없음
+python3 k6/ADR-014/scripts/selftest.py --campaign                      # 요약기·판정 규칙 · 캠페인 루프(서버 없음)
+python3 k6/ADR-014/scripts/plan14.py --dry-run                          # 60자리 · 탐침 마지막 요청 < D_arr − 5초(시작 조건 ③)
+k6/ADR-014/scripts/campaign.sh --sha <SHA> --dry-run                     # 계획 · 시작 조건 ⓪~⑦ 줄
+k6/ADR-014/scripts/run.sh --dry-run --sha <SHA> --method C --cell a50-t30 --rep 1 --id x   # 회차 하나의 명령줄 · 경로
+# 1) 이미지 고정(캠페인 전에 한 번)
+k6/ADR-014/scripts/run.sh --prepare-image --sha <SHA> --out k6/ADR-014/results/images-<SHA>.json
+# 2) 스모크(시작 조건 ①) — 네 방식 × a50-t30 + A·D × S4c4200 (--worktree 가능)
+for m in A B C D; do k6/ADR-014/scripts/run.sh --sha <SHA> --images <images.json> --method $m --cell a50-t30 --rep 1 --id smoke14-<날짜>; done
+for m in A D; do k6/ADR-014/scripts/run.sh --sha <SHA> --images <images.json> --method $m --cell S4c4200 --rep 1 --id smoke14-<날짜>; done
+python3 k6/ADR-014/scripts/summarize.py --sample-cost k6/ADR-014/results/smoke14-<날짜>/a50-t30/*/rep1   # 시작 조건 ⑤ — 표본 비용 c_X · Δc
+python3 k6/ADR-014/scripts/summarize.py --r0 k6/ADR-009/results                                        # R₀(과거 S3-a20 L4 tmpfs 3회 묶음 DB CPU 범위의 최소)
+python3 k6/ADR-014/scripts/plan14.py --darr-extend '{"a50-t30": <T95 최대>, …}'                        # 시작 조건 ⑥ — 늘릴 셀이 있으면 knobs.json으로
+# 3) 캠페인 스모크(시작 조건 ② — 두 자리 이상): 별도 --id로 campaign.sh를 돌리고 두 자리가 실행된 것을 본 뒤 멈춘다
+# 4) 캠페인
+k6/ADR-014/scripts/campaign.sh --sha <SHA> --images <images.json> --start-conditions <json> [--knobs <knobs.json>]
+```
+
+시작 조건 JSON(측정-9 ⓪~⑦ — 판정은 `campaign.sh cond_lines`):
+`{"smoke":{"done":true,"dirs":[…]},"campaign_smoke":{"done":true},"pc_check":{"done":true,"docker_ps":"…"},"impl_verify":{"done":true,"R0":…,"delta_c":…,"sample_method":"그대로|변경|분리","env_stall_freq":…,"vu_max":{…}},"concurrency_green":{"done":true,"sha":"<SHA>"}}`
+③ dry-run은 JSON이 아니라 `plan14.py --dry-run`을 직접 계산한다. ⑥ knobs(`{"d_arr":{…},"map_rate":…,"max_vus":{…},"state_expired_every_s":1|10}`)는 plan.json에 고정되고 이어서 실행 때 다르면 멈춘다.
+
+## 결과 폴더
+
+```
+k6/ADR-014/results/<id>/
+  order.txt · plan.json · knobs.json · images.json · start-conditions.{json,log} · CAMPAIGN.log · MATRIX.log · runner.log · crn-check.json · result.json · RESULT.md
+  <셀>/<방식 A|B|C|D>/rep<k>/            (재측정 앞 시도 = rep<k>.attempt<n>/)
+    plan.json · meta.json · status · rep-summary.json · harness-reasons.txt · errors.log
+    k6-requests.csv.gz · k6-summary.json · k6-window.json · pre-k6.json · clock-offset.json · k6-stdout.log.gz · warmup.log
+    timeline-seatstate.jsonl(1초 상태 — 주 셀) · timeline-h4.jsonl(0.5초 — 주 셀) · timeline-waits.jsonl · timeline-locks.jsonl(0.5초) · timeline-hikari.jsonl(1초)
+    timeline-server.jsonl(docker stats 10초) · timeline-client.jsonl · sampler-recovery.txt
+    seed.json · seed-check.json · app-config.json · limit-key.json · pg-settings.json · db-state-{seed,k6}.json · io-{before,after}.json · pg-storage*.json
+    table-{before,after,end}.json · act14-{before,after-k6,end}.json · drift-{before,after-k6,end}.json · drift-db.json · consistency.json · app-db-clock-{before,after}.json
+    probe-status.json · probe-check.json · k6-probe-{pc,server}.csv.gz · app.log.gz · db.log.gz · gc.log.gz · gc.json · app-jvm.json · logs-status.txt · gc-status.txt
+```
+
+## 회차 status · 사유(측정-9)
+
+`ok`(유효 — 방식 실패는 `rep-summary.json` `violations`) · `invalid:<사유,…>`(하네스 — 재측정). `invalid:env-stall`만이면 환경 상한(자리마다 2번 — 하네스 2번과 따로).
+
+| 사유 | 어디서(입력 → 계산) |
+|------|------|
+| `pre-k6-mismatch` · `pre-k6-overrun` | `pre-k6.json` seed_done → k6 `setup_data.startedAt`(t0) ∉ 87 ± 5초 · run.sh abort14 |
+| `cond-config-mismatch` · `expiry-mode-mismatch` · `ttl-mismatch` · `cond-config-missing` | `app-config.json` → `plan14.config_check`(카운터 = 업무 앱 기본값 · 방식 · TTL · 주기 10초 · Flyway 4위치 · 풀 10) · 판정기 `expiry_mode` |
+| `limit-key-present` · `limit-key-missing` | `limit-key.json`(ADR-009 limit_key_check — 매수·카운터 키 0) |
+| `seed-mismatch` · `seat-map-index-missing` | `seed-check.json`(회차·좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 0 · `idx_product_seat_schedule_id` · Flyway V11) |
+| `crn-mismatch` | `summarize.py --crn-check`(같은 (회차, 셀) 방식 사이 crn 합이 다수와 다름 → status에 더함 — campaign.sh가 끝 대조 전에 부른다) |
+| `state-sampler-gap` | `timeline-seatstate.jsonl` → `state_metrics`(창 양끝 포함 간격 > 3초 · 수 < 창 초 × 0.95 · 파일 없음) |
+| `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초) — 비용 판정 전에 무효 |
+| `dropped-iterations` | CSV `dropped_iterations` 창 안(주 흐름 시나리오) |
+| `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감 · 칸 < 계획 절반) |
+| `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음) |
+| `table-stats-missing` | `table-{before,after,end}.json`(P6 — 비용 셀은 end 없음) |
+| `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17) |
+| `env-stall` | CSV 초별 응답 0이 5초 이상 연속 → `classify_chunk`: 서버 측정기 무응답 > 5초 ∧ GC 정지 < 100ms ∧ ① 대기 표본(공백 ≤ 1초) `app|Lock:*` 0 ∧ ②③ Hikari(앞·안·뒤) pending 0 · active < 최대 |
+| `reconcile-missing` | `drift-db.json` reconcile_runs(시드 뒤 `inc-*` · `safety*` 0 — P8 생존) |
+| `gc-log-missing` · `container-log-missing` · `probe-missing` · `path-gap` · `waits-gap` · `drift-*` · `cleanup-errors` · `end-check-failed` · `k6-exit-N` · `schedule-closed-seen` | ADR-009 회차 합격 사유(S3e·S3c·C·F 전용 제외) 대응 — 아래 해석 메모 6 |
+
+판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · 비용 셀 dropped.
+
+## 해석 메모(구현에서 정한 것 — 메인 확인 필요)
+
+1. **재방문은 시나리오가 아니다** — 이탈 세션이 같은 반복에서 e + δ까지 잔다(VU를 그만큼 쥔다). 그래서 재방문의 `dropped_iterations`는 따로 없고, 흐름별 VU 최대는 k6 `vus`(시나리오 태그 없음) 대신 스모크에서 `iteration_duration` 행으로 재구성해야 한다(#25).
+2. **crn 해시** = 흐름마다 세션별 FNV 20비트 해시 두 개의 합 + 세션 수(순서 무관 · 실행된 세션 집합의 함수). '(흐름, 세션 번호) 순 이어 붙임'과 같은 것을 잡되 세션마다 태그를 달지 않는다(시계열 수십만 개 방지).
+3. **A의 탐침 nowait도 배치 잠금 409로 센다** — A 배치도 좌석 행을 UPDATE한다(측정-5 M3는 C만 적었다 · B·D의 nowait는 분류 불가 → 판정 409). A는 후보가 아니라 G2(b) 비교(M3 합)에만 쓰인다.
+4. **탐침 k6 duration = (계획 수 − 0.5) × 주기** — 정수배면 경계 반복이 하나 더 시작됐다(로컬 흉내 서버 시험). 시작 시각은 계획 그대로.
+5. **M11 창**: 데드락 = `db.log`의 `deadlock detected` 줄 중 창 안(시각을 못 읽으면 k6 구간 증분) · 틱 실패 · `:missingIds` 롤백 = k6 직전 → 직후 증분(gracefulStop 포함 — 창보다 넓다: 실패 쪽으로 보수적).
+6. **ADR-009 회차 합격 사유 중 구현한 것**: pre-k6 · cond-config · limit-key · gc-log · container-log · drift-snap/db/incomplete/record · cleanup-errors · probe-missing · path-gap · waits-gap · k6-exit · schedule-closed-seen(탐침 코드만 — 주 흐름 409는 본문을 읽지 않는다) · 마감 시각 경계(run.sh). **빠진 것**: `borrow-not-one`(빌림 비 — 앱 지표 조합 필요) · S2·S7 끝 상태 · io-timing-off 등 ADR-006·007 디스크 사유(tmpfs 고정이라 판정에 쓰지 않음).
+7. **상태 기대값(§설계-8.3) 0이 아닌 칸의 `expect-mismatch`**는 수렴 뒤 값으로 본다 — A 5행 = 0 · B 8행 > 0 · B 5행 > 0 · C 5행 ≤ 건너뜀(c2 + h4b) · C 6행 ≤ h4b.
+8. **P7 판정 불가 '재선점 0'**은 '남의 (만료) 홀드 뒤 같은 좌석 201'(k6 재구성) 3회 · 주 셀 합으로 센다(남은 만료 행 여부는 k6로 알 수 없다).
+9. **결론**: 관문을 넘은 후보가 있어도 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ)가 있으면 '판정 불가 → 사용자 보고'(잠정 결과 함께).
+10. **H4 표지가 표본에 안 보이면** 무효가 아니라 `h4-marker-unseen` 이름표(측정-5 M10은 app-metric-missing이라 적었다 — ms 단위 문장이라 0.5초 표본이 우연히 놓칠 수 있다. #24 스모크로 정한다).
+11. **원인 표지 대조는 같은 값이어야 한다** — gracefulStop이 HTTP 요청 도중을 끊으면 앱만 센 409가 생길 수 있다(스모크에서 차이가 보이면 보고).
+
+## 스모크에서 확인할 것(`[구현 검증]` — 측정-11 #15~#25 · §설계-10 #1·#10·#11)
+
+#15 좌석 맵 응답 크기 · PC 수신량 · k6 PC CPU(지도 JSON 파싱) · #16 상태 표본 `sample_ms`(1초 간격 · 표본 수 0.95) · #17 탐침 ε 분포 · #18 `n_tup_upd` 반영 지연(직후 대 + 60초) · #19 앱 지표 이름·태그(actsnap14 `names_present`) · #20 crn 같음 · #21 a50-t30 T95 · #22 `X-Seatlab-Reject` 헤더 · 지표 증분 일치 · C의 nowait · #23 env-stall DB 쪽 표본 · #24 H4 표지 · #25 docker stats DB 행 간격 · 흐름별 VU 최대 · #11 앱−DB 시각(`app-db-clock-*.json`).
