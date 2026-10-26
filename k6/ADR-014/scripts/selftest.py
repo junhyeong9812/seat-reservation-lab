@@ -14,7 +14,10 @@
  ⑫ V11 인덱스 없음 → seat-map-index-missing ⑬ GC 로그 없음 → gc-log-missing ⑭ 증분·안전망 기록 0 → reconcile-missing ⑮ 비용 셀 → ok(상태 표본·탐침 사유 없음)
  ⑯ 409 원인: B·D의 nowait = 판정 409 + 분류 불가 · C의 nowait = 배치 잠금 409 ⑰ 상태 기대값 문턱(D 5행 · A·D 6행) ⑱ crn-mismatch(같은 회차 방식 사이 다수와 다름)
  ⑲ 캠페인: 모두 성공 → 2단 T95로 빠짐 · 3단 ≫(비겹침 + 10%) · 4단 D > B > C · 순환 처리 · G2(b)는 P3 유효일 때만 · G3 걸리면 다음 순위
- ⑳ 판정 불가: P7 재선점 0 · 'A도 같은 문턱'(P12) · 환경 상한 소진 → 결론 '판정 불가' · 유효 회차의 값 None → 비교에서 판정 불가(0으로 보지 않음)"""
+ ⑳ 판정 불가: P7 재선점 0 · 'A도 같은 문턱'(P12) · 환경 상한 소진 → 결론 '판정 불가' · 유효 회차의 값 None → 비교에서 판정 불가(0으로 보지 않음)
+ ㉑ 코드 리뷰 루프 2: 정합 문턱 열 결측·숫자 아님(CR14-8) · 시계 차 rtt_s(CR14-9) · 첫 선점 409 → probe-incomplete(CR14-10) · PR-3 실행 = 송신 수(CR14-11) ·
+    h4-sampler-missing(CR14-12) · 창 끝 스냅숏 · P12 창 안 증분(CR14-13) · warmup-failed · 예열 상태 분포(CR14-14) · P5 판정 불가 · P6·P9 반증 · 정합 위반 · G2(c) ·
+    상태 문턱 6·7·8행 'A도 같은 문턱' · --early-check(CR14-15) · G3 판정 불가 결론(CR14-18) · 재선점 기회 넓은·좁힌 값(CR14-19) · RESERVED ↔ 확정 짝 위반(CR14-20)"""
 import gzip
 import json
 import shutil
@@ -65,7 +68,12 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
     wj(d / "meta.json", {"rerun": False, "attempt": 1})
     wj(d / "k6-summary.json", {"setup_data": {"startedAt": T0 * 1000}})
     rtt = kw.get("rtt", 0.002)
-    wj(d / "clock-offset.json", {"before": {"offset_s": OFF, "rtt_s": rtt}, "after": {"offset_s": OFF + 0.001, "rtt_s": 0.002}})
+    before = {"offset_s": OFF, "rtt_s": rtt}
+    if kw.get("rtt_missing"):
+        del before["rtt_s"]
+    wj(d / "clock-offset.json", {"before": before, "after": {"offset_s": OFF + 0.001, "rtt_s": 0.002}})
+    if not kw.get("no_warmup"):
+        wj(d / "warmup-status.json", {"rc": kw.get("warmup_rc", 0), "by_status": {"warm-hold:201": 2000}, "n": 2000})
     wj(d / "pre-k6.json", {"seed_done_epoch": T0 - 87.0})
     wj(d / "k6-window.json", {"exit": 0, "k6_started": iso(T0), "k6_ended": iso(T0 + 300)})
     hold = {"expiryMode": kw.get("cfg_mode", plan14.MODE_ENUM[method]), "ttl": kw.get("cfg_ttl", f"PT{plan['ttl_s']}S"), "expiryInterval": "PT10S",
@@ -128,8 +136,11 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
                 def prow(step, st, code, sent, plan_ms, rej="", ee=""):
                     return cnt("probe", sent / 1000, pr, f"{base}&step={step}&st={st}&code={code}&rej={rej}&sent={int(sent)}&plan={plan_ms}&e={ee}&rt=3")
                 setups = ["h0"] if pr == "pr1" else ["h0a", "h0b"] if pr == "pr2" else ["u0"]
+                rejected = kw.get("setup_reject") == (pr, i)   # 첫 선점이 5xx가 아닌 이유(409)로 실패 → 판정 요청이 나가지 않는다(CR14-10)
                 for sp in setups:
-                    rows.append(prow(sp, "201", "OK", st0 * 1000, "", ee=int(e)))
+                    rows.append(prow(sp, "409" if rejected else "201", "SEAT_NOT_AVAILABLE" if rejected else "OK", st0 * 1000, "", ee=int(e)))
+                if rejected:
+                    continue
                 skew = kw.get("skew", {}).get((pr, str(float(dd))), 0)
                 if kw.get("skip_judged") == (pr, i):
                     continue
@@ -170,17 +181,23 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
     (d / "timeline-server.jsonl").write_text("\n".join(srv) + "\n")
     cons = {"expiry_mode": plan["mode"], "v_counter_mismatch": 0, "v_over_limit_users": 0, "v_duplicate_confirmed_seats": 0, "double_sold_seats": 0,
             "multi_active_seats": 0, "held_no_active": kw.get("held_no_active_end", 0), "active_not_held": 0, "active_on_reserved_seats": 0,
-            "expired_hold_rows": 5 if method == "B" else 0, "v_held_without_hold": kw.get("held_without_hold", 0), "confirmed": 25 + 87}
+            "expired_hold_rows": 5 if method == "B" else 0, "v_held_without_hold": kw.get("held_without_hold", 0), "confirmed": 25 + 87,
+            "v_reserved_without_confirmed": kw.get("reserved_without_confirmed", 0), "v_confirmed_on_unreserved_seat": 0}
+    if kw.get("cons_drop"):
+        del cons[kw["cons_drop"]]
+    cons.update(kw.get("cons_set", {}))
     wj(d / "consistency.json", cons)
     runs = [] if kw.get("no_reconcile") else [{"source": "inc-app-trg-1s", "started_at": iso(T0 + OFF + 1)}, {"source": "safety-app", "started_at": iso(T0 + OFF + 30)}]
     wj(d / "drift-db.json", {"drift_log_total": 0, "drift_log": [], "reconcile_runs": runs})
     for f in ("before", "after-k6", "end"):
         wj(d / f"drift-{f}.json", {"tick": {"ok": 1, "failed": 0}, "drift_record_failed": 0, "cleanup": {"errors": 0}})
     app_rule = rej_rule + kw.get("app_rule_extra", 0)
-    for f, rr in (("before", 0), ("after-k6", app_rule), ("end", app_rule)):
-        if kw.get("no_act") and f == "after-k6":
+    tf_in, tf_out = kw.get("tick_failed_win", 0), kw.get("tick_failed_outside", 0)   # 틱 실패 — 판정 창 안 · 창 끝 뒤(CR14-13)
+    for f, rr, tf in (("before", 0, 0), ("window-end", app_rule, tf_in), ("after-k6", app_rule, tf_in + tf_out), ("end", app_rule, tf_in + tf_out)):
+        if kw.get("no_act") and f == "after-k6" or kw.get("no_wend") and f == "window-end":
             continue
-        wj(d / f"act14-{f}.json", {"rejected": {"rule": rr, "nowait": 0}, "tick": {"ok": 10, "failed": 0}, "reclaim": {"COUNT": 0, "TOTAL_TIME": 0, "MAX": 0},
+        snap_t = {"t": iso(w1 + kw.get("wend_lag", 3.0)), "t_end": iso(w1 + kw.get("wend_lag", 3.0) + 0.5)} if f == "window-end" else {}
+        wj(d / f"act14-{f}.json", {**snap_t, "rejected": {"rule": rr, "nowait": 0}, "tick": {"ok": 10, "failed": tf}, "reclaim": {"COUNT": 0, "TOTAL_TIME": 0, "MAX": 0},
                                    "deleted": {"reclaim": 0, "batch": 0}, "missing_pairs": {"reclaim": 0, "batch": 0}, "skip_locked": {"c2": 0, "h4b": 0},
                                    "revert": {"reclaim.reverted": 0, "reclaim.kept_active": 0, "batch.reverted": 0, "batch.kept_active": 3 if f != "before" else 0},
                                    "chunk": {"ok": 0, "failed": 0}, "missing_mismatch": 0})
@@ -222,6 +239,8 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
             st.append(json.dumps({"t": iso(t), "db_now": iso(t), "reserved": res, "free_by_rule": 10000 - res, "held_no_active": hna, "active_not_held": 0,
                                   "multi_active": 0, "active_on_reserved": 0, "expired_rows": 4, "sample_ms": 12.5}))
         (d / "timeline-seatstate.jsonl").write_text("\n".join(st) + "\n")
+    if plan["kind"] == "main" and not kw.get("no_h4"):
+        (d / "timeline-h4.jsonl").write_text("\n".join(json.dumps({"t": iso(T0 + OFF + i / 2), "h4_active": 0, "h4_lock": 0}) for i in range(10)) + "\n")
     return d
 
 
@@ -341,7 +360,75 @@ def run(tmp):
     stc = (root / "a20-t30" / "C" / "rep1" / "status").read_text().strip()
     sta = (root / "a20-t30" / "A" / "rep1" / "status").read_text().strip()
     check("⑱ 다수와 다른 방식 → crn-mismatch · 나머지 그대로", stc == "invalid:crn-mismatch" and sta == "ok", stc + " / " + sta)
+    rep_round2(tmp)
     campaign_rules(tmp)
+    campaign_round2(tmp)
+    early_check_rules(tmp)
+
+
+# ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
+def rep_round2(tmp):
+    base = rep(make_rep(tmp / "r2-ok"))
+    check("㉑ 정상 회차에 새 분기 사유·이름표 없음(h4-sampler-missing · warmup-failed · 창 끝 스냅숏)",
+          base["status"] == "ok" and not any("h4-sampler-missing" in f for f in base["flags"]) and 0 <= base["metrics"]["wend_lag_s"] <= S.WEND_LAG_MAX_S,
+          base["status"] + json.dumps(base["flags"], ensure_ascii=False))
+    # CR14-8 — 정합 문턱 열: 없음 · None · 숫자 아님 → end-check-failed(0으로 채우지 않는다)
+    for name, kw in (("열 없음", {"cons_drop": "double_sold_seats"}), ("None", {"cons_set": {"multi_active_seats": None}}),
+                     ("문자열", {"cons_set": {"v_over_limit_users": "0"}}), ("bool", {"cons_set": {"v_counter_mismatch": False}}),
+                     ("새 열 없음(CR14-20)", {"cons_drop": "v_confirmed_on_unreserved_seat"})):
+        s = rep(make_rep(tmp / f"r2-cons-{len(name)}-{list(kw)[0]}", **kw))
+        check(f"CR14-8 정합 문턱 열 {name} → end-check-failed · 정합 자료 없음", "end-check-failed" in s["reasons"] and "integrity" not in s["violations"],
+              s["status"] + json.dumps(s["missing_inputs"], ensure_ascii=False))
+    # CR14-9 — 시계 차 rtt_s
+    s = rep(make_rep(tmp / "r2-rtt-none", rtt_missing=True))
+    check("CR14-9 앞 시계 차 표본 rtt_s 없음 → clock-offset-bad", "clock-offset-bad" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "r2-rtt-neg", rtt=-0.001))
+    check("CR14-9 rtt_s 음수 → clock-offset-bad", "clock-offset-bad" in s["reasons"], s["status"])
+    # CR14-10 — 첫 선점 409 → 판정 요청 안 나감 → probe-incomplete · 원인 이름표는 남긴다
+    s = rep(make_rep(tmp / "r2-setup", setup_reject=("pr1", 3)))
+    pm = s["metrics"]["probe"]
+    check("CR14-10 탐침 첫 선점 409(5xx 아님) → probe-incomplete · setup_rejected · probe-anomaly 이름표",
+          "probe-incomplete" in s["reasons"] and pm["setup_rejected"] and any("첫 선점 409" in x for x in pm["judged_missing"])
+          and any("probe-anomaly" in f for f in s["flags"]), s["status"] + json.dumps(pm["judged_missing"], ensure_ascii=False))
+    # CR14-11 — PR-3 실행 = 송신된 판정 요청 수
+    pr3 = base["metrics"]["probe"]["pr3"]
+    check("CR14-11 정상 회차 PR-3 송신 = 계획", pr3["sent"] == pr3["planned"] == 175 and pr3["executed"] == 175, json.dumps(pr3, ensure_ascii=False))
+    s = rep(make_rep(tmp / "r2-pr3", skip_judged=("pr3", 5)))
+    check("CR14-11 PR-3 판정 요청 하나 안 나감 → 송신 < 계획 · probe-incomplete", s["metrics"]["probe"]["pr3"]["sent"] == 174 and "probe-incomplete" in s["reasons"], s["status"])
+    # CR14-12 — 주 셀 H4 표본 파일 없음 → 이름표만
+    s = rep(make_rep(tmp / "r2-h4", no_h4=True))
+    check("CR14-12 주 셀 timeline-h4.jsonl 없음 → h4-sampler-missing 이름표(유효)", s["status"] == "ok" and any("h4-sampler-missing" in f for f in s["flags"]), s["status"])
+    # CR14-13 — 판정 창 끝 스냅숏 · P12 창 안 증분
+    s = rep(make_rep(tmp / "r2-wend-none", no_wend=True))
+    check("CR14-13 창 끝 스냅숏 없음 → app-metric-missing · P12 틱 실패 판정 불가", "app-metric-missing" in s["reasons"] and "tick_failed" in s["violations"]["p12_unknown"], s["status"])
+    s = rep(make_rep(tmp / "r2-wend-early", wend_lag=-1.0))
+    check("CR14-13 창 끝 스냅숏이 창 끝보다 이르다 → app-metric-missing", "app-metric-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "r2-wend-late", wend_lag=S.WEND_LAG_MAX_S + 5))
+    check("CR14-13 창 끝 스냅숏이 창 끝 + 10초보다 늦다 → app-metric-missing", "app-metric-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "r2-tick-out", tick_failed_outside=2))
+    check("CR14-13 창 밖(창 끝 뒤) 틱 실패 → P12 아님 · 기록만",
+          s["status"] == "ok" and "tick_failed" not in s["violations"]["p12"] and s["metrics"]["app"]["tick_failed_outside"] == 2 and s["metrics"]["app"]["tick_failed_k6"] == 2,
+          json.dumps(s["violations"]["p12"]) + json.dumps(s["metrics"]["app"]))
+    s = rep(make_rep(tmp / "r2-tick-in", tick_failed_win=1))
+    check("CR14-13 창 안 틱 실패 → P12 tick_failed", s["status"] == "ok" and s["violations"]["p12"].get("tick_failed") == 1, json.dumps(s["violations"]["p12"]))
+    # CR14-14 — 예열
+    s = rep(make_rep(tmp / "r2-warm-rc", warmup_rc=1))
+    check("CR14-14 예열 k6 rc ≠ 0 → warmup-failed", "warmup-failed" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "r2-warm-none", no_warmup=True))
+    check("CR14-14 예열 기록 없음 → warmup-failed(무음 통과 아님)", "warmup-failed" in s["reasons"], s["status"])
+    wcsv = tmp / "warm.csv.gz"
+    with gzip.open(wcsv, "wt") as f:
+        f.write(HEAD + "\n" + "\n".join([http(T0, "warm-hold", "201", "hold")] * 3 + [http(T0, "warm-hold", "409", "hold"), cnt("iterations", T0, "hold", "")]) + "\n")
+    w = S.warmup_status(wcsv, 0)
+    check("CR14-14 예열 상태 분포(이름:상태별 수)", w == {"rc": 0, "by_status": {"warm-hold:201": 3, "warm-hold:409": 1}, "n": 4}, json.dumps(w))
+    check("CR14-14 예열 CSV 없음 → 분포 None · rc는 그대로", S.warmup_status(tmp / "nope.csv.gz", 2) == {"rc": 2, "by_status": None, "n": None})
+    # CR14-19 — P7 재선점 기회 넓은 값 · 좁힌 값(재선점 = 앞 만료 + 3초 < 배치 주기 10초)
+    fl = base["metrics"]["flow"]
+    check("CR14-19 재선점 기회 넓은 값 · 좁힌 값 둘 다", fl["rehold_other"] == 25 and fl["rehold_other_narrow"] == 25, json.dumps(fl, ensure_ascii=False)[:200])
+    # CR14-20 — 좌석 RESERVED ↔ 확정 짝 위반 → 정합 위반
+    s = rep(make_rep(tmp / "r2-resv", reserved_without_confirmed=1))
+    check("CR14-20 v_reserved_without_confirmed > 0 → 정합 위반(유효 회차의 방식 실패 자료)",
+          s["status"] == "ok" and s["violations"]["integrity"].get("reserved_without_confirmed") == 1, json.dumps(s["violations"].get("integrity")))
 
 
 # ---- 캠페인 판정(가짜 회차 요약) ----------------------------------------------------------------------------------------------------
@@ -351,13 +438,18 @@ def fake(m, c, r, **o):
     s = {"status": "ok", "reasons": [], "metrics": {"rep": r, "method": m, "cell": c,
          "state": {"T95": t95, "W": (50.0 if m == "A" else 0.0) if o.get("w") is None else o["w"], "L_A": 5.0, "c_pct": 1.0, "expired_end_window": 10},
          "probe": {"m3": {"n409": o.get("m3", {}).get(m, 10 if m == "A" else 0), "batch": o.get("m3b", {}).get(m, 0), "den": 100,
-                          "unfair_d13": 5 if m == "A" else 0, "by_delta": {}}, "pr3": {"executed": 100, "planned": 100}},
+                          "unfair_d13": o.get("a_unfair", 5) if m == "A" else 0, "by_delta": {}},
+                   "pr3": {"sent": o.get("pr3_sent", {}).get((m, c, r), 100), "executed": 100, "planned": 100}},
          "p99": {"cost_hold": cost, "hold_201": cost, "confirm_200": cost, "seatmap_200": cost}, "db_cpu": {"mean": o.get("cpu", {}).get(m, 100.0) + r},
-         "flow": {"rehold_other": o.get("rehold", 5), "abandoned": 10, "revisit": {"n201": 1}}, "app": {"kept_active": 3}},
-         "violations": {"integrity": {}, "state": [], "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": [], "p4_judge409": 0, "p9_early_not200": 0,
-                        "p6": {"violated": False} if m == "D" else None}}
+         "flow": {"rehold_other": o.get("rehold", 5), "rehold_other_narrow": 2, "abandoned": 10, "revisit": {"n201": 1}},
+         "app": {"kept_active": o.get("kept", {}).get(m, 3)}},
+         "violations": {"integrity": dict(o.get("integ", {}).get((m, c), {})), "state": [{"row": x, "why": "selftest"} for x in o.get("state", {}).get((m, c), [])],
+                        "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": [], "p4_judge409": 0,
+                        "p9_early_not200": o.get("p9", {}).get((m, c), 0), "p6": {"violated": m in o.get("p6v", "")} if m == "D" else None}}
     if o.get("none_t95") == (m, c, r):
         s["metrics"]["state"]["T95"] = None
+    if (m, c, r) in o.get("none_cost", ()):
+        s["metrics"]["p99"]["cost_hold"] = None   # 유효 회차의 비용 지표 None → G3 판정 불가(CR14-18)
     return s
 
 
@@ -422,6 +514,74 @@ def campaign_rules(tmp):
     check("⑳ 유효 회차의 T95 None → 그 비교는 판정 불가(0으로 보지 않음) · range None", r["ranges"]["T95"]["B:a20-t30"] is None, str(r["ranges"]["T95"]["B:a20-t30"]))
     r = verdict((write_campaign(tmp / "c10", t95={"A": 140}, w=0.0) or tmp / "c10"))
     check("⑳ A의 TTL 30초 W = 0 → G4 실패 → A 유지 ④(판정 불가)", not r["A"]["G4"] and "④" in r["decision"]["verdict"], r["decision"]["verdict"])
+
+
+def campaign_round2(tmp):
+    """측정-7 성공 · 측정-8 관문의 새 분기(코드 리뷰 CR14-15 · CR14-11 · CR14-18). 기준 = A의 T95가 길어 G2(a)가 서는 캠페인."""
+    r = verdict((write_campaign(tmp / "k1", t95={"A": 140}, kept={"C": 0}) or tmp / "k1"))
+    check("CR14-15 P5 되돌림 기회 0(3회 합) → C 판정 불가(성공 아님) · B·D 그대로", r["success"]["C"]["verdict"] == "판정 불가"
+          and any("P5: 되돌림 기회 0" in u for u in r["success"]["C"]["undecidable"]) and r["success"]["D"]["verdict"] == "성공", json.dumps(r["success"]["C"], ensure_ascii=False))
+    r = verdict((write_campaign(tmp / "k2", t95={"A": 140}, p6v="D") or tmp / "k2"))
+    check("CR14-15 P6 반증 → D 실패 · 결론은 다음 순위(B)", r["success"]["D"]["verdict"] == "실패" and any("P6 반증" in f for f in r["success"]["D"]["fails"])
+          and r["decision"]["new_default"] == "lazy", r["decision"]["verdict"])
+    r = verdict((write_campaign(tmp / "k3", t95={"A": 140}, p9={("B", "a20-t30"): 1}) or tmp / "k3"))
+    check("CR14-15 P9 반증(만료 전 확정 거절) → B 실패", r["success"]["B"]["verdict"] == "실패" and any("P9 반증" in f for f in r["success"]["B"]["fails"]),
+          json.dumps(r["success"]["B"], ensure_ascii=False))
+    r = verdict((write_campaign(tmp / "k4", t95={"A": 140}, integ={("C", "a50-t30"): {"double_sold": 1}}) or tmp / "k4"))
+    check("CR14-15 정합 위반 1건 → C 실패", r["success"]["C"]["verdict"] == "실패" and any("정합 위반" in f for f in r["success"]["C"]["fails"]),
+          json.dumps(r["success"]["C"], ensure_ascii=False))
+    # G2(c): T95 같음(a 아님) · A 탐침 부당 실패 0(P3 무효 → b 아님) · A에만 정합 위반 → c로 이김
+    r = verdict((write_campaign(tmp / "k5", a_unfair=0, integ={("A", "a20-t300"): {"double_sold": 1}}) or tmp / "k5"))
+    g = r["gates"]["D"]["G2"]
+    check("CR14-15 G2(c) A에만 정합 위반 → (a)·(b) 없이 G2 통과 · 기본값 교체 D",
+          g["c"] and not g["a"] and not g["b"] and r["decision"]["new_default"] == "derived" and r["A"]["integrity"], json.dumps(r["gates"]["D"], ensure_ascii=False))
+    # 상태 문턱 6·7·8행 — A도 같은 셀에서 어기면 판정 불가(방식 실패 아님) · 5행(D)은 A와 견주지 않는다
+    c = "a20-t30"
+    r = verdict((write_campaign(tmp / "k6", t95={"A": 140}, state={("A", c): [6, 7, 8], ("B", c): [7], ("C", c): [8], ("D", c): [6]}) or tmp / "k6"))
+    ok = all(r["success"][m]["verdict"] == "판정 불가" and r["success"][m]["a_rule_only"] and not r["success"][m]["fails"]
+             and any(f"state:{row} {c}: A도 같은 셀" in u for u in r["success"][m]["undecidable"]) for m, row in (("B", 7), ("C", 8), ("D", 6)))
+    check("CR14-15 상태 문턱 6·7·8행 'A도 같은 문턱' → B·C·D 판정 불가 · 결론 '판정 불가 → 사용자 보고'",
+          ok and r["decision"]["verdict"].startswith("판정 불가"), json.dumps(r["success"], ensure_ascii=False)[:400])
+    r = verdict((write_campaign(tmp / "k7", t95={"A": 140}, state={("A", c): [6], ("B", c): [6], ("C", c): [6]}) or tmp / "k7"))
+    check("CR14-15 6행은 기대 0인 방식(A·D)만 문턱 — B·C의 6행은 문턱 아님(성공)", r["success"]["B"]["verdict"] == "성공" and r["success"]["C"]["verdict"] == "성공",
+          json.dumps(r["success"], ensure_ascii=False)[:300])
+    r = verdict((write_campaign(tmp / "k8", t95={"A": 140}, state={("A", c): [5], ("D", c): [5]}) or tmp / "k8"))
+    check("CR14-15 D 5행은 A와 견주지 않는다 → A가 같은 셀에서 어겨도 D 실패", r["success"]["D"]["verdict"] == "실패"
+          and any("A와 견주지 않는 칸" in f for f in r["success"]["D"]["fails"]), json.dumps(r["success"]["D"], ensure_ascii=False))
+    # CR14-11 — PR-3 실행(송신된 판정 요청) < 계획인 유효 회차 → P7·P9 판정 불가(메모가 아니다)
+    r = verdict((write_campaign(tmp / "k9", t95={"A": 140}, pr3_sent={("B", "a20-t30", 2): 99}) or tmp / "k9"))
+    check("CR14-11 PR-3 실행 < 계획 → B 판정 불가(P7·P9) · 다른 후보 그대로", r["success"]["B"]["verdict"] == "판정 불가"
+          and any("PR-3 실행" in u for u in r["success"]["B"]["undecidable"]) and r["success"]["D"]["verdict"] == "성공", json.dumps(r["success"]["B"], ensure_ascii=False))
+    check("CR14-19 캠페인 메모에 P7 재선점 기회 넓은 값 · 좁힌 값", any("좁힌 값" in n and "넓은 값(판정) 60" in n for n in r["success"]["D"]["notes"]),
+          json.dumps(r["success"]["D"]["notes"], ensure_ascii=False))
+    # CR14-18 — G3 판정 불가
+    r = verdict((write_campaign(tmp / "k10", t95={"A": 140}, none_cost={(m, "S4c4200", 1) for m in "BCD"}) or tmp / "k10"))
+    v = r["decision"]["verdict"]
+    check("CR14-18 G2를 넘은 후보가 모두 G3 판정 불가 → '판정 불가 → 사용자 보고'(A 유지 ③ 아님)",
+          v.startswith("판정 불가") and "ⓒ" in v and not v.startswith("A 유지") and r["decision"]["new_default"] is None
+          and all(r["gates"][m]["G3"]["undecidable"] and not r["gates"][m]["G3"]["hits"] for m in "BCD"), v)
+    r = verdict((write_campaign(tmp / "k11", t95={"A": 140}, none_cost={("D", "S4c4200", 1)}) or tmp / "k11"))
+    v = r["decision"]["verdict"]
+    check("CR14-18 1순위(D) G3 판정 불가 · 2순위(B) 관문 통과 → '판정 불가 → 사용자 보고'(잠정 B)",
+          r["ranked"][0] == "D" and v.startswith("판정 불가") and "잠정: B" in v and "G3 판정 불가 D" in v and r["decision"]["new_default"] is None, v)
+    r = verdict((write_campaign(tmp / "k12", t95={"A": 140}, none_cost={("C", "S4c4200", 1)}) or tmp / "k12"))
+    check("CR14-18 뒤 순위(C)만 G3 판정 불가 → 1순위(D)가 그대로 교체", r["decision"]["new_default"] == "derived", r["decision"]["verdict"])
+
+
+def early_check_rules(tmp):
+    """--early-check(측정-9 '캠페인 멈춤'): 회차 1 TTL 30초 두 묶음 A의 W = 0 또는 PR-1 δ ∈ {1, 3} 부당 실패 0 → exit 1."""
+    def run_e(name, w=50.0, n409=3, status="ok"):
+        root = tmp / f"early-{name}"
+        for c in S.TTL_GROUPS["t30"]:
+            d = root / c / "A" / "rep1"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "status").write_text(status + "\n")
+            wj(d / "rep-summary.json", {"metrics": {"state": {"W": w}, "probe": {"m3": {"by_delta": {"pr1:1.0": {"n409": n409}, "pr1:20.0": {"n409": 0}}}}}})
+        return S.early_check(root)
+    check("CR14-15 --early-check 정상(W > 0 · 부당 실패 > 0) → 0", run_e("ok") == 0)
+    check("CR14-15 --early-check A W = 0 → 1(캠페인 멈춤)", run_e("w0", w=0.0) == 1)
+    check("CR14-15 --early-check A PR-1 δ1·δ3 부당 실패 0 → 1", run_e("u0", n409=0) == 1)
+    check("CR14-15 --early-check 회차가 유효 아님 → 판정하지 않는다(0)", run_e("inv", w=0.0, status="invalid:gc-log-missing") == 0)
 
 
 # ---- campaign.sh 루프(서버 없음) ------------------------------------------------------------------------------------------------
