@@ -30,6 +30,7 @@
 | 10-26 23:55 | CR14-21~24 + 판정 입력 전수 점검 회수(Opus · eb6fcad3~a8dd746d 9커밋) · selftest 173 ok(전 100) · 새 시험은 고치기 전 코드에서 실패 확인(생성형 140 주입 중 58 어긋남) · 출처 표 57행(고침 37 · 설명 8) · 메인 결정: 새 사유 2(k6-window-missing · harness-reasons-missing) · 2단·3단 판정 불가 ⓓ · G2 None ⓒ · 표본 비용 분리 불명 처리 — 모두 판정 불가 쪽 보수 → 수용 · ADR-009 gc_summary 무음 = CR14-25 open(ADR-014 쪽에서 감쌈) | 루프 3 |
 | 10-27 00:50 | 코드 리뷰 루프 3(마지막 · 미러 ds14.r5H5) 회수: codex finding 0(렌즈별 근거 — 앱·ops 위주) / Opus M 1 · L 2 · OQ 2 · H 0 · 정합 핵심 결함 0 → 신규 채택 5(CR14-26~30) + 열린 CR14-25 → 루프 상한 3 도달 · 신규 채택 ≠ 0이라 종료 조건 미충족 → 수정 뒤 사용자 판단(추가 리뷰 또는 user override) | 수정 워커 |
 | 10-27 02:00 | 루프 3 수정 회수(Opus · 6924fd6e~120bb45f 14커밋) · selftest 184 ok · expiry 232 · 전체 926+6 실패 0 · 새 시험은 고치기 전 코드에서 실패 확인(CR14-26 2 · CR14-29 3(권한 없는 롤에서 옛 검사 무음 통과 실증) · 하네스 9) · PG16 권한 동작 로컬 컨테이너 확인 · 메인 직접: CR14-27 ADR 재해석 행 · ops README autovacuum 55P03 한계 · 기록만: r0() broken 미확인(설명 값) · 테스트 도우미 세션 조건 문구 차이 · CR14-25~30 fixed(3) · **리뷰 상태: 3루프 상한 도달 · 마지막 루프 신규 채택 5(전부 수정·테스트) → review unresolved 아님(open 0) · 종료식의 '신규 0' 미충족 → 사용자 판단 대기** | 사용자 보고 |
+| 10-27 02:40 | 사용자: '수정분만 재점검 후 마감' · 포트폴리오는 리뷰 마감 뒤 → 루프 3 수정분 post-fix 재점검(codex · 미러 ds14.Nb3g · base a8dd746d): 해소 5 · 부분 1(CR14-29) · 신규 1(CR14-31 — product_schedule 미잠금 교착) → 메인 수정(잠금에 product_schedule 추가 · 테스트 대상 표 4개) · ADR-014 테스트 232 · 실패 0(앱 코드 무변경 — 전체 미실행 · ops·테스트만) · **코드 리뷰 마감**(3루프 + post-fix 재점검 · open 0 · 마지막 재점검 신규 1은 수정·테스트로 마감 — 사용자 선택 경로) | 포트폴리오 주제 논의 → 스모크 |
 
 ## 리뷰 ledger
 
@@ -105,6 +106,7 @@
 | CR14-28 | 3 | opus | summarize.py:472-475 | 채택 | fixed(3) | server_rows 깨진 JSON 줄 무음 버림 |
 | CR14-29 | 3 | opus OQ1 | 01-cleanup.sql:16-19 | 채택 | fixed(3) | 권한 없는 롤에서 정지 검사 무음 통과 가능 · 검사 뒤 LOCK |
 | CR14-30 | 3 | opus OQ2 | summarize.py:1452-1461 | 메인 결정 | fixed(3) | A 판정 불가일 때 X = 판정 불가(보수 · 측정-7 재해석 행) |
+| CR14-31 | post-fix(3) | codex | 01-cleanup.sql:37·43 · Adr014ImplSweepTest.kt:223 | 채택 | fixed(post) | 잠금에서 product_schedule이 빠져 검사 뒤 세션과 교착 가능 → 함께 잠금 |
 
 ## 생략한 검증
 
