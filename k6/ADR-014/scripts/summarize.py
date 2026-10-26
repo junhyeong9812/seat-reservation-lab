@@ -155,7 +155,10 @@ def clock(inp):
     b, a = c.get("before"), c.get("after")
     if not (isinstance(b, dict) and isinstance(a, dict) and num(b.get("offset_s")) and num(a.get("offset_s"))):
         return inp.miss("clock", "앞 또는 뒤 시계 차 표본 없음")
-    return {"off": (b["offset_s"] + a["offset_s"]) / 2, "rtt_half_max": max(b.get("rtt_s") or 0, a.get("rtt_s") or 0) / 2,
+    # 왕복(rtt_s)도 필수 숫자 — 없거나 음수면 왕복/2 문턱을 잴 수 없다(0으로 채우면 통과한다 — 코드 리뷰 CR14-9)
+    if not all(num(x.get("rtt_s")) and x["rtt_s"] >= 0 for x in (b, a)):
+        return inp.miss("clock", f"앞 또는 뒤 시계 차 표본의 rtt_s 없음·비정상(앞 {b.get('rtt_s')!r} · 뒤 {a.get('rtt_s')!r})")
+    return {"off": (b["offset_s"] + a["offset_s"]) / 2, "rtt_half_max": max(b["rtt_s"], a["rtt_s"]) / 2,
             "drift": abs(a["offset_s"] - b["offset_s"]), "before": b, "after": a}
 
 
