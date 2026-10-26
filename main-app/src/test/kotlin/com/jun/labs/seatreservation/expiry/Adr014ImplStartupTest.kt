@@ -65,6 +65,16 @@ class Adr014ImplStartupTest : BootTestBase() {
     }
 
     @Test
+    fun `checkConfig — 틱당 청크 상한은 1 이상(CR14-2)`() {
+        listOf(0, -1).forEach { n ->
+            val e = assertFailsWith<IllegalStateException>("상한 $n") { check(base.copy(expiryMaxChunksPerTick = n)) }
+            assertTrue(e.message!!.contains("seat.hold.expiry-max-chunks-per-tick"), e.message)
+        }
+        check(base.copy(expiryMaxChunksPerTick = 1))
+        assertEquals(100, base.expiryMaxChunksPerTick, "코드 기본값")
+    }
+
+    @Test
     fun `checkConfig — lazy는 정리 ①(cleanup schedule)이 없으면 거부한다(바꿀 키 안내) · 다른 방식은 정리와 무관(CR14-1)`() {
         listOf(SeatHoldProperties.CleanupMode.NONE, SeatHoldProperties.CleanupMode.ZERO).forEach { cleanupMode ->
             val p = base.copy(counterDrift = base.counterDrift.copy(cleanup = SeatHoldProperties.Cleanup(mode = cleanupMode)))

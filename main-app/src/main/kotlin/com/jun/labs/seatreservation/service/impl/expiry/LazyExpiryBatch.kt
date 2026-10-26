@@ -14,15 +14,18 @@ import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import org.springframework.transaction.support.TransactionTemplate
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * ADR-014 C·D 만료 배치(§설계-3.4 C1~C6 · D1~D5) — 틱 하나 = 청크 트랜잭션 여러 개(A의 '틱 = 트랜잭션 하나'와 다르다). B는 주기 배치가 없다(0 반환 · 틱 지표만).
- * - 진행형 커서(선검증 DS14-5): 커서는 틱 안에서만 산다. 청크 하나가 실패해도(40P01 · MISSING 수 불일치 등) 커서를 그 청크 뒤로 옮겨 다음 청크를 계속한다 —
- *   앞쪽 후보가 같은 틱의 진행을 막지 않는다. 남은 것은 다음 틱(커서 처음부터)이 다시 고른다.
+ * - 진행형 커서(선검증 DS14-5): 청크 하나가 실패해도(40P01 · MISSING 수 불일치 등) 커서를 그 청크 뒤로 옮겨 다음 청크를 계속한다 —
+ *   앞쪽 후보가 같은 틱의 진행을 막지 않는다. 후보 끝에 닿은 틱은 커서를 버린다 — 남은 것(건너뜀 · 실패)은 다음 틱이 처음부터 다시 고른다.
+ * - 틱당 청크 상한(`seat.hold.expiry-max-chunks-per-tick` · 코드 리뷰 CR14-2): 닿으면 틱을 끝내고 커서를 다음 틱에 넘긴다 — 다음 틱은 처음이 아니라
+ *   그 커서 뒤부터 이어 간다(늘 처음부터 시작하면 앞쪽에서 계속 건너뛰는·실패하는 후보가 상한을 다 써서 뒤쪽 후보가 영영 밀린다). 넘긴 커서는 이 빈(앱 1대)의 것이다.
  * - 규칙 ①~③(§2.4): 쌍 잠금(정렬) → 지운 행 수만큼 감소 · 삭제와 감소는 같은 청크 트랜잭션. MISSING 쌍은 지우기 앞에서 복구한다(C3b · D3).
  * - C 잠금 순서: 좌석(SKIP LOCKED — 기다리지 않음) → 쿼터 행(정렬 — 기다림) → 홀드 행. D는 좌석 문장이 없다(N6 — 배치가 좌석 행을 쓰지 않는다).
  * - 지표: 청크 `seat.hold.expiry.chunk{outcome}` · 틱 `seat.hold.expiry.tick{outcome}`(청크가 하나라도 실패하면 failed — 예외는 올리지 않는다) ·
- *   지운 행 · MISSING 쌍 · SKIP LOCKED 건너뜀(C2) · `:missingIds` 불일치 롤백 · 되돌림/되돌림 기회(C6).
+ *   지운 행 · MISSING 쌍 · SKIP LOCKED 건너뜀(C2) · `:missingIds` 불일치 롤백 · 되돌림/되돌림 기회(C6) · 청크 상한에 닿은 틱 수 `seat.hold.expiry.chunk_cap_reached`.
  */
 @Component
 class LazyExpiryBatch(
@@ -34,6 +37,9 @@ class LazyExpiryBatch(
 ) {
     private val mode = properties.expiryMode
 
+    /** 청크 상한에 닿은 틱이 넘긴 커서(CR14-2) — null = 다음 틱은 처음부터 */
+    private val carried = AtomicReference<Cursor?>(null)
+
     /** 틱 하나 — 지운 홀드 행 수를 돌려준다 */
     fun expire(): Int {
         if (mode == ExpiryMode.LAZY) {
@@ -42,10 +48,19 @@ class LazyExpiryBatch(
         }
         var deleted = 0
         var failed = 0
-        val cursor = Cursor()
+        var chunks = 0
+        val cursor = carried.getAndSet(null) ?: Cursor()
         while (true) {
+            if (chunks >= properties.expiryMaxChunksPerTick) {
+                // 상한 — 남은 후보는 다음 틱이 이 커서 뒤부터 이어 본다(무음 금지: 지표 + 로그 — 계속 닿으면 배치가 만료를 따라가지 못하는 것이다)
+                carried.set(cursor)
+                meters.counter(CHUNK_CAP_METRIC).increment()
+                log.warn("만료 배치({}) 틱당 청크 상한 {}에 닿았다 — 남은 후보는 다음 틱이 이어서 본다(이번 틱 지운 행 {})", mode, chunks, deleted)
+                break
+            }
             val before = cursor.copy()
             val result = runChunk(cursor) ?: break
+            chunks++ // 청크 트랜잭션 하나(성공 · 실패 · 잠근 좌석 0 모두) — 후보가 없어 끝난 시도는 세지 않는다
             if (result >= 0) {
                 deleted += result
                 continue
@@ -57,7 +72,7 @@ class LazyExpiryBatch(
         return deleted
     }
 
-    /** 틱 안의 진행형 커서 — C = 앞 청크 후보의 최대 seat_id · D = 앞 청크 후보의 마지막 (회차, 사용자) */
+    /** 진행형 커서 — C = 앞 청크 후보의 최대 seat_id · D = 앞 청크 후보의 마지막 (회차, 사용자). 틱 안에서 살고, 청크 상한에 닿은 틱만 다음 틱에 넘긴다(CR14-2) */
     private data class Cursor(var seat: Long = 0, var schedule: Long = 0, var user: Long = 0)
 
     /** 청크 하나(트랜잭션 하나) — null = 후보 없음(틱 끝) · 음수 = 실패(롤백 · 커서는 이미 앞으로 갔다) · 그 밖 = 지운 행 수 */
@@ -220,5 +235,7 @@ class LazyExpiryBatch(
         private val log = LoggerFactory.getLogger(LazyExpiryBatch::class.java)
         const val CHUNK_METRIC = "seat.hold.expiry.chunk"
         const val MISSING_MISMATCH_METRIC = "seat.hold.expiry.missing_mismatch"
+        /** 틱당 청크 상한에 닿은 틱 수(CR14-2) */
+        const val CHUNK_CAP_METRIC = "seat.hold.expiry.chunk_cap_reached"
     }
 }

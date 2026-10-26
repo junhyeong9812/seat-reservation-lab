@@ -163,6 +163,9 @@ class HoldStrategyStartupCheck(
         private fun checkExpiryModeConfig(properties: SeatHoldProperties) {
             val mode = properties.expiryMode
             check(properties.expiryBatchSize > 0) { "seat.hold.expiry-batch-size는 1 이상이어야 한다(현재 ${properties.expiryBatchSize})" }
+            check(properties.expiryMaxChunksPerTick > 0) {
+                "seat.hold.expiry-max-chunks-per-tick는 1 이상이어야 한다(현재 ${properties.expiryMaxChunksPerTick}) — 0이면 C·D 배치가 아무것도 지우지 않는다(코드 리뷰 CR14-2)"
+            }
             if (mode == ExpiryMode.SWEEP) return
             check(properties.strategy == HoldStrategyType.PESSIMISTIC_NOWAIT && properties.limitStrategy == COUNTER_UPSERT_PRECHECK) {
                 "만료 방식 $mode(seat.hold.expiry-mode)는 좌석 전략 PESSIMISTIC_NOWAIT + 매수 방식 COUNTER_UPSERT_PRECHECK(기본 조합)에서만 쓴다 " +

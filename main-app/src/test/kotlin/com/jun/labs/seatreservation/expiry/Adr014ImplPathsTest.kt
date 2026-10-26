@@ -3,7 +3,9 @@ package com.jun.labs.seatreservation.expiry
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.drift.QuotaCleanup
+import com.jun.labs.seatreservation.service.impl.expiry.LazyExpiryBatch
 import com.jun.labs.seatreservation.support.IntegrationTest
 import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -24,6 +26,11 @@ import kotlin.test.assertTrue
 abstract class Adr014ImplPathsTest : Adr014ImplSupport() {
 
     @Autowired lateinit var meterRegistry: MeterRegistry
+    @Autowired lateinit var expiryCounters: ExpiryCounters
+
+    /** 틱당 청크 상한만 바꾼 배치(CR14-2) — 넘긴 커서는 이 인스턴스의 것이다 */
+    private fun cappedBatch(maxChunks: Int) =
+        LazyExpiryBatch(jdbcTemplate, tx, properties.copy(expiryMaxChunksPerTick = maxChunks), expiryCounters, meterRegistry)
 
     @Test
     fun `선점은 DB 시각으로 쓴다 — held_at은 DB now, expires_at - held_at = TTL, 응답 expiresAt = 행 값(N1)`() {
@@ -297,6 +304,41 @@ abstract class Adr014ImplPathsTest : Adr014ImplSupport() {
         assertEquals(1, expireHolds.expire())
         assertEquals(0, cntOf(s, 1))
         assertEquals("AVAILABLE", status(seats[0]))
+    }
+
+    @Test
+    fun `만료 배치 — 틱당 청크 상한에 닿으면 틱을 끝내고 다음 틱이 커서를 이어받는다 · 닿은 틱 수를 센다(CR14-2)`() {
+        assumeTrue(mode != ExpiryMode.LAZY)
+        val seats = (1..5).map { seat() }
+        seats.forEachIndexed { i, seat -> dbHold(seat, 1L + i, -1.0); markHeld(seat); quota(s, 1L + i, 1) } // C = 좌석 5 · D = 쌍 5
+        val batch = cappedBatch(1)
+        val capBefore = counter(LazyExpiryBatch.CHUNK_CAP_METRIC)
+        assertEquals(listOf(2, 2, 1, 0), (1..4).map { batch.expire() }, "청크 2 · 상한 1 — 틱마다 한 청크 · 넷째 틱은 넘겨받은 커서 뒤에 후보가 없다")
+        assertEquals(3.0, counter(LazyExpiryBatch.CHUNK_CAP_METRIC) - capBefore, "상한에 닿은 틱 = 앞 세 틱")
+        assertEquals(0, seats.sumOf(::holdRows))
+        assertEquals(List(5) { 0 }, (1L..5L).map { cntOf(s, it) })
+        assertEquals(0L, mismatch())
+    }
+
+    @Test
+    fun `만료 배치 — 상한이 있어도 앞쪽 잠긴 좌석이 뒤 후보를 막지 않는다 — 다음 틱은 넘겨받은 커서 뒤부터 · 후보 끝에서 커서를 버린다(CR14-2 · DS14-5)`() {
+        assumeTrue(mode == ExpiryMode.LAZY_SWEEP)
+        val seats = (1..6).map { seat() }
+        seats.forEach { dbHold(it, 1, -1.0); markHeld(it) }
+        quota(s, 1, 6)
+        val batch = cappedBatch(1)
+        rawConnection().use { other ->
+            other.exec("SELECT id FROM product_seat WHERE id = ? FOR UPDATE", seats[0])
+            other.exec("SELECT id FROM product_seat WHERE id = ? FOR UPDATE", seats[1])
+            // 늘 처음부터 시작한다면 틱마다 잠긴 앞 청크(좌석 1·2)에서 상한을 다 써서 0만 나온다
+            assertEquals(listOf(0, 2, 2), (1..3).map { batch.expire() })
+            other.rollback()
+        }
+        assertEquals(listOf(1, 1, 0, 0, 0, 0), seats.map(::holdRows))
+        assertEquals(0, batch.expire(), "넘겨받은 커서 뒤에 후보가 없다 — 커서를 버린다")
+        assertEquals(2, batch.expire(), "다음 틱은 처음부터 — 잠금이 풀린 앞 좌석")
+        assertEquals(0, cntOf(s, 1))
+        assertEquals(List(6) { "AVAILABLE" }, seats.map(::status))
     }
 
     @Test

@@ -39,6 +39,8 @@ seat:
     expiry-mode: sweep
     # C·D 만료 배치 청크(C = 후보 좌석 · D = 후보 쌍). 배치 주기는 expiry-interval을 A·C·D가 같이 쓴다
     expiry-batch-size: 500
+    # C·D 만료 배치의 틱당 청크 상한 — 닿으면 남은 후보는 다음 틱이 커서를 이어받아 본다(지표 seat.hold.expiry.chunk_cap_reached)
+    expiry-max-chunks-per-tick: 100
     # 같은 좌석 경합 제어 방식(ADR-003). 기본 = ADR-003 결정 pessimistic-nowait(none = ADR-000 기준선)
     strategy: pessimistic-nowait
     # 같은 사용자 동시 요청의 매수 제어(ADR-005). 기본 = ADR-008 결정 counter-upsert-precheck(none = 조회 후 비교, ADR-000 기준선)
