@@ -1492,11 +1492,14 @@ def campaign(root):
                 av = item_viol("A", c, key) if a_rule else False
                 if a_rule and av:
                     undec.append(f"{key} {c}: A도 같은 셀에서 어김 → 하네스·조건 원인(판정 불가 · 사용자 보고)")
+                elif a_rule and av is None:
+                    # 측정 전 재해석 CR14-30: A의 같은 (항목, 셀)이 판정 불가면 'A도 어겼나'를 세울 수 없다 — X를 실패로 세지 않고 판정 불가(보수 · 측정-7 'A도 같은 문턱')
+                    undec.append(f"{key} {c}: A도 같은 셀 항목이 판정 불가 → 'A도 같은 문턱'을 세울 수 없음(판정 불가 · 사용자 보고 — CR14-30)")
                 else:
                     fails.append(f"{key} {c}" + ("" if a_rule else "(A와 견주지 않는 칸)"))
         verdict = "실패" if fails else "판정 불가" if undec else "성공"
         result[m] = {"verdict": verdict, "fails": fails, "undecidable": undec, "notes": notes,
-                     "a_rule_only": verdict == "판정 불가" and all("A도 같은 셀" in u for u in undec)}
+                     "a_rule_only": verdict == "판정 불가" and all("A도 같은 셀" in u for u in undec)}   # CR14-30 'A 판정 불가'도 이 갈래(ⓐ)
     # A: 기준(G4)
     a_valid = all(valid_n[("A", c)] == plan14.REPS for c in plan14.GROUPS)
     a_w = {c: vals("A", c, lambda s: mget(s, "state", "W")) for c in TTL_GROUPS["t30"]}

@@ -21,7 +21,9 @@
  ㉒ 코드 리뷰 루프 3: 끝 active_on_reserved_seats 정합 위반(CR14-21) · 첫 선점 기록 없음 → probe-incomplete(CR14-22) · 판정 요청 예상 밖 응답 → 판정 불가 응답(CR14-23) ·
     3단 비용 범위 None → 3단 판정 불가 · 결론 ⓓ(CR14-24)
  ㉓ 판정 입력 전수 점검(생성형): REP_INPUTS 표의 판정 입력을 하나씩 지우거나 숫자 아닌 값으로 바꾼 회차 → 모두 기대 사유로 무효 · P12 입력 → p12_unknown ·
-    jsonl 깨진 줄 · CSV 기록 깨짐 · env-stall 입력 깨짐(→ 방식 정지) · 캠페인 요약 판정 열 결측 → 유효로 세지 않음 · 비용·2단 지표 None → 결론 판정 불가"""
+    jsonl 깨진 줄 · CSV 기록 깨짐 · env-stall 입력 깨짐(→ 방식 정지) · 캠페인 요약 판정 열 결측 → 유효로 세지 않음 · 비용·2단 지표 None → 결론 판정 불가
+ ㉔ 코드 리뷰 루프 3 후속: GC 로그 시각 못 읽는 정지·stall 줄 → gc-log-missing(CR14-25) · crn 다수결은 유효 회차끼리만 · 유효 1개면 대조 안 함(CR14-27) ·
+    서버 시각 줄 가운데 찢김 → db-cpu-missing · 찢긴 마지막 줄 하나는 괜찮다(CR14-28) · A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(CR14-30)"""
 import gzip
 import json
 import shutil
@@ -498,7 +500,7 @@ def fake(m, c, r, **o):
          "flow": {"rehold_other": o.get("rehold", 5), "rehold_other_narrow": 2, "abandoned": 10, "revisit": {"n201": 1}},
          "app": {"kept_active": o.get("kept", {}).get(m, 3)}},
          "violations": {"integrity": dict(o.get("integ", {}).get((m, c), {})), "state": [{"row": x, "why": "selftest"} for x in o.get("state", {}).get((m, c), [])],
-                        "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": [], "p12_checked": sorted(set(S.P12_FIXED) - set(o.get("p12_unchecked", {}).get((m, c), ()))), "p4_judge409": 0,
+                        "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": list(o.get("p12_unknown", {}).get((m, c), [])), "p12_checked": sorted(set(S.P12_FIXED) - set(o.get("p12_unchecked", {}).get((m, c), ()))), "p4_judge409": 0,
                         "p9_early_not200": o.get("p9", {}).get((m, c), 0), "p6": {"violated": m in o.get("p6v", "")} if m == "D" else None}}
     if o.get("none_t95") == (m, c, r):
         s["metrics"]["state"]["T95"] = None
@@ -899,6 +901,15 @@ def round3_followup(tmp):
     st, g = crn_case("one-ok", {"B": 555, "C": 999, "D": 777}, {"B": inv, "C": inv, "D": "invalid:env-stall"})
     check("CR14-27 유효 회차 하나(A)뿐 → 대조할 짝 없음 → 그대로 ok(compared false)", st["A"] == "ok" and g and not g["compared"] and g["mismatch"] == [],
           json.dumps([st, g], ensure_ascii=False))
+    # CR14-30 — A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(실패로 세지 않는다)
+    c = "a20-t30"
+    r = verdict((write_campaign(tmp / "f30", t95={"A": 140}, p12={("B", c): {"5xx_or_0:hold": 3}}, p12_unknown={("A", c): ["5xx_or_0:hold"]}) or tmp / "f30"))
+    b = r["success"]["B"]
+    check("CR14-30 B가 어긴 P12 항목을 A가 같은 셀에서 판정 불가 → B 판정 불가(실패 아님) · ⓐ 갈래 · 결론 판정 불가",
+          b["verdict"] == "판정 불가" and not b["fails"] and b["a_rule_only"] and any("CR14-30" in u for u in b["undecidable"])
+          and r["decision"]["verdict"].startswith("판정 불가") and r["decision"]["new_default"] is None, json.dumps(b, ensure_ascii=False) + r["decision"]["verdict"])
+    r = verdict((write_campaign(tmp / "f30b", t95={"A": 140}, p12={("B", c): {"5xx_or_0:hold": 3}}, p12_unknown={("A", "a50-t30"): ["5xx_or_0:hold"]}) or tmp / "f30b"))
+    check("CR14-30 A의 판정 불가가 다른 셀이면 그 셀의 B 위반은 그대로 실패", r["success"]["B"]["verdict"] == "실패", json.dumps(r["success"]["B"], ensure_ascii=False))
 
 
 def early_check_rules(tmp):
