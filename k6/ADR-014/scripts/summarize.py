@@ -69,6 +69,9 @@ INPUT_REASON = {
     "probe_check": "probe-missing", "waits": "waits-gap", "hikari": "hikari-missing", "limit_key": "limit-key-missing", "pre_k6": "pre-k6-mismatch",
     "logs": "container-log-missing", "probe_server": "probe-missing",
 }
+# 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
+CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
+             "held_no_active", "active_not_held", "expired_hold_rows", "v_held_without_hold", "confirmed")
 
 
 def load(p):
@@ -120,19 +123,23 @@ class Inputs:
         self.missing.setdefault(name, why)
         return None
 
-    def json(self, name, fname, need=()):
+    def json(self, name, fname, need=(), nums=()):
+        """need = 있어야 하는 열(점 경로) · nums = 있어야 하고 숫자(유한 · bool 아님)여야 하는 열 — 하나라도 어기면 None(코드 리뷰 CR14-8)."""
         if name in self._cache:
             return self._cache[name]
         v = load(self.d / fname)
         if not isinstance(v, (dict, list)):
             v = self.miss(name, f"{fname} 없음·깨짐")
         else:
-            for k in need:
+            for k in tuple(need) + tuple(nums):
                 cur = v
                 for part in k.split("."):
                     cur = cur.get(part) if isinstance(cur, dict) else None
                 if cur is None:
                     v = self.miss(name, f"{fname} {k} 없음")
+                    break
+                if k in nums and not num(cur):
+                    v = self.miss(name, f"{fname} {k} 숫자 아님({cur!r})")
                     break
         self._cache[name] = v
         return v
@@ -572,37 +579,37 @@ ZERO_ROWS = {   # 행 → 기대 0인 방식
 
 
 def state_thresholds(method, cons, st):
-    """기대 0 칸의 위반 목록 [(행, 근거)]. cons = consistency.json · st = state_metrics(None이면 표본 열 없이 끝 값만)."""
+    """기대 0 칸의 위반 목록 [(행, 근거)]. cons = consistency.json(CONS_COLS 검증을 통과한 것 — 열은 모두 숫자) · st = state_metrics(None이면 표본 열 없이 끝 값만)."""
     v = []
     if method in ZERO_ROWS[5]:
-        if (cons.get("held_no_active") or 0) > 0 or (st and st.get("held_no_active_samples", 0) > 0):
-            v.append((5, f"held_no_active 끝 {cons.get('held_no_active')} · 표본 {st and st.get('held_no_active_samples')}"))
-    if method in ZERO_ROWS[6] and (cons.get("v_held_without_hold") or 0) > 0:
-        v.append((6, f"v_held_without_hold {cons.get('v_held_without_hold')}"))
+        if cons["held_no_active"] > 0 or (st and st.get("held_no_active_samples", 0) > 0):
+            v.append((5, f"held_no_active 끝 {cons['held_no_active']} · 표본 {st and st.get('held_no_active_samples')}"))
+    if method in ZERO_ROWS[6] and cons["v_held_without_hold"] > 0:
+        v.append((6, f"v_held_without_hold {cons['v_held_without_hold']}"))
     if method in ZERO_ROWS[7] and method != "C":
-        if (cons.get("active_not_held") or 0) > 0 or (st and st.get("active_not_held_samples", 0) > 0):
-            v.append((7, f"active_not_held 끝 {cons.get('active_not_held')} · 표본 {st and st.get('active_not_held_samples')}"))
-    if method in ZERO_ROWS[8] and (cons.get("expired_hold_rows") or 0) > 0:
-        v.append((8, f"expired_hold_rows(수렴 뒤) {cons.get('expired_hold_rows')}"))
+        if cons["active_not_held"] > 0 or (st and st.get("active_not_held_samples", 0) > 0):
+            v.append((7, f"active_not_held 끝 {cons['active_not_held']} · 표본 {st and st.get('active_not_held_samples')}"))
+    if method in ZERO_ROWS[8] and cons["expired_hold_rows"] > 0:
+        v.append((8, f"expired_hold_rows(수렴 뒤) {cons['expired_hold_rows']}"))
     return v
 
 
 def expect_mismatch(method, cons, st, act_d):
     """기대값이 0이 아닌 칸(§설계-8.3) — 해석 메모: 수렴 뒤(TTL + 22초 — 마지막 홀드 만료 뒤 배치 2틱 이상) 값으로 본다."""
     out = []
-    if method == "A" and (cons.get("held_no_active") or 0) > 0:
-        out.append(f"5행 A: 수렴 뒤 held_no_active {cons.get('held_no_active')} > 0(기대 '마지막 틱 뒤 만료분만' = 수렴 뒤 0)")
+    if method == "A" and cons["held_no_active"] > 0:
+        out.append(f"5행 A: 수렴 뒤 held_no_active {cons['held_no_active']} > 0(기대 '마지막 틱 뒤 만료분만' = 수렴 뒤 0)")
     if method == "B":
-        if not (cons.get("expired_hold_rows") or 0) > 0:
+        if not cons["expired_hold_rows"] > 0:
             out.append("8행 B: 수렴 뒤 남은 만료 홀드 0(기대 > 0)")
-        if not (cons.get("held_no_active") or 0) > 0:
+        if not cons["held_no_active"] > 0:
             out.append("5행 B: held_no_active 0(기대 '늘어난다')")
     if method == "C":
         sk = (act_d.get("skip_c2") or 0) + (act_d.get("skip_h4b") or 0)
-        if (cons.get("held_no_active") or 0) > sk:
-            out.append(f"5행 C: held_no_active {cons.get('held_no_active')} > 건너뜀 {sk}(기대 '배치 주기분 + 건너뜀분' — 수렴 뒤 건너뜀분만)")
-        if (cons.get("v_held_without_hold") or 0) > (act_d.get("skip_h4b") or 0):
-            out.append(f"6행 C: v_held_without_hold {cons.get('v_held_without_hold')} > H4b 건너뜀 {act_d.get('skip_h4b')}")
+        if cons["held_no_active"] > sk:
+            out.append(f"5행 C: held_no_active {cons['held_no_active']} > 건너뜀 {sk}(기대 '배치 주기분 + 건너뜀분' — 수렴 뒤 건너뜀분만)")
+        if cons["v_held_without_hold"] > (act_d.get("skip_h4b") or 0):
+            out.append(f"6행 C: v_held_without_hold {cons['v_held_without_hold']} > H4b 건너뜀 {act_d.get('skip_h4b')}")
     return out
 
 
@@ -705,7 +712,7 @@ def rep_summary(d):
             if M["mem_growth"] is None:
                 inp.miss("server", "앱 메모리 첫·마지막 1분 표본 없음")
     # 끝 판정기 · 기록
-    cons = inp.json("consistency", "consistency.json", need=("v_counter_mismatch", "double_sold_seats", "expired_hold_rows"))
+    cons = inp.json("consistency", "consistency.json", nums=CONS_COLS)   # 정합 문턱 열은 모두 있어야 하고 숫자여야 한다(코드 리뷰 CR14-8 — 무음 0 금지)
     ddb = inp.json("drift_db", "drift-db.json", need=("drift_log_total",))
     if ddb is not None and len(ddb.get("drift_log") or []) < ddb["drift_log_total"]:
         reasons.add("drift-db-incomplete")
@@ -864,22 +871,23 @@ def rep_summary(d):
                 "clock": {k: clk[k] for k in ("off", "rtt_half_max", "drift")} if clk else None}
     # ---- 방식 위반(유효 회차의 실패 자료) ----
     if cons:
-        integ = {"dup_confirmed": cons.get("v_duplicate_confirmed_seats") or 0, "double_sold": cons.get("double_sold_seats") or 0,
-                 "multi_active_end": cons.get("multi_active_seats") or 0, "counter_mismatch": cons.get("v_counter_mismatch") or 0,
-                 "over_limit": cons.get("v_over_limit_users") or 0}
+        # 열은 CONS_COLS 검증을 통과했다(없거나 숫자가 아니면 cons = None → 회차 무효) — `or 0`으로 채우지 않는다(코드 리뷰 CR14-8)
+        integ = {"dup_confirmed": cons["v_duplicate_confirmed_seats"], "double_sold": cons["double_sold_seats"],
+                 "multi_active_end": cons["multi_active_seats"], "counter_mismatch": cons["v_counter_mismatch"],
+                 "over_limit": cons["v_over_limit_users"]}
         if st:
             integ.update(multi_active_samples=st.get("multi_active_samples", 0), active_on_reserved_samples=st.get("active_on_reserved_samples", 0))
         if M.get("flow"):
             integ.update(running_duplicate=M["flow"]["duplicate"], confirm_then_201=M["flow"]["after_confirm_201"])
-            if cons.get("confirmed") is not None:   # M5 ⑤ — 응답은 성공인데 행이 없음(k6 확정 200 — 모든 흐름 · DB CONFIRMED — 두 회차)
-                integ["db_confirm_lt_k6"] = max(0, M["flow"]["confirm_200_k6"] - cons["confirmed"])
+            # M5 ⑤ — 응답은 성공인데 행이 없음(k6 확정 200 — 모든 흐름 · DB CONFIRMED — 두 회차)
+            integ["db_confirm_lt_k6"] = max(0, M["flow"]["confirm_200_k6"] - cons["confirmed"])
         if M.get("probe"):
             integ["pr3_both"] = M["probe"]["pr3"]["viol_both"]
             integ["late_confirm_200"] = M["probe"]["pr3"]["late_200"]
         if M.get("m6"):
             integ["repaired"] = M["m6"]["repaired"]
         if method == "C":
-            integ["c_revert_violation"] = (cons.get("active_not_held") or 0) + (st.get("active_not_held_samples", 0) if st else 0)
+            integ["c_revert_violation"] = cons["active_not_held"] + (st.get("active_not_held_samples", 0) if st else 0)
         V["integrity"] = {k: v for k, v in integ.items() if v}
         V["state"] = [{"row": r, "why": w} for r, w in state_thresholds(method, cons, st)]
         em = expect_mismatch(method, cons, st, M.get("app") or {})
