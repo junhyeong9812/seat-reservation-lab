@@ -199,7 +199,11 @@ compose_up14 "$DEPLOY_ID" >> "$DIR/compose.log" 2>&1 < /dev/null || abort14 comp
 wait_health 180 || abort14 unhealthy
 [[ "$(ctr_image seatlab-app-1)" == "$APP_ID" ]] || abort14 cond-image-mismatch
 reset_with_retry "$DIR" 2 10000 > /dev/null || abort14 reset-failed
-BASE_URL="$BASE_URL" "$K6_BIN" run --quiet "$SCEN14/warmup14.js" > "$DIR/warmup.log" 2>&1 < /dev/null   # 예열(측정-3.6 — 선점 + 지도 + 확정, 회차 1·2)
+BASE_URL="$BASE_URL" "$K6_BIN" run --quiet --out "csv=$DIR/warmup-requests.csv.gz" "$SCEN14/warmup14.js" > "$DIR/warmup.log" 2>&1 < /dev/null   # 예열(측정-3.6 — 선점 + 지도 + 확정, 회차 1·2)
+WARM_RC=$?
+# 예열 rc · 요청 이름:상태 분포(코드 리뷰 CR14-14) — rc ≠ 0이면 데워지지 않은 앱이 부하를 받는다 → 하네스 무효(요약기도 warmup-status.json으로 같은 사유를 낸다)
+python3 -I "$S14/summarize.py" --warmup-status "$DIR/warmup-requests.csv.gz" "$WARM_RC" > "$DIR/warmup-status.json" 2>>"$DIR/errors.log"
+(( WARM_RC == 0 )) || abort14 warmup-failed
 RESET_TIMEOUT=1800 reset_with_retry "$DIR" "$SEED_S" "$SEED_N" > "$DIR/seed.json" || abort14 seed-failed
 SEED_T=$(now)
 seed_check14 "$SEED_S" "$SEED_N" > "$DIR/seed-check.json" 2>>"$DIR/errors.log" < /dev/null || hreason seed-check-failed

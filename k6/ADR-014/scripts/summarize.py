@@ -8,6 +8,7 @@
     summarize.py --early-check <캠페인 결과 폴더> → exit 1 = 회차 1 TTL 30초 두 묶음에서 A의 W = 0 또는 A의 PR-1 δ ∈ {1, 3} 부당 실패 0(측정-9 '캠페인 멈춤')
     summarize.py --sample-cost <회차폴더> …      → 시작 조건 ⑤(측정-5 머리 · 리뷰 MR-1): 방식별 sample_ms p50·p99·최대 · c_X · Δc · B 기울기
     summarize.py --r0 <ADR-009 results 뿌리>     → R₀ = 과거 S3-a20 L4 tmpfs 회차 3회 묶음별 DB CPU 창 평균 (최대 − 최소) 중 최소
+    summarize.py --warmup-status <warmup-requests.csv.gz> <rc> → 예열 k6 rc · 요청 이름:상태별 수 JSON 한 줄(run.sh가 warmup-status.json으로 — 코드 리뷰 CR14-14)
 
 판정 입력은 한 곳(Inputs — 아래)에서 읽고 검증한다: 파일이 없거나 깨졌거나 필요한 열이 빠지면 그 값은 0이 아니라 None이고, 그 입력을 쓰는 사유(INPUT_REASON)로
 회차가 무효가 된다(ADR-013 교훈 — 판정 입력이 무음으로 0이 되는 문제). 캠페인 집계에서 None을 만나면 그 항목은 '판정 불가'다(0으로 채우지 않는다).
@@ -69,6 +70,7 @@ INPUT_REASON = {
     "probe_check": "probe-missing", "waits": "waits-gap", "hikari": "hikari-missing", "limit_key": "limit-key-missing", "pre_k6": "pre-k6-mismatch",
     "logs": "container-log-missing", "probe_server": "probe-missing",
     "act_wend": "app-metric-missing",   # 판정 창 끝 앱 지표 스냅숏(P12 창 안 증분 — 코드 리뷰 CR14-13)
+    "warmup": "warmup-failed",          # 예열 k6 rc ≠ 0 · 기록 없음(코드 리뷰 CR14-14)
 }
 # 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
 CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
@@ -670,6 +672,12 @@ def rep_summary(d):
         else:
             reasons.update(cc[0])
             M["config_detail"] = cc[1]
+    # 예열(측정-3.6) — k6 rc ≠ 0이면 앱이 데워지지 않은 채 부하를 받는다(하네스 무효 · 코드 리뷰 CR14-14). run.sh도 그 자리에서 abort14 warmup-failed로 끝낸다
+    wu = inp.json("warmup", "warmup-status.json", nums=("rc",))
+    if wu is not None:
+        M["warmup"] = {"rc": wu["rc"], "by_status": wu.get("by_status")}
+        if wu["rc"] != 0:
+            reasons.add("warmup-failed")
     lk = inp.json("limit_key", "limit-key.json", need=("env",))
     if lk and (lk.get("present") or (lk.get("drift") or 0) > 0 or (lk.get("drift_cmd") or 0) > 0):
         reasons.add("limit-key-present")   # 카운터·매수 키를 넣지 않는다(측정-1 — 업무 앱 기본값)
@@ -1496,6 +1504,25 @@ def r0(root):
     return 0 if rr else 1
 
 
+def warmup_status(path, rc):
+    """예열 k6 CSV(warmup-requests.csv.gz) → {rc, by_status{이름:상태: 수}, n} · CSV가 없거나 깨지면 by_status = None(rc는 그대로 — 코드 리뷰 CR14-14)."""
+    out = {"rc": rc, "by_status": None, "n": None}
+    try:
+        with gzip.open(path, "rt", newline="") as f:
+            rd = csv.reader(f)
+            head = next(rd)
+            i_m, i_n, i_st = (head.index(k) for k in ("metric_name", "name", "status"))
+            by = {}
+            for r in rd:
+                if r and r[i_m] == "http_req_duration":
+                    k = f"{r[i_n]}:{r[i_st]}"
+                    by[k] = by.get(k, 0) + 1
+        out.update(by_status=dict(sorted(by.items())), n=sum(by.values()))
+    except (OSError, EOFError, ValueError, StopIteration, IndexError, csv.Error):
+        pass
+    return out
+
+
 def main(argv):
     if len(argv) == 2 and argv[0] == "--rep":
         s = rep_summary(argv[1])
@@ -1509,6 +1536,10 @@ def main(argv):
         return sample_cost(argv[1:])
     if len(argv) == 2 and argv[0] == "--r0":
         return r0(argv[1])
+    if len(argv) == 3 and argv[0] == "--warmup-status":
+        rc = int(argv[2]) if argv[2].lstrip("-").isdigit() else None
+        print(json.dumps(warmup_status(argv[1], rc), ensure_ascii=False))
+        return 0
     if len(argv) == 1 and not argv[0].startswith("-"):
         return campaign(argv[0])
     print(__doc__, file=sys.stderr)
