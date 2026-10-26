@@ -17,11 +17,11 @@
    3. 이 DB에 붙은 다른 클라이언트 세션이 0인지 본다(자기 세션 · autovacuum 같은 백그라운드 프로세스는 빼고 센다 — `01-cleanup.sql`의 검사와 같은 조건):
       ```sql
       SELECT application_name, client_addr, count(*) FROM pg_stat_activity
-       WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend' GROUP BY 1, 2;
+       WHERE datname = current_database() AND pid <> pg_backend_pid() AND (backend_type = 'client backend' OR backend_type IS NULL) GROUP BY 1, 2;
       ```
       남은 행이 있으면 그 프로세스(관리 도구 · 다른 psql 포함)를 먼저 끊는다.
    4. `01-cleanup.sql`도 BEGIN 바로 뒤에 같은 조건을 다시 본다 — 다른 세션이 하나라도 있으면 아무것도 바꾸지 않고 `55006`(object_in_use)으로 멈춘다(끄는 변수는 없다).
-      **실행 롤**은 superuser이거나 `pg_read_all_stats` 권한이 있어야 한다(코드 리뷰 CR14-29). 권한 없는 롤에는 남의 세션 행의 `backend_type` 등이 NULL로 보여(PostgreSQL 16 문서 §28.2.2) 검사가 무음으로 통과할 수 있다 — 그래서 권한이 없으면 `42501`(insufficient_privilege)로 먼저 멈추고, `backend_type`이 NULL인 행도 세션으로 센다. 3번의 확인 SQL도 같은 롤로 돌린다.
+      **실행 롤**은 superuser이거나 `pg_read_all_stats` 권한이 있어야 한다(코드 리뷰 CR14-29). 권한 없는 롤에는 남의 세션 행의 `backend_type` 등이 NULL로 보여(PostgreSQL 16 문서 §28.2.2) 검사가 무음으로 통과할 수 있다 — 그래서 권한이 없으면 `42501`(insufficient_privilege)로 먼저 멈추고, `backend_type`이 NULL인 행도 세션으로 센다. 위 3.의 세션 조회도 같은 롤로 돌린다(권한 없는 롤이면 남의 세션이 `backend_type` NULL로 보인다).
    5. 검사 직후 T1·T2 대상 테이블(`seat_hold` · `user_hold_quota` · `product_seat`)을 `ACCESS EXCLUSIVE MODE NOWAIT`로 잠근다 — COMMIT 전까지 새로 붙은 세션은 이 테이블을 읽지도 쓰지도 못하고 기다린다. 다른 세션이 이미 그 테이블 잠금을 쥐고 있으면 기다리지 않고 `55P03`(lock_not_available)으로 멈춘다.
 2. **정리** — 변수 `quota_touch`는 지금 DB의 증분 대조 방식(`seat.hold.counter-drift.reconcile.incremental.method`)으로 정한다. 주지 않으면 문법 오류로 멈춘다(아무것도 바뀌지 않는다).
    ```sh
