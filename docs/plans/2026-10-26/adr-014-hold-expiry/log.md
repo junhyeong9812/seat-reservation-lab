@@ -45,7 +45,7 @@
 | DS14-6 | 1 | opus | ExpiryCounters.kt:33-35·59-60 | 채택 | fixed(1) | 회수·배치 감소에 증분 방식별 표시 누락 |
 | DS14-7 | 1 | opus | PairRepair.kt:101 | 채택 | fixed(1) | 인용 줄 |
 | DS14-OQ1 | 1 | opus | application.yml:16 | 메인 결정 | fixed(1) | V11 기본 위치 미편입(기본값 교체 때 함께) |
-| DS14-OQ2 | 1 | opus | §2.3 | [구현 검증] | open | D (가) 확정은 재현 테스트 green 뒤 — 구현 때 해소 |
+| DS14-OQ2 | 1 | opus | §2.3 | [구현 검증] | fixed(구현) | D (가) 확정 — #2 재현 테스트 green(blind · 구현자 테스트) |
 | DS14-8 | 1 | main-synthesis(수정 워커 보고) | ADR-014 §3.1 H3 | 채택 | fixed(1) | 회수 H3 MISSING 쌍 — 규칙 ① 미성립 → 무음 below 가능 → H4 앞 PairRepair |
 | DS14-9 | post-fix | codex | ADR-014 §설계-7 T1(:388·392·403) | 기각 | — | 마감 회차 감소 안 함 → 불일치 — 마감 회차는 카운터 불변식 범위 밖(LoadtestDataService.kt:190·203 · QuotaCleanup.kt:86-87) · 근거 문장 추가 |
 
