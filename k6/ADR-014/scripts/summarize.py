@@ -1202,23 +1202,31 @@ def crn_check(root):
     res, changed = {}, []
     for r in range(1, plan14.REPS + 1):
         for c in MAIN_CELLS:
-            hs, nocrn = {}, []
+            hs, nocrn, invalid = {}, [], []
             for m in plan14.ABCD:
                 s = load(root / c / m / f"rep{r}" / "rep-summary.json")
                 sp = root / c / m / f"rep{r}" / "status"
+                if not (sp.exists() and sp.read_text().strip() == "ok"):
+                    # 코드 리뷰 CR14-27: 무효(또는 status 없는) 회차는 대조에서 뺀다 — 그 해시가 다수결에 들면 유효 회차가 무효 회차 몫으로 '다수와 다름'이 될 수 있다
+                    # (예: A·B 유효 같음 · C·D 무효 같음 → 2 : 2 동률 → 넷 다 crn-mismatch). 무효 회차는 이미 판정에 쓰지 않는다
+                    invalid.append(m)
+                    continue
                 if s and (s.get("metrics") or {}).get("crn"):
                     hs[m] = json.dumps(s["metrics"]["crn"], sort_keys=True)
-                elif isinstance(s, dict) and sp.exists() and sp.read_text().strip() == "ok":
+                elif isinstance(s, dict):
                     # 유효인데 요약에 crn 합이 없다 — 대조에서 빼면 무음 통과다 → crn-mismatch(같음을 세우지 못함 · 판정 입력 전수 점검).
                     # 요약 자체가 없는 자리(campaign.sh --simulate)는 여기서 다루지 않는다 — 끝 집계(summary_gaps)가 유효로 세지 않는다
                     nocrn.append(m)
-            if len(hs) < 2 and not nocrn:
+            if not hs and not nocrn:
                 continue
+            # 유효 회차가 둘 이상일 때만 다수결을 낸다(과반 없으면 모두 다름 — 그대로). 유효 회차가 하나(또는 crn 있는 유효 회차가 하나)면 대조할 짝이 없어
+            # 그대로 둔다(CR14-27): crn이 지키는 것은 같은 (회차, 셀)의 방식 사이 비교인데, 짝 방식의 그 회차가 무효면 그 방식은 그 셀에서 유효 < 3 → 범위 None →
+            # 그 셀의 방식 사이 비교가 이미 판정 불가다(측정-7 · 측정-8). A 단독 항목(G4 · P1 · P3)은 방식 사이 비교가 아니다. crn 없는 유효 회차는 짝 수와 무관하게 crn-mismatch
             vals = list(hs.values())
             top = max(set(vals), key=vals.count) if vals else None
             bad = ([m for m, h in hs.items() if h != top] if vals.count(top) > len(vals) / 2 else list(hs)) if len(hs) >= 2 else []
             bad += nocrn
-            res[f"rep{r}:{c}"] = {"methods": sorted(hs), "mismatch": bad, "no_crn": nocrn}
+            res[f"rep{r}:{c}"] = {"methods": sorted(hs), "mismatch": bad, "no_crn": nocrn, "excluded_invalid": invalid, "compared": len(hs) >= 2}
             for m in bad:
                 sp = root / c / m / f"rep{r}" / "status"
                 st = sp.read_text().strip() if sp.exists() else ""

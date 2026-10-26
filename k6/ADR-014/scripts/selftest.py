@@ -120,8 +120,9 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
         else:
             for _ in range(5):
                 rows.append(http(s, "hold", "201", "s4", tags="stage=0" if rel >= 60 else "stage=ramp"))
+    alt = kw.get("crn_alt")   # True = 999(다른 해시) · 정수 = 그 값(CR14-27 — 무효 회차끼리 같은 다른 해시)
     for sc in ("blind", "map"):
-        rows += [cnt("crn_n", T0, sc, "", 100), cnt("crn_h1", T0, sc, "", 12345 if not kw.get("crn_alt") else 999), cnt("crn_h2", T0, sc, "", 777)]
+        rows += [cnt("crn_n", T0, sc, "", 100), cnt("crn_h1", T0, sc, "", 12345 if not alt else 999 if alt is True else alt), cnt("crn_h2", T0, sc, "", 777)]
     if kw.get("dropped"):
         rows.append(cnt("dropped_iterations", T0 + 30, "blind", ""))
     hold409 = sum(1 for r in rows if r.startswith("http_req_duration") and ",hold," in r and ",409," in r)
@@ -878,6 +879,26 @@ def round3_followup(tmp):
         else:
             check(f"CR14-28 timeline-server.jsonl {name} → db-cpu-missing(버리고 앞 시각에 붙이지 않는다)",
                   "db-cpu-missing" in s["reasons"] and "깨진 줄(마지막 줄 말고 — CR14-28) 1" in s["missing_inputs"].get("server", ""), s["status"] + json.dumps(s["missing_inputs"], ensure_ascii=False))
+    # CR14-27 — crn 다수결은 유효 회차끼리만
+    def crn_case(name, alt, status):
+        root = tmp / f"crn27-{name}"
+        for m in "ABCD":
+            make_rep(root, method=m, crn_alt=alt.get(m, False))
+            rep(root / "a20-t30" / m / "rep1")
+            (root / "a20-t30" / m / "rep1" / "status").write_text(status.get(m, "ok") + "\n")
+        S.crn_check(root)
+        st = {m: (root / "a20-t30" / m / "rep1" / "status").read_text().strip() for m in "ABCD"}
+        return st, json.loads((root / "crn-check.json").read_text())["groups"].get("rep1:a20-t30")
+    inv = "invalid:gc-log-missing"
+    st, g = crn_case("two-ok", {"C": 999, "D": 999}, {"C": inv, "D": inv})
+    check("CR14-27 유효 A·B 같음 · 무효 C·D(다른 해시끼리 같음) → A·B 그대로 ok · 무효 회차 status 그대로(다수결에 들지 않는다)",
+          st == {"A": "ok", "B": "ok", "C": inv, "D": inv} and g["excluded_invalid"] == ["C", "D"] and g["compared"], json.dumps([st, g], ensure_ascii=False))
+    st, g = crn_case("two-ok-diff", {"B": 555, "C": 999, "D": 555}, {"C": inv, "D": inv})
+    check("CR14-27 유효 A·B가 서로 다름(무효 D가 B와 같아도 다수가 되지 않는다) → 과반 없음 → A·B 모두 crn-mismatch",
+          st["A"] == "invalid:crn-mismatch" and st["B"] == "invalid:crn-mismatch" and st["D"] == inv, json.dumps([st, g], ensure_ascii=False))
+    st, g = crn_case("one-ok", {"B": 555, "C": 999, "D": 777}, {"B": inv, "C": inv, "D": "invalid:env-stall"})
+    check("CR14-27 유효 회차 하나(A)뿐 → 대조할 짝 없음 → 그대로 ok(compared false)", st["A"] == "ok" and g and not g["compared"] and g["mismatch"] == [],
+          json.dumps([st, g], ensure_ascii=False))
 
 
 def early_check_rules(tmp):
