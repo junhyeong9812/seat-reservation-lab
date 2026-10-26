@@ -198,25 +198,23 @@ private val DOLLAR_TAG = Regex("""\$[A-Za-z_]*\$""")
 /** 01-cleanup.sql의 정지 상태 검사 블록인가(DO — 코드 리뷰 CR14-16) */
 fun isQuiesceCheck(statement: String): Boolean = statement.startsWith("DO ", ignoreCase = true)
 
+/** 01-cleanup.sql의 테이블 잠금 문장인가(LOCK TABLE … NOWAIT — 코드 리뷰 CR14-29) */
+fun isCutoverLock(statement: String): Boolean = statement.startsWith("LOCK TABLE ", ignoreCase = true)
+
 /** 01-cleanup.sql 변수 quota_touch — 증분 method stmt의 값(README). none · trigger는 빈 문자열 */
 const val QUOTA_TOUCH_STMT = ", updated_at = now()"
 
 /**
- * 01-cleanup.sql의 T1 · T2([quotaTouch] = 변수 quota_touch) — 정지 상태 검사 블록은 뺀다(테스트용 우회: 스프링 테스트 DB에는 같은 DB의 Hikari 풀 세션이 있어
- * 검사가 늘 멈춘다 — 검사 자체는 [CUTOVER_QUIESCE_CHECK]로 따로 시험하고, 앱을 내린 DB에서는 [runCutover]가 검사까지 돌린다).
+ * 01-cleanup.sql의 정지 상태 검사 뒤 문장 — 잠금(CR14-29) · T1 · T2([quotaTouch] = 변수 quota_touch). 정지 상태 검사 블록만 뺀다(테스트용 우회: 스프링 테스트 DB에는
+ * 같은 DB의 Hikari 풀 세션이 있어 검사가 늘 멈춘다 — 검사 자체는 [CUTOVER_QUIESCE_CHECK]로 따로 시험하고, 앱을 내린 DB에서는 [runCutover]가 검사까지 돌린다).
+ * 잠금은 빼지 않는다 — 쉬는 풀 세션은 테이블 잠금을 쥐지 않아 NOWAIT가 멈추지 않는다(트랜잭션 안에서 부른다 — LOCK은 트랜잭션 블록 밖에서 거부된다).
  */
 fun cutoverStatements(quotaTouch: String = ""): List<String> =
     psqlStatements(cutoverOpsFile("01-cleanup.sql"), mapOf("quota_touch" to quotaTouch)).filterNot(::isQuiesceCheck)
-        .also { check(it.size == 2) { "01-cleanup.sql은 정지 상태 검사 뒤 T1 · T2 두 문장이어야 한다: $it" } }
+        .also { check(it.size == 3 && isCutoverLock(it[0])) { "01-cleanup.sql은 정지 상태 검사 뒤 잠금 · T1 · T2 세 문장이어야 한다: $it" } }
 
-/** 01-cleanup.sql 정지 상태 검사(DO 블록 — 다른 클라이언트 세션이 있으면 55006으로 멈춘다 · 코드 리뷰 CR14-16) — 운영 파일 그대로 */
+/** 01-cleanup.sql 정지 상태 검사(DO 블록 — 권한 없으면 42501 · 다른 클라이언트 세션이 있으면 55006으로 멈춘다 · 코드 리뷰 CR14-16 · CR14-29) — 운영 파일 그대로 */
 val CUTOVER_QUIESCE_CHECK: String get() = psqlStatements(cutoverOpsFile("01-cleanup.sql")).single(::isQuiesceCheck)
-
-/** §설계-7 T1(남은 만료 홀드 삭제 + 열린 회차 쌍별 감소) — 운영 파일 그대로(증분 method none — updated_at 절 없음). */
-val CUTOVER_T1: String get() = cutoverStatements()[0]
-
-/** §설계-7 T2(좌석 기준 재계산) — 운영 파일 그대로. */
-val CUTOVER_T2: String get() = cutoverStatements()[1]
 
 /** 02-verify.sql의 확인 3항목(v_held_without_hold · v_duplicate_hold_seats · v_counter_mismatch). 앱이 내려간 상태에서 DB로 직접 돌리므로 마감 판정 시각 = DB now(). */
 fun JdbcTemplate.cutoverVerify(): Map<String, Int> =
@@ -230,7 +228,7 @@ fun JdbcTemplate.vDuplicateHoldSeats(): Int = cutoverVerify().getValue("v_duplic
 fun JdbcTemplate.vCounterMismatch(): Int = cutoverVerify().getValue("v_counter_mismatch")
 
 /**
- * 정지 상태에서 운영 파일 그대로 — 정지 상태 검사 · T1 · T2를 한 트랜잭션으로(§설계-7 · 코드 리뷰 CR14-16).
+ * 정지 상태에서 운영 파일 그대로 — 정지 상태 검사 · 잠금 · T1 · T2를 한 트랜잭션으로(§설계-7 · 코드 리뷰 CR14-16 · CR14-29).
  * 먼저 앞 단계 연결(닫은 앱의 Hikari 풀 · DriverManager 연결)의 백엔드가 끝날 때까지 기다린다(연결을 닫아도 서버 쪽 세션은 조금 늦게 사라진다 — 운영의 '세션이 0인지 본다'와 같은 단계).
  */
 fun Connection.runCutover() {
@@ -243,8 +241,7 @@ fun Connection.runCutover() {
     autoCommit = false
     try {
         createStatement().use { it.execute(CUTOVER_QUIESCE_CHECK) }
-        createStatement().use { it.executeUpdate(CUTOVER_T1) }
-        createStatement().use { it.executeUpdate(CUTOVER_T2) }
+        cutoverStatements().forEach { sql -> createStatement().use { it.execute(sql) } } // 잠금 · T1 · T2(운영 파일 순서 그대로)
         commit()
     } catch (e: Throwable) {
         rollback()

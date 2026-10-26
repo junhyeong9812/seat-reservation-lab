@@ -148,7 +148,8 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
         rawConnection().use { c ->
             // 이 컨텍스트의 스키마(기본 위치 V1~V7)에는 updated_at이 없다 — 이 트랜잭션 안에서만 V9 열을 더하고 끝에 되돌린다
             c.exec("ALTER TABLE user_hold_quota ADD COLUMN updated_at timestamptz NOT NULL DEFAULT TIMESTAMPTZ '2000-01-01 00:00:00+00'")
-            val (t1, t2) = cutoverStatements(QUOTA_TOUCH_STMT)
+            val (lock, t1, t2) = cutoverStatements(QUOTA_TOUCH_STMT)
+            c.createStatement().use { it.execute(lock) }
             c.createStatement().use { it.executeUpdate(t1) }
             c.createStatement().use { it.executeUpdate(t2) }
             val touched = c.prepareStatement("SELECT user_id, cnt, updated_at > TIMESTAMPTZ '2000-01-02 00:00:00+00' FROM user_hold_quota WHERE schedule_id = ? ORDER BY user_id").use { ps ->
@@ -159,8 +160,8 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
             c.rollback()
         }
         assertEquals(1, cntOf(s, 1), "되돌렸다")
-        val raw = psqlStatements(cutoverOpsFile("01-cleanup.sql")).filterNot(::isQuiesceCheck) // 변수 없음 — psql처럼 :quota_touch가 남는다
-        val e = runCatching { jdbcTemplate.update(raw[0]) }.exceptionOrNull()
+        val raw = psqlStatements(cutoverOpsFile("01-cleanup.sql")).single { ":quota_touch" in it } // 변수 없음 — psql처럼 :quota_touch가 남는다(T1)
+        val e = runCatching { jdbcTemplate.update(raw) }.exceptionOrNull()
         assertEquals("42601", e?.let(::sqlStateOf), "문법 오류로 멈춘다: $e")
         assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
     }
@@ -177,6 +178,64 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
             assertEquals("55006", e?.let(::sqlStateOf), "정지 상태 검사가 멈춘다: $e")
             assertTrue(e!!.message!!.contains("다른 세션"), e.message)
             c.rollback()
+        }
+        assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
+        assertEquals(1, cntOf(s, 1))
+    }
+
+    /** 이 테스트 DB에 [role]로 붙은 연결(자동 커밋 끔) — 정지 상태 검사의 실행 롤 권한 시험용(CR14-29) */
+    private fun connectAs(role: String): java.sql.Connection =
+        java.sql.DriverManager.getConnection(dataSource.unwrap(com.zaxxer.hikari.HikariDataSource::class.java).jdbcUrl, role, "pw").apply { autoCommit = false }
+
+    @Test
+    fun `방식 전환 정리(ops 01-cleanup) — 권한 없는 롤은 남의 세션이 보이지 않으므로 42501로 멈춘다 · pg_read_all_stats 롤은 세션을 보고 55006(CR14-29)`() {
+        val a = seat(SeatStatus.HELD)
+        dbHold(a, 1, -1.0)
+        jdbcTemplate.queryForObject("SELECT 1", Int::class.java) // 풀 연결 하나는 열려 있다(다른 세션)
+        val plain = "adr014_cr1429_plain"
+        val stats = "adr014_cr1429_stats"
+        listOf(plain, stats).forEach { jdbcTemplate.execute("DROP ROLE IF EXISTS $it"); jdbcTemplate.execute("CREATE ROLE $it LOGIN PASSWORD 'pw'") }
+        jdbcTemplate.execute("GRANT pg_read_all_stats TO $stats")
+        try {
+            connectAs(plain).use { c ->
+                // 전제(PG16 §28.2.2): 권한 없는 롤에는 남의 세션 backend_type이 NULL — 옛 검사(backend_type = 'client backend')는 0개로 보고 통과했다
+                val visible = c.createStatement().use { st ->
+                    st.executeQuery("SELECT count(*) FILTER (WHERE backend_type = 'client backend'), count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()")
+                        .use { rs -> rs.next(); rs.getInt(1) to rs.getInt(2) }
+                }
+                assertTrue(visible.first == 0 && visible.second > 0, "전제: 세션은 있는데 backend_type이 안 보인다 $visible")
+                val e = runCatching { c.createStatement().use { it.execute(CUTOVER_QUIESCE_CHECK) } }.exceptionOrNull()
+                assertEquals("42501", e?.let(::sqlStateOf), "권한 검사가 멈춘다: $e")
+                assertTrue(e!!.message!!.contains("pg_read_all_stats"), e.message)
+                c.rollback()
+            }
+            connectAs(stats).use { c ->
+                val e = runCatching { c.createStatement().use { it.execute(CUTOVER_QUIESCE_CHECK) } }.exceptionOrNull()
+                assertEquals("55006", e?.let(::sqlStateOf), "pg_read_all_stats 롤은 다른 세션을 본다: $e")
+                c.rollback()
+            }
+        } finally {
+            listOf(plain, stats).forEach { jdbcTemplate.execute("DROP ROLE IF EXISTS $it") }
+        }
+        assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
+    }
+
+    @Test
+    fun `방식 전환 정리(ops 01-cleanup) — 검사 뒤 다른 세션이 대상 테이블 잠금을 쥐고 있으면 잠금 문장이 기다리지 않고 55P03으로 멈춘다(CR14-29)`() {
+        val a = seat(SeatStatus.HELD)
+        dbHold(a, 1, -1.0)
+        quota(s, 1, 1)
+        listOf("seat_hold", "user_hold_quota", "product_seat").forEach { table ->
+            rawConnection().use { other ->
+                other.exec("SELECT count(*) FROM $table") // 검사 뒤 새로 붙은 세션의 열린 트랜잭션 — ACCESS SHARE 잠금을 쥔다
+                rawConnection().use { c ->
+                    val (lock) = cutoverStatements()
+                    val e = runCatching { c.createStatement().use { it.execute(lock) } }.exceptionOrNull()
+                    assertEquals("55P03", e?.let(::sqlStateOf), "$table 잠금 — NOWAIT로 멈춘다: $e")
+                    c.rollback()
+                }
+                other.rollback()
+            }
         }
         assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
         assertEquals(1, cntOf(s, 1))
