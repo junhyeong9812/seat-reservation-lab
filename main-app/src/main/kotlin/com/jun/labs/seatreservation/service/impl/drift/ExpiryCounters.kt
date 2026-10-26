@@ -6,8 +6,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
-import org.springframework.transaction.support.TransactionSynchronization
-import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.transaction.TransactionDefinition
 
@@ -162,25 +160,16 @@ class ExpiryCounters(
     }
 
     /**
-     * 복구 결과는 커밋된 것만 센다 — 틱 안(배치)이면 틱이 커밋 뒤에 세고, 틱 밖(선점의 회수)이면 그 트랜잭션의 커밋 뒤에 센다.
-     * 회수 복구는 선점이 뒤에서 실패하면(NOWAIT 패배 · 매수 초과 등) 함께 롤백된다(규칙 ③) — 그 쌍은 다음 선점·배치·대조가 다시 본다(WARN 로그).
+     * 복구 결과는 커밋된 것만 센다 — 틱 안(C·D 배치 청크 · B·C·D 선점 — 둘 다 트랜잭션 밖에서 [beginTick]으로 감싼다)이면 커밋 뒤 [afterCommit]이 센다.
+     * 회수 복구는 선점이 뒤에서 실패하면(NOWAIT 패배 · 매수 초과 등) 함께 롤백된다(규칙 ③) — [afterRollback]이 시도한 쌍을 독립 트랜잭션으로 skipped 기록한다
+     * (A·C·D 틱 롤백과 같은 처리 — 코드 리뷰 CR14-5). 그 쌍은 다음 선점·배치·대조가 다시 본다. 틱 밖(직접 호출)은 바로 센다.
      */
     private fun countCommitted(outcome: DriftOutcome) {
-        val current = tick.get()
-        if (current != null) {
-            current.outcomes.add(outcome)
-            return
-        }
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) return recorder.count(outcome)
-        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
-            override fun afterCompletion(status: Int) {
-                if (status == TransactionSynchronization.STATUS_COMMITTED) recorder.count(outcome)
-                else log.warn("복구({})가 트랜잭션과 함께 롤백됐다: 회차 {} 사용자 {} — 다음 선점·배치·대조가 다시 본다", outcome.source, outcome.scheduleId, outcome.userId)
-            }
-        })
+        val current = tick.get() ?: return recorder.count(outcome)
+        current.outcomes.add(outcome)
     }
 
-    // ---- 틱 경계(ExpireHoldsService가 트랜잭션 밖에서 부른다) ----------------------------------------------
+    // ---- 틱 경계(트랜잭션 밖에서 부른다 — ExpireHoldsService(A) · LazyExpiryBatch(C·D 청크) · LazyHoldProcess(B·C·D 선점 — CR14-5)) ----------
 
     fun beginTick() = tick.set(Tick())
 
@@ -190,8 +179,11 @@ class ExpiryCounters(
         current.outcomes.forEach(recorder::count)
     }
 
-    /** 만료 트랜잭션이 롤백됐다 — 복구도 기록도 함께 사라졌다. 시도한 쌍마다 독립 트랜잭션으로 skipped를 남긴다(다음 틱이 같은 홀드를 다시 고른다). */
-    fun afterRollback(failure: Throwable) {
+    /**
+     * 만료 트랜잭션(또는 회수를 담은 선점 트랜잭션 — [what])이 롤백됐다 — 복구도 기록도 함께 사라졌다.
+     * 시도한 쌍마다 독립 트랜잭션으로 skipped를 남긴다(다음 틱 · 다음 선점이 같은 홀드를 다시 고른다).
+     */
+    fun afterRollback(failure: Throwable, what: String = "만료 틱") {
         val current = tick.get() ?: return
         if (current.attempted.isEmpty()) return
         val reason = skipReason(failure)
@@ -202,7 +194,7 @@ class ExpiryCounters(
         } catch (e: Exception) {
             skipped.forEach { recorder.recordFailed(it, e) }
         }
-        log.warn("만료 틱 롤백({}) — 복구 시도 쌍 {}개를 skipped로 기록", reason, skipped.size)
+        log.warn("{} 롤백({}) — 복구 시도 쌍 {}개를 skipped로 기록", what, reason, skipped.size)
     }
 
     fun endTick() = tick.remove()

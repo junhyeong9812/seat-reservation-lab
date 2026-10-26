@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.expiry
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.impl.drift.CounterDriftRecorder
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.drift.QuotaCleanup
 import com.jun.labs.seatreservation.service.impl.expiry.LazyExpiryBatch
@@ -138,6 +139,64 @@ abstract class Adr014ImplPathsTest : Adr014ImplSupport() {
         }
         assertTrue(holdExistsRow(expired))
         assertEquals(1, cntOf(s, 1))
+    }
+
+    /** 회수 복구 지표 — kind까지 줘야 한 계측기로 좁혀진다(find().counter()는 맞는 것 중 하나만 돌려준다) */
+    private fun reclaimDrift(action: String, kind: String): Double =
+        counter(CounterDriftRecorder.DRIFT_METRIC, "source", "hold-reclaim", "kind", kind, "action", action)
+
+    @Test
+    fun `회수 중 복구(가드 0행 — below)가 커밋되면 기록 repaired · 지표를 커밋 뒤에 센다(CR14-5)`() {
+        val a = seat()
+        val d = seat()
+        dbHold(a, 1, -1.0)
+        markHeld(a)
+        quota(s, 1, 0) // 실제 1인데 0 — H5 가드 0행 → 그 자리에서 복구
+        val repairedBefore = reclaimDrift("repaired", "below")
+        assertEquals("ok", holdCode(d, 1))
+        assertEquals(listOf(listOf<Any?>(1L, "below", "repaired", null, "hold-reclaim")), driftLog())
+        assertEquals(1.0, reclaimDrift("repaired", "below") - repairedBefore)
+        assertEquals(1, cntOf(s, 1))
+        assertEquals(0L, mismatch())
+    }
+
+    @Test
+    fun `회수 중 복구 뒤 NOWAIT로 지면 복구·기록은 롤백되고 skipped(55P03)를 독립 트랜잭션으로 남긴다 · 지표 hold-reclaim skipped(CR14-5)`() {
+        val a = seat()
+        val d = seat()
+        val expired = dbHold(a, 1, -1.0)
+        markHeld(a)
+        quota(s, 1, 0)
+        val skippedBefore = reclaimDrift("skipped", "below")
+        val repairedBefore = reclaimDrift("repaired", "below")
+        rawConnection().use { other ->
+            other.exec("SELECT id FROM product_seat WHERE id = ? FOR UPDATE", d)
+            assertEquals("SEAT_NOT_AVAILABLE/nowait", holdCode(d, 1))
+            other.rollback()
+        }
+        assertTrue(holdExistsRow(expired), "회수도 롤백(N3)")
+        assertEquals(0, cntOf(s, 1), "복구도 롤백")
+        assertEquals(listOf(listOf<Any?>(1L, "below", "skipped", "55P03", "hold-reclaim")), driftLog())
+        assertEquals(1.0, reclaimDrift("skipped", "below") - skippedBefore)
+        assertEquals(0.0, reclaimDrift("repaired", "below") - repairedBefore, "롤백된 복구는 세지 않는다")
+    }
+
+    @Test
+    fun `회수 중 MISSING 복구 뒤 매수 초과로 지면 skipped(예외 종류)를 남긴다(CR14-5)`() {
+        val a = seat()
+        val b = seat()
+        val c = seat()
+        val d = seat()
+        val expired = dbHold(a, 1, -1.0)
+        dbHold(b, 1, 300.0)
+        dbHold(c, 1, 300.0)
+        listOf(a, b, c).forEach(::markHeld) // 쿼터 행 없음(MISSING) — H3 앞 복구가 행을 만들고 실제 3으로 덮는다 → 회수 뒤 2 → H6 초과
+        val skippedBefore = reclaimDrift("skipped", "missing")
+        assertEquals("HOLD_LIMIT_EXCEEDED", holdCode(d, 1))
+        assertTrue(holdExistsRow(expired))
+        assertEquals(null, cntOf(s, 1), "MISSING 복구가 만든 행도 롤백")
+        assertEquals(listOf(listOf<Any?>(1L, "missing", "skipped", "SeatReservationException", "hold-reclaim")), driftLog())
+        assertEquals(1.0, reclaimDrift("skipped", "missing") - skippedBefore)
     }
 
     @Test

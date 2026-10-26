@@ -46,13 +46,28 @@ class LazyHoldProcess(
     private val upsertSql = upsertSqlFor(properties)
     private val ttlSeconds = properties.ttl.toMillis() / 1_000.0
 
-    fun hold(command: HoldSeatCommand): HoldSeatResult = try {
-        tx.execute { holdInTx(command) }!!
-    } catch (e: DataAccessException) {
-        // H7 NOWAIT의 '진 것'은 55P03뿐 — 데드락(40P01) 등 다른 락 실패는 409로 바꾸지 않고 올린다(A 3b와 같다 — DbLockHoldStrategies.kt).
-        // JdbcTemplate은 55P03을 PessimisticLockingFailureException이 아니라 UncategorizedSQLException으로 바꾼다(JPA 경로와 다르다 — 스모크로 확인) — 예외 종류가 아니라 SQLSTATE로 가른다
-        if (sqlStateOf(e) == PessimisticNoWaitHoldStrategy.LOCK_NOT_AVAILABLE) seatLockNotAvailable()
-        throw e
+    /**
+     * 선점 트랜잭션 하나를 복구 수집 구간(ExpiryCounters 틱 경계 — A·C·D 배치와 같은 장치)으로 감싼다(코드 리뷰 CR14-5): 회수(H3 · H5)가 PairRepair로
+     * 복구·기록한 뒤 선점이 뒤에서 지면(H7 55P03 · 매수 초과 · 좌석 불가 등) 복구와 기록이 함께 롤백된다 — 그 쌍을 독립 트랜잭션으로 skipped(reason = SQLSTATE
+     * 또는 예외 종류) 기록하고 지표 `seat.hold.counter.drift{source=hold-reclaim, action=skipped}`를 올린다. 커밋되면 복구 결과를 그때 센다.
+     */
+    fun hold(command: HoldSeatCommand): HoldSeatResult {
+        counters.beginTick()
+        try {
+            val result = try {
+                tx.execute { holdInTx(command) }!!
+            } catch (e: Exception) {
+                counters.afterRollback(e, ROLLBACK_WHAT)
+                // H7 NOWAIT의 '진 것'은 55P03뿐 — 데드락(40P01) 등 다른 락 실패는 409로 바꾸지 않고 올린다(A 3b와 같다 — DbLockHoldStrategies.kt).
+                // JdbcTemplate은 55P03을 PessimisticLockingFailureException이 아니라 UncategorizedSQLException으로 바꾼다(JPA 경로와 다르다 — 스모크로 확인) — 예외 종류가 아니라 SQLSTATE로 가른다
+                if (e is DataAccessException && sqlStateOf(e) == PessimisticNoWaitHoldStrategy.LOCK_NOT_AVAILABLE) seatLockNotAvailable()
+                throw e
+            }
+            counters.afterCommit()
+            return result
+        } finally {
+            counters.endTick()
+        }
     }
 
     private fun holdInTx(command: HoldSeatCommand): HoldSeatResult {
@@ -155,6 +170,8 @@ class LazyHoldProcess(
         const val REVERT_METRIC = "seat.hold.expiry.revert"
         const val PATH_RECLAIM = "reclaim"
         const val PATH_BATCH = "batch"
+        /** 롤백 로그의 트랜잭션 이름(ExpiryCounters.afterRollback) */
+        private const val ROLLBACK_WHAT = "선점(회수)"
     }
 }
 
