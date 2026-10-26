@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * ADR-014 손잡이를 주지 않은 업무 앱(sweep — A) — 기본값 sweep · 좌석 맵 A 문장(저장 상태 그대로) · 판정기 새 항목은 기존 `v_*` 밖 ·
@@ -158,10 +159,27 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
             c.rollback()
         }
         assertEquals(1, cntOf(s, 1), "되돌렸다")
-        val raw = psqlStatements(cutoverOpsFile("01-cleanup.sql")) // 변수 없음 — psql처럼 :quota_touch가 남는다
+        val raw = psqlStatements(cutoverOpsFile("01-cleanup.sql")).filterNot(::isQuiesceCheck) // 변수 없음 — psql처럼 :quota_touch가 남는다
         val e = runCatching { jdbcTemplate.update(raw[0]) }.exceptionOrNull()
         assertEquals("42601", e?.let(::sqlStateOf), "문법 오류로 멈춘다: $e")
         assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
+    }
+
+    @Test
+    fun `방식 전환 정리(ops 01-cleanup) — 같은 DB에 다른 세션(이 컨텍스트의 Hikari 풀)이 있으면 정지 상태 검사가 55006으로 멈춘다 · 아무것도 바뀌지 않는다(CR14-16)`() {
+        val a = seat(SeatStatus.HELD)
+        dbHold(a, 1, -1.0)
+        quota(s, 1, 1)
+        jdbcTemplate.queryForObject("SELECT 1", Int::class.java) // 풀 연결 하나는 열려 있다(다른 세션)
+        rawConnection().use { c ->
+            assertTrue(c.otherClientSessions() > 0, "전제: 같은 DB에 다른 클라이언트 세션")
+            val e = runCatching { c.createStatement().use { it.execute(CUTOVER_QUIESCE_CHECK) } }.exceptionOrNull()
+            assertEquals("55006", e?.let(::sqlStateOf), "정지 상태 검사가 멈춘다: $e")
+            assertTrue(e!!.message!!.contains("다른 세션"), e.message)
+            c.rollback()
+        }
+        assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
+        assertEquals(1, cntOf(s, 1))
     }
 }
 

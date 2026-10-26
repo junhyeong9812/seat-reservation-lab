@@ -170,21 +170,47 @@ fun cutoverOpsFile(name: String): File =
 
 /**
  * psql 파일의 문장 목록 — `--` 주석을 지우고 `;`로 나눈 뒤 BEGIN · COMMIT은 뺀다(트랜잭션은 부르는 쪽이 쥔다).
+ * `$태그$ … $태그$`(달러 따옴표 — DO 블록 본문) 안의 `;`에서는 나누지 않는다(코드 리뷰 CR14-16 정지 상태 검사 블록).
  * [vars] = psql 변수(`-v 이름=값`) — `:이름` 자리를 값으로 바꾼다. 주지 않은 변수는 psql처럼 그대로 남아 문법 오류가 된다.
  */
 fun psqlStatements(file: File, vars: Map<String, String> = emptyMap()): List<String> {
     var text = file.readLines().joinToString("\n") { it.substringBefore("--") }
     vars.forEach { (k, v) -> text = text.replace(":$k", v) }
-    return text.split(';').map { it.trim() }.filter { it.isNotEmpty() && !it.equals("BEGIN", true) && !it.equals("COMMIT", true) }
+    val out = mutableListOf<String>()
+    val cur = StringBuilder()
+    var quote: String? = null
+    var i = 0
+    while (i < text.length) {
+        val tag = DOLLAR_TAG.matchAt(text, i)?.value
+        when {
+            tag != null && (quote == null || quote == tag) -> { quote = if (quote == null) tag else null; cur.append(tag); i += tag.length; continue }
+            quote == null && text[i] == ';' -> { out += cur.toString(); cur.clear() }
+            else -> cur.append(text[i])
+        }
+        i++
+    }
+    out += cur.toString()
+    return out.map { it.trim() }.filter { it.isNotEmpty() && !it.equals("BEGIN", true) && !it.equals("COMMIT", true) }
 }
+
+private val DOLLAR_TAG = Regex("""\$[A-Za-z_]*\$""")
+
+/** 01-cleanup.sql의 정지 상태 검사 블록인가(DO — 코드 리뷰 CR14-16) */
+fun isQuiesceCheck(statement: String): Boolean = statement.startsWith("DO ", ignoreCase = true)
 
 /** 01-cleanup.sql 변수 quota_touch — 증분 method stmt의 값(README). none · trigger는 빈 문자열 */
 const val QUOTA_TOUCH_STMT = ", updated_at = now()"
 
-/** 01-cleanup.sql의 T1 · T2([quotaTouch] = 변수 quota_touch) */
+/**
+ * 01-cleanup.sql의 T1 · T2([quotaTouch] = 변수 quota_touch) — 정지 상태 검사 블록은 뺀다(테스트용 우회: 스프링 테스트 DB에는 같은 DB의 Hikari 풀 세션이 있어
+ * 검사가 늘 멈춘다 — 검사 자체는 [CUTOVER_QUIESCE_CHECK]로 따로 시험하고, 앱을 내린 DB에서는 [runCutover]가 검사까지 돌린다).
+ */
 fun cutoverStatements(quotaTouch: String = ""): List<String> =
-    psqlStatements(cutoverOpsFile("01-cleanup.sql"), mapOf("quota_touch" to quotaTouch))
-        .also { check(it.size == 2) { "01-cleanup.sql은 T1 · T2 두 문장이어야 한다: $it" } }
+    psqlStatements(cutoverOpsFile("01-cleanup.sql"), mapOf("quota_touch" to quotaTouch)).filterNot(::isQuiesceCheck)
+        .also { check(it.size == 2) { "01-cleanup.sql은 정지 상태 검사 뒤 T1 · T2 두 문장이어야 한다: $it" } }
+
+/** 01-cleanup.sql 정지 상태 검사(DO 블록 — 다른 클라이언트 세션이 있으면 55006으로 멈춘다 · 코드 리뷰 CR14-16) — 운영 파일 그대로 */
+val CUTOVER_QUIESCE_CHECK: String get() = psqlStatements(cutoverOpsFile("01-cleanup.sql")).single(::isQuiesceCheck)
 
 /** §설계-7 T1(남은 만료 홀드 삭제 + 열린 회차 쌍별 감소) — 운영 파일 그대로(증분 method none — updated_at 절 없음). */
 val CUTOVER_T1: String get() = cutoverStatements()[0]
@@ -203,11 +229,20 @@ fun JdbcTemplate.vDuplicateHoldSeats(): Int = cutoverVerify().getValue("v_duplic
 /** 판정기 v_counter_mismatch — 마감 회차(starts_at <= 시각)는 뺀다. */
 fun JdbcTemplate.vCounterMismatch(): Int = cutoverVerify().getValue("v_counter_mismatch")
 
-/** 정지 상태에서 T1·T2를 한 트랜잭션으로(§설계-7). */
+/**
+ * 정지 상태에서 운영 파일 그대로 — 정지 상태 검사 · T1 · T2를 한 트랜잭션으로(§설계-7 · 코드 리뷰 CR14-16).
+ * 먼저 앞 단계 연결(닫은 앱의 Hikari 풀 · DriverManager 연결)의 백엔드가 끝날 때까지 기다린다(연결을 닫아도 서버 쪽 세션은 조금 늦게 사라진다 — 운영의 '세션이 0인지 본다'와 같은 단계).
+ */
 fun Connection.runCutover() {
+    val deadline = System.nanoTime() + 10_000_000_000L
+    while (otherClientSessions() > 0) {
+        check(System.nanoTime() < deadline) { "정지 상태가 아니다 — 이 DB에 다른 클라이언트 세션 ${otherClientSessions()}개가 10초 넘게 남아 있다" }
+        Thread.sleep(100)
+    }
     val auto = autoCommit
     autoCommit = false
     try {
+        createStatement().use { it.execute(CUTOVER_QUIESCE_CHECK) }
         createStatement().use { it.executeUpdate(CUTOVER_T1) }
         createStatement().use { it.executeUpdate(CUTOVER_T2) }
         commit()
@@ -217,6 +252,13 @@ fun Connection.runCutover() {
     } finally {
         autoCommit = auto
     }
+}
+
+/** 이 DB의 다른 클라이언트 세션 수(01-cleanup.sql 정지 상태 검사와 같은 조건) */
+fun Connection.otherClientSessions(): Int = createStatement().use { st ->
+    st.executeQuery(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'",
+    ).use { rs -> rs.next(); rs.getInt(1) }
 }
 
 /** 블록 결과 = "ok" 또는 에러 코드 이름(그 밖의 예외는 "ERR:…") — HoldRace.kt와 같은 표기. */
