@@ -281,7 +281,9 @@ def probe_metrics(method, plan, rows, off_s):
             if bad_setup["st"] == "0" or int(bad_setup["st"]) >= 500:
                 res["setup_errors"] += 1      # 방식 — M11(측정-9 '탐침 응답 5xx·코드 0')
             else:
+                # 5xx가 아닌 첫 선점 실패(409 등)도 판정 요청이 나가지 않은 탐침이다 → probe-incomplete 계산에 넣는다 · 원인 이름표는 그대로(코드 리뷰 CR14-10)
                 res["setup_rejected"].append(f"{pr}#{pid}:{bad_setup['code']}")
+                res["judged_missing"].append(f"{pr}#{pid}:첫 선점 {bad_setup['st']}")
             continue
         judged = ["h1"] if pr in ("pr1", "pr2") else ["v", "c"]
         if any(j not in steps for j in judged):
