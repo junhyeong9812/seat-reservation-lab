@@ -90,7 +90,7 @@ k6/ADR-014/results/<id>/
 | `seed-mismatch` · `seat-map-index-missing` | `seed-check.json`(회차·좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 0 · `idx_product_seat_schedule_id` · Flyway V11) |
 | `crn-mismatch` | `summarize.py --crn-check`(같은 (회차, 셀) 방식 사이 crn 합이 다수와 다름 → status에 더함 — campaign.sh가 끝 대조 전에 부른다) |
 | `state-sampler-gap` | `timeline-seatstate.jsonl` → `state_metrics`(창 양끝 포함 간격 > 3초 · 수 < 창 초 × 0.95 · 파일 없음) |
-| `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초) — 비용 판정 전에 무효 |
+| `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초 · DB·앱 줄 CPU·메모리 못 읽음 · 깨진 '{' 줄 — 찢긴 마지막 줄 하나 제외 · CR14-28) — 비용 판정 전에 무효 |
 | `dropped-iterations` | CSV `dropped_iterations` 창 안(주 흐름 시나리오) |
 | `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감(첫 선점이 5xx 아닌 이유로 실패한 탐침 포함 — 코드 리뷰 CR14-10 · 첫 선점 기록 행 자체가 없는 탐침 — CR14-22) · 판정 불가 응답(판정 요청 응답이 5xx·0 밖의 예상 밖 값 — PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409} — CR14-23) · 탐침 기록 못 읽는 행 · 계획에 없는 칸 · 기록 없는 계획 칸(판정 입력 전수 점검) · 칸 < 계획 절반) |
 | `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음 · 앞뒤 `rtt_s`가 없거나 음수 — 코드 리뷰 CR14-9) |
@@ -131,7 +131,7 @@ k6/ADR-014/results/<id>/
 | `probe-check.json` ok | 799-801 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
 | `k6-requests.csv.gz` | `read_csv` 194 · 803-810 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
 | `k6-window.json` exit | 811-813 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
-| `timeline-server.jsonl` DB CPU · 서버 시각 · 앱 메모리 | `server_rows` 461-502 · 815-831 | 기존 `db-cpu-missing` · `path-gap` · **고침** — DB·앱 줄의 CPU·메모리를 못 읽으면 버리지 않고 `db-cpu-missing`(전: `continue`·`pass`로 버리고 평균) | 측정-9 M9(MR-3) · P12 ④ |
+| `timeline-server.jsonl` DB CPU · 서버 시각 · 앱 메모리 | `server_rows` 461-502 · 815-831 | 기존 `db-cpu-missing` · `path-gap` · **고침** — DB·앱 줄의 CPU·메모리를 못 읽으면 버리지 않고 `db-cpu-missing`(전: `continue`·`pass`로 버리고 평균) · **고침(CR14-28)** — 깨진 '{' 줄(찢긴 마지막 줄 하나 제외 — `jsonl`과 같은 규칙) → `db-cpu-missing`(전: `except ValueError: continue` — 서버 시각 줄이 찢기면 뒤 컨테이너 줄이 앞 시각에 붙고 path-gap 공백이 숨는다) | 측정-9 M9(MR-3) · P12 ④ · path-gap |
 | `consistency.json` 정합 문턱 열 | `CONS_COLS` 83-86 · 833 | 기존(CR14-8 · CR14-20) · **고침(CR14-21)** `active_on_reserved_seats` → `end-check-failed` · expiry_mode 다름은 기존 `expiry-mode-mismatch`(984) | 측정-7 재해석 CR14-8 · 20 · 21 |
 | `drift-db.json` drift_log_total · drift_log 행 | 834-836 · m6 967-979 | **고침** — total 숫자 필수 · 시각·action(`repaired`·`false-positive`·`skipped`)을 못 읽는 행 → `drift-db-failed`(전: 시각 −inf로 무음 제외 → `repaired`가 줄어 정합 위반이 숨는다) · reconcile_runs 시각 못 읽음 → 빠짐(→ `reconcile-missing` 쪽 — 규칙대로 보수) | 측정-7 정합(`repaired`) · P8 |
 | `drift-{before,after-k6,end}.json` tick.ok · drift_record_failed · cleanup.errors | 839-844 | **고침** — 숫자 필수 → `drift-snap-failed`(전: `(차분 or 0) > 0`). ADR-009 actsnap.py는 등록 안 된 지표 = 0 · 조회 실패 = None | 측정-9(ADR-009) |
