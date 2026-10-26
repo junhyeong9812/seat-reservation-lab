@@ -70,11 +70,11 @@ k6/ADR-014/results/<id>/
   order.txt · plan.json · knobs.json · images.json · start-conditions.{json,log} · CAMPAIGN.log · MATRIX.log · runner.log · crn-check.json · result.json · RESULT.md
   <셀>/<방식 A|B|C|D>/rep<k>/            (재측정 앞 시도 = rep<k>.attempt<n>/)
     plan.json · meta.json · status · rep-summary.json · harness-reasons.txt · errors.log
-    k6-requests.csv.gz · k6-summary.json · k6-window.json · pre-k6.json · clock-offset.json · k6-stdout.log.gz · warmup.log
+    k6-requests.csv.gz · k6-summary.json · k6-window.json · pre-k6.json · clock-offset.json · k6-stdout.log.gz · warmup.log · warmup-requests.csv.gz · warmup-status.json
     timeline-seatstate.jsonl(1초 상태 — 주 셀) · timeline-h4.jsonl(0.5초 — 주 셀) · timeline-waits.jsonl · timeline-locks.jsonl(0.5초) · timeline-hikari.jsonl(1초)
     timeline-server.jsonl(docker stats 10초) · timeline-client.jsonl · sampler-recovery.txt
     seed.json · seed-check.json · app-config.json · limit-key.json · pg-settings.json · db-state-{seed,k6}.json · io-{before,after}.json · pg-storage*.json
-    table-{before,after,end}.json · act14-{before,after-k6,end}.json · drift-{before,after-k6,end}.json · drift-db.json · consistency.json · app-db-clock-{before,after}.json
+    table-{before,after,end}.json · act14-{before,window-end,after-k6,end}.json · drift-{before,after-k6,end}.json · drift-db.json · consistency.json · app-db-clock-{before,after}.json
     probe-status.json · probe-check.json · k6-probe-{pc,server}.csv.gz · app.log.gz · db.log.gz · gc.log.gz · gc.json · app-jvm.json · logs-status.txt · gc-status.txt
 ```
 
@@ -92,15 +92,17 @@ k6/ADR-014/results/<id>/
 | `state-sampler-gap` | `timeline-seatstate.jsonl` → `state_metrics`(창 양끝 포함 간격 > 3초 · 수 < 창 초 × 0.95 · 파일 없음) |
 | `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초) — 비용 판정 전에 무효 |
 | `dropped-iterations` | CSV `dropped_iterations` 창 안(주 흐름 시나리오) |
-| `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감 · 칸 < 계획 절반) |
-| `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음) |
+| `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감(첫 선점이 5xx 아닌 이유로 실패한 탐침 포함 — 코드 리뷰 CR14-10) · 칸 < 계획 절반) |
+| `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음 · 앞뒤 `rtt_s`가 없거나 음수 — 코드 리뷰 CR14-9) |
 | `table-stats-missing` | `table-{before,after,end}.json`(P6 — 비용 셀은 end 없음) |
-| `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17) |
+| `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17) · 판정 창 끝 스냅숏(`act14-window-end.json`) 시작이 창 끝 뒤 [0, 10]초 밖(코드 리뷰 CR14-13) |
+| `end-check-failed` | `consistency.json` 없음 · 정합 문턱에 쓰는 판정기 열(`summarize.py` `CONS_COLS`) 하나라도 없거나 숫자가 아님(0으로 채우지 않는다 — 코드 리뷰 CR14-8) · run.sh 판정기 실패 |
+| `warmup-failed` | 예열 k6 rc ≠ 0(run.sh가 그 자리에서 abort14) · `warmup-status.json` 없음·rc 숫자 아님(코드 리뷰 CR14-14 — 이름:상태 분포도 남긴다) |
 | `env-stall` | CSV 초별 응답 0이 5초 이상 연속 → `classify_chunk`: 서버 측정기 무응답 > 5초 ∧ GC 정지 < 100ms ∧ ① 대기 표본(공백 ≤ 1초) `app|Lock:*` 0 ∧ ②③ Hikari(앞·안·뒤) pending 0 · active < 최대 |
 | `reconcile-missing` | `drift-db.json` reconcile_runs(시드 뒤 `inc-*` · `safety*` 0 — P8 생존) |
-| `gc-log-missing` · `container-log-missing` · `probe-missing` · `path-gap` · `waits-gap` · `drift-*` · `cleanup-errors` · `end-check-failed` · `k6-exit-N` · `schedule-closed-seen` | ADR-009 회차 합격 사유(S3e·S3c·C·F 전용 제외) 대응 — 아래 해석 메모 6 |
+| `gc-log-missing` · `container-log-missing` · `probe-missing` · `path-gap` · `waits-gap` · `drift-*` · `cleanup-errors` · `k6-exit-N` · `schedule-closed-seen` | ADR-009 회차 합격 사유(S3e·S3c·C·F 전용 제외) 대응 — 아래 해석 메모 6 |
 
-판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · 비용 셀 dropped.
+판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · `h4-sampler-missing`(주 셀인데 `timeline-h4.jsonl` 없음 — 코드 리뷰 CR14-12) · 비용 셀 dropped.
 
 ## 해석 메모(구현에서 정한 것 — 메인 확인 필요)
 
@@ -108,12 +110,12 @@ k6/ADR-014/results/<id>/
 2. **crn 해시** = 흐름마다 세션별 FNV 20비트 해시 두 개의 합 + 세션 수(순서 무관 · 실행된 세션 집합의 함수). '(흐름, 세션 번호) 순 이어 붙임'과 같은 것을 잡되 세션마다 태그를 달지 않는다(시계열 수십만 개 방지).
 3. **A의 탐침 nowait도 배치 잠금 409로 센다** — A 배치도 좌석 행을 UPDATE한다(측정-5 M3는 C만 적었다 · B·D의 nowait는 분류 불가 → 판정 409). A는 후보가 아니라 G2(b) 비교(M3 합)에만 쓰인다.
 4. **탐침 k6 duration = (계획 수 − 0.5) × 주기** — 정수배면 경계 반복이 하나 더 시작됐다(로컬 흉내 서버 시험). 시작 시각은 계획 그대로.
-5. **M11 창**: 데드락 = `db.log`의 `deadlock detected` 줄 중 창 안(시각을 못 읽으면 k6 구간 증분) · 틱 실패 · `:missingIds` 롤백 = k6 직전 → 직후 증분(gracefulStop 포함 — 창보다 넓다: 실패 쪽으로 보수적).
+5. **M11 창**: 데드락 = `db.log`의 `deadlock detected` 줄 중 창 안(시각을 못 읽으면 k6 구간 증분) · 틱 실패 · `:missingIds` 롤백 = k6 직전 → **판정 창 끝 스냅숏**(`act14-window-end.json` — k6 실행 + 창 끝 + 3초) 증분(코드 리뷰 CR14-13 · ADR 측정-5 M11 측정 전 재해석). 창 끝 → 회차 끝 증분(gracefulStop · 수렴)은 `tick_failed_outside` · `missing_mismatch_outside`로 기록만(MR-9). 이 메모의 옛 판(k6 직전 → 직후 — 창보다 넓다)은 대체됐다.
 6. **ADR-009 회차 합격 사유 중 구현한 것**: pre-k6 · cond-config · limit-key · gc-log · container-log · drift-snap/db/incomplete/record · cleanup-errors · probe-missing · path-gap · waits-gap · k6-exit · schedule-closed-seen(탐침 코드만 — 주 흐름 409는 본문을 읽지 않는다) · 마감 시각 경계(run.sh). **빠진 것**: `borrow-not-one`(빌림 비 — 앱 지표 조합 필요) · S2·S7 끝 상태 · io-timing-off 등 ADR-006·007 디스크 사유(tmpfs 고정이라 판정에 쓰지 않음).
 7. **상태 기대값(§설계-8.3) 0이 아닌 칸의 `expect-mismatch`**는 수렴 뒤 값으로 본다 — A 5행 = 0 · B 8행 > 0 · B 5행 > 0 · C 5행 ≤ 건너뜀(c2 + h4b) · C 6행 ≤ h4b.
-8. **P7 판정 불가 '재선점 0'**은 '남의 (만료) 홀드 뒤 같은 좌석 201'(k6 재구성) 3회 · 주 셀 합으로 센다(남은 만료 행 여부는 k6로 알 수 없다).
+8. **P7 판정 불가 '재선점 0'**은 '남의 (만료) 홀드 뒤 같은 좌석 201'(k6 재구성) 3회 · 주 셀 합으로 센다(남은 만료 행 여부는 k6로 알 수 없다). 좁힌 값('재선점 시각 − 앞 만료 < 배치 주기 10초' — `rehold_other_narrow`)도 함께 남긴다(기록 — 판정은 넓은 값). → ADR 측정-5 M5 측정 전 재해석(코드 리뷰 CR14-19)으로 확정.
 9. **결론**: 관문을 넘은 후보가 있어도 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ)가 있으면 '판정 불가 → 사용자 보고'(잠정 결과 함께).
-10. **H4 표지가 표본에 안 보이면** 무효가 아니라 `h4-marker-unseen` 이름표(측정-5 M10은 app-metric-missing이라 적었다 — ms 단위 문장이라 0.5초 표본이 우연히 놓칠 수 있다. #24 스모크로 정한다).
+10. **H4 표지가 표본에 안 보이면** 무효가 아니라 `h4-marker-unseen` 이름표(측정-5 M10은 app-metric-missing이라 적었다 — ms 단위 문장이라 0.5초 표본이 우연히 놓칠 수 있다. #24 스모크로 정한다). 주 셀인데 표본 파일이 없으면 `h4-sampler-missing` 이름표. → ADR 측정-5 M10 측정 전 재해석(코드 리뷰 CR14-12 — 스모크 #24 뒤 다시 보는 조건 포함)으로 확정.
 11. **원인 표지 대조는 같은 값이어야 한다** — gracefulStop이 HTTP 요청 도중을 끊으면 앱만 센 409가 생길 수 있다(스모크에서 차이가 보이면 보고).
 
 ## 스모크에서 확인할 것(`[구현 검증]` — 측정-11 #15~#25 · §설계-10 #1·#10·#11)
