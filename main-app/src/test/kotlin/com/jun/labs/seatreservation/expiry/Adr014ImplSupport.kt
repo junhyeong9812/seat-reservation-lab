@@ -149,8 +149,11 @@ abstract class Adr014ImplSupport : DriftTestSupport() {
 /** 방식별 컨텍스트 — expiry-repair를 켜고(IntegrationTest의 A 끔 고정을 덮는다) 배치 청크 2 */
 const val ADR014_REPAIR_ON = "seat.hold.counter-drift.expiry-repair=true"
 const val ADR014_SMALL_CHUNK = "seat.hold.expiry-batch-size=2"
+/** B(lazy)는 정리 ①이 켜져 있어야 뜬다(코드 리뷰 CR14-1 — IntegrationTest의 정리 끔 고정을 덮는다). 주기는 1시간 — 배경 정리가 테스트 데이터를 고치지 않게(진입점은 테스트가 부른다) */
+const val ADR014_LAZY_CLEANUP = "seat.hold.counter-drift.cleanup.mode=schedule"
+const val ADR014_LAZY_CLEANUP_IDLE = "seat.hold.counter-drift.cleanup.interval=1h"
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK, ADR014_LAZY_CLEANUP, ADR014_LAZY_CLEANUP_IDLE])
 annotation class LazyMode
 
 @TestPropertySource(properties = ["seat.hold.expiry-mode=lazy-sweep", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK])

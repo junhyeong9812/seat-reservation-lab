@@ -86,7 +86,9 @@ class Adr014StartupContractTest : BootTestBase() {
     fun `기본 조합 + lazy · lazy-sweep · derived는 뜬다(옛 동작 고정 키 · 업무 앱 기본값 둘 다)`() {
         val failures = mutableListOf<String>()
         modes.forEach { mode ->
-            listOf("옛 동작 고정" to emptyMap<String, String?>(), "업무 앱 기본값" to OLD_DEFAULTS.mapValues { null }).forEach { (name, base) ->
+            // 메인 수정(코드 리뷰 CR14-1): B(lazy)는 정리 ①이 켜져 있어야 뜬다 — 옛 동작 고정 키(정리 끔)에는 정리 ①만 더한다(업무 앱 기본값은 이미 schedule)
+            val old = if (mode == "lazy") mapOf<String, String?>(LAZY_CLEANUP_KEY to "schedule") else emptyMap()
+            listOf("옛 동작 고정" to old, "업무 앱 기본값" to OLD_DEFAULTS.mapValues { null }).forEach { (name, base) ->
                 bootFailure(freshDbUrl(), base + (EXPIRY_MODE to mode))?.let { failures += "$name + $mode: ${causesOf(it).map { e -> e.message?.take(200) }}" }
             }
         }

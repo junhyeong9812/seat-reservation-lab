@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
  * 열린 회차 쌍별 감소) · T2(좌석 기준 재계산)를 한 트랜잭션으로 돌린 뒤, 확인 3항목(v_held_without_hold · v_duplicate_hold_seats · v_counter_mismatch)이
  * 0이면 새 방식으로 올린다. T1·T2 SQL은 문서 그대로(Adr014Support.kt) — 이 테스트가 보는 것은 '구현이 쌓은 데이터' 위에서 그 절차가 성립하는가다.
  * 실제 기동(BootTestBase — 앱 시계 = 실제 시계 · 회차 2099). 만료 상태는 앱이 만든 홀드 행의 시각을 DB 기준 상대값으로 고쳐 만든다(Q10).
+ * 메인 수정(코드 리뷰 CR14-1): B 기동은 정리 ①(cleanup.mode=schedule)을 켠다 — 옛 동작 고정 키(정리 끔)로는 B가 기동 거부된다.
  */
 class Adr014CutoverContractTest : BootTestBase() {
 
@@ -82,7 +83,7 @@ class Adr014CutoverContractTest : BootTestBase() {
         db.assertCutoverChecks("D → B")
         assertEquals(listOf("HELD", "AVAILABLE", "RESERVED", "HELD", "AVAILABLE"), seats.map { db.storedStatus(it) })
         assertEquals(listOf(1, 0, 1, 0, 1), (1L..5L).map { db.quotaCnt(s, it) ?: 0 }, "T1 감소는 지운 행 수만큼")
-        boot(url, mapOf(EXPIRY_MODE to "lazy")).use { b ->
+        boot(url, mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
             assertEquals(
                 mapOf(seats[0] to "HELD", seats[1] to "AVAILABLE", seats[2] to "RESERVED", seats[3] to "HELD", seats[4] to "AVAILABLE"),
                 b.seatMap(s), "B 좌석 맵 빠른 길(저장 HELD가 활성 홀드를 덮는다 — §3.3)",
@@ -99,7 +100,7 @@ class Adr014CutoverContractTest : BootTestBase() {
         val db = jdbcFor(url)
         var s = 0L
         var seats = emptyList<Long>()
-        boot(url, mapOf(EXPIRY_MODE to "lazy")).use { b ->
+        boot(url, mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
             s = db.seedSchedule()
             seats = (1..4).map { db.seat(s) }
             db.expire(b.hold(s, seats[0], 1))                         // 만료 · 저장 HELD(거짓)

@@ -30,6 +30,9 @@ import java.util.concurrent.TimeUnit
 
 const val EXPIRY_MODE = "seat.hold.expiry-mode"
 
+/** 메인 수정(코드 리뷰 CR14-1): B(lazy)는 이 키가 schedule(정리 ①)이어야 뜬다 — 옛 동작 고정 키(BootTestBase · IntegrationTest)는 none */
+const val LAZY_CLEANUP_KEY = "seat.hold.counter-drift.cleanup.mode"
+
 /** 앱 시계 과거 위치 — DB 벽시계보다 이르다(IntegrationTest.NOW). A(앱 Clock)라면 DB 기준 만료 홀드를 '활성'으로 본다. */
 val CLOCK_PAST: Instant = IntegrationTest.NOW
 

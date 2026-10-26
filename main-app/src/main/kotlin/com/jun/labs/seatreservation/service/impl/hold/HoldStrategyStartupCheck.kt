@@ -74,7 +74,8 @@ class HoldStrategyMigrationGate {
  *   후보(A·C·F·정리)와 매수 방식 조합 · 후보를 켜면 V7 기록 테이블 · reconciler 프로필이면 만료 스케줄러 끔.
  * - ADR-012 기본값 교체(§8.9 · 명세 §10 K4~K7): 업무 앱 기본값(application.yml)이 A · 증분(trigger 1초) · 안전망 · 정리 ①을 켜고 C를 끈다 —
  *   검사는 기본값을 조용히 끄지 않고 거부 메시지에 끌 키를 안내한다. 더한 거부: F(external-reconciler) + 증분·안전망(대조 중복) · C + 증분(옛 방식 복귀 착각).
- * - ADR-014(§설계-6 · N7): sweep이 아닌 만료 방식(expiry-mode)은 기본 조합(3b + counter-upsert-precheck)에서만 · 측정 주입(inject-app)과 함께 쓰지 않는다.
+ * - ADR-014(§설계-6 · N7): sweep이 아닌 만료 방식(expiry-mode)은 기본 조합(3b + counter-upsert-precheck)에서만 · 측정 주입(inject-app)과 함께 쓰지 않는다 ·
+ *   lazy(B)는 정리 ①(cleanup.mode=schedule)이 켜져 있어야 한다(코드 리뷰 CR14-1).
  * - 순서: 설정만으로 판정되는 검사([checkConfig])는 Flyway 마이그레이션 앞에서 먼저 돈다([HoldStrategyMigrationGate]) — 거부된 기동이 스키마를 바꾸지 않게.
  *   DB 상태가 필요한 검사(인덱스·트리거·테이블·Redis·증분 스키마)는 여기 [run]에서 본다.
  */
@@ -171,6 +172,13 @@ class HoldStrategyStartupCheck(
             check(!properties.loadtest.injectApp.enabled) {
                 "만료 방식 $mode(seat.hold.expiry-mode)와 측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 함께 쓰지 않는다 " +
                     "— 주입 expiry 경로는 sweep의 만료 감소 안에만 있다. inject-app.enabled=false로 두거나 expiry-mode=sweep으로 띄워라(ADR-014 Q13)"
+            }
+            // 코드 리뷰 CR14-1: B는 주기 배치가 없고 회수는 그 사용자의 다음 선점에서만 일어난다 — 선점이 더는 오지 않는 마감 회차의 만료 홀드는
+            // 정리 ①(QuotaCleanup.cleanLazySchedule)만 지운다. 정리를 끄거나 ②(zero)로 두면 그 행과 쿼터 행이 영영 남는다(조용히 쌓이지 않게 거부)
+            val cleanup = properties.counterDrift.cleanup.mode
+            check(mode != ExpiryMode.LAZY || cleanup == CleanupMode.SCHEDULE) {
+                "만료 방식 lazy(seat.hold.expiry-mode)는 주기 배치가 없어 마감 회차의 만료 홀드를 정리 ①만 지운다 — 현재 cleanup.mode=$cleanup. " +
+                    "seat.hold.counter-drift.cleanup.mode=schedule로 두거나 seat.hold.expiry-mode=lazy-sweep·derived·sweep으로 띄워라(ADR-014 §설계-3.4 · 코드 리뷰 CR14-1)"
             }
         }
 

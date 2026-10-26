@@ -65,6 +65,28 @@ class Adr014ImplStartupTest : BootTestBase() {
     }
 
     @Test
+    fun `checkConfig — lazy는 정리 ①(cleanup schedule)이 없으면 거부한다(바꿀 키 안내) · 다른 방식은 정리와 무관(CR14-1)`() {
+        listOf(SeatHoldProperties.CleanupMode.NONE, SeatHoldProperties.CleanupMode.ZERO).forEach { cleanupMode ->
+            val p = base.copy(counterDrift = base.counterDrift.copy(cleanup = SeatHoldProperties.Cleanup(mode = cleanupMode)))
+            val e = assertFailsWith<IllegalStateException>("lazy + $cleanupMode") { check(p.copy(expiryMode = ExpiryMode.LAZY)) }
+            assertTrue(e.message!!.contains("seat.hold.counter-drift.cleanup.mode=schedule"), e.message)
+            assertTrue(e.message!!.contains("seat.hold.expiry-mode"), e.message)
+            // 정리 ②(zero)는 카운터 계열 조합에서 지금 검사로 통과한다 — 거부는 lazy 때문이다
+            listOf(ExpiryMode.SWEEP, ExpiryMode.LAZY_SWEEP, ExpiryMode.DERIVED).forEach { check(p.copy(expiryMode = it)) }
+        }
+        check(base.copy(expiryMode = ExpiryMode.LAZY)) // 코드 기본값 = schedule
+    }
+
+    @Test
+    fun `기동 — lazy + 정리 끔은 마이그레이션 앞에서 거부되고 스키마를 바꾸지 않는다 · 정리 ①을 켜면 뜬다(CR14-1)`() {
+        val url = freshDbUrl()
+        val error = bootFailure(url, mapOf("seat.hold.expiry-mode" to "lazy")) // 옛 동작 고정 키 = cleanup.mode=none
+        assertStartupFailure(error, "lazy + cleanup none", listOf("seat.hold.counter-drift.cleanup.mode=schedule로"))
+        assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
+        boot(freshDbUrl(), mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "schedule")).close()
+    }
+
+    @Test
     fun `기동 — 기본 조합 밖 lazy는 마이그레이션 앞에서 거부되고 스키마를 바꾸지 않는다(N7)`() {
         val url = freshDbUrl()
         val error = bootFailure(url, mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.strategy" to "pessimistic", "seat.hold.limit-strategy" to "none"))

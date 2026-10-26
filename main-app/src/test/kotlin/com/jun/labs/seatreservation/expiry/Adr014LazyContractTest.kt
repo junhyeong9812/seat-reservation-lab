@@ -12,7 +12,8 @@ import kotlin.test.assertTrue
  * B만의 것: 주기 배치 없음(§3.4 — expire()는 0 · E5) · 회수는 홀드 행과 카운터만 고치고 좌석 행은 쓰지 않는다(§3.4 · §8.3 'HELD인데 홀드 행 없음 > 0 가능') ·
  * 선점은 힌트 HELD를 쓴다(H10). 정리 ①(마감 회차)은 Adr014LazyCleanupContractTest.
  */
-@TestPropertySource(properties = ["$EXPIRY_MODE=lazy"])
+// 메인 수정(코드 리뷰 CR14-1): B는 정리 ①(cleanup.mode=schedule)이 켜져 있어야 뜬다 — IntegrationTest의 정리 끔 고정을 덮는다(주기 1시간 — 배경 정리가 테스트 데이터를 고치지 않게)
+@TestPropertySource(properties = ["$EXPIRY_MODE=lazy", "seat.hold.counter-drift.cleanup.mode=schedule", "seat.hold.counter-drift.cleanup.interval=1h"])
 class Adr014LazyContractTest : Adr014ModeContractBase() {
 
     override val modeValue = "lazy"
