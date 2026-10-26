@@ -76,7 +76,7 @@ class HoldStrategyMigrationGate {
  * - ADR-012 기본값 교체(§8.9 · 명세 §10 K4~K7): 업무 앱 기본값(application.yml)이 A · 증분(trigger 1초) · 안전망 · 정리 ①을 켜고 C를 끈다 —
  *   검사는 기본값을 조용히 끄지 않고 거부 메시지에 끌 키를 안내한다. 더한 거부: F(external-reconciler) + 증분·안전망(대조 중복) · C + 증분(옛 방식 복귀 착각).
  * - ADR-014(§설계-6 · N7): sweep이 아닌 만료 방식(expiry-mode)은 기본 조합(3b + counter-upsert-precheck)에서만 · 측정 주입(inject-app)과 함께 쓰지 않는다 ·
- *   lazy(B)는 정리 ①(cleanup.mode=schedule)이 켜져 있어야 한다(코드 리뷰 CR14-1).
+ *   lazy(B)는 정리 ①(cleanup.mode=schedule)이 켜져 있어야 한다(코드 리뷰 CR14-1 — 업무 앱만 · reconciler 프로필은 제외 CR14-26).
  * - 순서: 설정만으로 판정되는 검사([checkConfig])는 Flyway 마이그레이션 앞에서 먼저 돈다([HoldStrategyMigrationGate]) — 거부된 기동이 스키마를 바꾸지 않게.
  *   DB 상태가 필요한 검사(인덱스·트리거·테이블·Redis·증분 스키마)는 여기 [run]에서 본다.
  */
@@ -170,7 +170,7 @@ class HoldStrategyStartupCheck(
             check(properties.limitStrategy == UserLimitStrategyType.NONE || strategy == HoldStrategyType.PESSIMISTIC_NOWAIT) {
                 "매수 방식 ${properties.limitStrategy}는 좌석 전략 PESSIMISTIC_NOWAIT에서만 쓴다(현재 $strategy) — 락 순서·격리 수준 설정이 이 조합을 전제한다"
             }
-            checkExpiryModeConfig(properties)
+            checkExpiryModeConfig(properties, environment)
             checkCounterDriftConfig(properties, environment)
         }
 
@@ -180,7 +180,7 @@ class HoldStrategyStartupCheck(
          * counter-trigger는 V8 트리거의 홀드 DELETE −1이 회수 H5의 앱 감소와 겹치며, 선조회가 없는 방식은 H1의 자리가 없다.
          * 측정 주입(inject-app)도 거부한다(Q13) — 주입의 expiry 경로가 A의 감소(ExpiryCounters.decrement) 안에만 있다.
          */
-        private fun checkExpiryModeConfig(properties: SeatHoldProperties) {
+        private fun checkExpiryModeConfig(properties: SeatHoldProperties, environment: Environment?) {
             val mode = properties.expiryMode
             check(properties.expiryBatchSize > 0) { "seat.hold.expiry-batch-size는 1 이상이어야 한다(현재 ${properties.expiryBatchSize})" }
             check(properties.expiryMaxChunksPerTick > 0) {
@@ -198,8 +198,11 @@ class HoldStrategyStartupCheck(
             }
             // 코드 리뷰 CR14-1: B는 주기 배치가 없고 회수는 그 사용자의 다음 선점에서만 일어난다 — 선점이 더는 오지 않는 마감 회차의 만료 홀드는
             // 정리 ①(QuotaCleanup.cleanLazySchedule)만 지운다. 정리를 끄거나 ②(zero)로 두면 그 행과 쿼터 행이 영영 남는다(조용히 쌓이지 않게 거부)
+            // 코드 리뷰 CR14-26: reconciler 프로필(F — 대조 전용)은 정리를 업무 앱에 맡겨 cleanup.mode=none이다(application-reconciler.yml) — 이 규칙은 업무 앱에만 건다
+            // (판정 기준은 [expirySchedulerOffWarning]과 같다 — 활성 프로필에 reconciler)
+            val f = environment?.activeProfiles?.contains(RECONCILER_PROFILE) == true
             val cleanup = properties.counterDrift.cleanup.mode
-            check(mode != ExpiryMode.LAZY || cleanup == CleanupMode.SCHEDULE) {
+            check(f || mode != ExpiryMode.LAZY || cleanup == CleanupMode.SCHEDULE) {
                 "만료 방식 lazy(seat.hold.expiry-mode)는 주기 배치가 없어 마감 회차의 만료 홀드를 정리 ①만 지운다 — 현재 cleanup.mode=$cleanup. " +
                     "seat.hold.counter-drift.cleanup.mode=schedule로 두거나 seat.hold.expiry-mode=lazy-sweep·derived·sweep으로 띄워라(ADR-014 §설계-3.4 · 코드 리뷰 CR14-1)"
             }

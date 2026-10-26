@@ -120,6 +120,33 @@ class Adr014ImplStartupTest : BootTestBase() {
     }
 
     @Test
+    fun `checkConfig — lazy + 정리 끔은 reconciler 프로필이면 통과 · 업무 프로필(프로필 없음·loadtest)이면 거부(CR14-26)`() {
+        val p = base.copy(expiryMode = ExpiryMode.LAZY, counterDrift = base.counterDrift.copy(cleanup = SeatHoldProperties.Cleanup(mode = SeatHoldProperties.CleanupMode.NONE)))
+        fun env(vararg profiles: String) = MockEnvironment().apply { setActiveProfiles(*profiles) }
+        // reconciler 프로필은 만료 스케줄러를 꺼야 하고(F 검사) 대조를 켜야 한다(L1-13) — 그 두 검사가 대신 거부하지 않게 둘 다 맞춘다
+        val f = p.copy(counterDrift = p.counterDrift.copy(reconcile = p.counterDrift.reconcile.copy(enabled = true)))
+        HoldStrategyStartupCheck.checkConfig(f, env("reconciler").apply { setProperty("seat.hold.expiry-scheduler-enabled", "false") })
+        listOf(env(), null).forEach { e ->
+            val error = assertFailsWith<IllegalStateException>("업무 프로필 $e") { HoldStrategyStartupCheck.checkConfig(p, e) }
+            assertTrue(error.message!!.contains("seat.hold.counter-drift.cleanup.mode=schedule"), error.message)
+        }
+    }
+
+    @Test
+    fun `기동 — reconciler 프로필 + lazy + 정리 끔(F 기본값)은 뜬다 · 같은 키의 업무 앱은 거부된다(CR14-26)`() {
+        // 업무 앱 기본값으로 띄운다(옛 동작 고정 키를 뺀다) — F의 정리·대조·증분·안전망은 application-reconciler.yml이 정한다(cleanup none · C 켬)
+        boot(freshDbUrl(), OLD_DEFAULTS_OFF + mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-mode" to "lazy")).use { ctx ->
+            val props = ctx.getBean(SeatHoldProperties::class.java)
+            assertEquals(SeatHoldProperties.CleanupMode.NONE, props.counterDrift.cleanup.mode, "전제: F는 정리 끔")
+            assertEquals(ExpiryMode.LAZY, props.expiryMode, "전제: lazy")
+        }
+        val url = freshDbUrl()
+        val error = bootFailure(url, OLD_DEFAULTS_OFF + mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "none"))
+        assertStartupFailure(error, "업무 앱 + lazy + cleanup none", listOf("seat.hold.counter-drift.cleanup.mode=schedule로"))
+        assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
+    }
+
+    @Test
     fun `기동 — 기본 조합 밖 lazy는 마이그레이션 앞에서 거부되고 스키마를 바꾸지 않는다(N7)`() {
         val url = freshDbUrl()
         val error = bootFailure(url, mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.strategy" to "pessimistic", "seat.hold.limit-strategy" to "none"))
