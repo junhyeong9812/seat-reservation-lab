@@ -346,13 +346,16 @@ abstract class Adr014ModeContractBase : IntegrationTest() {
         val n = 12
         val seats = (1..n).map { seat(storedHeld) }
         val holds = seats.mapIndexed { i, seat -> jdbcTemplate.dbHold(seat, s, 5_000L + i, "${200 + 40 * i} milliseconds") }
-        jdbcTemplate.awaitDbTimeAfter(holdExpiresAt(holds.first()))
+        // 메인 수정(blind 테스트 시간 설계): 첫 홀드가 아니라 마지막 홀드의 만료를 기다린다 — 첫 만료만 기다리면 대부분 좌석이 아직 활성이라 X 확정이 정당하게 이긴다
+        jdbcTemplate.awaitDbTimeAfter(holdExpiresAt(holds.last()))
         val results = pool.together(2 * n) { k ->
             val i = k / 2
             if (k % 2 == 0) {
                 "X:" + tryConfirm(holds[i], 5_000L + i)
             } else {
-                val r = runCatching { hold(seats[i], 6_000L + i) }
+                // 메인 수정: X 확정이 좌석을 쥔 순간의 NOWAIT 패배(§3.1 H7 — 설계된 409)는 한 번 다시 시도한다
+                var r = runCatching { hold(seats[i], 6_000L + i) }
+                if (r.isFailure && outcomeOf { r.getOrThrow() } == "SEAT_NOT_AVAILABLE") r = runCatching { hold(seats[i], 6_000L + i) }
                 "Y:" + (r.getOrNull()?.let { tryConfirm(it.holdId, 6_000L + i) } ?: outcomeOf { r.getOrThrow() })
             }
         }
