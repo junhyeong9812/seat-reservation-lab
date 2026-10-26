@@ -369,6 +369,7 @@ def run(tmp):
     rep_round2(tmp)
     campaign_rules(tmp)
     campaign_round2(tmp)
+    campaign_round3(tmp)
     early_check_rules(tmp)
 
 
@@ -477,6 +478,8 @@ def fake(m, c, r, **o):
                         "p9_early_not200": o.get("p9", {}).get((m, c), 0), "p6": {"violated": m in o.get("p6v", "")} if m == "D" else None}}
     if o.get("none_t95") == (m, c, r):
         s["metrics"]["state"]["T95"] = None
+    if (m, c, r) in o.get("none_seatmap", ()):
+        s["metrics"]["p99"]["seatmap_200"] = None   # 3단에만 쓰는 지표(a50-t300 지도 p99 — G3 밖) None → 3단 판정 불가(CR14-24)
     if (m, c, r) in o.get("none_cost", ()):
         s["metrics"]["p99"]["cost_hold"] = None   # 유효 회차의 비용 지표 None → G3 판정 불가(CR14-18)
     return s
@@ -593,8 +596,31 @@ def campaign_round2(tmp):
     v = r["decision"]["verdict"]
     check("CR14-18 1순위(D) G3 판정 불가 · 2순위(B) 관문 통과 → '판정 불가 → 사용자 보고'(잠정 B)",
           r["ranked"][0] == "D" and v.startswith("판정 불가") and "잠정: B" in v and "G3 판정 불가 D" in v and r["decision"]["new_default"] is None, v)
-    r = verdict((write_campaign(tmp / "k12", t95={"A": 140}, none_cost={("C", "S4c4200", 1)}) or tmp / "k12"))
-    check("CR14-18 뒤 순위(C)만 G3 판정 불가 → 1순위(D)가 그대로 교체", r["decision"]["new_default"] == "derived", r["decision"]["verdict"])
+    # C를 2단에서 빼 둔다(T95가 B·D보다 비겹침으로 김) — C가 3단에 남으면 그 None은 3단 판정 불가(CR14-24 ⓓ)로 순위 자체가 정해지지 않는다
+    r = verdict((write_campaign(tmp / "k12", t95={"A": 140, "C": 120}, none_cost={("C", "S4c4200", 1)}) or tmp / "k12"))
+    check("CR14-18 뒤 순위(C — 2단에서 빠짐)만 G3 판정 불가 → 1순위(D)가 그대로 교체", r["decision"]["new_default"] == "derived"
+          and r["gates"]["C"]["G3"]["undecidable"] and not r["rank_undecidable"], r["decision"]["verdict"])
+    r = verdict((write_campaign(tmp / "k13", t95={"A": 140}, none_cost={("C", "S4c4200", 1)}) or tmp / "k13"))
+    check("CR14-24 뒤 순위(C)의 G3 지표 None이 3단에도 섞이면 순위가 정해지지 않는다 → '판정 불가 → 사용자 보고'(ⓓ · 잠정 D)",
+          r["decision"]["verdict"].startswith("판정 불가") and "ⓓ" in r["decision"]["verdict"] and "잠정: D" in r["decision"]["verdict"], r["decision"]["verdict"])
+
+
+def campaign_round3(tmp):
+    """코드 리뷰 루프 3(CR14-24) — 3단 비용 지표 범위 None → 3단 판정 불가 · 결론 ⓓ."""
+    cj = S.COST_JUDGE_CELL
+    r = verdict((write_campaign(tmp / "q1", t95={"A": 140}, none_seatmap={("B", cj, 2)}) or tmp / "q1"))
+    st3 = r["stages"][2]
+    v = r["decision"]["verdict"]
+    check("CR14-24 3단 후보 B의 지도 p99 범위 None → 3단 판정 불가 · 관문 통과 D가 있어도 '판정 불가 → 사용자 보고'(ⓓ · 잠정 D)",
+          st3["undecidable"] == ["a50t300_seatmap_p99 B"] and v.startswith("판정 불가") and "ⓓ" in v and "잠정: D" in v and r["decision"]["new_default"] is None,
+          json.dumps(st3, ensure_ascii=False) + " " + v)
+    r = verdict((write_campaign(tmp / "q2", t95={"A": 140, "B": 80, "C": 100, "D": 100}, none_seatmap={("C", cj, 2)}) or tmp / "q2"))
+    check("CR14-24 3단에 후보가 하나만 남으면(2단에서 C·D 빠짐) None이 있어도 3단 판정 불가 아님 → 교체 B",
+          not r["stages"][2]["undecidable"] and r["decision"]["new_default"] == "lazy", json.dumps(r["stages"], ensure_ascii=False) + r["decision"]["verdict"])
+    r = verdict((write_campaign(tmp / "q3", t95={"A": 140}, cpu={"B": 200, "C": 200}, none_seatmap={("B", cj, 2)}) or tmp / "q3"))
+    check("CR14-24 3단 판정 불가여도 다른 후보(B·C)가 모두 G3에 걸리면 순위와 무관 → 교체 D",
+          r["stages"][2]["undecidable"] and r["decision"]["new_default"] == "derived" and all(r["gates"][m]["G3"]["hits"] for m in "BC"),
+          r["decision"]["verdict"])
 
 
 def early_check_rules(tmp):

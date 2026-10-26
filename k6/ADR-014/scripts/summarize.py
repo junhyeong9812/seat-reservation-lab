@@ -1347,19 +1347,27 @@ def campaign(root):
 
     def beats3(y, x):    # 3단 — X ≫ Y인 지표가 있고 Y ≫ X인 지표가 없으면 X가 빠진다
         return any(much_higher(COSTM[k](x), COSTM[k](y)) for k in cost_keys) and not any(much_higher(COSTM[k](y), COSTM[k](x)) for k in cost_keys)
+
+    def undec3(alive):
+        """측정 전 재해석 CR14-24: 3단에 남은 후보가 둘 이상인데 어느 (지표, 후보)의 범위가 None(유효 회차의 값 None 등)이면 3단 결과는 판정 불가다.
+        much_higher가 None을 '≫ 아님'(거짓)으로 돌려 빠질 후보가 남는 것을 숨기지 않는다 — 결과(잠정)는 그대로 내고 판정 불가 목록을 단다."""
+        return [f"{k} {m}" for k in cost_keys for m in alive if rng(COSTM[k](m)) is None] if len(alive) >= 2 else []
+    stage_undec = {"3 비용": undec3}
     alive = list(cands)
     out_at = {}
     for name, rule in (("1 정합", None), ("2 판매 효과·사용자 실패", better2), ("3 비용", beats3)):
         if rule is None:
-            stages.append({"stage": name, "alive": list(alive), "out": []})
+            stages.append({"stage": name, "alive": list(alive), "out": [], "undecidable": []})
             continue
+        und = stage_undec[name](alive) if name in stage_undec else []
         keep, gone = eliminate(alive, rule)
         for g in gone:
             out_at[g] = name
-        stages.append({"stage": name, "alive": keep, "out": gone})
+        stages.append({"stage": name, "alive": keep, "out": gone, "undecidable": und})
         alive = keep
+    rank_undec = [f"{st_['stage']} {st_['undecidable']}" for st_ in stages if st_["undecidable"]]
     alive_sorted = sorted(alive, key=SIMPLICITY.index)
-    stages.append({"stage": "4 단순성(D > B > C)", "alive": alive_sorted[:1], "out": alive_sorted[1:]})
+    stages.append({"stage": "4 단순성(D > B > C)", "alive": alive_sorted[:1], "out": alive_sorted[1:], "undecidable": []})
     stage_rank = {"4": 0, "3 비용": 1, "2 판매 효과·사용자 실패": 2, "1 정합": 3}
     ranked = sorted(cands, key=lambda m: (stage_rank.get(out_at.get(m, "4"), 0), SIMPLICITY.index(m)))
 
@@ -1389,11 +1397,15 @@ def campaign(root):
     g3_undec = [m for m in ranked if gates[m]["G1"] and gates[m]["G2"]["pass"] and gates[m]["G4"]
                 and not gates[m]["G3"]["hits"] and gates[m]["G3"]["undecidable"]]
     g3_ahead = [m for m in g3_undec if winner and ranked.index(m) < ranked.index(winner)]   # 관문 통과 후보보다 앞 순위 — 그 후보가 이겼을 수 있다
-    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"G3 판정 불가 {m}" for m in g3_ahead]
+    # 측정 전 재해석 CR14-24(ⓓ): 고르는 규칙의 한 단이 판정 불가인데, 관문 통과 후보 말고도 관문을 넘었거나(넘었을 수 있는 — ⓒ) 후보가 있으면 순위가 바뀌어
+    # 그 후보가 이겼을 수 있다 → 같은 '판정 불가 → 사용자 보고'(잠정 결과 함께). 다른 후보가 모두 관문에서 걸렸으면 순위와 무관하게 관문 통과 후보가 이긴다
+    rivals = [m for m in ranked if m != winner and (gates[m]["pass"] or m in g3_undec)]
+    rank_block = [f"고르는 규칙 판정 불가 {rank_undec} · 경쟁 후보 {rivals}"] if winner and rank_undec and rivals else []
+    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"G3 판정 불가 {m}" for m in g3_ahead] + rank_block
     if winner and blocked:
-        # 해석 메모: 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ) · 앞 순위의 G3 판정 불가 후보(ⓒ)가 있으면, 그 자리·후보가 순위를 바꿀 수 있으므로
+        # 해석 메모: 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ) · 앞 순위의 G3 판정 불가 후보(ⓒ) · 고르는 규칙 판정 불가(ⓓ)가 있으면, 그 자리·후보가 순위를 바꿀 수 있으므로
         # 관문을 넘은 후보가 있어도 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — 기본값은 사용자 결정 전까지 그대로)
-        verdict = f"판정 불가 → 사용자 보고(측정-8 ⓐ·ⓑ·ⓒ — 잠정: {winner}({plan14.METHODS[winner]})가 관문 통과 · 막은 것 {blocked})"
+        verdict = f"판정 불가 → 사용자 보고(측정-8 ⓐ·ⓑ·ⓒ·ⓓ — 잠정: {winner}({plan14.METHODS[winner]})가 관문 통과 · 막은 것 {blocked})"
         winner = None
     elif winner:
         verdict = f"기본값 교체 — expiry-mode = {plan14.METHODS[winner]}({winner})"
@@ -1413,7 +1425,7 @@ def campaign(root):
     hyp = hypotheses(reps, T95, M3, COSTM, mget, p3_valid, a_w)
     res = {"slots": {f"rep{r}:{c}:{m}": x for (r, c, m), x in slots.items()}, "valid_n": {f"{m}:{c}": n for (m, c), n in valid_n.items()},
            "env_exhausted": env_exhausted, "harness_exhausted": harness_exhausted, "success": result, "A": {"valid": a_valid, "P1_W_t30": a_w, "P1_W_pos": p1_w,
-           "integrity": a_integ, "G4": g4}, "P3_valid": p3_valid, "sample_cost": sample_cost, "stages": stages, "ranked": ranked, "gates": gates,
+           "integrity": a_integ, "G4": g4}, "P3_valid": p3_valid, "sample_cost": sample_cost, "stages": stages, "rank_undecidable": rank_undec, "ranked": ranked, "gates": gates,
            "decision": {"verdict": verdict, "new_default": plan14.METHODS[winner] if winner else None,
                         "note": "G2(b)는 P3가 서면 사실상 늘 A가 진다 — 교체는 사실상 정합(G1)과 비용(G3)이 정한다(측정-8 '주의' · MQ3)"},
            "hypotheses": hyp,
@@ -1486,7 +1498,7 @@ def render_md(res):
     L.append(f"- **A(sweep — 기준)**: 유효 {a['valid']} · P1 TTL 30초 W > 0 {a['P1_W_pos']} · G4 {a['G4']} · 정합 위반 {a['integrity'] or '없음'}(있으면 ADR-015 입력 — MQ9)")
     L += ["", "## 고르는 규칙(측정-8)"]
     for s in res["stages"]:
-        L.append(f"- {s['stage']}: 남음 {s['alive']} · 빠짐 {s['out']}")
+        L.append(f"- {s['stage']}: 남음 {s['alive']} · 빠짐 {s['out']}" + (f" · **판정 불가** {s['undecidable']}(잠정 — CR14-24)" if s.get("undecidable") else ""))
     L.append(f"- 순위: {res['ranked']}")
     sc = res["sample_cost"]
     L.append(f"- 표본 비용 기준(측정-5 머리): Δc {sc['delta_c']} · A a50-t300 DB CPU 범위 {sc['A_a50t300_cpu_range']} → a50-t300 DB CPU 분리 {sc['separate_a50t300_db_cpu']}")
