@@ -146,19 +146,23 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
                 skew = kw.get("skew", {}).get((pr, str(float(dd))), 0)
                 if kw.get("skip_judged") == (pr, i):
                     continue
+                odd = kw.get("judged_odd", {}).get((pr, i))   # 판정 요청 응답을 예상 밖 값으로(CR14-23) — {단계: 상태}
                 if pr in ("pr1", "pr2"):
                     plan_ms = e + dd * 1000
                     sent = plan_ms - OFF * 1000 + (skew if i % 2 == 0 else 0)
-                    if (method == "A" or kw.get("probe409")) and dd in (1, 3):
+                    if odd:
+                        rows.append(prow("h1", odd["h1"], "BAD_REQUEST", sent, int(plan_ms)))
+                    elif (method == "A" or kw.get("probe409")) and dd in (1, 3):
                         rows.append(prow("h1", "409", "SEAT_NOT_AVAILABLE" if pr == "pr1" else "HOLD_LIMIT_EXCEEDED", sent, int(plan_ms), rej=kw.get("probe_rej", "rule")))
                         probe409 += 1
                     else:
                         rows.append(prow("h1", "201", "OK", sent, int(plan_ms)))
                 else:
                     tv, tc = e + 300, e + dd * 1000
-                    rows.append(prow("v", "409" if dd < 0 else "201", "SEAT_NOT_AVAILABLE" if dd < 0 else "OK", tv - OFF * 1000, int(tv), rej="rule" if dd < 0 else ""))
-                    probe409 += dd < 0
-                    rows.append(prow("c", "200" if dd < 0 else "409", "OK" if dd < 0 else "HOLD_EXPIRED", tc - OFF * 1000, int(tc)))
+                    sv, sc_ = ("409" if dd < 0 else "201"), ("200" if dd < 0 else "409")
+                    rows.append(prow("v", (odd or {}).get("v", sv), "SEAT_NOT_AVAILABLE" if dd < 0 else "OK", tv - OFF * 1000, int(tv), rej="rule" if dd < 0 else ""))
+                    probe409 += dd < 0 and (odd or {}).get("v", sv) == "409"
+                    rows.append(prow("c", (odd or {}).get("c", sc_), "OK" if dd < 0 else "HOLD_EXPIRED", tc - OFF * 1000, int(tc)))
         # 주 흐름 홀드·확정 기록(재구성 — 좌석 1..50 · 이탈 25 · 재선점)
         for k in range(50):
             ex = T0 + OFF + 5 + k + ttl
@@ -439,6 +443,15 @@ def rep_round2(tmp):
         check(f"CR14-22 {pr} 첫 선점 {sp} 기록 없음 → probe-incomplete · judged_missing",
               "probe-incomplete" in s["reasons"] and any(f"{pr}#4:첫 선점 {sp} 기록 없음" in x for x in pm["judged_missing"]),
               s["status"] + json.dumps(pm["judged_missing"], ensure_ascii=False))
+    # CR14-23 — 판정 요청 응답이 예상 밖(400·404) → 판정 불가 응답 → 분모에서 빠지고 probe-incomplete
+    for name, odd in (("PR-1 h1 400", {("pr1", 2): {"h1": "400"}}), ("PR-2 h1 404", {("pr2", 3): {"h1": "404"}}),
+                      ("PR-3 v 400", {("pr3", 6): {"v": "400"}}), ("PR-3 c 404", {("pr3", 7): {"c": "404"}})):
+        s = rep(make_rep(tmp / f"r3-odd-{name.replace(' ', '-')}", judged_odd=odd))
+        pm = s["metrics"]["probe"]
+        check(f"CR14-23 {name} → 판정 불가 응답 1 · probe-incomplete · probe-anomaly 이름표 · M3 분모에서 빠짐",
+              "probe-incomplete" in s["reasons"] and len(pm["unjudgeable"]) == 1 and any("probe-anomaly" in f for f in s["flags"])
+              and (pm["m3"]["den"] == base["metrics"]["probe"]["m3"]["den"] - (1 if "h1" in name else 0)),
+              s["status"] + json.dumps(pm["unjudgeable"], ensure_ascii=False) + f" den {pm['m3']['den']}")
     # CR14-21 — 끝 판정기 active_on_reserved_seats > 0 → 정합 위반(모든 방식 기대 0)
     for m in "ABCD":
         s = rep(make_rep(tmp / f"r3-aor-{m}", method=m, cons_set={"active_on_reserved_seats": 2}))

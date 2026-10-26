@@ -270,7 +270,7 @@ def probe_metrics(method, plan, rows, off_s):
     by = {}
     for r in rows:
         by.setdefault((r["pr"], int(r["pid"])), {})[r["step"]] = r
-    res = {"started": {}, "planned": pp["count"], "per_cell": {}, "setup_errors": 0, "setup_rejected": [], "judged_missing": [],
+    res = {"started": {}, "planned": pp["count"], "per_cell": {}, "setup_errors": 0, "setup_rejected": [], "judged_missing": [], "unjudgeable": [],
            "timing_dropped": 0, "timing_bad_cells": [], "unknown_cause": [], "errors": 0, "schedule_closed": 0,
            "m3": {"n201": 0, "n409": 0, "rule": 0, "batch": 0, "by_code": {}, "by_delta": {}},
            "pr3": {"sent": 0, "executed": 0, "planned": pp["count"]["pr3"], "viol_both": 0, "late_200": 0, "early_not200": 0, "late_codes": {}, "early_n": 0, "late_n": 0}}
@@ -314,8 +314,16 @@ def probe_metrics(method, plan, rows, off_s):
             cell["dropped"] += 1
             res["timing_dropped"] += 1
             continue
-        if any(steps[j]["st"] == "0" or int(steps[j]["st"]) >= 500 for j in judged):
+        if any(_err5(steps[j].get("st")) for j in judged):
             res["errors"] += 1
+            continue
+        # 판정 요청 응답이 예상 밖(5xx·0 밖이고 PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409} — 400·404 등)이면 '판정 불가 응답'이다.
+        # 분모(M3 · PR-3 판정)에서 빼고 probe-incomplete로 센다(측정 전 재해석 CR14-23 — 측정-9 '탐침 기록 수 ≠ 계획'의 판정 탐침 쪽 · CR14-10과 같은 꼴)
+        want = {"h1": ("201", "409"), "v": ("201", "409"), "c": ("200", "409")}
+        odd = [f"{j}:{steps[j].get('st')}:{steps[j].get('code')}" for j in judged if steps[j].get("st") not in want[j]]
+        if odd:
+            res["unjudgeable"].append(f"{pr}#{pid}:" + ",".join(odd))
+            res["setup_rejected"].append(f"{pr}#{pid}:" + ",".join(odd))   # 원인 이름표(probe-anomaly)는 그대로 남긴다
             continue
         if pr in ("pr1", "pr2"):
             x = steps["h1"]
@@ -332,8 +340,6 @@ def probe_metrics(method, plan, rows, off_s):
                 res["m3"]["by_code"][x["code"]] = res["m3"]["by_code"].get(x["code"], 0) + 1
                 if unknown:
                     res["unknown_cause"].append(f"{pr}#{pid}:{x.get('rej') or '헤더 없음'}")
-            else:
-                res["setup_rejected"].append(f"{pr}#{pid}:h1:{x['code']}")
         else:
             res["pr3"]["executed"] += 1
             c, v = steps["c"], steps["v"]
@@ -356,6 +362,8 @@ def probe_metrics(method, plan, rows, off_s):
             inc.append(f"{pr} 시작 {res['started'].get(pr, 0)} ≠ 계획 {n}")
     if res["judged_missing"]:
         inc.append(f"판정 요청 안 나감 {len(res['judged_missing'])}")
+    if res["unjudgeable"]:
+        inc.append(f"판정 불가 응답 {len(res['unjudgeable'])}(CR14-23)")
     for k, cell in res["per_cell"].items():
         if cell["judged"] - cell["dropped"] < cell["planned"] / 2:
             inc.append(f"{k} 판정 탐침 {cell['judged'] - cell['dropped']} < 계획 {cell['planned']}의 절반")
