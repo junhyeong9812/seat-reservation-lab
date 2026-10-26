@@ -375,7 +375,8 @@ def rep_round2(tmp):
     # CR14-8 — 정합 문턱 열: 없음 · None · 숫자 아님 → end-check-failed(0으로 채우지 않는다)
     for name, kw in (("열 없음", {"cons_drop": "double_sold_seats"}), ("None", {"cons_set": {"multi_active_seats": None}}),
                      ("문자열", {"cons_set": {"v_over_limit_users": "0"}}), ("bool", {"cons_set": {"v_counter_mismatch": False}}),
-                     ("새 열 없음(CR14-20)", {"cons_drop": "v_confirmed_on_unreserved_seat"})):
+                     ("새 열 없음(CR14-20)", {"cons_drop": "v_confirmed_on_unreserved_seat"}),
+                     ("끝 active_on_reserved 없음(CR14-21)", {"cons_drop": "active_on_reserved_seats"})):
         s = rep(make_rep(tmp / f"r2-cons-{len(name)}-{list(kw)[0]}", **kw))
         check(f"CR14-8 정합 문턱 열 {name} → end-check-failed · 정합 자료 없음", "end-check-failed" in s["reasons"] and "integrity" not in s["violations"],
               s["status"] + json.dumps(s["missing_inputs"], ensure_ascii=False))
@@ -429,6 +430,12 @@ def rep_round2(tmp):
     s = rep(make_rep(tmp / "r2-resv", reserved_without_confirmed=1))
     check("CR14-20 v_reserved_without_confirmed > 0 → 정합 위반(유효 회차의 방식 실패 자료)",
           s["status"] == "ok" and s["violations"]["integrity"].get("reserved_without_confirmed") == 1, json.dumps(s["violations"].get("integrity")))
+    # CR14-21 — 끝 판정기 active_on_reserved_seats > 0 → 정합 위반(모든 방식 기대 0)
+    for m in "ABCD":
+        s = rep(make_rep(tmp / f"r3-aor-{m}", method=m, cons_set={"active_on_reserved_seats": 2}))
+        check(f"CR14-21 {m} 끝 active_on_reserved_seats > 0 → 정합 위반 active_on_reserved_end",
+              s["status"] == "ok" and s["violations"]["integrity"].get("active_on_reserved_end") == 2, s["status"] + json.dumps(s["violations"].get("integrity")))
+    check("CR14-21 정상 회차 → active_on_reserved_end 위반 없음", "active_on_reserved_end" not in base["violations"]["integrity"], json.dumps(base["violations"]["integrity"]))
 
 
 # ---- 캠페인 판정(가짜 회차 요약) ----------------------------------------------------------------------------------------------------
