@@ -75,6 +75,7 @@ INPUT_REASON = {
 # 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
 CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
              "held_no_active", "active_not_held", "expired_hold_rows", "v_held_without_hold", "confirmed")
+BATCH_S = float(plan14.EXPIRY_INTERVAL.rstrip("s"))   # 배치 주기(측정-1 10초) — P7 재선점 기회 좁힌 값(코드 리뷰 CR14-19)
 WEND_LAG_MAX_S = 10.0          # 창 끝 스냅숏 시작이 창 끝 뒤 이 안이어야 한다(run.sh WEND_LAG_S = 3초 뒤에 찍는다 — 코드 리뷰 CR14-13)
 
 
@@ -533,7 +534,7 @@ def flow_metrics(csvd, plan, off, w0s, w1s):
     per_seat = {}
     for h in holds:
         per_seat.setdefault(h["seat"], []).append(h)
-    dup = after_conf = rehold_other = 0
+    dup = after_conf = rehold_other = rehold_narrow = 0
     conf_done = {}
     for (seat, exp), done in conf200.items():
         conf_done.setdefault(seat, []).append(done)
@@ -546,7 +547,9 @@ def flow_metrics(csvd, plan, off, w0s, w1s):
             if i > 0:
                 prev = hs[i - 1]
                 if prev["u"] != h["u"] and h["held"] >= prev["exp"]:
-                    rehold_other += 1                               # 남의 (만료) 홀드 뒤 재선점 — 기회 수(기록)
+                    rehold_other += 1                               # 남의 (만료) 홀드 뒤 재선점 — 기회 수(넓은 값 — P7 판정에 쓴다)
+                    if h["held"] - prev["exp"] < BATCH_S:
+                        rehold_narrow += 1                          # 좁힌 값: 앞 만료 뒤 배치 주기 안 — 만료 행이 남았을 수 있는 재선점(기록 — 측정 전 재해석 CR14-19)
             maxexp = h["exp"] if maxexp is None else max(maxexp, h["exp"])
         for done in conf_done.get(seat, []):
             after_conf += sum(1 for h in hs if h["held"] > done + 0.1)   # 확정 200 뒤 그 좌석 201(M5 ③)
@@ -575,7 +578,7 @@ def flow_metrics(csvd, plan, off, w0s, w1s):
             rv["legit" if legit else "unfair"] += 1
         else:
             rv["other"] += 1
-    return {"holds": len(holds), "duplicate": dup, "after_confirm_201": after_conf, "rehold_other": rehold_other, "n_exp": n_exp,
+    return {"holds": len(holds), "duplicate": dup, "after_confirm_201": after_conf, "rehold_other": rehold_other, "rehold_other_narrow": rehold_narrow, "n_exp": n_exp,
             "abandoned": abandoned, "revisit": rv, "confirm_200_k6": csvd["confirm_200"]}
 
 
@@ -1239,6 +1242,7 @@ def campaign(root):
             fails.append("P4 반증: " + "; ".join(p4))
         # P7 판정 불가 조건
         reh = sum((mget(s, "flow", "rehold_other") or 0) for c in MAIN_CELLS for s in reps.get((m, c), []))
+        reh_n = [mget(s, "flow", "rehold_other_narrow") for c in MAIN_CELLS for s in reps.get((m, c), [])]
         # 측정 전 재해석 CR14-11: PR-3 '실행' = 송신된 판정 요청 수(송신 오차 초과 포함). 값이 없으면 실행을 셀 수 없다 → 같은 판정 불가(0으로 보지 않는다)
         pr3_short = [f"{c} rep{_rep_no(s)}" for c in MAIN_CELLS for s in reps.get((m, c), [])
                      if not (num(mget(s, "probe", "pr3", "sent")) and num(mget(s, "probe", "pr3", "planned")))
@@ -1247,6 +1251,8 @@ def campaign(root):
             undec.append("P7: 남의 만료 홀드 위 재선점 0(3회 합)")
         if pr3_short:
             undec.append(f"P7·P9: PR-3 실행(송신된 판정 요청) < 계획 {pr3_short[:6]}")
+        notes.append(f"P7 재선점 기회 넓은 값(판정) {reh} · 좁힌 값(앞 만료 뒤 배치 주기 {BATCH_S:g}초 안 — 기록 · 측정 전 재해석 CR14-19) "
+                     f"{sum(reh_n) if reh_n and all(num(x) for x in reh_n) else None}")
         # P9
         p9 = [f"{c} rep{_rep_no(s)} 만료 전 확정 거절 {s['violations'].get('p9_early_not200')}" for c in MAIN_CELLS for s in reps.get((m, c), []) if s["violations"].get("p9_early_not200")]
         if p9:
