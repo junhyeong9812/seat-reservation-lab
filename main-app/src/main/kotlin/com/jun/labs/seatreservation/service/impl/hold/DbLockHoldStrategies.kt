@@ -54,7 +54,8 @@ class PessimisticNoWaitHoldStrategy(
         tx.execute { process.hold(command, loadSeat = seats::findForUpdateNoWait) }!!
     } catch (e: PessimisticLockingFailureException) {
         // NOWAIT의 '진 것'은 55P03(lock_not_available)뿐 — 데드락(40P01) 등 다른 락 실패는 409로 바꾸지 않고 올린다(무음 변환 금지)
-        if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) seatTaken()
+        // 응답은 같은 409 · 측정 프로필의 거절 원인 표지만 nowait(ADR-014 측정-5 M3)
+        if (sqlStateOf(e) == LOCK_NOT_AVAILABLE) seatLockNotAvailable()
         throw e
     }
 
