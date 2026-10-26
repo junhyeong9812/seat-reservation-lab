@@ -17,6 +17,7 @@ import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
 import org.flywaydb.core.api.CoreErrorCode
 import org.flywaydb.core.api.MigrationVersion
+import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy
@@ -91,6 +92,7 @@ class HoldStrategyStartupCheck(
     /** 설정 검사([checkConfig] — Flyway 앞에서 이미 돌았어도 다시: Flyway가 꺼진 구성·직접 생성 테스트에서 빠지지 않게) → DB 상태가 필요한 검사 */
     override fun run(args: ApplicationArguments) {
         checkConfig(properties, environment)
+        expirySchedulerOffWarning(properties, environment)?.let { log.warn(it) }
         val strategy = properties.strategy
         val uniqueIndex = jdbc.queryForObject(
             "SELECT count(*) FROM pg_indexes WHERE indexname = ?", Int::class.java,
@@ -140,6 +142,24 @@ class HoldStrategyStartupCheck(
     }
 
     companion object {
+        private val log = LoggerFactory.getLogger(HoldStrategyStartupCheck::class.java)
+
+        /**
+         * 코드 리뷰 CR14-17: C(lazy-sweep)·D(derived)는 주기 배치가 만료 홀드 행을 지운다(§설계-3.4) — 업무 앱이 만료 스케줄러를 끄면
+         * (seat.hold.expiry-scheduler-enabled=false · reconciler 프로필이 아님) 만료 행은 회수(그 사용자의 다음 선점)로만 지워지고, 선점이 더 오지 않는 사용자의 행은 남는다.
+         * 기동은 허용한다(테스트가 스케줄러를 끈다) — WARN 문구를 돌려준다. 해당 없으면 null. [run]이 한 번 로그로 남긴다(Flyway 앞 [checkConfig]는 두 번 불려 거기서는 남기지 않는다)
+         */
+        fun expirySchedulerOffWarning(properties: SeatHoldProperties, environment: Environment?): String? {
+            val mode = properties.expiryMode
+            if (mode != ExpiryMode.LAZY_SWEEP && mode != ExpiryMode.DERIVED) return null
+            if (environment?.activeProfiles?.contains(RECONCILER_PROFILE) == true) return null
+            val scheduler = environment?.getProperty("seat.hold.expiry-scheduler-enabled", Boolean::class.java, true) ?: true
+            if (scheduler) return null
+            return "만료 방식 $mode(seat.hold.expiry-mode)인데 만료 스케줄러가 꺼져 있다(seat.hold.expiry-scheduler-enabled=false) — 주기 배치가 돌지 않아 " +
+                "만료 홀드 행은 회수(그 사용자의 다음 선점)로만 지워진다(마감 회차 · 다시 오지 않는 사용자의 행이 남는다 — ADR-014 §설계-6 · 코드 리뷰 CR14-17). " +
+                "운영이면 seat.hold.expiry-scheduler-enabled=true로 띄워라"
+        }
+
         /**
          * 설정(바인딩된 속성 · 활성 프로필)만으로 판정되는 기동 검사 — DB를 보지 않는다. Flyway 마이그레이션 앞([HoldStrategyMigrationGate])과
          * [run] 첫머리에서 부른다(같은 검사 · 결정적이라 두 번 불러도 결과가 같다).

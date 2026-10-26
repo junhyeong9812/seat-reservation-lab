@@ -8,9 +8,11 @@ import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import org.junit.jupiter.api.Test
+import org.springframework.mock.env.MockEnvironment
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -57,6 +59,27 @@ class Adr014ImplStartupTest : BootTestBase() {
         // sweep + inject-app은 지금처럼 프로필 검사가 본다(프로필 없음 → 거부) — 새 검사 문구가 아니다
         val e = assertFailsWith<IllegalStateException> { check(base.copy(loadtest = inject)) }
         assertTrue(!e.message!!.contains("expiry-mode"), e.message)
+    }
+
+    @Test
+    fun `C·D + 만료 스케줄러 끔(reconciler 프로필 아님) → 경고 문구(기동은 허용) · A·B · 스케줄러 켬 · reconciler 프로필은 경고 없음(CR14-17)`() {
+        fun env(scheduler: String?, vararg profiles: String) = MockEnvironment().apply {
+            scheduler?.let { setProperty("seat.hold.expiry-scheduler-enabled", it) }
+            setActiveProfiles(*profiles)
+        }
+        listOf(ExpiryMode.LAZY_SWEEP, ExpiryMode.DERIVED).forEach { mode ->
+            val p = base.copy(expiryMode = mode)
+            val w = HoldStrategyStartupCheck.expirySchedulerOffWarning(p, env("false"))
+            assertTrue(w != null && w.contains("seat.hold.expiry-scheduler-enabled") && w.contains("$mode"), "$mode: $w")
+            check(p) // 기동 검사는 거부하지 않는다
+            assertNull(HoldStrategyStartupCheck.expirySchedulerOffWarning(p, env("true")), "$mode 스케줄러 켬")
+            assertNull(HoldStrategyStartupCheck.expirySchedulerOffWarning(p, env(null)), "$mode 키 없음 = 켬(matchIfMissing)")
+            assertNull(HoldStrategyStartupCheck.expirySchedulerOffWarning(p, env("false", "reconciler")), "$mode reconciler 프로필")
+            assertNull(HoldStrategyStartupCheck.expirySchedulerOffWarning(p, null), "$mode 환경 없음(직접 생성) = 켬")
+        }
+        listOf(ExpiryMode.SWEEP, ExpiryMode.LAZY).forEach { mode ->
+            assertNull(HoldStrategyStartupCheck.expirySchedulerOffWarning(base.copy(expiryMode = mode), env("false")), "$mode")
+        }
     }
 
     @Test
