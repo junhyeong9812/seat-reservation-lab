@@ -261,7 +261,7 @@ def probe_metrics(method, plan, rows, off_s):
     res = {"started": {}, "planned": pp["count"], "per_cell": {}, "setup_errors": 0, "setup_rejected": [], "judged_missing": [],
            "timing_dropped": 0, "timing_bad_cells": [], "unknown_cause": [], "errors": 0, "schedule_closed": 0,
            "m3": {"n201": 0, "n409": 0, "rule": 0, "batch": 0, "by_code": {}, "by_delta": {}},
-           "pr3": {"executed": 0, "planned": pp["count"]["pr3"], "viol_both": 0, "late_200": 0, "early_not200": 0, "late_codes": {}, "early_n": 0, "late_n": 0}}
+           "pr3": {"sent": 0, "executed": 0, "planned": pp["count"]["pr3"], "viol_both": 0, "late_200": 0, "early_not200": 0, "late_codes": {}, "early_n": 0, "late_n": 0}}
     for (pr, pid), steps in by.items():
         res["started"][pr] = res["started"].get(pr, 0) + 1
         d = dkey(next(iter(steps.values()))["d"])
@@ -289,6 +289,8 @@ def probe_metrics(method, plan, rows, off_s):
         if any(j not in steps for j in judged):
             res["judged_missing"].append(f"{pr}#{pid}")
             continue
+        if pr == "pr3":
+            res["pr3"]["sent"] += 1   # 실행 = 송신된 판정 요청 수(송신 오차 초과 · 5xx 포함 — 측정 전 재해석 CR14-11 · P7·P9 판정 불가 조건)
         cell["judged"] += 1
         eps = [abs(int(steps[j]["sent"]) + off_s * 1000 - float(steps[j]["plan"])) for j in judged]
         if max(eps) > tol[pr]:
@@ -1207,11 +1209,14 @@ def campaign(root):
             fails.append("P4 반증: " + "; ".join(p4))
         # P7 판정 불가 조건
         reh = sum((mget(s, "flow", "rehold_other") or 0) for c in MAIN_CELLS for s in reps.get((m, c), []))
-        pr3_short = [f"{c} rep{_rep_no(s)}" for c in MAIN_CELLS for s in reps.get((m, c), []) if (mget(s, "probe", "pr3", "executed") or 0) < (mget(s, "probe", "pr3", "planned") or 0)]
+        # 측정 전 재해석 CR14-11: PR-3 '실행' = 송신된 판정 요청 수(송신 오차 초과 포함). 값이 없으면 실행을 셀 수 없다 → 같은 판정 불가(0으로 보지 않는다)
+        pr3_short = [f"{c} rep{_rep_no(s)}" for c in MAIN_CELLS for s in reps.get((m, c), [])
+                     if not (num(mget(s, "probe", "pr3", "sent")) and num(mget(s, "probe", "pr3", "planned")))
+                     or mget(s, "probe", "pr3", "sent") < mget(s, "probe", "pr3", "planned")]
         if reh == 0:
             undec.append("P7: 남의 만료 홀드 위 재선점 0(3회 합)")
         if pr3_short:
-            notes.append(f"PR-3 실행 < 계획(송신 오차·오류로 빠짐 포함) {pr3_short[:6]}")
+            undec.append(f"P7·P9: PR-3 실행(송신된 판정 요청) < 계획 {pr3_short[:6]}")
         # P9
         p9 = [f"{c} rep{_rep_no(s)} 만료 전 확정 거절 {s['violations'].get('p9_early_not200')}" for c in MAIN_CELLS for s in reps.get((m, c), []) if s["violations"].get("p9_early_not200")]
         if p9:
