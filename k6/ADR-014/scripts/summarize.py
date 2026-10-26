@@ -67,11 +67,18 @@ INPUT_REASON = {
     "table_end": "table-stats-missing", "act_before": "app-metric-missing", "act_after": "app-metric-missing", "act_end": "app-metric-missing",
     "drift_before": "drift-snap-failed", "drift_after": "drift-snap-failed", "drift_end": "drift-snap-failed", "drift_db": "drift-db-failed",
     "consistency": "end-check-failed", "app_config": "cond-config-missing", "seed_check": "seed-mismatch", "gc": "gc-log-missing",
-    "probe_check": "probe-missing", "waits": "waits-gap", "hikari": "hikari-missing", "limit_key": "limit-key-missing", "pre_k6": "pre-k6-mismatch",
-    "logs": "container-log-missing", "probe_server": "probe-missing",
+    "probe_check": "probe-missing", "waits": "waits-gap", "limit_key": "limit-key-missing", "pre_k6": "pre-k6-mismatch",
+    "logs": "container-log-missing",   # Hikari · 서버 측정기 결측은 회차 사유가 아니라 측정-9 env-stall 규칙대로 '세우지 못함 → 방식 정지'(classify_chunk)
     "act_wend": "app-metric-missing",   # 판정 창 끝 앱 지표 스냅숏(P12 창 안 증분 — 코드 리뷰 CR14-13)
     "warmup": "warmup-failed",          # 예열 k6 rc ≠ 0 · 기록 없음(코드 리뷰 CR14-14)
+    # 판정 입력 전수 점검(CR14-21~24 재발 방지 — k6/ADR-014/README.md '판정 입력 출처 표'): 없으면 무음 통과하던 입력
+    "k6_window": "k6-window-missing",   # k6 rc(k6-exit-N) — 없으면 rc를 모른다
+    "harness_reasons": "harness-reasons-missing",   # run.sh가 회차 시작에 빈 파일로 만든다 — 없으면 하네스 사유를 모른다
 }
+# P12 고정 항목(측정-6 P12 · 측정-7) — 회차 요약 violations.p12_checked에 '계산했다'를 남긴다. 캠페인은 적용되는 항목이 checked에도 unknown에도 없으면
+# 판정 불가로 본다(키가 없다 = 0이 아니다 — 판정 입력 전수 점검). 5xx_or_0:<요청 이름>은 CSV 집계(행 없음 = 0건)라 이 목록 밖이다
+P12_FIXED = ("deadlock", "tick_failed", "missing_mismatch", "method_stall_secs", "probe_errors", "gc_full_or_stall", "gc_pause_ge_10ms", "mem_growth_ge_10pct")
+DRIFT_ACTIONS = ("repaired", "false-positive", "skipped")   # counter_drift_log.action(PairRepair.kt DriftAction) — 모르는 값이면 drift-db-failed
 # 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
 CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
              "v_reserved_without_confirmed", "v_confirmed_on_unreserved_seat",   # 측정 전 재해석 CR14-20 — 모든 방식 기대 0
@@ -101,19 +108,26 @@ def p99(xs):
     return xs[int(len(xs) * 0.99)] if xs else None
 
 
+class Rows(list):
+    """jsonl 행 목록 + broken(마지막 줄 말고 깨진 '{' 줄 수 — 표본기 중단으로 찢긴 마지막 줄 하나는 세지 않는다)."""
+    broken = 0
+
+
 def jsonl(path):
-    """jsonl 줄 → dict 목록 · 파일 없음 = None(빈 목록과 다르다)."""
+    """jsonl 줄 → dict 목록(Rows) · 파일 없음 = None(빈 목록과 다르다). 깨진 줄을 무음으로 버리지 않고 broken에 센다(판정 입력 전수 점검) —
+    판정 표본(상태 · 대기 · Hikari)은 호출하는 쪽이 broken > 0이면 결측으로 다룬다."""
     p = Path(path)
     if not p.exists():
         return None
-    out = []
-    for line in p.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                pass
+    out = Rows()
+    lines = [x.strip() for x in p.read_text(errors="replace").splitlines()]
+    lines = [x for x in lines if x.startswith("{")]
+    for i, line in enumerate(lines):
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            if i != len(lines) - 1:
+                out.broken += 1
     return out
 
 
@@ -267,17 +281,27 @@ def probe_metrics(method, plan, rows, off_s):
     pp = plan["probes"]
     planned_cell = {pr: {dkey(k): v for k, v in cells.items()} for pr, cells in pp["per_cell"].items()}
     tol, drop_max = pp["tol_ms"], pp["drop_max"]
-    by = {}
+    by, bad_rows = {}, 0
     for r in rows:
-        by.setdefault((r["pr"], int(r["pid"])), {})[r["step"]] = r
+        try:
+            by.setdefault((r["pr"], int(r["pid"])), {})[r["step"]] = r
+        except (KeyError, ValueError, TypeError):
+            bad_rows += 1   # 탐침 기록을 못 읽는 행 → probe-incomplete(빼고 세지 않는다 — 판정 입력 전수 점검)
     res = {"started": {}, "planned": pp["count"], "per_cell": {}, "setup_errors": 0, "setup_rejected": [], "judged_missing": [], "unjudgeable": [],
            "timing_dropped": 0, "timing_bad_cells": [], "unknown_cause": [], "errors": 0, "schedule_closed": 0,
            "m3": {"n201": 0, "n409": 0, "rule": 0, "batch": 0, "by_code": {}, "by_delta": {}},
            "pr3": {"sent": 0, "executed": 0, "planned": pp["count"]["pr3"], "viol_both": 0, "late_200": 0, "early_not200": 0, "late_codes": {}, "early_n": 0, "late_n": 0}}
     for (pr, pid), steps in by.items():
         res["started"][pr] = res["started"].get(pr, 0) + 1
-        d = dkey(next(iter(steps.values()))["d"])
-        cell = res["per_cell"].setdefault(f"{pr}:{d}", {"judged": 0, "dropped": 0, "planned": planned_cell[pr].get(d, 0)})
+        try:
+            d = dkey(next(iter(steps.values()))["d"])
+        except (KeyError, ValueError, TypeError):
+            d = None
+        if pr not in planned_cell or d not in planned_cell[pr]:
+            # 계획에 없는 (탐침 종류, δ) — planned 0으로 두면 칸 절반 검사를 무음 통과한다(판정 입력 전수 점검)
+            res["judged_missing"].append(f"{pr}#{pid}:계획에 없는 칸 δ={d}")
+            continue
+        cell = res["per_cell"].setdefault(f"{pr}:{d}", {"judged": 0, "dropped": 0, "planned": planned_cell[pr][d]})
         setup = ("h0",) if pr == "pr1" else ("h0a", "h0b") if pr == "pr2" else ("u0",)
         bad_setup = no_setup = None
         for s in setup:
@@ -308,8 +332,12 @@ def probe_metrics(method, plan, rows, off_s):
             continue
         if pr == "pr3":
             res["pr3"]["sent"] += 1   # 실행 = 송신된 판정 요청 수(송신 오차 초과 · 5xx 포함 — 측정 전 재해석 CR14-11 · P7·P9 판정 불가 조건)
+        try:
+            eps = [abs(int(steps[j]["sent"]) + off_s * 1000 - float(steps[j]["plan"])) for j in judged]
+        except (KeyError, ValueError, TypeError):
+            res["judged_missing"].append(f"{pr}#{pid}:송신·계획 시각 못 읽음")   # 판정 요청은 있는데 시각을 모름 → 송신 오차를 잴 수 없다
+            continue
         cell["judged"] += 1
-        eps = [abs(int(steps[j]["sent"]) + off_s * 1000 - float(steps[j]["plan"])) for j in judged]
         if max(eps) > tol[pr]:
             cell["dropped"] += 1
             res["timing_dropped"] += 1
@@ -357,6 +385,12 @@ def probe_metrics(method, plan, rows, off_s):
         if cell["judged"] and cell["dropped"] / cell["judged"] > drop_max:
             res["timing_bad_cells"].append(f"{k} {cell['dropped']}/{cell['judged']}")
     inc = []
+    if bad_rows:
+        inc.append(f"탐침 기록 못 읽는 행 {bad_rows}")
+    for pr, cells in planned_cell.items():
+        for dd, n in cells.items():
+            if n and f"{pr}:{dd}" not in res["per_cell"]:
+                inc.append(f"{pr}:{dd} 계획 {n}인데 기록 없음")   # 칸 자체가 없으면 아래 칸 절반 검사가 돌지 않는다
     for pr, n in pp["count"].items():
         if res["started"].get(pr, 0) != n:
             inc.append(f"{pr} 시작 {res['started'].get(pr, 0)} ≠ 계획 {n}")
@@ -426,7 +460,7 @@ def state_metrics(rows, w0s, w1s, ttl):
 # ---- docker stats(M9 · P12 ④) -------------------------------------------------------------------------------------------------
 def server_rows(path, off):
     """timeline-server.jsonl → [(PC 시각, 이름, CPU%, MemMiB)] — 컨테이너 줄의 시각 = 바로 앞 서버 시각 줄({"t"…}). 서버 시각 줄 목록도 함께."""
-    rows, tlines, cur = [], [], None
+    rows, tlines, cur = Rows(), [], None
     p = Path(path)
     if not p.exists():
         return None, None
@@ -447,6 +481,7 @@ def server_rows(path, off):
         try:
             cpu = float(str(d.get("CPUPerc", "")).rstrip("%"))
         except ValueError:
+            rows.broken += d["Name"] in ("seatlab-db-1", "seatlab-app-1")   # 판정 컨테이너 줄은 버리지 않고 센다(다른 컨테이너는 기록 밖)
             continue
         mem = None
         mu = str(d.get("MemUsage", "")).split("/")[0].strip()
@@ -455,7 +490,9 @@ def server_rows(path, off):
                 try:
                     mem = float(mu[: -len(suf)]) * mul
                 except ValueError:
-                    pass
+                    mem = None
+        if mem is None and d["Name"] == "seatlab-app-1":
+            rows.broken += 1   # P12 ④ 앱 메모리(비용 셀) — 못 읽은 줄을 버리지 않는다
         rows.append((cur, d["Name"], cpu, mem))
     return rows, tlines
 
@@ -517,8 +554,11 @@ def classify_chunk(a, b, off, probe_srv, gc_long, waits, hikari, hikari_max):
     if not ws:
         why["db"] = "대기 표본 없음"
         return "method", why
+    if any(not isinstance(w.get("by_src"), dict) for _, w in ws):
+        why["db"] = "대기 표본 by_src 없음"   # ① 업무 세션 Lock 대기 0을 세우지 못함 → 방식(측정-9 env-stall 행 · `or {}`로 0 처리 금지)
+        return "method", why
     gap_w, _ = gaps_ok([t for t, _ in ws], a, b, WAITS_GAP_MAX_S)
-    lock = sum(n for _, w in ws for k, n in (w.get("by_src") or {}).items() if k.startswith("app|Lock:"))
+    lock = sum(n for _, w in ws for k, n in w["by_src"].items() if k.startswith("app|Lock:"))
     why.update(waits_gap_s=gap_w, app_lock=lock)
     if gap_w > WAITS_GAP_MAX_S or lock > 0:
         return "method", why
@@ -530,6 +570,9 @@ def classify_chunk(a, b, off, probe_srv, gc_long, waits, hikari, hikari_max):
         why["hikari"] = "앞·뒤 표본 또는 최대 없음"
         return "method", why
     sel = before + inside + after
+    if not all(num(h.get("pending")) and num(h.get("active")) for h in sel):
+        why["hikari"] = "앞·안·뒤 표본의 pending·active 숫자 아님"   # ②③을 세우지 못함 → 방식
+        return "method", why
     why.update(hikari_pending=max(h["pending"] for h in sel), hikari_active=max(h["active"] for h in sel))
     if why["hikari_pending"] > 0 or why["hikari_active"] >= hikari_max:
         return "method", why
@@ -539,18 +582,22 @@ def classify_chunk(a, b, off, probe_srv, gc_long, waits, hikari, hikari_max):
 # ---- 주 흐름 재구성(M5 ③ · N_exp · 재선점 기회 · 재방문 설명) ------------------------------------------------------------------------
 def flow_metrics(csvd, plan, off, w0s, w1s):
     ttl = plan["ttl_s"]
-    holds = []
+    holds, bad = [], []   # bad = 정합 항목(겹침 · 확정 뒤 201)에 쓰는 기록을 못 읽은 행 — 건너뛰지 않고 세어 k6-csv-missing(판정 입력 전수 점검)
     for r in csvd["hold_ok"]:
         try:
             e = ts(r["exp"])
-        except (KeyError, ValueError):
-            continue
-        holds.append({"seat": r["seat"], "exp": e, "held": e - ttl, "u": r.get("u"), "kind": r.get("kind"), "fate": r.get("fate")})
-    conf200 = {}
+            holds.append({"seat": r["seat"], "exp": e, "held": e - ttl, "u": r.get("u"), "kind": r.get("kind"), "fate": r.get("fate")})
+        except (KeyError, ValueError, TypeError):
+            bad.append("hold_ok")
+    conf200, conf_keys = {}, set()
     for c in csvd["confirm_rec"]:
         if c.get("st") == "200":
-            done = (int(c["sent"]) + int(c.get("rt") or 0)) / 1000 + off
-            conf200[(c["seat"], c["exp"])] = done
+            try:
+                done = (int(c["sent"]) + int(c["rt"])) / 1000 + off   # rt 없음을 0으로 채우지 않는다
+                conf200[(c["seat"], c["exp"])] = done
+                conf_keys.add((c["seat"], ts(c["exp"])))
+            except (KeyError, ValueError, TypeError):
+                bad.append("confirm_rec")
     per_seat = {}
     for h in holds:
         per_seat.setdefault(h["seat"], []).append(h)
@@ -574,32 +621,26 @@ def flow_metrics(csvd, plan, off, w0s, w1s):
         for done in conf_done.get(seat, []):
             after_conf += sum(1 for h in hs if h["held"] > done + 0.1)   # 확정 200 뒤 그 좌석 201(M5 ③)
     exp_set = {(h["seat"], h["exp"]) for h in holds}
-    conf_keys = set()
-    for c in csvd["confirm_rec"]:
-        if c.get("st") == "200":
-            try:
-                conf_keys.add((c["seat"], ts(c["exp"])))
-            except (KeyError, ValueError):
-                pass
     n_exp = sum(1 for (s, e) in exp_set if w0s <= e < w1s and (s, e) not in conf_keys)
     abandoned = sum(1 for h in holds if h["fate"] == "abandon")
-    rv = {"n": 0, "n201": 0, "n409": 0, "legit": 0, "unfair": 0, "other": 0}
+    rv = {"n": 0, "n201": 0, "n409": 0, "legit": 0, "unfair": 0, "other": 0, "unparsed": 0}   # 재방문 = 설명(P13 · M5 설명) — 판정 무관
     for r in csvd["revisit_rec"]:
         rv["n"] += 1
-        if r["st"] == "201":
+        if r.get("st") == "201":
             rv["n201"] += 1
-        elif r["st"] == "409":
+        elif r.get("st") == "409":
             rv["n409"] += 1
             try:
                 e0, sent = ts(r["e"]), int(r["sent"]) / 1000 + off
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, TypeError):
+                rv["unparsed"] += 1   # 무음으로 빼지 않고 센다(기록)
                 continue
             legit = any(h["u"] != r.get("u") and h["held"] <= sent and h["exp"] > e0 for h in per_seat.get(r["seat"], []))
             rv["legit" if legit else "unfair"] += 1
         else:
             rv["other"] += 1
     return {"holds": len(holds), "duplicate": dup, "after_confirm_201": after_conf, "rehold_other": rehold_other, "rehold_other_narrow": rehold_narrow, "n_exp": n_exp,
-            "abandoned": abandoned, "revisit": rv, "confirm_200_k6": csvd["confirm_200"]}
+            "abandoned": abandoned, "revisit": rv, "confirm_200_k6": csvd["confirm_200"], "bad_rows": len(bad)}
 
 
 # ---- 방식별 상태 기대값(§설계-8.3 · 측정-7 문턱 · M12 expect-mismatch) -------------------------------------------------------------------
@@ -615,14 +656,15 @@ ZERO_ROWS = {   # 행 → 기대 0인 방식
 def state_thresholds(method, cons, st):
     """기대 0 칸의 위반 목록 [(행, 근거)]. cons = consistency.json(CONS_COLS 검증을 통과한 것 — 열은 모두 숫자) · st = state_metrics(None이면 표본 열 없이 끝 값만)."""
     v = []
+    sm = st if st and st.get("n") else None   # 표본 0개 = state-sampler-gap(무효) — 그때만 표본 열이 없다(`.get(k, 0)` 금지)
     if method in ZERO_ROWS[5]:
-        if cons["held_no_active"] > 0 or (st and st.get("held_no_active_samples", 0) > 0):
-            v.append((5, f"held_no_active 끝 {cons['held_no_active']} · 표본 {st and st.get('held_no_active_samples')}"))
+        if cons["held_no_active"] > 0 or (sm and sm["held_no_active_samples"] > 0):
+            v.append((5, f"held_no_active 끝 {cons['held_no_active']} · 표본 {sm and sm['held_no_active_samples']}"))
     if method in ZERO_ROWS[6] and cons["v_held_without_hold"] > 0:
         v.append((6, f"v_held_without_hold {cons['v_held_without_hold']}"))
     if method in ZERO_ROWS[7] and method != "C":
-        if cons["active_not_held"] > 0 or (st and st.get("active_not_held_samples", 0) > 0):
-            v.append((7, f"active_not_held 끝 {cons['active_not_held']} · 표본 {st and st.get('active_not_held_samples')}"))
+        if cons["active_not_held"] > 0 or (sm and sm["active_not_held_samples"] > 0):
+            v.append((7, f"active_not_held 끝 {cons['active_not_held']} · 표본 {sm and sm['active_not_held_samples']}"))
     if method in ZERO_ROWS[8] and cons["expired_hold_rows"] > 0:
         v.append((8, f"expired_hold_rows(수렴 뒤) {cons['expired_hold_rows']}"))
     return v
@@ -661,15 +703,20 @@ def rep_summary(d):
     d = Path(d)
     inp = Inputs(d)
     reasons, flags = set(), []
-    plan = inp.json("plan", "plan.json", need=("method", "cell", "kind"))
+    plan = inp.json("plan", "plan.json", need=("method", "cell", "kind", "mode"), nums=("rep", "ttl_s", "window.from_s", "window.len_s"))
     meta = inp.json("meta", "meta.json")
+    if plan is not None and (plan["method"] not in plan14.ABCD or plan["cell"] not in plan14.GROUPS or plan["kind"] not in ("main", "cost")):
+        plan = inp.miss("plan", f"plan.json 방식·셀·종류가 계획에 없음({plan['method']!r} · {plan['cell']!r} · {plan['kind']!r})")
     if plan is None:
         return {"status": "invalid:plan-missing", "reasons": ["plan-missing"]}
     method, cell, kind = plan["method"], plan["cell"], plan["kind"]
-    for line in (d / "harness-reasons.txt").read_text().splitlines() if (d / "harness-reasons.txt").exists() else []:
-        if line.strip():
-            reasons.add(line.strip())
-    ks = inp.json("k6_summary", "k6-summary.json", need=("setup_data.startedAt",))
+    if (d / "harness-reasons.txt").exists():
+        for line in (d / "harness-reasons.txt").read_text().splitlines():
+            if line.strip():
+                reasons.add(line.strip())
+    else:
+        inp.miss("harness_reasons", "harness-reasons.txt 없음(run.sh가 회차 시작에 만든다 — 없으면 하네스 사유를 모른다)")
+    ks = inp.json("k6_summary", "k6-summary.json", nums=("setup_data.startedAt",))
     clk = clock(inp)
     if clk and (clk["rtt_half_max"] > CLOCK_RTT_HALF_MAX_S or clk["drift"] > CLOCK_DRIFT_MAX_S):
         reasons.add("clock-offset-bad")
@@ -681,13 +728,15 @@ def rep_summary(d):
     M = {"method": method, "cell": cell, "rep": plan["rep"], "kind": kind, "t0_pc": t0, "window_pc": [w0, w1], "off_s": off}
     V = {}   # 방식 위반(유효 회차의 실패 자료 — 측정-7)
     # 시작 대기(pre-k6-mismatch)
-    pk = inp.json("pre_k6", "pre-k6.json", need=("seed_done_epoch",))
+    pk = inp.json("pre_k6", "pre-k6.json", nums=("seed_done_epoch",))
     if pk and t0 is not None:
         M["seed_to_first_request_s"] = t0 - pk["seed_done_epoch"]
         if abs(M["seed_to_first_request_s"] - PRE_K6_TARGET_S) > PRE_K6_TOL_S:
             reasons.add("pre-k6-mismatch")
     # 설정 · 시드 · 키
     cfg = inp.json("app_config", "app-config.json", need=("configprops",))
+    if cfg is not None and not (isinstance(cfg["configprops"], list) and all(isinstance(x, dict) for x in cfg["configprops"])):
+        cfg = inp.miss("app_config", "app-config.json configprops가 묶음 목록이 아님")
     if cfg is not None:
         cc = plan14.config_check(method, cell, cfg)
         if cc is None:
@@ -701,10 +750,10 @@ def rep_summary(d):
         M["warmup"] = {"rc": wu["rc"], "by_status": wu.get("by_status")}
         if wu["rc"] != 0:
             reasons.add("warmup-failed")
-    lk = inp.json("limit_key", "limit-key.json", need=("env",))
-    if lk and (lk.get("present") or (lk.get("drift") or 0) > 0 or (lk.get("drift_cmd") or 0) > 0):
+    lk = inp.json("limit_key", "limit-key.json", nums=("env", "cmd", "drift", "drift_cmd"))   # `or 0` 금지 — 열이 없으면 limit-key-missing
+    if lk and (lk.get("present") is not False or lk["drift"] > 0 or lk["drift_cmd"] > 0):   # present가 bool false가 아니면(없음 포함) 있다고 본다
         reasons.add("limit-key-present")   # 카운터·매수 키를 넣지 않는다(측정-1 — 업무 앱 기본값)
-    sc = inp.json("seed_check", "seed-check.json", need=("seats",))
+    sc = inp.json("seed_check", "seed-check.json", nums=("schedules", "want_schedules", "seats", "want_seats", "available", "holds", "reservations", "quota_rows"))
     if sc:
         if not (sc["schedules"] == sc["want_schedules"] and sc["seats"] == sc["want_seats"] == sc["available"]
                 and sc["holds"] == 0 and sc["reservations"] == 0 and sc["quota_rows"] == 0):
@@ -722,7 +771,7 @@ def rep_summary(d):
         inp.miss("gc", "GC 로그 없음·빈 로그·수집기 줄 없음")
         gc = None
     pc = inp.json("probe_check", "probe-check.json", need=("ok",))
-    if pc is not None and not pc["ok"]:
+    if pc is not None and pc["ok"] is not True:
         reasons.add("probe-missing")
     # k6 CSV
     csvd = None
@@ -733,13 +782,15 @@ def rep_summary(d):
             inp.miss("csv", f"CSV 읽기 실패 {type(e).__name__}")
     else:
         inp.miss("csv", "k6-requests.csv.gz 없음 또는 창 모름")
-    kw = load(d / "k6-window.json") or {}
-    if kw.get("exit") not in (0, None):
-        reasons.add(f"k6-exit-{kw.get('exit')}")
+    kw = inp.json("k6_window", "k6-window.json", nums=("exit",))   # 없거나 exit 없음 = k6 rc를 모른다(전에는 무음 통과 — 판정 입력 전수 점검)
+    if kw is not None and kw["exit"] != 0:
+        reasons.add(f"k6-exit-{kw['exit']:g}")
     # 서버 표본(M9 · path-gap · P12 ④)
-    srows, tlines = server_rows(d / "timeline-server.jsonl", off or 0) if off is not None else (None, None)
+    srows, tlines = server_rows(d / "timeline-server.jsonl", off) if off is not None else (None, None)
     if srows is None:
         inp.miss("server", "timeline-server.jsonl 없음")
+    elif srows.broken:
+        inp.miss("server", f"timeline-server.jsonl DB CPU · 앱 메모리 못 읽는 줄 {srows.broken}")   # 버리고 평균 내지 않는다(판정 입력 전수 점검)
     elif w0 is not None:
         M["db_cpu"] = db_cpu(srows, w0, w1)
         if M["db_cpu"]["missing"]:
@@ -753,15 +804,18 @@ def rep_summary(d):
                 inp.miss("server", "앱 메모리 첫·마지막 1분 표본 없음")
     # 끝 판정기 · 기록
     cons = inp.json("consistency", "consistency.json", nums=CONS_COLS)   # 정합 문턱 열은 모두 있어야 하고 숫자여야 한다(코드 리뷰 CR14-8 — 무음 0 금지)
-    ddb = inp.json("drift_db", "drift-db.json", need=("drift_log_total",))
+    ddb = inp.json("drift_db", "drift-db.json", nums=("drift_log_total",))
     if ddb is not None and len(ddb.get("drift_log") or []) < ddb["drift_log_total"]:
         reasons.add("drift-db-incomplete")
-    dsn = {k: inp.json(f"drift_{k}", f"drift-{f}.json", need=("tick",)) for k, f in (("before", "before"), ("after", "after-k6"), ("end", "end"))}
-    if dsn["before"] and dsn["end"] and (_d(dsn["before"], dsn["end"], "drift_record_failed") or 0) > 0:
+    # drift_record_failed · cleanup.errors는 앞·끝 차분으로 사유를 낸다 — 열이 없으면 `or 0`으로 통과하지 않고 drift-snap-failed(판정 입력 전수 점검).
+    # ADR-009 actsnap.py는 등록 안 된 지표를 0으로 · 조회 실패를 None으로 쓴다 — 정상 스냅숏이면 늘 숫자다
+    dsn = {k: inp.json(f"drift_{k}", f"drift-{f}.json", nums=("tick.ok", "drift_record_failed", "cleanup.errors"))
+           for k, f in (("before", "before"), ("after", "after-k6"), ("end", "end"))}
+    if dsn["before"] and dsn["end"] and _d(dsn["before"], dsn["end"], "drift_record_failed") > 0:
         reasons.add("drift-record-failed")
-    if dsn["before"] and dsn["end"] and (_d(dsn["before"], dsn["end"], "cleanup", "errors") or 0) > 0:
+    if dsn["before"] and dsn["end"] and _d(dsn["before"], dsn["end"], "cleanup", "errors") > 0:
         reasons.add("cleanup-errors")
-    act = {k: inp.json(f"act_{k}", f"act14-{f}.json", need=("rejected.rule", "tick.ok"))
+    act = {k: inp.json(f"act_{k}", f"act14-{f}.json", nums=("rejected.rule", "tick.ok"))   # actsnap14: 등록 안 된 지표 = 0 · 조회 실패 = None
            for k, f in (("before", "before"), ("wend", "window-end"), ("after", "after-k6"), ("end", "end"))}
     for k, a in act.items():
         if a and a.get("failed"):
@@ -779,9 +833,17 @@ def rep_summary(d):
             inp.miss("act_wend", f"창 끝 스냅숏 시각이 창 끝 뒤 [0, {WEND_LAG_MAX_S:g}]초 밖(지연 {lag})")
             act["wend"] = None
     hik = jsonl(d / "timeline-hikari.jsonl")
+    if hik is not None and (hik.broken or any(not num(h.get("t_ms")) and _safe_ts(h.get("t")) == -INF for h in hik)):
+        flags.append(f"hikari-broken(깨진 줄 {hik.broken} · 시각 없는 줄 — env-stall ②③을 세우지 못함 → 정지 덩어리는 방식)")
+        hik = None
     for h in hik or []:
         h["_t"] = h["t_ms"] / 1000 if num(h.get("t_ms")) else ts(h["t"])
     waits = jsonl(d / "timeline-waits.jsonl")
+    if waits is not None:
+        bad_w = [w for w in waits if _safe_ts(w.get("t")) == -INF]
+        if waits.broken or bad_w:
+            inp.miss("waits", f"timeline-waits.jsonl 깨진 줄 {waits.broken} · 시각 못 읽는 줄 {len(bad_w)}")
+            waits = Rows(w for w in waits if w not in bad_w)
     if waits is None:
         inp.miss("waits", "timeline-waits.jsonl 없음")
     elif w0 is not None and off is not None:
@@ -851,8 +913,9 @@ def rep_summary(d):
         M["app"] = {"reclaim": {k: _d(A0, A2, "reclaim", k) for k in ("COUNT", "TOTAL_TIME")}, "reclaim_max_s": (A2.get("reclaim") or {}).get("MAX"),
                     "deleted_reclaim": _d(A0, A2, "deleted", "reclaim"), "deleted_batch": _d(A0, A2, "deleted", "batch"),
                     "skip_c2": _d(A0, A2, "skip_locked", "c2"), "skip_h4b": _d(A0, A2, "skip_locked", "h4b"),
-                    "kept_active": (_d(A0, A2, "revert", "batch.kept_active") or 0) + (_d(A0, A2, "revert", "reclaim.kept_active") or 0)
-                    if _d(A0, A2, "revert", "batch.kept_active") is not None else None,
+                    # P5 되돌림 기회(배치 + 회수) — 한쪽이라도 없으면 None(P5 판정 불가 — `or 0` 금지 · 판정 입력 전수 점검)
+                    "kept_active": _d(A0, A2, "revert", "batch.kept_active") + _d(A0, A2, "revert", "reclaim.kept_active")
+                    if _d(A0, A2, "revert", "batch.kept_active") is not None and _d(A0, A2, "revert", "reclaim.kept_active") is not None else None,
                     "reverted": _d(A0, A2, "revert", "batch.reverted"), "missing_pairs": _d(A0, A2, "missing_pairs", "batch"),
                     "chunk_failed": _d(A0, A2, "chunk", "failed"), "missing_mismatch": _d(A0, A2, "missing_mismatch"),
                     "tick_failed": _d(A0, A2, "tick", "failed"), "tick_ok": _d(A0, A2, "tick", "ok")}
@@ -864,7 +927,7 @@ def rep_summary(d):
             W_ = act["wend"]
             M["app"].update(tick_failed_win=_d(A0, W_, "tick", "failed"), missing_mismatch_win=_d(A0, W_, "missing_mismatch"),
                             tick_failed_outside=_d(W_, A2, "tick", "failed"), missing_mismatch_outside=_d(W_, A2, "missing_mismatch"))
-    tb, ta, te = (inp.json(f"table_{k}", f"table-{k}.json", need=("tables.product_seat.n_tup_upd",)) for k in ("before", "after", "end"))
+    tb, ta, te = (inp.json(f"table_{k}", f"table-{k}.json", nums=("tables.product_seat.n_tup_upd",)) for k in ("before", "after", "end"))
     if kind == "cost":
         inp.missing.pop("table_end", None)
     if tb and ta:
@@ -874,10 +937,15 @@ def rep_summary(d):
                          "confirmed_db": ta.get("confirmed")}
     dlog = _db_log_deadlocks(d, w0, w1, off) if w0 is not None and off is not None else None
     M["deadlocks_window"] = dlog
-    if ddb is not None:
-        seed_srv = (pk or {}).get("seed_done_epoch", 0) + (off or 0)
+    if ddb is not None and pk is not None and off is not None:
+        seed_srv = pk["seed_done_epoch"] + off
+        # 시각을 못 읽거나 action이 모르는 값인 drift_log 행은 빼지 않는다 → drift-db-failed(전에는 -inf 시각으로 무음 제외 — repaired가 줄면 정합 위반이 숨는다)
+        odd = [x for x in ddb.get("drift_log") or [] if _safe_ts(x.get("at")) == -INF or x.get("action") not in DRIFT_ACTIONS]
+        if odd:
+            inp.miss("drift_db", f"drift_log 시각·action 못 읽는 행 {len(odd)}: {odd[:3]}")
         logs = [x for x in ddb.get("drift_log") or [] if _safe_ts(x.get("at")) >= seed_srv]
         M["m6"] = {"repaired": sum(1 for x in logs if x.get("action") == "repaired"), "false_positive": sum(1 for x in logs if x.get("action") == "false-positive"),
+                   "skipped": sum(1 for x in logs if x.get("action") == "skipped"),   # 기록(복구 트랜잭션 실패 — 판정 규칙 밖)
                    "inc_runs": sum(1 for r in ddb.get("reconcile_runs") or [] if str(r.get("source", "")).startswith("inc-") and _safe_ts(r.get("started_at")) >= seed_srv),
                    "safety_runs": sum(1 for r in ddb.get("reconcile_runs") or [] if str(r.get("source", "")).startswith("safety") and _safe_ts(r.get("started_at")) >= seed_srv)}
         if M["m6"]["inc_runs"] == 0 or M["m6"]["safety_runs"] == 0:
@@ -892,15 +960,21 @@ def rep_summary(d):
     st = None
     if kind == "main":
         rows = jsonl(d / "timeline-seatstate.jsonl")
+        bad_rows = [r for r in rows or [] if r.get("kind") != "expired" and "reserved" in r
+                    and (_safe_ts(r.get("t")) == -INF or not all(num(r.get(k)) for k in ("reserved", "held_no_active", "active_not_held", "multi_active", "active_on_reserved")))]
         if rows is None or off is None or w0 is None:
             inp.miss("seatstate", "timeline-seatstate.jsonl 없음 또는 창 모름")
+        elif rows.broken or bad_rows:
+            # 깨진 줄 · 판정 열 없는 줄을 버리면 그 초의 위반 표본(multi_active 등)이 숨는다 — 공백 검사에 안 걸릴 만큼 적어도 무효(판정 입력 전수 점검)
+            inp.miss("seatstate", f"timeline-seatstate.jsonl 깨진 줄 {rows.broken} · 판정 열(t · reserved · held_no_active · active_not_held · multi_active · "
+                                  f"active_on_reserved) 없거나 숫자 아닌 줄 {len(bad_rows)}")
         else:
             st = state_metrics(rows, w0 + off, w1 + off, plan["ttl_s"])
             if st["gap_bad"]:
                 reasons.add("state-sampler-gap")
             M["state"] = {k: v for k, v in st.items() if k != "gap_bad"}
         if csvd is not None:
-            pm = probe_metrics(method, plan, csvd["probe"], off or 0)
+            pm = probe_metrics(method, plan, csvd["probe"], off if off is not None else 0)   # off None = clock-offset-bad(무효) — 지표만 낸다
             M["probe"] = pm
             if pm["timing_bad_cells"]:
                 reasons.add("probe-timing-bad")
@@ -916,6 +990,8 @@ def rep_summary(d):
                 reasons.add("schedule-closed-seen")
             if off is not None:
                 M["flow"] = flow_metrics(csvd, plan, off, w0 + off, w1 + off)
+                if M["flow"]["bad_rows"]:
+                    inp.miss("csv", f"주 흐름 홀드·확정 기록 못 읽는 행 {M['flow']['bad_rows']}(정합 항목을 셀 수 없다)")
                 if st and st.get("W") is not None:
                     M["state"]["L_A"] = st["W"] / M["flow"]["n_exp"] if M["flow"]["n_exp"] else None
         h4 = jsonl(d / "timeline-h4.jsonl")
@@ -940,8 +1016,8 @@ def rep_summary(d):
                  "reserved_without_confirmed": cons["v_reserved_without_confirmed"], "confirmed_on_unreserved": cons["v_confirmed_on_unreserved_seat"],
                  # 측정 전 재해석 CR14-21: 끝 판정기의 활성 홀드가 있는 RESERVED 좌석 — 모든 방식 기대 0(N2 · 표본 active_on_reserved와 같은 뜻의 끝 값)
                  "active_on_reserved_end": cons["active_on_reserved_seats"]}
-        if st:
-            integ.update(multi_active_samples=st.get("multi_active_samples", 0), active_on_reserved_samples=st.get("active_on_reserved_samples", 0))
+        if st and st["n"]:   # 표본이 0개면 state-sampler-gap(무효)이다 — 그때만 열이 없다(`.get(k, 0)` 금지)
+            integ.update(multi_active_samples=st["multi_active_samples"], active_on_reserved_samples=st["active_on_reserved_samples"])
         if M.get("flow"):
             integ.update(running_duplicate=M["flow"]["duplicate"], confirm_then_201=M["flow"]["after_confirm_201"])
             # M5 ⑤ — 응답은 성공인데 행이 없음(k6 확정 200 — 모든 흐름 · DB CONFIRMED — 두 회차)
@@ -952,7 +1028,11 @@ def rep_summary(d):
         if M.get("m6"):
             integ["repaired"] = M["m6"]["repaired"]
         if method == "C":
-            integ["c_revert_violation"] = cons["active_not_held"] + (st.get("active_not_held_samples", 0) if st else 0)
+            integ["c_revert_violation"] = cons["active_not_held"] + (st["active_not_held_samples"] if st and st["n"] else 0)
+        if kind == "main" and not (M.get("flow") and M.get("probe")):
+            inp.miss("csv", "주 셀인데 흐름·탐침 재구성 없음 — 정합 항목(이중 판매 · 만료 뒤 확정)을 셀 수 없다")
+        if [k for k, v in integ.items() if not num(v)]:
+            inp.miss("consistency", f"정합 항목 값이 숫자 아님 {[k for k, v in integ.items() if not num(v)]}")   # None을 '위반 없음'으로 거르지 않는다
         V["integrity"] = {k: v for k, v in integ.items() if v}
         V["state"] = [{"row": r, "why": w} for r, w in state_thresholds(method, cons, st)]
         em = expect_mismatch(method, cons, st, M.get("app") or {})
@@ -969,12 +1049,15 @@ def rep_summary(d):
     if M.get("probe"):
         p12["probe_errors"] = M["probe"]["errors"] + M["probe"]["setup_errors"]
     if gc:
-        p12["gc_full_or_stall"] = (M["gc"]["full"] or 0) + (M["gc"]["stalls"] or 0)
-        p12["gc_pause_ge_10ms"] = 1 if (M["gc"]["stop_ms_max"] or 0) >= GC_PAUSE_MAX_MS else 0
+        # GC 값이 숫자가 아니면 None → P12 판정 불가(`or 0` 금지 — 판정 입력 전수 점검)
+        g_ = M["gc"]
+        p12["gc_full_or_stall"] = g_["full"] + g_["stalls"] if num(g_["full"]) and num(g_["stalls"]) else None
+        p12["gc_pause_ge_10ms"] = (1 if g_["stop_ms_max"] >= GC_PAUSE_MAX_MS else 0) if num(g_["stop_ms_max"]) else None
     if kind == "cost" and M.get("mem_growth") is not None:
         p12["mem_growth_ge_10pct"] = 1 if M["mem_growth"] >= MEM_GROWTH_MAX else 0
     V["p12"] = {k: v for k, v in p12.items() if v}
     V["p12_unknown"] = [k for k, v in p12.items() if v is None]
+    V["p12_checked"] = sorted(k for k, v in p12.items() if v is not None)   # 계산한 항목(0 포함) — 캠페인이 '키 없음 = 0'으로 읽지 않게
     if V["p12_unknown"]:
         flags.append(f"P12 입력 없음 {V['p12_unknown']}(→ 그 회차 P12 판정 불가)")
     if M.get("probe") and method in ("B", "C", "D"):
@@ -982,7 +1065,7 @@ def rep_summary(d):
         V["p9_early_not200"] = M["probe"]["pr3"]["early_not200"]
     if method == "D" and M.get("upd_seat") and kind == "main":
         u = M["upd_seat"]
-        lo = cons.get("confirmed") if cons else None
+        lo = cons["confirmed"] if cons else None
         hi = csvd["confirm_reqs"] if csvd else None
         if lo is None or hi is None or u["d2"] is None:
             V["p6"] = None
@@ -1092,17 +1175,21 @@ def crn_check(root):
     res, changed = {}, []
     for r in range(1, plan14.REPS + 1):
         for c in MAIN_CELLS:
-            hs = {}
+            hs, nocrn = {}, []
             for m in plan14.ABCD:
                 s = load(root / c / m / f"rep{r}" / "rep-summary.json")
-                if s and s.get("metrics", {}).get("crn"):
+                sp = root / c / m / f"rep{r}" / "status"
+                if s and (s.get("metrics") or {}).get("crn"):
                     hs[m] = json.dumps(s["metrics"]["crn"], sort_keys=True)
-            if len(hs) < 2:
+                elif sp.exists() and sp.read_text().strip() == "ok":
+                    nocrn.append(m)   # 유효인데 crn 합이 없다 — 대조에서 빼면 무음 통과다 → crn-mismatch(같음을 세우지 못함 · 판정 입력 전수 점검)
+            if len(hs) < 2 and not nocrn:
                 continue
             vals = list(hs.values())
-            top = max(set(vals), key=vals.count)
-            bad = [m for m, h in hs.items() if h != top] if vals.count(top) > len(vals) / 2 else list(hs)
-            res[f"rep{r}:{c}"] = {"methods": sorted(hs), "mismatch": bad}
+            top = max(set(vals), key=vals.count) if vals else None
+            bad = ([m for m, h in hs.items() if h != top] if vals.count(top) > len(vals) / 2 else list(hs)) if len(hs) >= 2 else []
+            bad += nocrn
+            res[f"rep{r}:{c}"] = {"methods": sorted(hs), "mismatch": bad, "no_crn": nocrn}
             for m in bad:
                 sp = root / c / m / f"rep{r}" / "status"
                 st = sp.read_text().strip() if sp.exists() else ""
@@ -1118,7 +1205,7 @@ def crn_check(root):
 
 def early_check(root):
     root = Path(root)
-    ws, unfair, judged = [], 0, 0
+    ws, unfair, judged, missing = [], 0, 0, 0
     for c in TTL_GROUPS["t30"]:
         s = load(root / c / "A" / "rep1" / "rep-summary.json")
         st = (root / c / "A" / "rep1" / "status").read_text().strip() if (root / c / "A" / "rep1" / "status").exists() else ""
@@ -1126,11 +1213,17 @@ def early_check(root):
             print(f"early-check: {c} A rep1 유효 아님({st or '없음'}) — 판정하지 않는다(재측정 뒤 끝 집계 G4·P3가 본다)")
             continue
         judged += 1
-        ws.append((s["metrics"].get("state") or {}).get("W"))
-        unfair += sum(v["n409"] for k, v in ((s["metrics"].get("probe") or {}).get("m3", {}).get("by_delta") or {}).items()
-                      if k.startswith("pr1:") and k.split(":")[1] in ("1.0", "3.0"))
-    print(json.dumps({"A_W": ws, "A_pr1_d13_unfair": unfair, "judged_cells": judged}, ensure_ascii=False))
-    if judged and (any(w is not None and w <= 0 for w in ws) or unfair == 0):
+        w = ((s.get("metrics") or {}).get("state") or {}).get("W")
+        bd = (((s.get("metrics") or {}).get("probe") or {}).get("m3") or {}).get("by_delta")
+        if not num(w) or not isinstance(bd, dict):
+            # 유효 회차인데 W · 탐침 δ별 결과가 없다 — 양성 대조를 세울 수 없으니 '통과'로 넘기지 않고 멈춘다(판정 입력 전수 점검)
+            print(f"early-check: {c} A rep1 유효인데 W·by_delta 없음(W {w!r}) — 멈춘다")
+            missing += 1
+            continue
+        ws.append(w)
+        unfair += sum(v["n409"] for k, v in bd.items() if k.startswith("pr1:") and k.split(":")[1] in ("1.0", "3.0"))
+    print(json.dumps({"A_W": ws, "A_pr1_d13_unfair": unfair, "judged_cells": judged, "missing": missing}, ensure_ascii=False))
+    if missing or (judged and (any(w <= 0 for w in ws) or unfair == 0)):
         return 1
     return 0
 
@@ -1171,18 +1264,54 @@ def eliminate(cands, beats):
     return cyc, sorted(set(cands) - set(cyc))
 
 
+def summary_gaps(s, c, m):
+    """유효(status ok) 회차 요약의 판정 열 검사 — 캠페인이 `.get(k) or {}`로 '없음 = 위반 없음'을 읽지 않게 한 곳에서 본다(판정 입력 전수 점검).
+    빠진 열 목록을 돌려준다(빈 목록 = 통과). 빠졌으면 그 회차는 유효로 세지 않는다(→ 유효 < 3 → 판정 불가)."""
+    gaps = []
+
+    def has(path, ok=lambda x: x is not None):
+        x = s
+        for p_ in path.split("."):
+            x = x.get(p_) if isinstance(x, dict) else None
+        if not ok(x):
+            gaps.append(path)
+    isd, isl = (lambda x: isinstance(x, dict)), (lambda x: isinstance(x, list))
+    has("metrics.rep", num)
+    for k, f in (("integrity", isd), ("state", isl), ("p12", isd), ("p12_unknown", isl), ("p12_checked", isl)):
+        has(f"violations.{k}", f)
+    if c in MAIN_CELLS:
+        has("metrics.state.T95", lambda x: num(_f(x)) or _f(x) == INF)
+        for k in ("n409", "batch", "den", "unfair_d13"):
+            has(f"metrics.probe.m3.{k}", num)
+        has("metrics.probe.pr3", isd)
+        has("metrics.flow", isd)
+        if m in ("B", "C", "D"):
+            has("violations.p4_judge409", num)
+            has("violations.p9_early_not200", num)
+        if m == "D":
+            v = s.get("violations") if isinstance(s.get("violations"), dict) else {}
+            if "p6" not in v:
+                gaps.append("violations.p6")
+    return gaps
+
+
 def campaign(root):
     root = Path(root)
     reps = {}
     slots = {}
+    broken = []   # status ok인데 판정 열이 빠진 요약(summary_gaps) — 유효로 세지 않는다
     for (r, c, m), d in rep_dirs(root).items():
         st = (d / "status").read_text().strip() if (d / "status").exists() else None
         s = load(d / "rep-summary.json")
         hist = sorted(d.parent.glob(f"rep{r}.attempt*"))
         slots[(r, c, m)] = {"status": st, "attempts": len(hist) + (1 if d.exists() else 0),
                             "kinds": [(_kind((h / "status").read_text().strip() if (h / "status").exists() else "")) for h in hist] + [_kind(st or "")]}
-        if st == "ok" and s:
-            reps.setdefault((m, c), []).append(s)
+        if st == "ok":
+            gaps = summary_gaps(s, c, m) if isinstance(s, dict) else ["rep-summary.json 없음·깨짐"]
+            if gaps:
+                broken.append(f"rep{r} {c} {m}: {gaps[:6]}")
+            else:
+                reps.setdefault((m, c), []).append(s)
     valid_n = {(m, c): len(reps.get((m, c), [])) for m in plan14.ABCD for c in plan14.GROUPS}
     env_exhausted = sorted(f"rep{r} {c} {m}" for (r, c, m), x in slots.items() if x["status"] and x["status"].startswith("invalid:") and _kind(x["status"]) == "env")
     harness_exhausted = sorted(f"rep{r} {c} {m}" for (r, c, m), x in slots.items() if x["status"] and x["status"].startswith("invalid:") and _kind(x["status"]) == "harness")
@@ -1231,8 +1360,10 @@ def campaign(root):
     a_cpu = rng(COSTM["a50t300_db_cpu"]("A"))
     delta_c = max(cxm.values()) - min(cxm.values()) if len(cxm) == 4 else None
     separate_cpu = delta_c is not None and a_cpu is not None and delta_c > a_cpu[1] - a_cpu[0]
-    sample_cost = {"c_pct": cxm, "delta_c": delta_c, "A_a50t300_cpu_range": a_cpu, "separate_a50t300_db_cpu": separate_cpu,
-                   "undecidable": delta_c is None}
+    # Δc 또는 A의 a50-t300 DB CPU 범위를 낼 수 없으면 분리 여부를 모른다 — '분리 안 함'(거짓)으로 읽지 않는다: 그 지표가 결과를 바꾸면 판정 불가(판정 입력 전수 점검)
+    sep_unknown = delta_c is None or a_cpu is None
+    sample_cost = {"c_pct": cxm, "delta_c": delta_c, "A_a50t300_cpu_range": a_cpu, "separate_a50t300_db_cpu": None if sep_unknown else separate_cpu,
+                   "undecidable": sep_unknown}
 
     # ---- 방식별 성공(측정-7) ----
     def item_viol(m, c, key):
@@ -1242,23 +1373,26 @@ def campaign(root):
             return None
         out = False
         for s in xs:
-            v = s["violations"]
+            v = s["violations"]   # 열은 summary_gaps가 확인했다
             if key.startswith("p12:"):
                 k = key[4:]
-                if k in (v.get("p12_unknown") or []):
+                if k in v["p12_unknown"]:
                     return None
-                out |= bool((v.get("p12") or {}).get(k))
+                if k in P12_FIXED and k not in v["p12_checked"]:
+                    return None   # 계산하지 않은 고정 항목 — 키가 없다고 0으로 보지 않는다(판정 입력 전수 점검)
+                out |= bool(v["p12"].get(k))   # 5xx_or_0:<이름>은 CSV 집계 — 키 없음 = 0건
             elif key.startswith("state:"):
-                out |= any(x["row"] == int(key[6:]) for x in v.get("state") or [])
+                out |= any(x["row"] == int(key[6:]) for x in v["state"])
         return out
-    p12_keys = sorted({k for xs in reps.values() for s in xs for k in list((s["violations"].get("p12") or {})) + list(s["violations"].get("p12_unknown") or [])})
+    # 고정 항목은 늘 본다(어느 회차에도 값이 없으면 판정 불가로 드러난다) + 회차에 나온 5xx 항목
+    p12_keys = sorted(set(P12_FIXED) | {k for xs in reps.values() for s in xs for k in list(s["violations"]["p12"]) + list(s["violations"]["p12_unknown"])})
     result = {}
     for m in ("B", "C", "D"):
         fails, undec, notes = [], [], []
         for c in plan14.GROUPS:
             if valid_n[(m, c)] < plan14.REPS:
                 undec.append(f"{c} 유효 {valid_n[(m, c)]}/3")
-        integ = [f"{c} rep{_rep_no(s)} {k}={v}" for c in plan14.GROUPS for s in reps.get((m, c), []) for k, v in (s["violations"].get("integrity") or {}).items()]
+        integ = [f"{c} rep{_rep_no(s)} {k}={v}" for c in plan14.GROUPS for s in reps.get((m, c), []) for k, v in s["violations"]["integrity"].items()]
         if integ:
             fails.append("정합 위반: " + "; ".join(integ[:12]))
         # P4
@@ -1266,13 +1400,16 @@ def campaign(root):
         if p4:
             fails.append("P4 반증: " + "; ".join(p4))
         # P7 판정 불가 조건
-        reh = sum((mget(s, "flow", "rehold_other") or 0) for c in MAIN_CELLS for s in reps.get((m, c), []))
+        reh_w = [mget(s, "flow", "rehold_other") for c in MAIN_CELLS for s in reps.get((m, c), [])]
+        reh = sum(reh_w) if all(num(x) for x in reh_w) else None   # 값 없는 회차를 0으로 더하지 않는다(판정 입력 전수 점검)
         reh_n = [mget(s, "flow", "rehold_other_narrow") for c in MAIN_CELLS for s in reps.get((m, c), [])]
         # 측정 전 재해석 CR14-11: PR-3 '실행' = 송신된 판정 요청 수(송신 오차 초과 포함). 값이 없으면 실행을 셀 수 없다 → 같은 판정 불가(0으로 보지 않는다)
         pr3_short = [f"{c} rep{_rep_no(s)}" for c in MAIN_CELLS for s in reps.get((m, c), [])
                      if not (num(mget(s, "probe", "pr3", "sent")) and num(mget(s, "probe", "pr3", "planned")))
                      or mget(s, "probe", "pr3", "sent") < mget(s, "probe", "pr3", "planned")]
-        if reh == 0:
+        if reh is None:
+            undec.append("P7: 재선점 기회(넓은 값) 값 없는 회차가 있다")
+        elif reh == 0:
             undec.append("P7: 남의 만료 홀드 위 재선점 0(3회 합)")
         if pr3_short:
             undec.append(f"P7·P9: PR-3 실행(송신된 판정 요청) < 계획 {pr3_short[:6]}")
@@ -1305,6 +1442,8 @@ def campaign(root):
             for c in plan14.GROUPS:
                 if key == "p12:mem_growth_ge_10pct" and c != COST_CELL:
                     continue
+                if key == "p12:probe_errors" and c not in MAIN_CELLS:
+                    continue   # 비용 셀에는 탐침이 없다
                 xv = item_viol(m, c, key)
                 if xv is None:
                     if valid_n[(m, c)] == plan14.REPS:
@@ -1325,7 +1464,7 @@ def campaign(root):
     a_valid = all(valid_n[("A", c)] == plan14.REPS for c in plan14.GROUPS)
     a_w = {c: vals("A", c, lambda s: mget(s, "state", "W")) for c in TTL_GROUPS["t30"]}
     p1_w = all(len(v) == plan14.REPS and all(num(x) and x > 0 for x in v) for v in a_w.values())
-    a_integ = [f"{c} rep{_rep_no(s)} {k}={v}" for c in plan14.GROUPS for s in reps.get(("A", c), []) for k, v in (s["violations"].get("integrity") or {}).items()]
+    a_integ = [f"{c} rep{_rep_no(s)} {k}={v}" for c in plan14.GROUPS for s in reps.get(("A", c), []) for k, v in s["violations"]["integrity"].items()]
     g4 = a_valid and p1_w
     # P3 유효(TTL 묶음별): A의 PR-1·PR-2 δ ∈ {1, 3} 부당 실패가 3회 모두 0이 아니어야 한다
     p3_valid = {}
@@ -1333,7 +1472,8 @@ def campaign(root):
         per = []
         for r in range(1, plan14.REPS + 1):
             ss = [next((x for x in reps.get(("A", c), []) if _rep_no(x) == r), None) for c in cells]
-            per.append(None if any(x is None for x in ss) else sum(mget(x, "probe", "m3", "unfair_d13") or 0 for x in ss))
+            uf = [mget(x, "probe", "m3", "unfair_d13") for x in ss if x is not None]
+            per.append(None if any(x is None for x in ss) or not all(num(u) for u in uf) else sum(uf))   # `or 0` 금지 — 값이 없으면 P3 유효 판정 불가
         p3_valid[g] = None if any(x is None for x in per) else any(x > 0 for x in per)
 
     # ---- 고르는 규칙(측정-8) ----
@@ -1348,11 +1488,28 @@ def campaign(root):
     def beats3(y, x):    # 3단 — X ≫ Y인 지표가 있고 Y ≫ X인 지표가 없으면 X가 빠진다
         return any(much_higher(COSTM[k](x), COSTM[k](y)) for k in cost_keys) and not any(much_higher(COSTM[k](y), COSTM[k](x)) for k in cost_keys)
 
+    def undec2(alive):
+        """2단도 같은 꼴(판정 입력 전수 점검 — CR14-24와 같은 결함): 남은 후보 둘 이상 · 어느 (지표, 셀·묶음, 후보)의 범위가 None이면 2단 판정 불가."""
+        if len(alive) < 2:
+            return []
+        return ([f"T95 {c} {m}" for c in MAIN_CELLS for m in alive if rng(T95[(m, c)]) is None]
+                + [f"M3b {g} {m}" for g in TTL_GROUPS for m in alive if rng(M3b[(m, g)]) is None])
+
     def undec3(alive):
         """측정 전 재해석 CR14-24: 3단에 남은 후보가 둘 이상인데 어느 (지표, 후보)의 범위가 None(유효 회차의 값 None 등)이면 3단 결과는 판정 불가다.
         much_higher가 None을 '≫ 아님'(거짓)으로 돌려 빠질 후보가 남는 것을 숨기지 않는다 — 결과(잠정)는 그대로 내고 판정 불가 목록을 단다."""
-        return [f"{k} {m}" for k in cost_keys for m in alive if rng(COSTM[k](m)) is None] if len(alive) >= 2 else []
-    stage_undec = {"3 비용": undec3}
+        if len(alive) < 2:
+            return []
+        out = [f"{k} {m}" for k in cost_keys for m in alive if rng(COSTM[k](m)) is None]
+        if sep_unknown and "a50t300_db_cpu" in cost_keys:
+            # 분리 여부를 모른다 — 그 지표를 빼고 돌린 결과가 다르면 3단 결과는 판정 불가
+            k2 = [k for k in cost_keys if k != "a50t300_db_cpu"]
+            alt = eliminate(alive, lambda y, x: any(much_higher(COSTM[k](x), COSTM[k](y)) for k in k2)
+                            and not any(much_higher(COSTM[k](y), COSTM[k](x)) for k in k2))
+            if sorted(alt[0]) != sorted(eliminate(alive, beats3)[0]):
+                out.append("a50t300_db_cpu 분리 판정 불가(표본 비용 Δc 또는 A 범위 없음)")
+        return out
+    stage_undec = {"2 판매 효과·사용자 실패": undec2, "3 비용": undec3}
     alive = list(cands)
     out_at = {}
     for name, rule in (("1 정합", None), ("2 판매 효과·사용자 실패", better2), ("3 비용", beats3)):
@@ -1372,18 +1529,31 @@ def campaign(root):
     ranked = sorted(cands, key=lambda m: (stage_rank.get(out_at.get(m, "4"), 0), SIMPLICITY.index(m)))
 
     # ---- 교체 관문 G1~G4 ----
+    def tri(xs):   # 하나라도 참이면 참 · 아니면 None이 있으면 None(판정 불가) · 모두 거짓이면 거짓
+        return True if any(x is True for x in xs) else None if any(x is None for x in xs) else False
+
     def g2(m):
-        t_better = any(lower(rng(T95[(m, c)]), rng(T95[("A", c)])) for c in MAIN_CELLS)
-        t_worse = any(lower(rng(T95[("A", c)]), rng(T95[(m, c)])) for c in MAIN_CELLS)
-        a = t_better and not t_worse
-        b = any(p3_valid.get(g) and lower(rng(M3[(m, g)]), rng(M3[("A", g)])) for g in TTL_GROUPS)
-        cc = bool(a_integ) and not any((s["violations"].get("integrity") or {}) for c in plan14.GROUPS for s in reps.get((m, c), []))
-        return {"a": a, "b": b, "c": cc, "pass": a or b or cc}
+        """G2 — 범위 None을 '비겹침 아님'(거짓)으로 읽지 않는다(판정 입력 전수 점검): (a)·(b)는 참 · 거짓 · None(판정 불가) 셋."""
+        pairs = [(rng(T95[(m, c)]), rng(T95[("A", c)])) for c in MAIN_CELLS]
+        known = [(x, y) for x, y in pairs if x is not None and y is not None]
+        t_better, t_worse = any(lower(x, y) for x, y in known), any(lower(y, x) for x, y in known)
+        a = False if t_worse else (None if len(known) < len(pairs) else t_better)
+        bs = []
+        for g in TTL_GROUPS:
+            rx, ra = rng(M3[(m, g)]), rng(M3[("A", g)])
+            bs.append(False if p3_valid.get(g) is False else None if p3_valid.get(g) is None or rx is None or ra is None else lower(rx, ra))
+        b = tri(bs)
+        cc = bool(a_integ) and not any(s["violations"]["integrity"] for c in plan14.GROUPS for s in reps.get((m, c), []))
+        t = tri([a, b, cc])
+        return {"a": a, "b": b, "c": cc, "pass": t is True, "undecidable": t is None, "fail": t is False}
     g3_keys = ["cost_hold_p99", "cost_db_cpu", "a50t300_hold201_p99", "a50t300_confirm_p99"] + ([] if separate_cpu else ["a50t300_db_cpu"])
 
     def g3(m):
         hit = [k for k in g3_keys if much_higher(COSTM[k](m), COSTM[k]("A"))]
         und = [k for k in g3_keys if rng(COSTM[k](m)) is None or rng(COSTM[k]("A")) is None]
+        if sep_unknown and "a50t300_db_cpu" in hit:
+            hit.remove("a50t300_db_cpu")   # 분리 여부를 모르는 지표의 걸림 — 걸렸다고도 아니라고도 하지 않는다
+            und.append("a50t300_db_cpu(분리 판정 불가)")
         return {"hits": hit, "undecidable": und, "pass": not hit and not und}
     gates = {}
     winner = None
@@ -1394,14 +1564,15 @@ def campaign(root):
         if x["pass"] and winner is None:
             winner = m
     # 측정 전 재해석 CR14-18(ⓒ): G1·G2·G4를 넘었고 G3에 걸린 지표(X ≫ A)는 없는데 비용 범위를 낼 수 없어 G3가 판정 불가인 후보 — 'G3에서 걸렸다'(A 유지 ③)가 아니다
-    g3_undec = [m for m in ranked if gates[m]["G1"] and gates[m]["G2"]["pass"] and gates[m]["G4"]
-                and not gates[m]["G3"]["hits"] and gates[m]["G3"]["undecidable"]]
+    # 판정 입력 전수 점검: G2가 판정 불가(범위 None)이고 G3에 걸림이 없는 후보도 같은 갈래(관문을 넘었을 수 있다)
+    g3_undec = [m for m in ranked if gates[m]["G1"] and gates[m]["G4"] and not gates[m]["pass"] and not gates[m]["G3"]["hits"]
+                and not gates[m]["G2"]["fail"] and (gates[m]["G2"]["undecidable"] or gates[m]["G3"]["undecidable"])]
     g3_ahead = [m for m in g3_undec if winner and ranked.index(m) < ranked.index(winner)]   # 관문 통과 후보보다 앞 순위 — 그 후보가 이겼을 수 있다
     # 측정 전 재해석 CR14-24(ⓓ): 고르는 규칙의 한 단이 판정 불가인데, 관문 통과 후보 말고도 관문을 넘었거나(넘었을 수 있는 — ⓒ) 후보가 있으면 순위가 바뀌어
     # 그 후보가 이겼을 수 있다 → 같은 '판정 불가 → 사용자 보고'(잠정 결과 함께). 다른 후보가 모두 관문에서 걸렸으면 순위와 무관하게 관문 통과 후보가 이긴다
     rivals = [m for m in ranked if m != winner and (gates[m]["pass"] or m in g3_undec)]
     rank_block = [f"고르는 규칙 판정 불가 {rank_undec} · 경쟁 후보 {rivals}"] if winner and rank_undec and rivals else []
-    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"G3 판정 불가 {m}" for m in g3_ahead] + rank_block
+    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"{'G2' if gates[m]['G2']['undecidable'] else 'G3'} 판정 불가 {m}" for m in g3_ahead] + rank_block
     if winner and blocked:
         # 해석 메모: 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ) · 앞 순위의 G3 판정 불가 후보(ⓒ) · 고르는 규칙 판정 불가(ⓓ)가 있으면, 그 자리·후보가 순위를 바꿀 수 있으므로
         # 관문을 넘은 후보가 있어도 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — 기본값은 사용자 결정 전까지 그대로)
@@ -1415,16 +1586,17 @@ def campaign(root):
         verdict = "A 유지 ④ — G4 실패(측정 전 규칙으로 고를 수 없다 · 판정 불가 · 사용자 보고)"
     elif not cands:
         verdict = "A 유지 ① — 성공한 후보가 없다"
-    elif all(not gates[m]["G2"]["pass"] for m in ranked):
+    elif all(gates[m]["G2"]["fail"] for m in ranked):
         verdict = "A 유지 ② — 성공한 후보가 모두 G2를 못 넘는다"
     elif g3_undec:
-        verdict = (f"판정 불가 → 사용자 보고(측정-8 ⓒ — G2를 넘은 후보 {g3_undec}의 G3 비용 범위를 낼 수 없다 {[gates[m]['G3']['undecidable'] for m in g3_undec]} · "
+        verdict = (f"판정 불가 → 사용자 보고(측정-8 ⓒ — G2를 넘었거나 판정 불가인 후보 {g3_undec}의 G2·G3 범위를 낼 수 없다 "
+                   f"{[(gates[m]['G2']['undecidable'], gates[m]['G3']['undecidable']) for m in g3_undec]} · "
                    "A 유지 ③이 아니다 · 기본값은 사용자 결정 전까지 그대로)")
     else:
         verdict = "A 유지 ③ — G2를 넘은 후보가 모두 G3에서 걸린다"
     hyp = hypotheses(reps, T95, M3, COSTM, mget, p3_valid, a_w)
     res = {"slots": {f"rep{r}:{c}:{m}": x for (r, c, m), x in slots.items()}, "valid_n": {f"{m}:{c}": n for (m, c), n in valid_n.items()},
-           "env_exhausted": env_exhausted, "harness_exhausted": harness_exhausted, "success": result, "A": {"valid": a_valid, "P1_W_t30": a_w, "P1_W_pos": p1_w,
+           "env_exhausted": env_exhausted, "harness_exhausted": harness_exhausted, "summary_broken": broken, "success": result, "A": {"valid": a_valid, "P1_W_t30": a_w, "P1_W_pos": p1_w,
            "integrity": a_integ, "G4": g4}, "P3_valid": p3_valid, "sample_cost": sample_cost, "stages": stages, "rank_undecidable": rank_undec, "ranked": ranked, "gates": gates,
            "decision": {"verdict": verdict, "new_default": plan14.METHODS[winner] if winner else None,
                         "note": "G2(b)는 P3가 서면 사실상 늘 A가 진다 — 교체는 사실상 정합(G1)과 비용(G3)이 정한다(측정-8 '주의' · MQ3)"},
@@ -1490,6 +1662,8 @@ def render_md(res):
         L.append(f"- 환경 상한 소진(판정 불가 → 사용자 보고): {res['env_exhausted']}")
     if res["harness_exhausted"]:
         L.append(f"- 하네스 상한 소진(유효 < 3): {res['harness_exhausted']}")
+    if res["summary_broken"]:
+        L.append(f"- status ok인데 요약 판정 열이 빠져 유효로 세지 않은 회차(판정 입력 전수 점검): {res['summary_broken']}")
     L += ["", "## 방식별 성공(측정-7)"]
     for m, x in res["success"].items():
         L.append(f"- **{m}({plan14.METHODS[m]})**: {x['verdict']}" + (f" — 실패 {x['fails']}" if x["fails"] else "") +

@@ -17,7 +17,11 @@
  ⑳ 판정 불가: P7 재선점 0 · 'A도 같은 문턱'(P12) · 환경 상한 소진 → 결론 '판정 불가' · 유효 회차의 값 None → 비교에서 판정 불가(0으로 보지 않음)
  ㉑ 코드 리뷰 루프 2: 정합 문턱 열 결측·숫자 아님(CR14-8) · 시계 차 rtt_s(CR14-9) · 첫 선점 409 → probe-incomplete(CR14-10) · PR-3 실행 = 송신 수(CR14-11) ·
     h4-sampler-missing(CR14-12) · 창 끝 스냅숏 · P12 창 안 증분(CR14-13) · warmup-failed · 예열 상태 분포(CR14-14) · P5 판정 불가 · P6·P9 반증 · 정합 위반 · G2(c) ·
-    상태 문턱 6·7·8행 'A도 같은 문턱' · --early-check(CR14-15) · G3 판정 불가 결론(CR14-18) · 재선점 기회 넓은·좁힌 값(CR14-19) · RESERVED ↔ 확정 짝 위반(CR14-20)"""
+    상태 문턱 6·7·8행 'A도 같은 문턱' · --early-check(CR14-15) · G3 판정 불가 결론(CR14-18) · 재선점 기회 넓은·좁힌 값(CR14-19) · RESERVED ↔ 확정 짝 위반(CR14-20)
+ ㉒ 코드 리뷰 루프 3: 끝 active_on_reserved_seats 정합 위반(CR14-21) · 첫 선점 기록 없음 → probe-incomplete(CR14-22) · 판정 요청 예상 밖 응답 → 판정 불가 응답(CR14-23) ·
+    3단 비용 범위 None → 3단 판정 불가 · 결론 ⓓ(CR14-24)
+ ㉓ 판정 입력 전수 점검(생성형): REP_INPUTS 표의 판정 입력을 하나씩 지우거나 숫자 아닌 값으로 바꾼 회차 → 모두 기대 사유로 무효 · P12 입력 → p12_unknown ·
+    jsonl 깨진 줄 · CSV 기록 깨짐 · env-stall 입력 깨짐(→ 방식 정지) · 캠페인 요약 판정 열 결측 → 유효로 세지 않음 · 비용·2단 지표 None → 결론 판정 불가"""
 import gzip
 import json
 import shutil
@@ -66,6 +70,7 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
     d.mkdir(parents=True, exist_ok=True)
     wj(d / "plan.json", plan)
     wj(d / "meta.json", {"rerun": False, "attempt": 1})
+    (d / "harness-reasons.txt").write_text("")   # run.sh가 회차 시작에 빈 파일로 만든다
     wj(d / "k6-summary.json", {"setup_data": {"startedAt": T0 * 1000}})
     rtt = kw.get("rtt", 0.002)
     before = {"offset_s": OFF, "rtt_s": rtt}
@@ -144,6 +149,8 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
                 if rejected:
                     continue
                 skew = kw.get("skew", {}).get((pr, str(float(dd))), 0)
+                if kw.get("probe_d_override", (None, None))[:2] == (pr, i):   # 계획에 없는 δ로 기록(판정 입력 전수 점검)
+                    rows[-1] = rows[-1].replace(f"&d={dd if pr == 'pr3' else int(dd)}&", f"&d={kw['probe_d_override'][2]}&")
                 if kw.get("skip_judged") == (pr, i):
                     continue
                 odd = kw.get("judged_odd", {}).get((pr, i))   # 판정 요청 응답을 예상 밖 값으로(CR14-23) — {단계: 상태}
@@ -166,12 +173,14 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
         # 주 흐름 홀드·확정 기록(재구성 — 좌석 1..50 · 이탈 25 · 재선점)
         for k in range(50):
             ex = T0 + OFF + 5 + k + ttl
-            rows.append(cnt("hold_ok", T0 + 5 + k, "blind", f"seat={k + 1}&exp={iso(ex).replace('+00:00', 'Z')}&u={1000000 + k}&kind=first&fate={'abandon' if k % 2 else 'confirm'}"))
+            exs = "garbage" if kw.get("hold_exp_bad") == k else iso(ex).replace('+00:00', 'Z')
+            rows.append(cnt("hold_ok", T0 + 5 + k, "blind", f"seat={k + 1}&exp={exs}&u={1000000 + k}&kind=first&fate={'abandon' if k % 2 else 'confirm'}"))
             if k % 2:
                 ex2 = ex + 3 + ttl
                 rows.append(cnt("hold_ok", ex + 3 - OFF, "blind", f"seat={k + 1}&exp={iso(ex2).replace('+00:00', 'Z')}&u={2000000 + k}&kind=first&fate=confirm"))
             else:
-                rows.append(cnt("confirm_rec", T0 + 10 + k, "blind", f"seat={k + 1}&exp={iso(ex).replace('+00:00', 'Z')}&st=200&code=OK&sent={int((T0 + 10 + k) * 1000)}&rt=5"))
+                rt = "" if kw.get("confirm_rt_drop") == k else "&rt=5"
+                rows.append(cnt("confirm_rec", T0 + 10 + k, "blind", f"seat={k + 1}&exp={iso(ex).replace('+00:00', 'Z')}&st=200&code=OK&sent={int((T0 + 10 + k) * 1000)}{rt}"))
     rej_rule = hold409 + probe409
     if kw.get("rej_rows", True):
         rows.append(cnt("rej", T0 + 100, "blind", "cause=rule", rej_rule))
@@ -371,6 +380,8 @@ def run(tmp):
     campaign_round2(tmp)
     campaign_round3(tmp)
     early_check_rules(tmp)
+    generative(tmp)
+    generative_campaign(tmp)
 
 
 # ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
@@ -474,7 +485,7 @@ def fake(m, c, r, **o):
          "flow": {"rehold_other": o.get("rehold", 5), "rehold_other_narrow": 2, "abandoned": 10, "revisit": {"n201": 1}},
          "app": {"kept_active": o.get("kept", {}).get(m, 3)}},
          "violations": {"integrity": dict(o.get("integ", {}).get((m, c), {})), "state": [{"row": x, "why": "selftest"} for x in o.get("state", {}).get((m, c), [])],
-                        "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": [], "p4_judge409": 0,
+                        "p12": dict(o.get("p12", {}).get((m, c), {})), "p12_unknown": [], "p12_checked": sorted(set(S.P12_FIXED) - set(o.get("p12_unchecked", {}).get((m, c), ()))), "p4_judge409": 0,
                         "p9_early_not200": o.get("p9", {}).get((m, c), 0), "p6": {"violated": m in o.get("p6v", "")} if m == "D" else None}}
     if o.get("none_t95") == (m, c, r):
         s["metrics"]["state"]["T95"] = None
@@ -623,6 +634,207 @@ def campaign_round3(tmp):
           r["decision"]["verdict"])
 
 
+# ---- 판정 입력 전수 점검 — 생성형 결측 주입(k6/ADR-014/README.md '판정 입력 출처 표'를 돌며) ------------------------------------------------
+# (파일, 점 경로 | None = 파일 삭제, 기대 사유) — 값을 지우는 것(del)과 숫자 아닌 값으로 바꾸는 것(bad) 둘 다 돌린다. 기대 사유가 status에 있어야 한다(무효 — 무음 0 금지)
+REP_INPUTS = [
+    ("plan.json", "method", "plan-missing"), ("plan.json", "kind", "plan-missing"), ("plan.json", "mode", ("plan-missing", "expiry-mode-mismatch")), ("plan.json", "rep", "plan-missing"),
+    ("plan.json", "ttl_s", "plan-missing"), ("plan.json", "window.from_s", "plan-missing"), ("plan.json", "window.len_s", "plan-missing"),
+    ("meta.json", None, "meta-missing"), ("harness-reasons.txt", None, "harness-reasons-missing"),
+    ("k6-summary.json", "setup_data.startedAt", "k6-summary-missing"), ("k6-window.json", "exit", "k6-window-missing"),
+    ("clock-offset.json", "before.offset_s", "clock-offset-bad"), ("clock-offset.json", "after.rtt_s", "clock-offset-bad"),
+    ("pre-k6.json", "seed_done_epoch", "pre-k6-mismatch"), ("app-config.json", "configprops", "cond-config-missing"),
+    ("warmup-status.json", "rc", "warmup-failed"),
+    *[("limit-key.json", k, "limit-key-missing") for k in ("env", "cmd", "drift", "drift_cmd")], ("limit-key.json", "present", "limit-key-present"),
+    *[("seed-check.json", k, "seed-mismatch") for k in ("schedules", "want_schedules", "seats", "want_seats", "available", "holds", "reservations", "quota_rows")],
+    ("seed-check.json", "seat_map_index", "seat-map-index-missing"), ("seed-check.json", "flyway_v11", "seat-map-index-missing"),
+    ("probe-check.json", "ok", "probe-missing"), ("logs-status.txt", None, "container-log-missing"), ("gc.log.gz", None, "gc-log-missing"),
+    ("k6-requests.csv.gz", None, "k6-csv-missing"), ("timeline-server.jsonl", None, "db-cpu-missing"), ("timeline-seatstate.jsonl", None, "state-sampler-gap"),
+    ("timeline-waits.jsonl", None, "waits-gap"),
+    *[("consistency.json", k, "end-check-failed") for k in S.CONS_COLS], ("consistency.json", "expiry_mode", "expiry-mode-mismatch"),
+    ("drift-db.json", "drift_log_total", "drift-db-failed"),
+    *[(f"drift-{f}.json", k, "drift-snap-failed") for f in ("before", "after-k6", "end") for k in ("tick", "drift_record_failed", "cleanup.errors")],
+    *[(f"act14-{f}.json", k, "app-metric-missing") for f in ("before", "window-end", "after-k6", "end") for k in ("rejected.rule", "tick.ok")],
+    ("act14-window-end.json", "t", "app-metric-missing"),
+    *[(f"table-{f}.json", "tables.product_seat.n_tup_upd", "table-stats-missing") for f in ("before", "after", "end")],
+]
+# P12 · P5 입력 — 회차는 유효로 두되 그 항목이 '판정 불가'(p12_unknown · None)여야 한다
+P12_INPUTS = [("act14-window-end.json", "tick.failed", "tick_failed"), ("act14-window-end.json", "missing_mismatch", "missing_mismatch"),
+              ("act14-before.json", "tick.failed", "tick_failed"), ("table-after.json", "deadlocks", "deadlock")]
+
+
+def _mutate(d, fname, path, how):
+    f = d / fname
+    if path is None:
+        f.unlink()
+        return
+    x = json.loads(f.read_text())
+    cur, parts = x, (list(path) if isinstance(path, tuple) else path.split("."))   # 튜플 = 점이 든 키(revert의 'reclaim.kept_active')
+    for p_ in parts[:-1]:
+        cur = cur[p_]
+    if how == "del":
+        del cur[parts[-1]]
+    else:
+        cur[parts[-1]] = "x"
+    f.write_text(json.dumps(x))
+
+
+def generative(tmp):
+    base = make_rep(tmp / "gen-base")
+    s0 = rep(base)
+    check("생성형: 바탕 회차 ok", s0["status"] == "ok", s0["status"])
+    n_bad = 0
+    for fname, path, want in REP_INPUTS:
+        for how in (("del",) if path is None else ("del", "bad")):
+            d = tmp / "gen" / f"{fname}-{path}-{how}".replace("/", "_")
+            shutil.copytree(base, d)
+            _mutate(d, fname, path, how)
+            s = rep(d)
+            ok = any(w in s["reasons"] for w in ((want,) if isinstance(want, str) else want)) and s["status"] != "ok"
+            n_bad += not ok
+            if not ok:
+                check(f"생성형: {fname} {path or '파일'} {how} → {want}", False, s["status"])
+    check(f"생성형: 판정 입력 {sum(1 if p is None else 2 for _, p, _ in REP_INPUTS)}건 결측·숫자 아님 주입 → 모두 무효(기대 사유)", n_bad == 0, f"어긋남 {n_bad}")
+    for fname, path, key in P12_INPUTS:
+        d = tmp / "gen" / f"p12-{fname}-{path}"
+        shutil.copytree(base, d)
+        _mutate(d, fname, path, "del")
+        s = rep(d)
+        check(f"생성형: {fname} {path} 없음 → P12 {key} 판정 불가(p12_unknown — 0으로 보지 않음)", key in s["violations"]["p12_unknown"], json.dumps(s["violations"]))
+    for f in ("act14-before.json", "act14-end.json"):
+        d = tmp / "gen" / f"p5-{f}"
+        shutil.copytree(base, d)
+        _mutate(d, f, ("revert", "reclaim.kept_active"), "del")
+        s = rep(d)
+        check(f"생성형: {f} revert.reclaim.kept_active 없음 → P5 되돌림 기회 None(`or 0` 아님)", s["metrics"]["app"]["kept_active"] is None, json.dumps(s["metrics"]["app"]))
+    # jsonl 가운데 깨진 줄 → 무효(버리고 넘어가지 않는다) · 찢긴 마지막 줄 하나는 괜찮다
+    for fname, want in (("timeline-seatstate.jsonl", "state-sampler-gap"), ("timeline-waits.jsonl", "waits-gap")):
+        d = tmp / "gen" / f"torn-{fname}"
+        shutil.copytree(base, d)
+        ls = (d / fname).read_text().splitlines()
+        (d / fname).write_text("\n".join(ls[:40] + ['{"t": "broken'] + ls[40:]) + "\n")
+        check(f"생성형: {fname} 가운데 깨진 줄 → {want}", want in rep(d)["reasons"])
+        d2 = tmp / "gen" / f"tail-{fname}"
+        shutil.copytree(base, d2)
+        (d2 / fname).write_text("\n".join(ls + ['{"t": "torn']) + "\n")
+        check(f"생성형: {fname} 찢긴 마지막 줄 하나 → 무효 아님", rep(d2)["status"] == "ok", rep(d2)["status"])
+    d = tmp / "gen" / "state-col"
+    shutil.copytree(base, d)
+    ls = (d / "timeline-seatstate.jsonl").read_text().splitlines()
+    x = json.loads(ls[60]); del x["multi_active"]; ls[60] = json.dumps(x)
+    (d / "timeline-seatstate.jsonl").write_text("\n".join(ls) + "\n")
+    check("생성형: 상태 표본 한 줄의 multi_active 없음 → state-sampler-gap(그 초의 위반을 버리지 않는다)", "state-sampler-gap" in rep(d)["reasons"])
+    d = tmp / "gen" / "srv-cpu"
+    shutil.copytree(base, d)
+    ls = (d / "timeline-server.jsonl").read_text().splitlines()
+    i = next(i for i, l in enumerate(ls) if "seatlab-db-1" in l)
+    ls[i] = json.dumps({"Name": "seatlab-db-1", "CPUPerc": "--", "MemUsage": "1GiB / 14GiB"})
+    (d / "timeline-server.jsonl").write_text("\n".join(ls) + "\n")
+    check("생성형: docker stats DB 줄 CPU 못 읽음 → db-cpu-missing(버리고 평균 내지 않는다)", "db-cpu-missing" in rep(d)["reasons"])
+    # drift_log 행의 시각·action을 못 읽음 → drift-db-failed(무음 제외 금지)
+    for name, row in (("at", {"at": "??", "action": "repaired"}), ("action", {"at": iso(T0 + 50), "action": "weird"})):
+        d = tmp / "gen" / f"dlog-{name}"
+        shutil.copytree(base, d)
+        x = json.loads((d / "drift-db.json").read_text())
+        x["drift_log"], x["drift_log_total"] = [row], 1
+        (d / "drift-db.json").write_text(json.dumps(x))
+        check(f"생성형: drift_log 행 {name} 못 읽음 → drift-db-failed", "drift-db-failed" in rep(d)["reasons"])
+    # CSV 기록 행 깨짐 — 탐침 · 주 흐름
+    for name, kw, want in (("탐침 δ 계획 밖", {"probe_d_override": ("pr1", 2, "9")}, "probe-incomplete"),
+                           ("hold_ok exp 깨짐", {"hold_exp_bad": 3}, "k6-csv-missing"),
+                           ("confirm_rec rt 없음", {"confirm_rt_drop": 4}, "k6-csv-missing")):
+        s = rep(make_rep(tmp / "gen" / f"csv-{name.replace(' ', '-')}", **kw))
+        check(f"생성형: CSV {name} → {want}", want in s["reasons"], s["status"])
+    # Hikari 깨짐 → 정지 덩어리는 env로 가르지 않는다(방식)
+    d = make_rep(tmp / "gen" / "hik-broken", stall=(100, 8))
+    ls = (d / "timeline-hikari.jsonl").read_text().splitlines()
+    (d / "timeline-hikari.jsonl").write_text("\n".join(ls[:5] + ["{broken"] + ls[5:]) + "\n")
+    s = rep(d)
+    check("생성형: Hikari 깨진 줄 → env-stall이 아니라 방식 정지(유효 · P12)", s["status"] == "ok" and (s["violations"]["p12"].get("method_stall_secs") or 0) >= 8, s["status"])
+    # 대기 표본 by_src 없음 → env로 가르지 않는다
+    d = make_rep(tmp / "gen" / "waits-bysrc", stall=(100, 8))
+    ls = [json.loads(l) for l in (d / "timeline-waits.jsonl").read_text().splitlines()]
+    for w in ls:
+        if S.ts(w["t"]) - OFF - T0 >= 100 and S.ts(w["t"]) - OFF - T0 < 108:
+            w.pop("by_src")
+    (d / "timeline-waits.jsonl").write_text("\n".join(json.dumps(w) for w in ls) + "\n")
+    s = rep(d)
+    check("생성형: 정지 구간 대기 표본 by_src 없음 → env-stall 아님(방식 정지)", "env-stall" not in s["reasons"] and (s["violations"]["p12"].get("method_stall_secs") or 0) >= 8, s["status"])
+
+
+def generative_campaign(tmp):
+    """캠페인 판정 입력: 유효 회차 요약의 판정 열 하나를 빼면 그 회차는 유효로 세지 않는다 · 지표 None은 판정 불가로 올라간다."""
+    paths = ["metrics.rep", "violations.integrity", "violations.state", "violations.p12", "violations.p12_unknown", "violations.p12_checked",
+             "metrics.state.T95", "metrics.probe.m3.den", "metrics.probe.m3.batch", "metrics.probe.pr3", "metrics.flow",
+             "violations.p4_judge409", "violations.p9_early_not200"]
+    for i, path in enumerate(paths):
+        root = tmp / f"gc-{i}"
+        write_campaign(root, t95={"A": 140})
+        f = root / "a20-t30" / "B" / "rep2" / "rep-summary.json"
+        x = json.loads(f.read_text())
+        cur, parts = x, path.split(".")
+        for p_ in parts[:-1]:
+            cur = cur[p_]
+        del cur[parts[-1]]
+        f.write_text(json.dumps(x))
+        r = verdict(root)
+        check(f"생성형 캠페인: B 회차 요약 {path} 없음 → 유효로 세지 않음 · B 판정 불가",
+              r["success"]["B"]["verdict"] == "판정 불가" and r["summary_broken"] and r["valid_n"]["B:a20-t30"] == 2, json.dumps(r["success"]["B"], ensure_ascii=False)[:300])
+    root = tmp / "gc-p6"
+    write_campaign(root, t95={"A": 140})
+    f = root / "a20-t30" / "D" / "rep1" / "rep-summary.json"
+    x = json.loads(f.read_text()); del x["violations"]["p6"]; f.write_text(json.dumps(x))
+    check("생성형 캠페인: D 회차 요약 p6 열 없음 → D 판정 불가", verdict(root)["success"]["D"]["verdict"] == "판정 불가")
+    for k in S.P12_FIXED:
+        c = S.COST_CELL if k == "mem_growth_ge_10pct" else "a20-t30"
+        r = verdict((write_campaign(tmp / f"gc-p12-{k}", t95={"A": 140}, p12_unchecked={("B", c): {k}}) or tmp / f"gc-p12-{k}"))
+        check(f"생성형 캠페인: B {c} P12 {k} 계산 기록 없음 → B 판정 불가(키 없음 = 0 아님)",
+              r["success"]["B"]["verdict"] == "판정 불가" and any(f"p12:{k}" in u for u in r["success"]["B"]["undecidable"]), json.dumps(r["success"]["B"], ensure_ascii=False)[:300])
+    # 비용 지표(3단 · G3) 각각 None → 결론 '판정 불가'(3단 ⓓ 또는 G3 ⓒ) — 0 · '≫ 아님'으로 넘어가지 않는다
+    for k, f in (("cost_hold_p99", ("p99", "cost_hold", S.COST_CELL)), ("cost_db_cpu", ("db_cpu", "mean", S.COST_CELL)),
+                 ("a50t300_hold201_p99", ("p99", "hold_201", S.COST_JUDGE_CELL)), ("a50t300_confirm_p99", ("p99", "confirm_200", S.COST_JUDGE_CELL)),
+                 ("a50t300_seatmap_p99", ("p99", "seatmap_200", S.COST_JUDGE_CELL)), ("a50t300_db_cpu", ("db_cpu", "mean", S.COST_JUDGE_CELL))):
+        root = tmp / f"gc-cost-{k}"
+        write_campaign(root, t95={"A": 140})
+        fp = root / f[2] / "B" / "rep3" / "rep-summary.json"
+        x = json.loads(fp.read_text()); x["metrics"][f[0]][f[1]] = None; fp.write_text(json.dumps(x))
+        r = verdict(root)
+        check(f"생성형 캠페인: B 비용 지표 {k} None → 결론 판정 불가(ⓒ·ⓓ)", r["decision"]["verdict"].startswith("판정 불가") and r["decision"]["new_default"] is None,
+              r["decision"]["verdict"][:200])
+    # 2단 지표 None — 같은 꼴
+    root = tmp / "gc-m3b"
+    write_campaign(root, t95={"A": 140})
+    for c in S.TTL_GROUPS["t30"]:
+        fp = root / c / "B" / "rep1" / "rep-summary.json"
+        x = json.loads(fp.read_text()); x["metrics"]["probe"]["m3"]["den"] = 0; fp.write_text(json.dumps(x))
+    r = verdict(root)
+    check("생성형 캠페인: B M3ᵦ 분모 0(범위 None) → 2단 판정 불가 · 결론 판정 불가(ⓓ)",
+          r["stages"][1]["undecidable"] and r["decision"]["verdict"].startswith("판정 불가"), json.dumps(r["stages"][1], ensure_ascii=False) + r["decision"]["verdict"][:200])
+    # 표본 비용 분리 여부 모름(c_pct None) — a50-t300 DB CPU가 결과를 가르면 판정 불가 · 가르지 않으면 영향 없음
+    root = tmp / "gc-sep"
+    write_campaign(root, t95={"A": 140}, cpu={"D": 200})
+    fp = root / S.COST_JUDGE_CELL / "C" / "rep1" / "rep-summary.json"
+    x = json.loads(fp.read_text()); x["metrics"]["state"]["c_pct"] = None; fp.write_text(json.dumps(x))
+    r = verdict(root)
+    check("생성형 캠페인: 표본 비용 분리 판정 불가 · D의 a50-t300 DB CPU ≫ A → G3 걸림이 아니라 판정 불가",
+          r["sample_cost"]["undecidable"] and "a50t300_db_cpu" not in r["gates"]["D"]["G3"]["hits"]
+          and any("분리 판정 불가" in u for u in r["gates"]["D"]["G3"]["undecidable"]), json.dumps(r["gates"]["D"]["G3"], ensure_ascii=False))
+    # P7 재선점 기회 값 없음 · P3 탐침 값 없음
+    root = tmp / "gc-p7"
+    write_campaign(root, t95={"A": 140})
+    fp = root / "a50-t30" / "C" / "rep2" / "rep-summary.json"
+    x = json.loads(fp.read_text()); x["metrics"]["flow"]["rehold_other"] = None; fp.write_text(json.dumps(x))
+    r = verdict(root)
+    check("생성형 캠페인: C 재선점 기회 값 None → P7 판정 불가(0으로 더하지 않음)", r["success"]["C"]["verdict"] == "판정 불가"
+          and any("P7: 재선점 기회" in u for u in r["success"]["C"]["undecidable"]), json.dumps(r["success"]["C"], ensure_ascii=False)[:300])
+    root = tmp / "gc-p3"
+    write_campaign(root, t95={"A": 100})   # T95 같음 → G2는 (b)뿐
+    fp = root / "a20-t30" / "A" / "rep2" / "rep-summary.json"
+    x = json.loads(fp.read_text()); x["metrics"]["probe"]["m3"]["unfair_d13"] = None; fp.write_text(json.dumps(x))
+    r = verdict(root)
+    check("생성형 캠페인: A 부당 실패 값 None(유효 회차 요약 깨짐) → 유효로 세지 않음 → G4 실패(A 유지 ④ — 판정 불가)",
+          not r["A"]["G4"] and "④" in r["decision"]["verdict"], r["decision"]["verdict"])
+
+
 def early_check_rules(tmp):
     """--early-check(측정-9 '캠페인 멈춤'): 회차 1 TTL 30초 두 묶음 A의 W = 0 또는 PR-1 δ ∈ {1, 3} 부당 실패 0 → exit 1."""
     def run_e(name, w=50.0, n409=3, status="ok"):
@@ -637,6 +849,7 @@ def early_check_rules(tmp):
     check("CR14-15 --early-check A W = 0 → 1(캠페인 멈춤)", run_e("w0", w=0.0) == 1)
     check("CR14-15 --early-check A PR-1 δ1·δ3 부당 실패 0 → 1", run_e("u0", n409=0) == 1)
     check("CR14-15 --early-check 회차가 유효 아님 → 판정하지 않는다(0)", run_e("inv", w=0.0, status="invalid:gc-log-missing") == 0)
+    check("전수 점검 --early-check 유효인데 W 없음 → 1(통과로 넘기지 않는다)", run_e("wnone", w=None) == 1)
 
 
 # ---- campaign.sh 루프(서버 없음) ------------------------------------------------------------------------------------------------
