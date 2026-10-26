@@ -68,10 +68,12 @@ INPUT_REASON = {
     "consistency": "end-check-failed", "app_config": "cond-config-missing", "seed_check": "seed-mismatch", "gc": "gc-log-missing",
     "probe_check": "probe-missing", "waits": "waits-gap", "hikari": "hikari-missing", "limit_key": "limit-key-missing", "pre_k6": "pre-k6-mismatch",
     "logs": "container-log-missing", "probe_server": "probe-missing",
+    "act_wend": "app-metric-missing",   # 판정 창 끝 앱 지표 스냅숏(P12 창 안 증분 — 코드 리뷰 CR14-13)
 }
 # 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
 CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
              "held_no_active", "active_not_held", "expired_hold_rows", "v_held_without_hold", "confirmed")
+WEND_LAG_MAX_S = 10.0          # 창 끝 스냅숏 시작이 창 끝 뒤 이 안이어야 한다(run.sh WEND_LAG_S = 3초 뒤에 찍는다 — 코드 리뷰 CR14-13)
 
 
 def load(p):
@@ -728,10 +730,23 @@ def rep_summary(d):
         reasons.add("drift-record-failed")
     if dsn["before"] and dsn["end"] and (_d(dsn["before"], dsn["end"], "cleanup", "errors") or 0) > 0:
         reasons.add("cleanup-errors")
-    act = {k: inp.json(f"act_{k}", f"act14-{f}.json", need=("rejected.rule", "tick.ok")) for k, f in (("before", "before"), ("after", "after-k6"), ("end", "end"))}
+    act = {k: inp.json(f"act_{k}", f"act14-{f}.json", need=("rejected.rule", "tick.ok"))
+           for k, f in (("before", "before"), ("wend", "window-end"), ("after", "after-k6"), ("end", "end"))}
     for k, a in act.items():
         if a and a.get("failed"):
             inp.miss(f"act_{k}", f"지표 조회 실패 {a['failed']}")
+            act[k] = None
+    # 판정 창 끝 스냅숏(코드 리뷰 CR14-13): 시작 시각이 창 끝 뒤 [0, WEND_LAG_MAX_S]초여야 창 안 증분이다(이르면 창 끝 앞을 놓치고 · 너무 늦으면 창 밖이 섞인다)
+    if act["wend"] is not None and w1 is not None:
+        try:
+            lag = ts(act["wend"]["t"]) - w1
+        except (KeyError, TypeError, ValueError):
+            lag = None
+        M["wend_lag_s"] = lag
+        M["wend_lag_end_s"] = _safe_ts(act["wend"].get("t_end")) - w1 if act["wend"].get("t_end") else None   # 기록(조회 끝 — 재시도로 늘어난 창 밖 몫)
+        if lag is None or not 0 <= lag <= WEND_LAG_MAX_S:
+            inp.miss("act_wend", f"창 끝 스냅숏 시각이 창 끝 뒤 [0, {WEND_LAG_MAX_S:g}]초 밖(지연 {lag})")
+            act["wend"] = None
     hik = jsonl(d / "timeline-hikari.jsonl")
     for h in hik or []:
         h["_t"] = h["t_ms"] / 1000 if num(h.get("t_ms")) else ts(h["t"])
@@ -811,8 +826,13 @@ def rep_summary(d):
                     "chunk_failed": _d(A0, A2, "chunk", "failed"), "missing_mismatch": _d(A0, A2, "missing_mismatch"),
                     "tick_failed": _d(A0, A2, "tick", "failed"), "tick_ok": _d(A0, A2, "tick", "ok")}
         if act["after"]:
-            M["app"]["tick_failed_k6"] = _d(A0, act["after"], "tick", "failed")
+            M["app"]["tick_failed_k6"] = _d(A0, act["after"], "tick", "failed")             # 기록(k6 직전 → 직후 — 창보다 넓다)
             M["app"]["missing_mismatch_k6"] = _d(A0, act["after"], "missing_mismatch")
+        if act["wend"]:
+            # P12 = 판정 창 안 증분(k6 직전 → 창 끝 스냅숏 — 코드 리뷰 CR14-13 · 측정-5 M11 MR-9) · 창 밖(창 끝 → 회차 끝)은 기록만
+            W_ = act["wend"]
+            M["app"].update(tick_failed_win=_d(A0, W_, "tick", "failed"), missing_mismatch_win=_d(A0, W_, "missing_mismatch"),
+                            tick_failed_outside=_d(W_, A2, "tick", "failed"), missing_mismatch_outside=_d(W_, A2, "missing_mismatch"))
     tb, ta, te = (inp.json(f"table_{k}", f"table-{k}.json", need=("tables.product_seat.n_tup_upd",)) for k in ("before", "after", "end"))
     if kind == "cost":
         inp.missing.pop("table_end", None)
@@ -907,8 +927,8 @@ def rep_summary(d):
         for k, n in csvd["err"].items():
             p12[f"5xx_or_0:{k}"] = n
     p12["deadlock"] = M["deadlocks_window"] if M.get("deadlocks_window") is not None else M.get("deadlocks_k6")
-    p12["tick_failed"] = (M.get("app") or {}).get("tick_failed_k6")
-    p12["missing_mismatch"] = (M.get("app") or {}).get("missing_mismatch_k6")
+    p12["tick_failed"] = (M.get("app") or {}).get("tick_failed_win")              # 판정 창 안(코드 리뷰 CR14-13) — 창 끝 스냅숏이 없으면 None(P12 판정 불가)
+    p12["missing_mismatch"] = (M.get("app") or {}).get("missing_mismatch_win")
     p12["method_stall_secs"] = (M.get("stall") or {}).get("method_secs")
     if M.get("probe"):
         p12["probe_errors"] = M["probe"]["errors"] + M["probe"]["setup_errors"]

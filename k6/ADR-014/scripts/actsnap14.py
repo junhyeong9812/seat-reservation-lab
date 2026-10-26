@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """ADR-014 앱 지표 스냅숏 — 만료 방식의 측정 표면(측정-3.6 '새로(task 04 — 앱)' 행 · 측정-5 M3 · M4 · M10 · M11 · M13)을 actuator에서 읽어 한 줄 JSON으로 낸다
-(run.sh — k6 직전 · 직후 · 회차 끝. 차분은 요약기). 카운터 어긋남·틱·증분·안전망 묶음은 ADR-009 actsnap.py가 그대로 맡는다(같은 시점에 둘 다 찍는다).
+(run.sh — k6 직전 · 판정 창 끝 · 직후 · 회차 끝. 차분은 요약기). 카운터 어긋남·틱·증분·안전망 묶음은 ADR-009 actsnap.py가 그대로 맡는다(같은 시점에 둘 다 찍는다).
 
     scripts/actsnap14.py <base_url>
 
 값 규칙(ADR-009 actsnap.py와 같다): 지표 목록에 이름이 없으면 0(아직 기록 없음 — Micrometer는 처음 기록될 때 만든다) · 목록에는 있는데 태그 값이 없으면 0 ·
-조회 자체가 실패하면 null(미측정 — 0으로 채우지 않는다). 지표 이름의 출처(main-app 코드 상수):
+조회 자체가 실패하면 null(미측정 — 0으로 채우지 않는다). t = 조회 시작(PC UTC) · t_end = 조회 끝 — 요약기가 창 끝 스냅숏의 시각을 판정 창 끝과 견준다
+(코드 리뷰 CR14-13 — 조회가 재시도로 늦어진 만큼 창 밖이 섞이는지 기록). 지표 이름의 출처(main-app 코드 상수):
   seat.hold.rejected{cause}               ApiExceptionHandler.REJECTED_METRIC(rule | nowait — 측정 프로필 선점 409 원인 · 리뷰 MR-5)
   seat.hold.reclaim(타이머)                LazyHoldProcess.RECLAIM_METRIC(H3~H5 회수 구간)
   seat.hold.expiry.deleted{path}          LazyHoldProcess.DELETED_METRIC(reclaim | batch — 지운 홀드 행 수)
@@ -91,6 +92,7 @@ out = {
                         "skipped": count("seat.hold.counter.cleanup.expired_holds_skipped")},
     "names_present": sorted(n for n in NAMES if n.startswith(("seat.hold.rejected", "seat.hold.reclaim", X))),
 }
+out["t_end"] = datetime.now(timezone.utc).isoformat()
 if FAILED:
     out["failed"] = sorted(set(FAILED))
 print(json.dumps(out, ensure_ascii=False))
