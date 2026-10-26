@@ -1354,11 +1354,15 @@ def campaign(root):
         gates[m] = x
         if x["pass"] and winner is None:
             winner = m
-    blocked = env_exhausted or [m for m in result if result[m]["a_rule_only"]]
+    # 측정 전 재해석 CR14-18(ⓒ): G1·G2·G4를 넘었고 G3에 걸린 지표(X ≫ A)는 없는데 비용 범위를 낼 수 없어 G3가 판정 불가인 후보 — 'G3에서 걸렸다'(A 유지 ③)가 아니다
+    g3_undec = [m for m in ranked if gates[m]["G1"] and gates[m]["G2"]["pass"] and gates[m]["G4"]
+                and not gates[m]["G3"]["hits"] and gates[m]["G3"]["undecidable"]]
+    g3_ahead = [m for m in g3_undec if winner and ranked.index(m) < ranked.index(winner)]   # 관문 통과 후보보다 앞 순위 — 그 후보가 이겼을 수 있다
+    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"G3 판정 불가 {m}" for m in g3_ahead]
     if winner and blocked:
-        # 해석 메모: 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ)가 있으면, 그 자리·후보가 순위를 바꿀 수 있으므로 관문을 넘은 후보가 있어도
-        # 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — 기본값은 사용자 결정 전까지 그대로)
-        verdict = f"판정 불가 → 사용자 보고(측정-8 ⓐ·ⓑ — 잠정: {winner}({plan14.METHODS[winner]})가 관문 통과 · 막은 것 {blocked})"
+        # 해석 메모: 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ) · 앞 순위의 G3 판정 불가 후보(ⓒ)가 있으면, 그 자리·후보가 순위를 바꿀 수 있으므로
+        # 관문을 넘은 후보가 있어도 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — 기본값은 사용자 결정 전까지 그대로)
+        verdict = f"판정 불가 → 사용자 보고(측정-8 ⓐ·ⓑ·ⓒ — 잠정: {winner}({plan14.METHODS[winner]})가 관문 통과 · 막은 것 {blocked})"
         winner = None
     elif winner:
         verdict = f"기본값 교체 — expiry-mode = {plan14.METHODS[winner]}({winner})"
@@ -1370,6 +1374,9 @@ def campaign(root):
         verdict = "A 유지 ① — 성공한 후보가 없다"
     elif all(not gates[m]["G2"]["pass"] for m in ranked):
         verdict = "A 유지 ② — 성공한 후보가 모두 G2를 못 넘는다"
+    elif g3_undec:
+        verdict = (f"판정 불가 → 사용자 보고(측정-8 ⓒ — G2를 넘은 후보 {g3_undec}의 G3 비용 범위를 낼 수 없다 {[gates[m]['G3']['undecidable'] for m in g3_undec]} · "
+                   "A 유지 ③이 아니다 · 기본값은 사용자 결정 전까지 그대로)")
     else:
         verdict = "A 유지 ③ — G2를 넘은 후보가 모두 G3에서 걸린다"
     hyp = hypotheses(reps, T95, M3, COSTM, mget, p3_valid, a_w)
