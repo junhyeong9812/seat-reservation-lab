@@ -88,7 +88,7 @@ k6/ADR-014/results/<id>/
 | `cond-config-mismatch` · `expiry-mode-mismatch` · `ttl-mismatch` · `cond-config-missing` | `app-config.json` → `plan14.config_check`(카운터 = 업무 앱 기본값 · 방식 · TTL · 주기 10초 · Flyway 4위치 · 풀 10) · 판정기 `expiry_mode` |
 | `limit-key-present` · `limit-key-missing` | `limit-key.json`(ADR-009 limit_key_check — 매수·카운터 키 0) |
 | `seed-mismatch` · `seat-map-index-missing` | `seed-check.json`(회차·좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 0 · `idx_product_seat_schedule_id` · Flyway V11) |
-| `crn-mismatch` | `summarize.py --crn-check`(같은 (회차, 셀) 방식 사이 crn 합이 다수와 다름 → status에 더함 — campaign.sh가 끝 대조 전에 부른다) |
+| `crn-mismatch` | `summarize.py --crn-check`(같은 (회차, 셀) 방식 사이 crn 합이 다수와 다름 — 다수결은 유효 회차끼리 · 유효 1개 이하면 대조하지 않음(CR14-27) → status에 더함 — campaign.sh가 끝 대조 전에 부른다) |
 | `state-sampler-gap` | `timeline-seatstate.jsonl` → `state_metrics`(창 양끝 포함 간격 > 3초 · 수 < 창 초 × 0.95 · 파일 없음) |
 | `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초 · DB·앱 줄 CPU·메모리 못 읽음 · 깨진 '{' 줄 — 찢긴 마지막 줄 하나 제외 · CR14-28) — 비용 판정 전에 무효 |
 | `dropped-iterations` | CSV `dropped_iterations` 창 안(주 흐름 시나리오) |
@@ -165,7 +165,7 @@ k6/ADR-014/results/<id>/
 | 입력 | 읽는 함수·줄 | 결측·예상 밖 값일 때 | 근거 규칙 |
 |---|---|---|---|
 | 유효 회차 요약의 판정 열(rep · integrity · state · p12 · p12_unknown · p12_checked · 주 셀 T95 · M3 · PR-3 · flow · B·C·D의 P4·P9 · D의 P6) | `summary_gaps` 1304-1332 · 로드 1339-1351 | **고침** — 하나라도 빠지면 그 회차를 유효로 세지 않는다(→ 유효 < 3 → 판정 불가 · RESULT.md에 목록). 전: `.get(..) or {}`로 '없음 = 위반 없음' | 측정-7 '판정 불가면 성공 아님' |
-| crn 합(같은 회차·셀 방식 사이) | `crn_check` 1200-1240 | **고침** — 유효인데 crn이 없는 회차 → `crn-mismatch`(전: 대조에서 빠져 무음 통과) | 측정-3.5 · 측정-9 |
+| crn 합(같은 회차·셀 방식 사이) | `crn_check` 1200-1240 | **고침** — 유효인데 crn이 없는 회차 → `crn-mismatch`(전: 대조에서 빠져 무음 통과) · **고침(CR14-27)** — 다수결은 유효(status ok) 회차끼리만(무효 회차는 대조 밖 · status를 바꾸지 않는다 — 전: 무효 회차 해시도 표로 들어가 유효 회차가 '다수와 다름'이 될 수 있었다) · 유효 회차가 1개 이하면 대조하지 않는다(짝 방식의 그 회차가 무효면 그 셀의 방식 사이 비교가 이미 유효 < 3으로 판정 불가 · `crn-check.json` `compared` false) | 측정-3.5 · 측정-9 |
 | A의 W · PR-1 δ별 결과(조기 확인) | `early_check` 1243-1265 | **고침** — 유효인데 W·by_delta 없음 → exit 1(멈춤 · 전: W None은 무시 · by_delta 없음은 0) | 측정-9 '캠페인 멈춤' |
 | P12 항목(셀별 A도 같은 문턱) | `item_viol` 1406-1423 · 키 목록 1424-1425 | **고침** — 고정 항목이 checked에도 unknown에도 없으면 판정 불가 · 고정 항목은 늘 본다 · 비용 셀 probe_errors 제외 | 측정-7 · P12 |
 | P7 재선점 기회(넓은 값) | 1440-1450 | **고침** — 값 없는 회차가 있으면 판정 불가(전: `or 0`으로 합) | 측정-6 P7 · 재해석 CR14-19 |
