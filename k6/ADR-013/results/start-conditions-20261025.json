@@ -1,0 +1,29 @@
+{
+  "created": "2026-10-25",
+  "harness_sha": "0b870178",
+  "images": "k6/ADR-013/results/images-cc381926.json",
+  "calibration": {
+    "c_round_ratio": 0.9847203835496066,
+    "create_index_ratio": 0.9901822360860286,
+    "source": "k6/ADR-013/results/smoke-20261024-calib (summarize.py --calibration calibrate-seed/calibrate.json calibrate-load/calibrate.json · load 7,687,012쌍 · seed 7,690,000쌍 · in_range true)"
+  },
+  "ds13_smoke": {
+    "done": true,
+    "path_ga_txn_v9": "k6/ADR-013/results/smoke-20261024/S4c/p3/rep1 — 옛 앱 S4c 부하 중 새 앱 기동 Flyway V9 트랜잭션 안(0.811초) · 옛 앱 A1 cached_plan 0 · ERROR 줄 0 · 옛 구간 5xx 0 · status ok",
+    "path_na_online_v9": "k6/ADR-013/results/smoke-20261024/S4c/p4/rep1 — 같은 부하 중 운영 중 적용판(CLI · 단계 1~5 ok · CONCURRENTLY 1.23초) · 옛 앱 A1 cached_plan 0 · ERROR 줄 0 · 전환 구간 500 202건은 nginx worker_rlimit_nofile 하네스 결함(1bc8752e에서 고침 — V9 무관) · status ok",
+    "note": "DS-13은 120초 짧은 부하를 말했으나 전체 1,200초 스모크 회차가 두 경로를 덮었다 — 오류 0(P11 판정 자료)"
+  },
+  "impl_verify": {
+    "done": true,
+    "source": "docs/plans/2026-10-23/adr-013-limit-strategy-cutover/log.md 10-24 11:54 행(.164 첫 실서버 스모크 회수)",
+    "items": "Flyway OSS 11.7.2 skipExecutingMigrations 동작 · nginx -t 자리표시 통과 · reload 효력 0.25~0.38초 · 비움 지표(method POST) · 기동→UP 6~9.5초 · CONCURRENTLY 1.23초 · 트랜잭션 안 V9 0.8초 · N6b 0 · 옛 앱 GC Full 0·stall 0 · 2026-10-25 재스모크(0b870178): §5.8-3b max_fails=0 · lb 아티팩트 보낸 시각 창 확인"
+  },
+  "smoke_dirs": [
+    "k6/ADR-013/results/smoke-20261025/S4c/p1/rep1",
+    "k6/ADR-013/results/smoke-20261025/S4c/p2/rep1",
+    "k6/ADR-013/results/smoke-20261024/S4c/p4/rep1",
+    "k6/ADR-013/results/smoke-20261024/S4c/p3/rep1",
+    "k6/ADR-013/results/smoke-20261024/S3e/p2/rep1"
+  ],
+  "smoke_dirs_reason": "이미지는 다섯 회차 모두 캠페인과 같다(옛 93dd610a sha256:085ab83d · 새 cc381926 sha256:0579fe88). 하네스가 캠페인(0b870178)과 같은 것은 2026-10-25 ①②뿐 — 그 둘을 넣는다. 첫 스모크 ④(하네스 cc381926)는 적용판(pre-apply) 사건 실측과 CONCURRENTLY 실측의 유일한 출처라 ⑤ 9종 · ⑥ statement_timeout에 꼭 필요하다. ③(1bc8752e — Flyway 기동 안 V9 경로)·S3e ②(c6a91ebf — 유일한 S3e 부하)는 그 절차·부하의 유일한 사건 실측이라 넣는다(사건 길이 최대만 키운다 — 보수적). 뒤 하네스 변경(c6a91ebf 락 표본 · b3f59b75/880a6e9b max_fails=0·lb 아티팩트 집계)은 사건 길이를 재는 경로를 바꾸지 않는다. 첫 스모크 ①(c6a91ebf)은 같은 절차를 0b870178로 다시 잰 2026-10-25 ①이 대신한다. 3회차(새 ①② + 옛 ④) 집합도 경계 0 · stmt 600초로 같다."
+}

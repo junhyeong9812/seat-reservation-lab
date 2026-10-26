@@ -1,0 +1,632 @@
+{
+  "proc": 5,
+  "load": "S4c",
+  "timeline": {
+    "k6_s": 1200,
+    "T1": 300,
+    "T2": 600,
+    "converge_s": 180
+  },
+  "pre_apply_at": 90,
+  "load_conf": {
+    "k6_s": 1200,
+    "T1": 300,
+    "T2": 600,
+    "converge_s": 180,
+    "probe_schedule": 1000,
+    "k6_env": "START_RATE=4200 FACTOR=1 STEPS=38 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50",
+    "script": "s4-throughput.js",
+    "seed": {
+      "schedules": 1000,
+      "seats": 10000,
+      "sql_from": 501,
+      "sql_to": 999
+    },
+    "ttl": "60m",
+    "expiry": "10s",
+    "plan_rate": 4200,
+    "ramp_s": 60,
+    "ramp_from": 50
+  },
+  "setup": {
+    "name": "setup",
+    "at_s": null,
+    "actions": [
+      {
+        "op": "start",
+        "slot": "A",
+        "role": "old"
+      },
+      {
+        "op": "wait-health",
+        "slot": "A"
+      },
+      {
+        "op": "config-check",
+        "slot": "A"
+      },
+      {
+        "op": "lb-add",
+        "slot": "A"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "pre",
+      "at_s": 90,
+      "actions": [
+        {
+          "op": "pre-apply"
+        }
+      ]
+    },
+    {
+      "name": "T1",
+      "at_s": 300,
+      "actions": [
+        {
+          "op": "start",
+          "slot": "B",
+          "role": "shadow"
+        },
+        {
+          "op": "wait-health",
+          "slot": "B"
+        },
+        {
+          "op": "config-check",
+          "slot": "B"
+        },
+        {
+          "op": "lb-add",
+          "slot": "B"
+        }
+      ]
+    },
+    {
+      "name": "T2",
+      "at_s": 600,
+      "actions": [
+        {
+          "op": "lb-remove",
+          "slot": "A"
+        },
+        {
+          "op": "drain",
+          "slot": "A"
+        },
+        {
+          "op": "collect",
+          "slot": "A"
+        },
+        {
+          "op": "stop",
+          "slot": "A"
+        },
+        {
+          "op": "start",
+          "slot": "A",
+          "role": "new"
+        },
+        {
+          "op": "wait-health",
+          "slot": "A"
+        },
+        {
+          "op": "config-check",
+          "slot": "A"
+        },
+        {
+          "op": "lb-add",
+          "slot": "A"
+        },
+        {
+          "op": "lb-remove",
+          "slot": "B"
+        },
+        {
+          "op": "drain",
+          "slot": "B"
+        },
+        {
+          "op": "collect",
+          "slot": "B"
+        },
+        {
+          "op": "stop",
+          "slot": "B"
+        }
+      ]
+    }
+  ],
+  "planned_events": [
+    {
+      "step": "setup",
+      "op": "start",
+      "slot": "A",
+      "role": "old"
+    },
+    {
+      "step": "setup",
+      "op": "wait-health",
+      "slot": "A"
+    },
+    {
+      "step": "setup",
+      "op": "config-check",
+      "slot": "A"
+    },
+    {
+      "step": "setup",
+      "op": "lb-add",
+      "slot": "A"
+    },
+    {
+      "step": "pre",
+      "op": "pre-apply",
+      "slot": null
+    },
+    {
+      "step": "T1",
+      "op": "start",
+      "slot": "B",
+      "role": "shadow"
+    },
+    {
+      "step": "T1",
+      "op": "wait-health",
+      "slot": "B"
+    },
+    {
+      "step": "T1",
+      "op": "config-check",
+      "slot": "B"
+    },
+    {
+      "step": "T1",
+      "op": "lb-add",
+      "slot": "B"
+    },
+    {
+      "step": "T2",
+      "op": "lb-remove",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "drain",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "collect",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "stop",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "start",
+      "slot": "A",
+      "role": "new"
+    },
+    {
+      "step": "T2",
+      "op": "wait-health",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "config-check",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "lb-add",
+      "slot": "A"
+    },
+    {
+      "step": "T2",
+      "op": "lb-remove",
+      "slot": "B"
+    },
+    {
+      "step": "T2",
+      "op": "drain",
+      "slot": "B"
+    },
+    {
+      "step": "T2",
+      "op": "collect",
+      "slot": "B"
+    },
+    {
+      "step": "T2",
+      "op": "stop",
+      "slot": "B"
+    }
+  ],
+  "end_state": {
+    "alive": [
+      "A"
+    ],
+    "lb": [
+      "A"
+    ],
+    "final_new": "A"
+  },
+  "probes": [
+    {
+      "id": 0,
+      "cell": "old",
+      "kind": "H",
+      "d": 75,
+      "at_s": 30,
+      "schedule_id": 1000,
+      "user_id": 90000000,
+      "seats": [
+        9990001,
+        9990002,
+        9990003
+      ]
+    },
+    {
+      "id": 1,
+      "cell": "old",
+      "kind": "L",
+      "d": 75,
+      "at_s": 36,
+      "schedule_id": 1000,
+      "user_id": 90000001,
+      "seats": [
+        9990004,
+        9990005,
+        9990006
+      ]
+    },
+    {
+      "id": 2,
+      "cell": "old",
+      "kind": "H",
+      "d": 30,
+      "at_s": 42,
+      "schedule_id": 1000,
+      "user_id": 90000002,
+      "seats": [
+        9990007,
+        9990008,
+        9990009
+      ]
+    },
+    {
+      "id": 3,
+      "cell": "old",
+      "kind": "L",
+      "d": 30,
+      "at_s": 48,
+      "schedule_id": 1000,
+      "user_id": 90000003,
+      "seats": [
+        9990010,
+        9990011,
+        9990012
+      ]
+    },
+    {
+      "id": 4,
+      "cell": "old",
+      "kind": "H",
+      "d": 5,
+      "at_s": 54,
+      "schedule_id": 1000,
+      "user_id": 90000004,
+      "seats": [
+        9990013,
+        9990014,
+        9990015
+      ]
+    },
+    {
+      "id": 5,
+      "cell": "old",
+      "kind": "L",
+      "d": 5,
+      "at_s": 60,
+      "schedule_id": 1000,
+      "user_id": 90000005,
+      "seats": [
+        9990016,
+        9990017,
+        9990018
+      ]
+    },
+    {
+      "id": 6,
+      "cell": "old",
+      "kind": "H",
+      "d": 1,
+      "at_s": 66,
+      "schedule_id": 1000,
+      "user_id": 90000006,
+      "seats": [
+        9990019,
+        9990020,
+        9990021
+      ]
+    },
+    {
+      "id": 7,
+      "cell": "old",
+      "kind": "L",
+      "d": 1,
+      "at_s": 72,
+      "schedule_id": 1000,
+      "user_id": 90000007,
+      "seats": [
+        9990022,
+        9990023,
+        9990024
+      ]
+    },
+    {
+      "id": 8,
+      "cell": "trans",
+      "kind": "H",
+      "d": 75,
+      "at_s": 360,
+      "schedule_id": 1000,
+      "user_id": 90000008,
+      "seats": [
+        9990025,
+        9990026,
+        9990027
+      ]
+    },
+    {
+      "id": 9,
+      "cell": "trans",
+      "kind": "L",
+      "d": 75,
+      "at_s": 366,
+      "schedule_id": 1000,
+      "user_id": 90000009,
+      "seats": [
+        9990028,
+        9990029,
+        9990030
+      ]
+    },
+    {
+      "id": 10,
+      "cell": "trans",
+      "kind": "H",
+      "d": 30,
+      "at_s": 372,
+      "schedule_id": 1000,
+      "user_id": 90000010,
+      "seats": [
+        9990031,
+        9990032,
+        9990033
+      ]
+    },
+    {
+      "id": 11,
+      "cell": "trans",
+      "kind": "L",
+      "d": 30,
+      "at_s": 378,
+      "schedule_id": 1000,
+      "user_id": 90000011,
+      "seats": [
+        9990034,
+        9990035,
+        9990036
+      ]
+    },
+    {
+      "id": 12,
+      "cell": "trans",
+      "kind": "H",
+      "d": 5,
+      "at_s": 384,
+      "schedule_id": 1000,
+      "user_id": 90000012,
+      "seats": [
+        9990037,
+        9990038,
+        9990039
+      ]
+    },
+    {
+      "id": 13,
+      "cell": "trans",
+      "kind": "L",
+      "d": 5,
+      "at_s": 390,
+      "schedule_id": 1000,
+      "user_id": 90000013,
+      "seats": [
+        9990040,
+        9990041,
+        9990042
+      ]
+    },
+    {
+      "id": 14,
+      "cell": "trans",
+      "kind": "H",
+      "d": 1,
+      "at_s": 396,
+      "schedule_id": 1000,
+      "user_id": 90000014,
+      "seats": [
+        9990043,
+        9990044,
+        9990045
+      ]
+    },
+    {
+      "id": 15,
+      "cell": "trans",
+      "kind": "L",
+      "d": 1,
+      "at_s": 402,
+      "schedule_id": 1000,
+      "user_id": 90000015,
+      "seats": [
+        9990046,
+        9990047,
+        9990048
+      ]
+    },
+    {
+      "id": 16,
+      "cell": "new",
+      "kind": "H",
+      "d": 75,
+      "at_s": 720,
+      "schedule_id": 1000,
+      "user_id": 90000016,
+      "seats": [
+        9990049,
+        9990050,
+        9990051
+      ]
+    },
+    {
+      "id": 17,
+      "cell": "new",
+      "kind": "L",
+      "d": 75,
+      "at_s": 726,
+      "schedule_id": 1000,
+      "user_id": 90000017,
+      "seats": [
+        9990052,
+        9990053,
+        9990054
+      ]
+    },
+    {
+      "id": 18,
+      "cell": "new",
+      "kind": "H",
+      "d": 30,
+      "at_s": 732,
+      "schedule_id": 1000,
+      "user_id": 90000018,
+      "seats": [
+        9990055,
+        9990056,
+        9990057
+      ]
+    },
+    {
+      "id": 19,
+      "cell": "new",
+      "kind": "L",
+      "d": 30,
+      "at_s": 738,
+      "schedule_id": 1000,
+      "user_id": 90000019,
+      "seats": [
+        9990058,
+        9990059,
+        9990060
+      ]
+    },
+    {
+      "id": 20,
+      "cell": "new",
+      "kind": "H",
+      "d": 5,
+      "at_s": 744,
+      "schedule_id": 1000,
+      "user_id": 90000020,
+      "seats": [
+        9990061,
+        9990062,
+        9990063
+      ]
+    },
+    {
+      "id": 21,
+      "cell": "new",
+      "kind": "L",
+      "d": 5,
+      "at_s": 750,
+      "schedule_id": 1000,
+      "user_id": 90000021,
+      "seats": [
+        9990064,
+        9990065,
+        9990066
+      ]
+    },
+    {
+      "id": 22,
+      "cell": "new",
+      "kind": "H",
+      "d": 1,
+      "at_s": 756,
+      "schedule_id": 1000,
+      "user_id": 90000022,
+      "seats": [
+        9990067,
+        9990068,
+        9990069
+      ]
+    },
+    {
+      "id": 23,
+      "cell": "new",
+      "kind": "L",
+      "d": 1,
+      "at_s": 762,
+      "schedule_id": 1000,
+      "user_id": 90000023,
+      "seats": [
+        9990070,
+        9990071,
+        9990072
+      ]
+    }
+  ],
+  "avail": {
+    "rate": 2,
+    "timeout_s": 5,
+    "vus": 20,
+    "seat_offset": 5000,
+    "schedule_id": 1000,
+    "seat_base": 9995000,
+    "user_base": 80000000
+  },
+  "fixed": {
+    "health_rep_start_s": 180,
+    "health_in_rep_s": 300,
+    "drain_s": 5,
+    "drain_extra_s": 5,
+    "drain_extra_max": 2,
+    "mlock_before_s": 10,
+    "mlock_after_s": 30,
+    "baseline_window": [
+      60,
+      90
+    ],
+    "d1_from": 90,
+    "p12_window": [
+      900,
+      1200
+    ]
+  },
+  "K": {
+    "K": 8,
+    "rollback_outage": 0,
+    "config_sets": 2
+  }
+}

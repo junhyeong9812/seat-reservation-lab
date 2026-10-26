@@ -1,0 +1,127 @@
+{
+  "tool": "ops/online-v9/apply.sh",
+  "result": "ok",
+  "start_pc": 1792938238.2031405,
+  "end_pc": 1792938248.445376,
+  "wall_s": 10.2422354221344,
+  "state0": {
+    "col": false,
+    "fn": false,
+    "trg": false,
+    "idx": false,
+    "idx_valid": null,
+    "hist_table": true,
+    "owner_ok": true,
+    "role": "seat",
+    "db_now": 1792938238.712074
+  },
+  "steps": {
+    "1": {
+      "attempts": [
+        {
+          "t0_db": 1792938240.220119,
+          "t1_db": 1792938240.221306,
+          "wait_s": 0.0011870861053466797,
+          "result": "OK",
+          "sqlstate": null,
+          "start_pc": 1792938239.6996002,
+          "end_pc": 1792938240.2310252
+        }
+      ],
+      "tries": 1,
+      "lock_timeouts": 0,
+      "start_pc": 1792938239.6956658,
+      "end_pc": 1792938240.3445466,
+      "wall_s": 0.6488807201385498
+    },
+    "2": {
+      "attempts": [
+        {
+          "t0_db": 1792938241.814058,
+          "t1_db": 1792938241.815761,
+          "wait_s": 0.001703023910522461,
+          "result": "OK",
+          "sqlstate": null,
+          "start_pc": 1792938241.2832103,
+          "end_pc": 1792938241.8265307
+        }
+      ],
+      "tries": 1,
+      "lock_timeouts": 0,
+      "start_pc": 1792938241.2772686,
+      "end_pc": 1792938241.9453592,
+      "wall_s": 0.6680905818939209
+    },
+    "3": {
+      "attempts": [
+        {
+          "t0_db": 1792938242.782747,
+          "t1_db": 1792938244.022874,
+          "build_s": 1.2401270866394043,
+          "result": "OK",
+          "sqlstate": null,
+          "valid": "true",
+          "start_pc": 1792938242.2594094,
+          "end_pc": 1792938244.0324697
+        }
+      ],
+      "tries": 1,
+      "drops": 0,
+      "drops_detail": [],
+      "start_pc": 1792938242.1863315,
+      "end_pc": 1792938244.637466,
+      "wall_s": 2.451134443283081
+    }
+  },
+  "m": {
+    "atthasmissing": true,
+    "attmissingval": "{\"2026-10-25 14:24:00.219673+00\"}"
+  },
+  "equivalence": {
+    "ok": true,
+    "diffs": [],
+    "volatile": {
+      "atthasmissing": true,
+      "attmissingval": "{\"2026-10-25 14:24:00.219673+00\"}",
+      "index_oid": "16692"
+    },
+    "ref_volatile": {
+      "atthasmissing": true,
+      "attmissingval": "{\"2026-10-25 14:21:16.522709+00\"}",
+      "index_oid": "16664"
+    },
+    "owner_ok": true
+  },
+  "record": {
+    "cli": {
+      "rc": 0,
+      "class": "ok",
+      "output_tail": "A more recent version of Flyway is available. Find out more about Flyway 13.11.1 at https://rd.gt/3rXiSlV\n\nFlyway OSS Edition 11.7.2 by Redgate\n\nSee release notes here: https://rd.gt/416ObMi\nDatabase: jdbc:postgresql://db:5432/seat?ApplicationName=seatlab-online-v9 (PostgreSQL 16.15)\nSuccessfully validated 7 migrations (execution time 00:00.033s)\nCurrent version of schema \"public\": 7\nSuccessfully applied 1 migration to schema \"public\", now at version v9 (execution time 00:00.000s)",
+      "start_pc": 1792938245.6159875,
+      "end_pc": 1792938247.6692047
+    },
+    "method": "cli",
+    "history": [
+      {
+        "installed_rank": 7,
+        "version": "9",
+        "description": "quota updated at trigger",
+        "type": "SQL",
+        "script": "V9__quota_updated_at_trigger.sql",
+        "checksum": -869732592,
+        "success": true
+      }
+    ],
+    "verify_ok": true
+  },
+  "fail_step": null,
+  "reason": null,
+  "knobs": {
+    "lock_timeout": "2s",
+    "retries": 30,
+    "stmt_timeout": "600s",
+    "index_retries": 2,
+    "record": "auto",
+    "locations": "filesystem:/db/migration,filesystem:/db/migration-updated-at-trigger"
+  }
+}

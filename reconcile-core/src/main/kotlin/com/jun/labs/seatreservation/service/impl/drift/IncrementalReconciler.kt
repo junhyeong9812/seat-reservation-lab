@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.service.impl.drift
 
+import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -321,6 +322,9 @@ class IncrementalReconciler(
         const val MEMORY_SIZE_METRIC = "$P.memory.size"
         const val MEMORY_OVERFLOW_METRIC = "$P.memory.overflow"
         const val MEMORY_REQUEUED_METRIC = "$P.memory.requeued"
+        /** ADR-013 §4.11 ④ — 찬 페이지 수(카운터) · 이어 읽기 한 번이 이어진 틱 수(끝날 때 분포) */
+        const val PAGE_FULL_METRIC = "$P.page_full"
+        const val CARRY_TICKS_METRIC = "$P.carry_ticks"
 
         /** 후보의 열린 회차(앱 Clock) — 파라미터: 회차 배열, now */
         private const val OPEN_SCHEDULES_SQL = "SELECT id FROM product_schedule WHERE id = ANY(?) AND starts_at > ?"
@@ -346,10 +350,14 @@ class IncrementalReconciler(
 }
 
 /**
- * ⓑⓒ `updated_at` 창(ADR-012 §4.2.3 · §4.2.13 #1). 시계는 모두 DB 시계 — 문장 두 개를 **이 순서로**(각각 자동 커밋 — 빌림 2):
- * ① `now()`·가장 오래된 다른 세션 `xact_start`(o)·숨은 세션 수(h) ② `updated_at >= L_k`.
- * 다음 하한 `L_{k+1} = max(min(t, o) − 1초, t − max-overlap − 1초)` · h > 0이면 `t − max-overlap − 1초`(보수 하한) · 첫 하한 = 기동 시 `now() − start-lookback`.
- * ② 가 실패하면 하한을 옮기지 않는다(다음 틱이 같은 창을 다시 읽는다 — 유실 없음).
+ * ⓑⓒ `updated_at` 창(ADR-012 §4.2.3 · §4.2.13 #1 · ADR-013 §4.11). 시계는 모두 DB 시계 — 문장 두 개를 **이 순서로**(각각 자동 커밋 — 빌림 2):
+ * ① `now()`·가장 오래된 다른 세션 `xact_start`(o)·숨은 세션 수(h) ② `updated_at >= L_k` — 키셋 페이지(행 수 상한 page-size · `(updated_at, schedule_id, user_id)` 순).
+ * 틱 k의 다음 하한 후보 `next_k = max(min(t, o) − 1초, t − max-overlap − 1초)` · h > 0이면 `t − max-overlap − 1초`(보수 하한) · 첫 하한 = 기동 시 `now() − start-lookback`.
+ * - 페이지가 덜 찼다(다 읽음): `L = max(min(pending, next_k), t₀ − max-overlap − 1초)` — t₀ = 이 이어 읽기를 시작한 틱의 문장 1 시각(이어 읽기가 없으면 t₀ = t · pending 없음 → `L = next_k` — ADR-012 규칙 그대로).
+ * - 페이지가 찼다(덜 읽음): L을 옮기지 않고 키셋 위치 p를 들고 다음 틱이 p 뒤부터 잇는다 · `pending = min(pending, next_k)`(ADR-013 §4.11 ② · N12).
+ * - ADR-013 §4.11 ①(N11): 기동 때 읽은 m(`pg_attribute.attmissingval` — V9 `ADD COLUMN … DEFAULT now()`가 기존 행에 준 값)이 있고 L ≤ m이면
+ *   문장 ②를 두 인덱스 범위(A `L ≤ updated_at < m` → B `updated_at > m`)로 나눠 값 m인 행(V9 앞 기존 행)을 읽지 않는다.
+ * ② 가 실패하면 L · p · pending을 옮기지 않는다(다음 틱이 같은 페이지를 다시 읽는다 — 유실 없음). p · pending은 메모리 — 재시작하면 새 첫 하한부터.
  */
 @Component
 class UpdatedAtCandidates(
@@ -359,9 +367,18 @@ class UpdatedAtCandidates(
 ) : CandidateSource {
     @Volatile private var lower: Instant? = null
     @Volatile private var hiddenGapAt: Long? = null
+    /** 기동 때 읽은 빠른 기본값 m(없으면 null — 제외 없음). 그 뒤 표가 다시 쓰여 카탈로그 값이 사라져도 행에는 m이 남으므로 기억한 값으로 계속 뺀다(§4.11 ① 읽는 때) */
+    @Volatile private var missingValue: Instant? = null
+    /** 이어 읽기 상태(§4.11 ② — 틱 스케줄러 한 스레드만 take를 부른다): 키셋 위치 p · 최솟값 pending · t₀ · 이어진 틱 수 · 겹침 상한 넘김 WARN 여부 */
+    @Volatile private var carry: Carry? = null
     /** 실패해 다시 볼 쌍(다음 틱 후보에 더한다 — 상한 memory-cap, 넘치면 버리고 WARN + 다음 틱에 `retry_overflow` 1행: 안전망 몫) */
     private val retry = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     private val gapBuffer = GapBuffer()
+
+    /** 키셋 위치 = 마지막으로 읽은 행의 정렬 키 */
+    private data class Key(val updatedAt: Timestamp, val scheduleId: Long, val userId: Long)
+
+    private class Carry(val p: Key, val pending: Instant, val t0: Instant, val ticks: Int, val warned: Boolean)
 
     override fun requeueGaps(gaps: List<GapEvent>): Int = gapBuffer.add(gaps)
 
@@ -388,9 +405,27 @@ class UpdatedAtCandidates(
     override fun start(): GapEvent {
         val now = jdbc.queryForObject("SELECT now()", Timestamp::class.java)!!.toInstant()
         val first = now.minus(properties.incremental.startLookback)
+        // §4.11 ① 출처 = 카탈로그의 빠른 기본값. 없으면(표 재작성 뒤 등) 제외 없이 ADR-012 문장 그대로 + WARN + restart 행 detail 'm 없음'
+        val (m, why) = try {
+            val rows = jdbc.query(MISSING_VALUE_SQL) { rs, _ -> rs.getTimestamp(1)?.toInstant() }
+            rows.firstOrNull() to null
+        } catch (e: Exception) {
+            null to e.toString()
+        }
+        missingValue = m
         lower = first
+        carry = null
+        val lookback = "first lower = now − start-lookback ${properties.incremental.startLookback}"
+        val detail = if (m != null) "$lookback · m $m" else "$lookback · m 없음"
+        if (m == null) {
+            log.warn(
+                "증분 기동 — user_hold_quota.updated_at의 빠른 기본값 m(pg_attribute.attmissingval)이 없다{} — 첫 창에서 V9 앞 기존 행을 빼지 않는다(첫 하한 {} · 후보는 page-size {} 로 나눠 읽는다) · " +
+                    "같은 updated_at 묶음이 크면 틱 비용이 page-size로 묶이지 않는다(인덱스 단일 열 — 키셋 (updated_at, schedule_id, user_id) 비교가 묶음 안을 훑고 정렬한다)",
+                why?.let { " (읽기 실패: $it)" } ?: "", first, properties.incremental.pageSize,
+            )
+        }
         // 보장 밖 구간 = 기동 전 마지막 틱 뒤(모름 — NULL) ~ 첫 하한
-        return GapEvent(GapEvent.RESTART, null, first, detail = "first lower = now − start-lookback ${properties.incremental.startLookback}")
+        return GapEvent(GapEvent.RESTART, null, first, detail = detail)
     }
 
     override fun take(pass: RepairPass, trackInject: Boolean): CandidateBatch {
@@ -400,9 +435,11 @@ class UpdatedAtCandidates(
         val o = (head["o"] as Timestamp?)?.toInstant()
         val h = (head["h"] as Number).toLong()
         val from = lower ?: t.minus(inc.startLookback)
-        val read = pass.borrow {
-            jdbc.query(CANDIDATES_SQL, { rs, _ -> rs.getLong(1) to rs.getLong(2) }, Timestamp.from(from))
-        }
+        val c = carry
+        val pageSize = inc.pageSize
+        // 실패하면 여기서 던진다 — L · p · pending을 옮기지 않는다
+        val rows = pass.borrow { readPage(from, missingValue, c?.p, pageSize) }
+        val read = rows.map { it.scheduleId to it.userId }
         val again = ArrayList<Pair<Long, Long>>()
         retry.toList().forEach { if (retry.remove(it)) again += it }
         val pairs = if (again.isEmpty()) read else read + again
@@ -427,10 +464,71 @@ class UpdatedAtCandidates(
                 gaps += GapEvent(GapEvent.HIDDEN_SESSIONS, next, t, pairs = 0, detail = "hidden sessions $h — conservative lower bound")
             }
         }
-        lower = next
+        val pending = c?.let { minOf(it.pending, next) } ?: next
+        val t0 = c?.t0 ?: t
+        val ticks = (c?.ticks ?: 0) + 1
+        if (rows.size >= pageSize) {
+            // 페이지가 찼다(덜 읽음) — 하한을 옮기지 않고 p 뒤부터 잇는다(§4.11 ②)
+            meters.counter(IncrementalReconciler.PAGE_FULL_METRIC).increment()
+            val overlong = Duration.between(t0, t) > inc.maxOverlap
+            if (overlong && c?.warned != true) {
+                log.warn("증분 이어 읽기가 max-overlap({})보다 오래 이어진다 — 시작 {} · {}틱째 · page-size {} — 다 읽은 뒤 하한은 t₀ − max-overlap 앞으로 가지 않는다", inc.maxOverlap, t0, ticks, pageSize)
+            }
+            carry = Carry(rows.last(), pending, t0, ticks, warned = (c?.warned == true) || overlong)
+        } else {
+            // 다 읽었다 — L = max(min(pending, next_k), t₀ − max-overlap − 1초)(재점검 NF-1)
+            val guard = t0.minus(inc.maxOverlap).minus(MARGIN)
+            if (pending.isBefore(guard)) {
+                // next_k마다 자기 t_k의 겹침 상한을 이미 지키므로(t_k ≥ t₀) 정상 경로에서는 오지 않는다 — 오면 무음으로 자르지 않는다
+                meters.counter(IncrementalReconciler.WINDOW_CLAMPED_METRIC).increment()
+                log.warn("증분 이어 읽기 끝 하한 {}이 겹침 상한 t₀ − max-overlap({})보다 앞 — 잘랐다(그 앞에 시작한 트랜잭션의 변경은 안전망 몫)", pending, guard)
+                gaps += GapEvent(GapEvent.WINDOW_CLAMPED, pending, guard, detail = "carry pending before t0 − max-overlap ${inc.maxOverlap.toMillis()}ms")
+            }
+            lower = maxOf(pending, guard)
+            if (c != null) DistributionSummary.builder(IncrementalReconciler.CARRY_TICKS_METRIC).register(meters).record(ticks.toDouble())
+            carry = null
+        }
         // 앞 틱이 쓰지 못한 보장 밖 기록이 먼저(rv43)
         return CandidateBatch(pairs, t, gapBuffer.drain() + gaps)
     }
+
+    /**
+     * 문장 ② 한 페이지(빌림 1 — 두 범위여도 같은 커넥션). [after] 뒤부터 `(updated_at, schedule_id, user_id)` 순으로 최대 [limit]행.
+     * m이 있고 L ≤ m이면 범위 A(`L ≤ updated_at < m`)를 먼저 읽고 모자란 몫만큼 범위 B(`updated_at > m`)를 잇는다 — `updated_at <> m` 걸러내기는 m 묶음을 다 훑어 쓰지 않는다.
+     */
+    private fun readPage(from: Instant, m: Instant?, after: Key?, limit: Int): List<Key> = jdbc.execute(ConnectionCallback { con ->
+        val out = ArrayList<Key>()
+        fun range(lowerSql: String, lowerArg: Timestamp, upperSql: String, upperArg: Timestamp?, key: Key?) {
+            val sql = buildString {
+                append("SELECT updated_at, schedule_id, user_id FROM user_hold_quota WHERE ").append(lowerSql)
+                if (upperArg != null) append(" AND ").append(upperSql)
+                if (key != null) append(" AND (updated_at, schedule_id, user_id) > (?, ?, ?)")
+                append(" ORDER BY updated_at, schedule_id, user_id LIMIT ?")
+            }
+            con.prepareStatement(sql).use { ps ->
+                var i = 0
+                ps.setTimestamp(++i, lowerArg)
+                if (upperArg != null) ps.setTimestamp(++i, upperArg)
+                if (key != null) {
+                    ps.setTimestamp(++i, key.updatedAt)
+                    ps.setLong(++i, key.scheduleId)
+                    ps.setLong(++i, key.userId)
+                }
+                ps.setInt(++i, limit - out.size)
+                ps.executeQuery().use { rs -> while (rs.next()) out += Key(rs.getTimestamp(1), rs.getLong(2), rs.getLong(3)) }
+            }
+        }
+        val fromTs = Timestamp.from(from)
+        if (m == null || from.isAfter(m)) {
+            range("updated_at >= ?", fromTs, "", null, after)
+        } else {
+            val mTs = Timestamp.from(m)
+            // 키셋 위치가 이미 B(> m)에 있으면 A는 다 읽었다
+            if (after == null || after.updatedAt.toInstant().isBefore(m)) range("updated_at >= ?", fromTs, "updated_at < ?", mTs, after)
+            if (out.size < limit) range("updated_at > ?", mTs, "", null, after?.takeIf { it.updatedAt.toInstant().isAfter(m) })
+        }
+        out
+    })!!
 
     companion object {
         private val log = LoggerFactory.getLogger(UpdatedAtCandidates::class.java)
@@ -451,6 +549,11 @@ class UpdatedAtCandidates(
                       AND usesysid IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = current_user)) AS h
         """.trimIndent()
 
-        private const val CANDIDATES_SQL = "SELECT schedule_id, user_id FROM user_hold_quota WHERE updated_at >= ? ORDER BY schedule_id, user_id"
+        /** ADR-013 §4.11 ① m — 이 스키마 user_hold_quota.updated_at의 빠른 기본값(`atthasmissing = false`면 행 없음 → m 없음) */
+        private val MISSING_VALUE_SQL = """
+            SELECT (a.attmissingval::text::timestamptz[])[1]
+            FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relname = 'user_hold_quota' AND n.nspname = current_schema() AND a.attname = 'updated_at' AND NOT a.attisdropped AND a.atthasmissing
+        """.trimIndent()
     }
 }

@@ -52,6 +52,11 @@ data class IncrementalProperties(
     val startLookback: Duration = Duration.ofSeconds(60),
     /** ⓑⓒ 창 하한을 이보다 뒤로 끌지 않는다 — 증분 보장의 트랜잭션 상한(사용자 결정 2026-10-20 D1) */
     val maxOverlap: Duration = Duration.ofSeconds(60),
+    /**
+     * ⓑⓒ 틱 한 번이 읽는 후보 행 상한(ADR-013 §4.11 ② 키셋 페이지 — 찬 페이지는 다음 틱이 잇는다). 기동 검사는 양수만 본다.
+     * 기본 100,000 = ADR-012 결과(s2x · eff · r5)의 틱 후보 최대 26,591 × 2 이상(§4.9-18 — 정상 운영에서 걸리지 않게)
+     */
+    val pageSize: Int = 100_000,
     /** 효과 셀 전용 — 켜면 증분 틱이 `counter_app_inject`의 첫 후보 시각 열을 채운다(§4.2.7) */
     val trackInject: Boolean = false,
 )
