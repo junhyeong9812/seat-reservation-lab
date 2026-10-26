@@ -74,6 +74,7 @@ INPUT_REASON = {
 }
 # 정합 문턱(측정-7 정합 위반 · 상태 기대값 문턱 · expect-mismatch · P6 아래 끝)에 쓰는 판정기 열 — 하나라도 없거나 숫자가 아니면 그 회차는 end-check-failed(0으로 채우지 않는다 — 코드 리뷰 CR14-8)
 CONS_COLS = ("v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats", "v_counter_mismatch", "v_over_limit_users",
+             "v_reserved_without_confirmed", "v_confirmed_on_unreserved_seat",   # 측정 전 재해석 CR14-20 — 모든 방식 기대 0
              "held_no_active", "active_not_held", "expired_hold_rows", "v_held_without_hold", "confirmed")
 BATCH_S = float(plan14.EXPIRY_INTERVAL.rstrip("s"))   # 배치 주기(측정-1 10초) — P7 재선점 기회 좁힌 값(코드 리뷰 CR14-19)
 WEND_LAG_MAX_S = 10.0          # 창 끝 스냅숏 시작이 창 끝 뒤 이 안이어야 한다(run.sh WEND_LAG_S = 3초 뒤에 찍는다 — 코드 리뷰 CR14-13)
@@ -864,7 +865,8 @@ def rep_summary(d):
             reasons.add("reconcile-missing")   # P8 생존 0 → 회차 무효(대조가 돌지 않았다)
     if cons:
         M["m6_end"] = {k: cons.get(k) for k in ("v_counter_mismatch", "v_over_limit_users", "v_duplicate_confirmed_seats", "double_sold_seats", "multi_active_seats",
-                                                 "held_no_active", "active_not_held", "active_on_reserved_seats", "expired_hold_rows", "v_held_without_hold", "confirmed")}
+                                                 "held_no_active", "active_not_held", "active_on_reserved_seats", "expired_hold_rows", "v_held_without_hold", "confirmed",
+                                                 "v_reserved_without_confirmed", "v_confirmed_on_unreserved_seat")}
         if cons.get("expiry_mode") != plan["mode"]:
             reasons.add("expiry-mode-mismatch")
     # 주 셀 전용
@@ -914,7 +916,9 @@ def rep_summary(d):
         # 열은 CONS_COLS 검증을 통과했다(없거나 숫자가 아니면 cons = None → 회차 무효) — `or 0`으로 채우지 않는다(코드 리뷰 CR14-8)
         integ = {"dup_confirmed": cons["v_duplicate_confirmed_seats"], "double_sold": cons["double_sold_seats"],
                  "multi_active_end": cons["multi_active_seats"], "counter_mismatch": cons["v_counter_mismatch"],
-                 "over_limit": cons["v_over_limit_users"]}
+                 "over_limit": cons["v_over_limit_users"],
+                 # 측정 전 재해석 CR14-20: 좌석 RESERVED ↔ 확정 예약 짝 — 모든 방식 기대 0(§설계-8.3 밖의 기존 v_* 두 항목)
+                 "reserved_without_confirmed": cons["v_reserved_without_confirmed"], "confirmed_on_unreserved": cons["v_confirmed_on_unreserved_seat"]}
         if st:
             integ.update(multi_active_samples=st.get("multi_active_samples", 0), active_on_reserved_samples=st.get("active_on_reserved_samples", 0))
         if M.get("flow"):
