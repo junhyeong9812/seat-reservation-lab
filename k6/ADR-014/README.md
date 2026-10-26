@@ -126,7 +126,8 @@ k6/ADR-014/results/<id>/
 | `limit-key.json` env · cmd · drift · drift_cmd · present | 772-774 | **고침** — 네 값 숫자 필수 → `limit-key-missing` · present가 bool false가 아니면 있다고 본다(전: `(drift or 0) > 0`) | 측정-1 · 측정-9 |
 | `seed-check.json` 회차·좌석·홀드·예약·쿼터 수 | 775-781 | **고침** — 8열 숫자 필수 → `seed-mismatch`(전: KeyError) · seat_map_index·flyway_v11 ≠ 1은 기존 `seat-map-index-missing` | 측정-9 |
 | `logs-status.txt` | 783-785 | 기존 `container-log-missing` | 측정-9(ADR-009) |
-| `gc.log.gz` → ADR-009 `gc_summary` | 786-791 · P12 GC 1079-1083 · M["gc"] 936 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
+| `gc.log.gz` → ADR-009 `gc_summary` | 786-798 · P12 GC 1079-1083 · M["gc"] 936 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
+| GC 정지(safepoint)·stall 줄 시각 머리 | `gc_untimed` 505-516 · 792-798 | **고침(CR14-25)** — 시각을 못 읽는 줄이 하나라도 있으면 `gc-log-missing`(회차 무효 — 판정 입력 결측 규칙 · 전: ADR-009 `gc_summary`가 그 줄의 시각을 None으로 두어 k6 창 밖으로 무음 처리 · ADR-009 하네스는 고치지 않고 같은 정규식으로 따로 센다 · `metrics.gc_untimed_lines`) | 측정-9 · P12 ②③ · env-stall(GC < 100ms) |
 | `probe-check.json` ok | 799-801 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
 | `k6-requests.csv.gz` | `read_csv` 194 · 803-810 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
 | `k6-window.json` exit | 811-813 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
