@@ -19,6 +19,17 @@
 | 10-26 15:30 | task 02 수정 회수(Opus · 73곳 · 886줄) · 보고: D_arr a50-t300 1,800 → 2,220초로 캠페인 19.8 → 21.2시간(추정 — MQ4 재확인) · 배치 잠금 헤더 `X-Seatlab-Reject`는 loadtest 프로필 전용 추가 헤더 → 메인: 계약(상태·본문) 무변경으로 판정 · post-fix 재점검(codex · 미러 ds14.HxcZ): 해소 11 · 부분 2(MR-9·MR-10) · 신규 4(MR-14~17 — 부분 2와 같은 원인 포함) → 메인 직접 수정 · **task 02 리뷰 마감**(설계 문서 中 변형 — 재점검 신규는 수정으로 마감, 반복 없음) | 사용자 보고(MQ4 재확인) |
 | 10-26 15:40 | 사용자 MQ4 재확인 '21.2시간 그대로'(60회) · task 01·02 문서 단계 끝 → task 03(blind)·04(구현)는 명세 §3대로 #11·#12 병합 뒤 main | 병합 대기 |
 | 10-26 16:05 | 사용자 'PR 병합해줄래?' → #11 squash 병합 53790c81 · #12 대상 main으로 → 충돌(squash 때문) · main 트리 = ADR-012 끝 트리 확인 뒤 `-s ours` 병합 55ccc724(트리 무변경 확인) push · #12 squash 병합 882fa2ea(main 트리 = ADR-013 끝 트리) · 원격 브랜치 삭제 안 함 · 브랜치 feat/adr-014-hold-expiry(origin/main 882fa2ea에서 · push 안 함) · 문서 커밋 | task 03 blind 테스트 |
+| 10-26 16:15 | 사용자: 포트폴리오 문서(docs/portfolio · 주제 2개)는 '구현 뒤, 스모크 전' · 주제는 구현 끝나고 함께 고민 → 구현(task 03·04) 계속 · blind 워커는 별도 worktree(구현 diff 미열람) · 구현 워커는 작업 브랜치(blind 테스트 미열람) | task 03 ∥ task 04a |
+| 10-26 17:00 | task 03 blind 회수(Opus · worktree 기준 882fa2ea · 커밋 10c29337 · 새 파일 8 · 91 테스트) · 구현 전 6 통과 · 85 실패(키 무시 → A 동작 · 좌석 맵 404 · 대기 간선 없음 · 기동 거부 없음) · 통과 6 중 §설계-10 #2 PostgreSQL 재현 green(DS14-OQ2 입력 — D (가) 전제 실증) · 구현 전 D 스트레스에서 실제 이중 판매 재현 · 계약 가정 E1~E6 · 미포함: MISSING 경로 · 정리 ① 실제 교착 · 일부 전환 방향 | task 04a 회수 대기 |
+| 10-26 18:10 | task 04a 회수(Opus · 커밋 d0dea201~df2fb5ff 7개 · 전체 803 · 실패 0 · 건너뜀 15(방식별 assume) · 기존 테스트 무수정) · [구현 검증] #2 green → D (가) 확정 · #12 7시나리오 40P01 0 · #24 green · 설계 밖 결정 8(55P03 JdbcTemplate 분류 · 판정기 새 항목 v_ 접두어 없음 · C·D 청크 실패 계속 · hold-reclaim 출처 main-app 상수 · T1·T2 미구현(운영 절차) 등) · blind cherry-pick 08c02534 → 91 중 89 통과 · 실패 2(C·D N2 스트레스 진행성 단언) = 테스트 시간 설계 결함(첫 만료만 대기 → 대부분 활성 · 만료 좌석은 X K2 잠금과 Y NOWAIT 충돌 = 설계된 409) → 메인 수정(마지막 만료 대기 · NOWAIT 1회 재시도 · 안전성 단언 무변경 — fix verification 분류) → ADR-014 테스트 3회 연속 green | 코드 리뷰 루프 1 |
+| 10-26 19:00 | 코드 리뷰 루프 1 회수(base 5c8317a2 · 미러 ds14.9aAM): codex M 3 / Opus L 3 · OQ 4 · H 0 → 메인 종합: 채택 CR14-1(B + cleanup≠schedule 기동 거부) · CR14-2(C·D 틱당 청크 상한) · CR14-3(설계 §8.3 v_* 문장 동기화 — v_* 정의 무변경 · ADR-014 요약기는 방식별 새 키로 판정 = task 04b 요구로 넘김) · CR14-4(blind N2 스트레스 메인 수정이 경계를 없앰 → 첫 만료 대기 복원 · 진행성 단언 'Y:ok ≥ 1' 제거 · 불변식 단언만) · CR14-5(회수 롤백 시 skipped 지표) · CR14-6(repair=false B·C·D 테스트) · CR14-7(전환 정리 T1·T2를 ops SQL 파일로 · 테스트가 그 파일을 읽게) / 기록만: OQ3(B 정리 ① 미룬 쿼터 행 — 회차 재개 극단 경우 수용) · OQ4(V11 위치 없이 재기동 시 Flyway 검증 실패 — 기존 선택 위치 V4·V8·V9와 같은 성질) · codex 종합 감사 지적 1: CR14-3 '04b 범위 밖'은 오류(명세 task 04 = 하네스 포함) → 정정: CR14-3 전부 채택 · 하네스(k6/ADR-014)를 이번 루프 수정으로 구현(병렬 워커) · 루프 2에서 함께 리뷰 | 수정 워커 ∥ 하네스 워커 |
+| 10-26 20:30 | task 04b 하네스 회수(Opus · 9ea834d2 · aecb1cf3 · 1449c7a1 · eb50140a · k6/ADR-014/만) · selftest --campaign 전부 통과 · stdin 반증(< /dev/null 제거 → 5회 뒤 exit 6) · k6 inspect rc 0 · dry-run 60자리 약 21.3시간 · 동결본 해시 일치 · shellcheck 없음(미실행) · 해석 14 — 메인 결정: #9(판정 불가 후보가 있으면 사용자 보고 — 보수 쪽 수용) · #10(H4 표지 미관측 = 이름표 · 스모크 #24 뒤 확정) · #3(A의 nowait도 배치 잠금 409 — A 배치도 좌석 행 UPDATE · 수용) · 나머지 기록 | 수정 워커 회수 대기 |
+| 10-26 21:10 | 루프 1 수정 회수(Opus · 437ef773 · 4ea07c99 · ca792434(docs) · ef7ee85c · 1485f006 · 15b039d8 · 638b034d) · ADR-014 테스트 232 · 실패 0 · 전체 926 · 실패 0 · 건너뜀 20 · ops/expiry-mode-cutover 로컬 PG16 확인 · CR14-1로 blind 테스트 3개의 **기동 설정만** 고침(lazy에 cleanup=schedule — 채택 지적이 만든 새 규칙 · 단언 무변경 · '메인 수정(CR14-1)' 주석) → 메인 수용 · 새로 본 문제 4 기록(커서 메모리 전용 등) · CR14-1~7 fixed(1) | 루프 2 |
+| 10-26 22:10 | 코드 리뷰 루프 2 회수(미러 ds14.jKtA · 누적 base 5c8317a2 · 앱+하네스+ops): codex M 2 / Opus M 2 · L 8 · OQ 4 · H 0 → 메인 종합 CR14-8~20 채택(신규 13 — 앱 결함 0 · 하네스 판정 입력·규칙 실행 가능성 위주) · OQ1 스모크 [구현 검증] · OQ3 메인 결정 유지 · codex 종합 감사 '감사 지적 0' | 수정 워커 → 루프 3 |
+| 10-26 23:05 | 루프 2 수정 회수(Opus · 072b2976~ac097a15 15커밋) · selftest --campaign 100 ok · expiry 228 · 전체 922+6 실패 0 · ADR 측정 전 재해석 행 8 · 새로 본 문제 6 중 4(CR14-21~24 — 하네스 판정 입력 무음 같은 종류) 채택 · 2 기록(CR14-13 근사 · 정지 검사 COMMIT 전 새 세션) · **같은 종류(판정 입력 무음) 반복 → 정지 규칙 점검: Inputs 한 곳 검증 밖 경로(probe_metrics·beats3)에서 재발 → 이번 수정은 '모든 판정 입력이 Inputs를 거치는지' 전수 목록화로** | 소수정 → 루프 3 |
+| 10-26 23:55 | CR14-21~24 + 판정 입력 전수 점검 회수(Opus · eb6fcad3~a8dd746d 9커밋) · selftest 173 ok(전 100) · 새 시험은 고치기 전 코드에서 실패 확인(생성형 140 주입 중 58 어긋남) · 출처 표 57행(고침 37 · 설명 8) · 메인 결정: 새 사유 2(k6-window-missing · harness-reasons-missing) · 2단·3단 판정 불가 ⓓ · G2 None ⓒ · 표본 비용 분리 불명 처리 — 모두 판정 불가 쪽 보수 → 수용 · ADR-009 gc_summary 무음 = CR14-25 open(ADR-014 쪽에서 감쌈) | 루프 3 |
+| 10-27 00:50 | 코드 리뷰 루프 3(마지막 · 미러 ds14.r5H5) 회수: codex finding 0(렌즈별 근거 — 앱·ops 위주) / Opus M 1 · L 2 · OQ 2 · H 0 · 정합 핵심 결함 0 → 신규 채택 5(CR14-26~30) + 열린 CR14-25 → 루프 상한 3 도달 · 신규 채택 ≠ 0이라 종료 조건 미충족 → 수정 뒤 사용자 판단(추가 리뷰 또는 user override) | 수정 워커 |
+| 10-27 02:00 | 루프 3 수정 회수(Opus · 6924fd6e~120bb45f 14커밋) · selftest 184 ok · expiry 232 · 전체 926+6 실패 0 · 새 시험은 고치기 전 코드에서 실패 확인(CR14-26 2 · CR14-29 3(권한 없는 롤에서 옛 검사 무음 통과 실증) · 하네스 9) · PG16 권한 동작 로컬 컨테이너 확인 · 메인 직접: CR14-27 ADR 재해석 행 · ops README autovacuum 55P03 한계 · 기록만: r0() broken 미확인(설명 값) · 테스트 도우미 세션 조건 문구 차이 · CR14-25~30 fixed(3) · **리뷰 상태: 3루프 상한 도달 · 마지막 루프 신규 채택 5(전부 수정·테스트) → review unresolved 아님(open 0) · 종료식의 '신규 0' 미충족 → 사용자 판단 대기** | 사용자 보고 |
 
 ## 리뷰 ledger
 
@@ -59,6 +70,41 @@
 | MR-15 | post-fix | codex | :723·737·744·749 | 채택 | fixed(post) | C 7행에 두 결론 → P5 정합 위반으로만 |
 | MR-16 | post-fix | codex | :791·797·816 | 채택 | fixed(post) | 스모크 env-stall이 시작 막아 빈도 항상 0 → env-stall만은 시작 허용·집계 |
 | MR-17 | post-fix | codex | :548·700·815 | 채택 | fixed(post) | 409 0 회차의 헤더 결측 무효 → 409 ≥ 1일 때만 |
+
+### 코드 리뷰 (높음 — 루프 ≤3)
+
+| id | first_seen_loop | source | 근거 | disposition | status | 내용 |
+|---|---|---|---|---|---|---|
+| CR14-1 | 1 | codex | QuotaCleanup.kt:131 · StartupCheck:162 | 채택 | fixed(1) | lazy + cleanup≠schedule 기동 거부 |
+| CR14-2 | 1 | codex + opus | LazyExpiryBatch.kt:43-55 | 채택 | fixed(1) | 틱당 청크 상한 |
+| CR14-3 | 1 | codex + opus + 감사 | LoadtestDataService.kt:162·213 · ADR §8.3 · spec task 04 | 채택(감사 정정) | fixed(1) | v_* 문장 동기화 + 하네스 k6/ADR-014 구현 |
+| CR14-4 | 1 | opus | Adr014ModeContractBase.kt:345-366 | 채택 | fixed(1) | 메인 blind 수정이 경계 재현 제거 |
+| CR14-5 | 1 | opus | ExpiryCounters.kt:168-181 | 채택 | fixed(1) | 회수 롤백 흔적 |
+| CR14-6 | 1 | opus | ExpiryCounters.kt:125-129·154 | 채택 | fixed(1) | repair=false 테스트 |
+| CR14-7 | 1 | opus | Adr014Support.kt:189-204 | 채택 | fixed(1) | 전환 정리 ops SQL |
+| CR14-8 | 2 | codex | summarize.py:708·867 | 채택 | fixed(2) | 정합 문턱 열 누락 → or 0 |
+| CR14-9 | 2 | codex | summarize.py:144 | 채택 | fixed(2) | 시계 차 rtt 누락 통과 |
+| CR14-10 | 2 | opus | summarize.py:261-275·847 | 채택 | fixed(2) | 탐침 첫 선점 4xx → probe-incomplete 아님 |
+| CR14-11 | 2 | opus | summarize.py:1197-1201 · ADR P7·P9 | 채택 | fixed(2) | PR-3 실행<계획 규칙 실행 불가 → 측정 전 재해석 |
+| CR14-12 | 2 | opus | summarize.py:853-859 | 채택 | fixed(2) | h4 파일 결측 무표시 · 메모 10 확정 |
+| CR14-13 | 2 | opus | summarize.py:800-801·893 | 채택 | fixed(2) | 틱 실패 창보다 넓게 |
+| CR14-14 | 2 | opus | run.sh:200 | 채택 | fixed(2) | 예열 rc 미확인 |
+| CR14-15 | 2 | opus | selftest.py:16·354 | 채택 | fixed(2) | 판정 분기 미실행 |
+| CR14-16 | 2 | opus | 01-cleanup.sql:6-21 | 채택 | fixed(2) | 정지 상태 자체 확인 없음 |
+| CR14-17 | 2 | opus | StartupCheck:163-186 | 채택 | fixed(2) | C·D + 스케줄러 끔 누적 |
+| CR14-18 | 2 | opus | summarize.py:1302-1326 | 채택 | fixed(2) | G3 판정 불가를 A 유지로 |
+| CR14-19 | 2 | opus | summarize.py:528-531 | 채택 | fixed(2) | P7 기회 넓게 · 메모 8 확정 |
+| CR14-20 | 2 | opus | summarize.py integ | 채택 | fixed(2) | v_reserved_without_confirmed·v_confirmed_on_unreserved_seat 정합 위반 미편입 |
+| CR14-21 | 2 | main-synthesis(수정 워커 보고) | summarize.py integ | 채택 | fixed(2) | active_on_reserved_seats(모든 방식 기대 0) 끝 값 integ 미편입 |
+| CR14-22 | 2 | main-synthesis | summarize.py probe_metrics | 채택 | fixed(2) | 첫 선점 기록 행 없으면 bad_setup=None → 정상 탐침처럼 판정 |
+| CR14-23 | 2 | main-synthesis | summarize.py probe_metrics | 채택 | fixed(2) | h1 응답 201·409 밖(400·404)이 분모·완료·P12 어디에도 없음 |
+| CR14-24 | 2 | main-synthesis | summarize.py beats3 | 채택 | fixed(2) | 3단 범위 None을 '≫ 아님'으로 → 3단 판정 불가 무음 |
+| CR14-25 | 2 | main-synthesis(수정 워커 보고) | k6/ADR-009/scripts/summarize.py gc_summary | 채택 | fixed(3) | 시각 못 읽는 GC 줄을 창 밖으로 무음 처리 — ADR-014 P12가 이 함수를 씀 |
+| CR14-26 | 3 | opus | HoldStrategyStartupCheck.kt:173·202-205 · application-reconciler.yml:25-26 | 채택 | fixed(3) | reconciler 프로필이 lazy 정리 규칙에 걸려 F 기동 실패(기본값 B 교체 시) |
+| CR14-27 | 3 | opus | summarize.py:1180-1193 | 채택 | fixed(3) | crn 다수결에 무효 회차 표 → 유효 회차 crn-mismatch |
+| CR14-28 | 3 | opus | summarize.py:472-475 | 채택 | fixed(3) | server_rows 깨진 JSON 줄 무음 버림 |
+| CR14-29 | 3 | opus OQ1 | 01-cleanup.sql:16-19 | 채택 | fixed(3) | 권한 없는 롤에서 정지 검사 무음 통과 가능 · 검사 뒤 LOCK |
+| CR14-30 | 3 | opus OQ2 | summarize.py:1452-1461 | 메인 결정 | fixed(3) | A 판정 불가일 때 X = 판정 불가(보수 · 측정-7 재해석 행) |
 
 ## 생략한 검증
 
