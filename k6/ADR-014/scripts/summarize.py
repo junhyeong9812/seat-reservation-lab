@@ -253,6 +253,11 @@ def classify_409(method, cause):
     return "rule", True
 
 
+def _err5(st):
+    """응답 상태(문자열)가 5xx 또는 코드 0인가 — 숫자가 아닌 값은 5xx가 아니다(예상 밖 응답 쪽으로 간다 · int() 예외로 요약기가 죽지 않게)."""
+    return st == "0" or (isinstance(st, str) and st.isdigit() and int(st) >= 500)
+
+
 def dkey(x):
     """δ·δc 표기 맞춤 — k6(JS String(-1) = '-1')와 계획(Python str(-1.0) = '-1.0')을 같은 열쇠로."""
     return str(float(x))
@@ -274,23 +279,28 @@ def probe_metrics(method, plan, rows, off_s):
         d = dkey(next(iter(steps.values()))["d"])
         cell = res["per_cell"].setdefault(f"{pr}:{d}", {"judged": 0, "dropped": 0, "planned": planned_cell[pr].get(d, 0)})
         setup = ("h0",) if pr == "pr1" else ("h0a", "h0b") if pr == "pr2" else ("u0",)
-        bad_setup = None
+        bad_setup = no_setup = None
         for s in setup:
             x = steps.get(s)
             if x is None:
+                no_setup = s
                 break
             if x.get("code") == "SCHEDULE_CLOSED":
                 res["schedule_closed"] += 1
-            if x["st"] != "201":
+            if x.get("st") != "201":
                 bad_setup = x
                 break
+        if no_setup is not None:
+            # 첫 선점 기록 행 자체가 없다 — 홀드가 섰는지 모르는 채 판정 요청을 정상 탐침처럼 판정하지 않는다 → probe-incomplete(코드 리뷰 CR14-22)
+            res["judged_missing"].append(f"{pr}#{pid}:첫 선점 {no_setup} 기록 없음")
+            continue
         if bad_setup is not None:
-            if bad_setup["st"] == "0" or int(bad_setup["st"]) >= 500:
+            if _err5(bad_setup.get("st")):
                 res["setup_errors"] += 1      # 방식 — M11(측정-9 '탐침 응답 5xx·코드 0')
             else:
                 # 5xx가 아닌 첫 선점 실패(409 등)도 판정 요청이 나가지 않은 탐침이다 → probe-incomplete 계산에 넣는다 · 원인 이름표는 그대로(코드 리뷰 CR14-10)
-                res["setup_rejected"].append(f"{pr}#{pid}:{bad_setup['code']}")
-                res["judged_missing"].append(f"{pr}#{pid}:첫 선점 {bad_setup['st']}")
+                res["setup_rejected"].append(f"{pr}#{pid}:{bad_setup.get('code')}")
+                res["judged_missing"].append(f"{pr}#{pid}:첫 선점 {bad_setup.get('st')}")
             continue
         judged = ["h1"] if pr in ("pr1", "pr2") else ["v", "c"]
         if any(j not in steps for j in judged):

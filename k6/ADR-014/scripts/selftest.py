@@ -138,6 +138,8 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
                 setups = ["h0"] if pr == "pr1" else ["h0a", "h0b"] if pr == "pr2" else ["u0"]
                 rejected = kw.get("setup_reject") == (pr, i)   # 첫 선점이 5xx가 아닌 이유(409)로 실패 → 판정 요청이 나가지 않는다(CR14-10)
                 for sp in setups:
+                    if kw.get("setup_row_drop") == (pr, i, sp):   # 첫 선점 기록 행 자체가 빠짐(CR14-22)
+                        continue
                     rows.append(prow(sp, "409" if rejected else "201", "SEAT_NOT_AVAILABLE" if rejected else "OK", st0 * 1000, "", ee=int(e)))
                 if rejected:
                     continue
@@ -430,6 +432,13 @@ def rep_round2(tmp):
     s = rep(make_rep(tmp / "r2-resv", reserved_without_confirmed=1))
     check("CR14-20 v_reserved_without_confirmed > 0 → 정합 위반(유효 회차의 방식 실패 자료)",
           s["status"] == "ok" and s["violations"]["integrity"].get("reserved_without_confirmed") == 1, json.dumps(s["violations"].get("integrity")))
+    # CR14-22 — 첫 선점 기록 행 자체가 없음 → 판정 요청이 있어도 정상 탐침으로 판정하지 않는다 → probe-incomplete
+    for pr, sp in (("pr1", "h0"), ("pr2", "h0a"), ("pr2", "h0b"), ("pr3", "u0")):
+        s = rep(make_rep(tmp / f"r3-nosetup-{pr}-{sp}", setup_row_drop=(pr, 4, sp)))
+        pm = s["metrics"]["probe"]
+        check(f"CR14-22 {pr} 첫 선점 {sp} 기록 없음 → probe-incomplete · judged_missing",
+              "probe-incomplete" in s["reasons"] and any(f"{pr}#4:첫 선점 {sp} 기록 없음" in x for x in pm["judged_missing"]),
+              s["status"] + json.dumps(pm["judged_missing"], ensure_ascii=False))
     # CR14-21 — 끝 판정기 active_on_reserved_seats > 0 → 정합 위반(모든 방식 기대 0)
     for m in "ABCD":
         s = rep(make_rep(tmp / f"r3-aor-{m}", method=m, cons_set={"active_on_reserved_seats": 2}))
