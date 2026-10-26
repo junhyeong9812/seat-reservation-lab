@@ -375,6 +375,17 @@ def run(tmp):
     stc = (root / "a20-t30" / "C" / "rep1" / "status").read_text().strip()
     sta = (root / "a20-t30" / "A" / "rep1" / "status").read_text().strip()
     check("⑱ 다수와 다른 방식 → crn-mismatch · 나머지 그대로", stc == "invalid:crn-mismatch" and sta == "ok", stc + " / " + sta)
+    root = tmp / "crn-none"
+    for m in "ABCD":
+        make_rep(root, method=m)
+        rep(root / "a20-t30" / m / "rep1")
+        (root / "a20-t30" / m / "rep1" / "status").write_text("ok\n")
+    f = root / "a20-t30" / "B" / "rep1" / "rep-summary.json"
+    x = json.loads(f.read_text()); x["metrics"]["crn"] = {}; f.write_text(json.dumps(x))
+    S.crn_check(root)
+    stb = (root / "a20-t30" / "B" / "rep1" / "status").read_text().strip()
+    sta = (root / "a20-t30" / "A" / "rep1" / "status").read_text().strip()
+    check("전수 점검 유효 회차 요약에 crn 합 없음 → crn-mismatch(대조에서 빠져 무음 통과하지 않는다) · 나머지 그대로", stb == "invalid:crn-mismatch" and sta == "ok", stb + " / " + sta)
     rep_round2(tmp)
     campaign_rules(tmp)
     campaign_round2(tmp)

@@ -1181,8 +1181,10 @@ def crn_check(root):
                 sp = root / c / m / f"rep{r}" / "status"
                 if s and (s.get("metrics") or {}).get("crn"):
                     hs[m] = json.dumps(s["metrics"]["crn"], sort_keys=True)
-                elif sp.exists() and sp.read_text().strip() == "ok":
-                    nocrn.append(m)   # 유효인데 crn 합이 없다 — 대조에서 빼면 무음 통과다 → crn-mismatch(같음을 세우지 못함 · 판정 입력 전수 점검)
+                elif isinstance(s, dict) and sp.exists() and sp.read_text().strip() == "ok":
+                    # 유효인데 요약에 crn 합이 없다 — 대조에서 빼면 무음 통과다 → crn-mismatch(같음을 세우지 못함 · 판정 입력 전수 점검).
+                    # 요약 자체가 없는 자리(campaign.sh --simulate)는 여기서 다루지 않는다 — 끝 집계(summary_gaps)가 유효로 세지 않는다
+                    nocrn.append(m)
             if len(hs) < 2 and not nocrn:
                 continue
             vals = list(hs.values())
