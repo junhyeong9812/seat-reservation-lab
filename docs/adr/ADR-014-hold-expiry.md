@@ -313,6 +313,7 @@ DELETE FROM seat_hold WHERE id = ANY(:missingIds) RETURNING id;                 
 
 - **MISSING을 지우기 앞에서 복구하는 이유(C3b · D3)**: 행이 없는 쌍은 C3·D2가 잠그지 못한다. 그 쌍의 홀드를 먼저 지우고 C5에서 0행 → 복구로 가면, 그 사이 그 사용자의 선점 H6 upsert가 행을 새로 만들어(cnt 1 — 기다릴 행이 없다) 커밋할 수 있고, C5의 가드 감소가 그 cnt를 내려 어긋남(below)을 조용히 만든다. PairRepair가 행을 먼저 만들고 잠그면(PairRepair.kt:88-94 — INSERT한 행은 커밋까지 이 트랜잭션이 쥔다) 그 선점의 upsert가 이 트랜잭션 끝을 기다린다 → 규칙 ①이 MISSING 쌍에도 선다 (추정 — 동시성 테스트 대상). `:missingIds` 삭제가 넘긴 수보다 적게 지우면(그 사이 다른 트랜잭션이 지움 — 이미 덮은 cnt가 틀린다) 청크를 롤백하고 ERROR 로그 + 지표(`seat.hold.expiry.tick{outcome}` 실패 · A의 틱 롤백과 같은 처리 — ExpiryCounters.kt:123-136 skipped 기록)로 남긴다(무음 금지).
 - **진행형 커서의 경계**: 커서는 틱 안에서만 산다(다음 틱은 처음부터). 청크 하나가 실패해도(40P01 · MISSING 수 불일치 등) 커서를 그 청크 뒤로 옮겨 다음 청크를 계속한다. 틱당 청크 상한 · `k`는 `[구현 검증]`(§설계-10 #7).
+  - **틱당 청크 상한(코드 리뷰 CR14-2)**: `seat.hold.expiry-max-chunks-per-tick`(기본 100 · 1 미만은 기동 거부). 닿으면 틱을 끝내고 **커서를 다음 틱에 넘긴다** — 다음 틱은 처음이 아니라 그 커서 뒤부터 이어 가고, 후보 끝에 닿으면 커서를 버린다(그다음 틱은 처음부터). 늘 처음부터 시작하면 앞쪽에서 계속 건너뛰는(SKIP LOCKED) · 실패하는 후보가 상한을 다 써서 뒤쪽 후보가 밀린다. 넘긴 커서는 앱마다(빈 상태) 따로다. 닿은 틱 수는 지표 `seat.hold.expiry.chunk_cap_reached`. 기본 100의 근거: 측정 회차 전부(주 회차 1만 석 + 탐침 회차 1만 석 — §측정-3.1·3.2)가 한 틱에 만료돼도 `k` = 500이면 40청크라 측정 부하에서는 닿지 않는다 — 장애 뒤 밀림처럼 그보다 큰 경우에만 틱 길이를 묶는다(값은 #7).
 - **D4의 대기**: D는 좌석을 잠그지 않으므로 D4 DELETE가 확정 K3가 쥔 홀드 행(시각 역전 확정)을 기다릴 수 있다 — 고리는 없다(확정은 쿼터 행을 잡지 않는다 · §3.1 DS14-4와 같은 이유). 그동안 청크의 다른 쌍 쿼터 행이 잡혀 있어 그 사용자들의 선점이 기다린다(꼬리 지표 — §설계-8.2).
 
 - C 배치 잠금 순서: 좌석(SKIP LOCKED — 기다리지 않음) → 쿼터 행(정렬 — 기다림) → 홀드 행. 선점의 순서(쿼터 → 좌석 NOWAIT)와 반대지만, 좌석 쪽은 양쪽 모두 기다리지 않으므로 고리가 생기지 않는다(추정 — 동시성 테스트 대상). 배치를 쥔 동안 같은 좌석의 선점은 NOWAIT로 지고(경합 오류 지표), 배치가 기다리는 쿼터 행의 주인 선점은 배치 청크가 끝날 때까지 기다린다(꼬리 지표).
@@ -440,7 +441,7 @@ UPDATE product_seat st
 | **활성** 홀드가 있는데 `HELD` 아님 | 0 | 0 | 0(되돌리기는 활성 없을 때만) | 항목 제외(정의상 활성 홀드 좌석은 `AVAILABLE` 저장) |
 | 수렴 뒤(TTL + 배치 주기 + 유예 대기 뒤) 남은 만료 홀드 행 | 0 | > 0 | 0 | 0 |
 
-- 지금 `v_hold_on_unheld_seat`(홀드 행이 있는데 좌석이 `HELD` 아님)는 B·C·D에서 '남의 만료 홀드가 남은 채 확정된 좌석'에서도 걸린다 — 활성 홀드로 정의를 바꾼다(위 7번째 행). 기대값과 다르면 회차 판정 자료로 남긴다(무음 금지).
+- 기존 `v_*` 항목의 정의는 바꾸지 않는다 — 방식별 기대값은 **새 키**로 판정한다(코드 리뷰 CR14-3 — 초안의 '`v_hold_on_unheld_seat`을 활성 홀드로 정의를 바꾼다'를 구현과 맞춘다). 새 키(판정기 `expiryStates` — LoadtestDataService.kt:221-234 · `v_` 접두어 없음): `double_sold_seats`(1행) · `multi_active_seats`(4행) · `held_no_active`(5행) · `active_not_held`(7행 · D 제외) · `expired_hold_rows`(8행) · `active_on_reserved_seats`(활성 홀드 + `RESERVED` — 모든 방식 0) · `expiry_mode`. ADR-014 요약기는 위 표의 방식별 기대값을 이 새 키로 대조한다. 홀드 행 · 저장 `HELD`를 A 전제로 세는 `v_*`(`v_duplicate_hold_seats` · `v_excess_hold_rows` · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats`)는 B·C·D에서 0보다 클 수 있다(예: `v_hold_on_unheld_seat`은 남의 만료 홀드가 남은 채 확정된 좌석에서도 걸린다) — B·C·D 판정에 쓰지 않고 기록만 한다. 2·3행(`v_counter_mismatch` · `v_over_limit_users`)은 지금 정의 그대로 모든 방식에서 기대 0이다. 기대값과 다르면 회차 판정 자료로 남긴다(무음 금지).
 
 ### 설계-9 새 동작 불변식 (설계 선검증 대상 — 코드베이스에 없던 것만)
 
@@ -467,7 +468,7 @@ UPDATE product_seat st
 4. 좌석 맵 세 문장의 실행 계획(`EXPLAIN (ANALYZE, BUFFERS)`) — 회차 1만 석 · V11 · D의 좌석마다 홀드 탐색 비용.
 5. V11 `CREATE INDEX` 시간 · 쓰기 차단 길이(시드 크기 사본 — §설계-7).
 6. Flyway: V11을 기본 위치에 둘 때 K2 DB의 검증 실패 여부(outOfOrder 기본값) — 선택 위치를 고른 근거 확인.
-7. C 배치 청크 크기 `k` · 틱 시간 · SKIP LOCKED 건너뜀 수 · 배치가 기다리게 한 선점 꼬리.
+7. C 배치 청크 크기 `k` · 틱 시간 · SKIP LOCKED 건너뜀 수 · 배치가 기다리게 한 선점 꼬리 · 틱당 청크 상한 기본 100(`seat.hold.expiry-max-chunks-per-tick` — 상한에 닿은 틱 수 `seat.hold.expiry.chunk_cap_reached` · 코드 리뷰 CR14-2).
 8. A의 '늦은 쪽 틱 롤백'(Hibernate 삭제 행 수 검사 — §설계-1 추정).
 9. B·C·D 경로를 JDBC로 쓸 때 같은 트랜잭션의 JPA 엔티티 상태와 섞이지 않는지(§3.1).
 10. 묶인 좌석·초 1초 표본 질의의 DB 부하 — 방식마다 다르다(B의 만료 행 누적 · 측정-5 머리의 사전 기준 · 측정-11 #16 — 리뷰 MR-1).
