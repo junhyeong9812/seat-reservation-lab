@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.expiry
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.support.IntegrationTest
 import org.springframework.jdbc.core.JdbcTemplate
+import java.io.File
 import java.sql.Connection
 import java.sql.Timestamp
 import java.time.Duration
@@ -156,54 +157,51 @@ fun JdbcTemplate.activeHoldNotHeld(): Int = queryForObject(
     Int::class.java,
 )!!
 
-// ── 방식 전환 확인 3항목(§설계-7 — 판정기 항목 정의는 LoadtestDataService.kt:140-203을 882fa2ea에서 그대로 옮겼다) ──────────
+// ── 방식 전환 정리 · 확인 3항목(§설계-7) ─────────────────────────────────────────────────────────────
+// 메인 수정(코드 리뷰 CR14-7): 문서 SQL을 여기 옮겨 적던 것을 운영 SQL 파일(ops/expiry-mode-cutover/ — README 사용 순서)을 읽어 돌리게 바꿨다 —
+// 운영자가 돌리는 문장과 이 계약 테스트가 보는 문장이 둘로 갈라지지 않게. 확인 3항목도 같은 파일(02-verify.sql — 판정기 정의 그대로)에서 읽는다.
 
-fun JdbcTemplate.vHeldWithoutHold(): Int = queryForObject(
-    "SELECT count(*) FROM product_seat s WHERE s.status = 'HELD' AND NOT EXISTS (SELECT 1 FROM seat_hold h WHERE h.seat_id = s.id)",
-    Int::class.java,
-)!!
+/** 저장소의 ops/expiry-mode-cutover/[name] — Gradle 테스트 작업 디렉터리(main-app)에서 위로 올라가며 찾는다 */
+fun cutoverOpsFile(name: String): File =
+    generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+        .map { File(it, "ops/expiry-mode-cutover/$name") }
+        .firstOrNull { it.isFile }
+        ?: error("ops/expiry-mode-cutover/$name 을 찾지 못했다(user.dir=${System.getProperty("user.dir")})")
 
-fun JdbcTemplate.vDuplicateHoldSeats(): Int = queryForObject(
-    "SELECT count(*) FROM (SELECT seat_id FROM seat_hold GROUP BY seat_id HAVING count(*) > 1) x",
-    Int::class.java,
-)!!
+/**
+ * psql 파일의 문장 목록 — `--` 주석을 지우고 `;`로 나눈 뒤 BEGIN · COMMIT은 뺀다(트랜잭션은 부르는 쪽이 쥔다).
+ * [vars] = psql 변수(`-v 이름=값`) — `:이름` 자리를 값으로 바꾼다. 주지 않은 변수는 psql처럼 그대로 남아 문법 오류가 된다.
+ */
+fun psqlStatements(file: File, vars: Map<String, String> = emptyMap()): List<String> {
+    var text = file.readLines().joinToString("\n") { it.substringBefore("--") }
+    vars.forEach { (k, v) -> text = text.replace(":$k", v) }
+    return text.split(';').map { it.trim() }.filter { it.isNotEmpty() && !it.equals("BEGIN", true) && !it.equals("COMMIT", true) }
+}
 
-/** 판정기 v_counter_mismatch — 마감 회차(starts_at <= 시각)는 뺀다. 앱이 내려간 상태에서 DB로 직접 돌리므로 시각 = DB now(). */
-fun JdbcTemplate.vCounterMismatch(): Int = queryForObject(
-    """
-    WITH closed_s AS (SELECT id FROM product_schedule WHERE starts_at <= now()),
-    actual AS (
-        SELECT schedule_id, user_id, sum(n) AS total FROM (
-            SELECT schedule_id, user_id, count(*) AS n FROM seat_hold GROUP BY 1, 2
-            UNION ALL
-            SELECT schedule_id, user_id, count(*) FROM reservation WHERE status = 'CONFIRMED' GROUP BY 1, 2
-        ) u GROUP BY 1, 2
-    ),
-    pairs AS (
-        SELECT schedule_id, coalesce(q.cnt, 0) AS cnt, coalesce(a.total, 0) AS total
-        FROM user_hold_quota q FULL JOIN actual a USING (schedule_id, user_id)
-    )
-    SELECT count(*) FROM pairs WHERE cnt <> total AND schedule_id NOT IN (SELECT id FROM closed_s)
-    """.trimIndent(),
-    Int::class.java,
-)!!
+/** 01-cleanup.sql 변수 quota_touch — 증분 method stmt의 값(README). none · trigger는 빈 문자열 */
+const val QUOTA_TOUCH_STMT = ", updated_at = now()"
 
-/** §설계-7 방식 전환 정리 T1(남은 만료 홀드 삭제 + 열린 회차 쌍별 감소) — 문서 SQL 그대로(증분 method none — updated_at 절 없음). */
-val CUTOVER_T1 = """
-    WITH d AS (DELETE FROM seat_hold WHERE expires_at <= now() RETURNING schedule_id, user_id),
-         n AS (SELECT schedule_id, user_id, count(*) AS n FROM d GROUP BY schedule_id, user_id)
-    UPDATE user_hold_quota q SET cnt = q.cnt - n.n
-      FROM n JOIN product_schedule s ON s.id = n.schedule_id AND s.starts_at > now()
-     WHERE q.schedule_id = n.schedule_id AND q.user_id = n.user_id
-""".trimIndent()
+/** 01-cleanup.sql의 T1 · T2([quotaTouch] = 변수 quota_touch) */
+fun cutoverStatements(quotaTouch: String = ""): List<String> =
+    psqlStatements(cutoverOpsFile("01-cleanup.sql"), mapOf("quota_touch" to quotaTouch))
+        .also { check(it.size == 2) { "01-cleanup.sql은 T1 · T2 두 문장이어야 한다: $it" } }
 
-/** §설계-7 방식 전환 정리 T2(좌석 기준 재계산) — 문서 SQL 그대로. */
-val CUTOVER_T2 = """
-    UPDATE product_seat st
-       SET status = CASE WHEN EXISTS (SELECT 1 FROM seat_hold h WHERE h.seat_id = st.id AND h.expires_at > now())
-                         THEN 'HELD' ELSE 'AVAILABLE' END
-     WHERE st.status <> 'RESERVED'
-""".trimIndent()
+/** §설계-7 T1(남은 만료 홀드 삭제 + 열린 회차 쌍별 감소) — 운영 파일 그대로(증분 method none — updated_at 절 없음). */
+val CUTOVER_T1: String get() = cutoverStatements()[0]
+
+/** §설계-7 T2(좌석 기준 재계산) — 운영 파일 그대로. */
+val CUTOVER_T2: String get() = cutoverStatements()[1]
+
+/** 02-verify.sql의 확인 3항목(v_held_without_hold · v_duplicate_hold_seats · v_counter_mismatch). 앱이 내려간 상태에서 DB로 직접 돌리므로 마감 판정 시각 = DB now(). */
+fun JdbcTemplate.cutoverVerify(): Map<String, Int> =
+    queryForMap(psqlStatements(cutoverOpsFile("02-verify.sql")).single()).mapValues { (_, v) -> (v as Number).toInt() }
+
+fun JdbcTemplate.vHeldWithoutHold(): Int = cutoverVerify().getValue("v_held_without_hold")
+
+fun JdbcTemplate.vDuplicateHoldSeats(): Int = cutoverVerify().getValue("v_duplicate_hold_seats")
+
+/** 판정기 v_counter_mismatch — 마감 회차(starts_at <= 시각)는 뺀다. */
+fun JdbcTemplate.vCounterMismatch(): Int = cutoverVerify().getValue("v_counter_mismatch")
 
 /** 정지 상태에서 T1·T2를 한 트랜잭션으로(§설계-7). */
 fun Connection.runCutover() {

@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.expiry
 import com.jun.labs.seatreservation.api.REJECT_HEADER
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.ExpiryMode
+import com.jun.labs.seatreservation.service.impl.hold.sqlStateOf
 import io.micrometer.core.instrument.MeterRegistry
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -117,6 +118,50 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
         assertEquals(1L, (r["active_not_held"] as Number).toLong())
         val newKeys = setOf("double_sold_seats", "multi_active_seats", "held_no_active", "active_not_held", "active_on_reserved_seats", "expired_hold_rows")
         assertEquals(newKeys, r.keys.filter { it in newKeys }.toSet())
+    }
+
+    @Test
+    fun `방식 전환 확인(ops 02-verify)은 판정기 같은 이름 항목과 같은 값이다(CR14-7)`() {
+        val noHold = seat(SeatStatus.HELD) // HELD인데 홀드 행 없음
+        val dup = seat(SeatStatus.HELD)
+        dbHold(dup, 1, -1.0)
+        dbHold(dup, 2, 300.0) // 좌석당 홀드 행 2
+        quota(s, 1, 1)
+        quota(s, 2, 5) // 실제 1인데 5 — 어긋남
+        val verify = jdbcTemplate.cutoverVerify()
+        val r = judge()
+        assertEquals(listOf("v_held_without_hold", "v_duplicate_hold_seats", "v_counter_mismatch"), verify.keys.toList())
+        assertEquals(verify, verify.keys.associateWith { (r.getValue(it) as Number).toInt() }, "판정기와 같은 정의")
+        assertEquals(listOf(1, 1, 1), verify.values.toList())
+        assertEquals("HELD", status(noHold))
+    }
+
+    @Test
+    fun `방식 전환 정리(ops 01-cleanup) — 증분 stmt 변형은 감소한 쌍에만 updated_at = now()를 함께 쓴다 · 변수를 주지 않으면 문법 오류(CR14-7)`() {
+        val a = seat(SeatStatus.HELD)
+        val b = seat(SeatStatus.HELD)
+        dbHold(a, 1, -1.0)
+        dbHold(b, 2, 300.0)
+        quota(s, 1, 1)
+        quota(s, 2, 1)
+        rawConnection().use { c ->
+            // 이 컨텍스트의 스키마(기본 위치 V1~V7)에는 updated_at이 없다 — 이 트랜잭션 안에서만 V9 열을 더하고 끝에 되돌린다
+            c.exec("ALTER TABLE user_hold_quota ADD COLUMN updated_at timestamptz NOT NULL DEFAULT TIMESTAMPTZ '2000-01-01 00:00:00+00'")
+            val (t1, t2) = cutoverStatements(QUOTA_TOUCH_STMT)
+            c.createStatement().use { it.executeUpdate(t1) }
+            c.createStatement().use { it.executeUpdate(t2) }
+            val touched = c.prepareStatement("SELECT user_id, cnt, updated_at > TIMESTAMPTZ '2000-01-02 00:00:00+00' FROM user_hold_quota WHERE schedule_id = ? ORDER BY user_id").use { ps ->
+                ps.setLong(1, s)
+                ps.executeQuery().use { rs -> generateSequence { if (rs.next()) Triple(rs.getLong(1), rs.getInt(2), rs.getBoolean(3)) else null }.toList() }
+            }
+            assertEquals(listOf(Triple(1L, 0, true), Triple(2L, 1, false)), touched, "감소한 쌍(사용자 1)만 updated_at을 쓴다")
+            c.rollback()
+        }
+        assertEquals(1, cntOf(s, 1), "되돌렸다")
+        val raw = psqlStatements(cutoverOpsFile("01-cleanup.sql")) // 변수 없음 — psql처럼 :quota_touch가 남는다
+        val e = runCatching { jdbcTemplate.update(raw[0]) }.exceptionOrNull()
+        assertEquals("42601", e?.let(::sqlStateOf), "문법 오류로 멈춘다: $e")
+        assertEquals(1, holdRows(a), "아무것도 바뀌지 않았다")
     }
 }
 

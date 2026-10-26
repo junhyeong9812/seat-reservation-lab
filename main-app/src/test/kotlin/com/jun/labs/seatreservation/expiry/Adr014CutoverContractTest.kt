@@ -20,9 +20,10 @@ import kotlin.test.assertTrue
 /*
  * ADR-014 §설계-7 방식 전환 정리(선검증 DS14-2 · 명세 §10 R4) 계약(blind): 전환은 ①(멈추고 바꾸기)만 — 모든 앱을 내리고, T1(남은 만료 홀드 삭제 +
  * 열린 회차 쌍별 감소) · T2(좌석 기준 재계산)를 한 트랜잭션으로 돌린 뒤, 확인 3항목(v_held_without_hold · v_duplicate_hold_seats · v_counter_mismatch)이
- * 0이면 새 방식으로 올린다. T1·T2 SQL은 문서 그대로(Adr014Support.kt) — 이 테스트가 보는 것은 '구현이 쌓은 데이터' 위에서 그 절차가 성립하는가다.
+ * 0이면 새 방식으로 올린다. T1·T2 SQL은 운영 파일 그대로(Adr014Support.kt) — 이 테스트가 보는 것은 '구현이 쌓은 데이터' 위에서 그 절차가 성립하는가다.
  * 실제 기동(BootTestBase — 앱 시계 = 실제 시계 · 회차 2099). 만료 상태는 앱이 만든 홀드 행의 시각을 DB 기준 상대값으로 고쳐 만든다(Q10).
  * 메인 수정(코드 리뷰 CR14-1): B 기동은 정리 ①(cleanup.mode=schedule)을 켠다 — 옛 동작 고정 키(정리 끔)로는 B가 기동 거부된다.
+ * 메인 수정(코드 리뷰 CR14-7): T1·T2 · 확인 3항목은 운영 SQL 파일(ops/expiry-mode-cutover/01-cleanup.sql · 02-verify.sql)을 읽어 돌린다(Adr014Support.kt).
  */
 class Adr014CutoverContractTest : BootTestBase() {
 
