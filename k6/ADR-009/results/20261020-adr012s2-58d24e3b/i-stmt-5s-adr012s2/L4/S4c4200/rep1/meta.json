@@ -1,0 +1,2289 @@
+{
+  "sha": "58d24e3b",
+  "level": 4,
+  "cell": "S4c4200",
+  "rep": 1,
+  "started": "2026-10-20T23:42:29+09:00",
+  "ended": "2026-10-21T00:23:41+09:00",
+  "k6_started": "2026-10-20T23:45:06+09:00",
+  "k6_ended": "2026-10-21T00:16:50+09:00",
+  "ttl_s": 3600,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:58d24e3b",
+  "cond": "A+I",
+  "cleanup": "schedule",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "START_RATE=4200 FACTOR=1 STEPS=60 STEP_S=30 STOP_ON_ERROR=0 RAMP_S=60 RAMP_FROM=50",
+  "app_env": "HOLD_TTL=60m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at,classpath:db/migration-incremental POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=12g DB_MEM=14g LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL= DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=schedule RECONCILE_INTERVAL=60s INC_METHOD=stmt INC_ENABLED=true INC_INTERVAL=5s SAFETY_ENABLED=true APP_DETECT_SHAPE=split APP_MEM=2g APP_JVM_OPTS=-XX:+UseZGC APP_JVM_OPTS2=-XX:+ZGenerational APP_JVM_OPTS3= APP_JVM_OPTS4= APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "k6_bin": "/home/jun/.local/opt/k6-v2.2.0/k6",
+  "adr011": {
+    "gctrace": false,
+    "probes": true,
+    "app_pretouch": false,
+    "app_xms_full": false,
+    "s4c_steps": 60,
+    "seed_schedules": 800,
+    "pg_tmpfs_gb": 12
+  },
+  "io_settle_s": 11,
+  "pg_preset": "tmpfs",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=12g DB_MEM=14g",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.025,
+      "rtt_s": 0.001,
+      "at": 1792507506.1115332
+    },
+    "after": {
+      "offset_s": 0.0279,
+      "rtt_s": 0.0009,
+      "at": 1792509415.176419
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1792507419.364025,
+    "k6_start_epoch": 1792507506.1371787,
+    "seed_to_k6_s": 86.773,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": 4,
+    "hold_reached_s": 5.334,
+    "hold_slept_s": 64.666,
+    "topup_s": 0,
+    "first_request_epoch": 1792507506.538,
+    "first_request_source": "setup_data.startedAt",
+    "seed_to_first_request_s": 87.174,
+    "k6_startup_s": 0.401,
+    "reconcile_phase": {
+      "passes": [
+        {
+          "source": "safety-app",
+          "start_rel_s": -85.746,
+          "end_rel_s": -85.55
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -81.965,
+          "end_rel_s": -81.961
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -76.959,
+          "end_rel_s": -76.956
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -71.956,
+          "end_rel_s": -71.949
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -66.947,
+          "end_rel_s": -66.941
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -61.941,
+          "end_rel_s": -61.934
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -56.932,
+          "end_rel_s": -56.926
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -51.924,
+          "end_rel_s": -51.918
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -46.916,
+          "end_rel_s": -46.914
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -41.913,
+          "end_rel_s": -41.91
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -36.909,
+          "end_rel_s": -36.908
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -31.907,
+          "end_rel_s": -31.901
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -26.9,
+          "end_rel_s": -26.893
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": -25.548,
+          "end_rel_s": -25.404
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -21.892,
+          "end_rel_s": -21.885
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -16.885,
+          "end_rel_s": -16.878
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -11.877,
+          "end_rel_s": -11.87
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -6.869,
+          "end_rel_s": -6.866
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": -1.866,
+          "end_rel_s": -1.863
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 3.138,
+          "end_rel_s": 3.142
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 8.142,
+          "end_rel_s": 8.152
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 13.153,
+          "end_rel_s": 13.171
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 18.171,
+          "end_rel_s": 18.195
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 23.196,
+          "end_rel_s": 23.228
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 28.229,
+          "end_rel_s": 28.263
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 33.263,
+          "end_rel_s": 33.343
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 34.597,
+          "end_rel_s": 35.085
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 38.344,
+          "end_rel_s": 38.417
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 43.417,
+          "end_rel_s": 43.478
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 48.479,
+          "end_rel_s": 48.763
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 53.763,
+          "end_rel_s": 54.356
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 59.357,
+          "end_rel_s": 59.444
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 64.445,
+          "end_rel_s": 64.53
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 69.53,
+          "end_rel_s": 69.624
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 74.624,
+          "end_rel_s": 74.713
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 79.713,
+          "end_rel_s": 79.802
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 84.803,
+          "end_rel_s": 84.89
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 89.89,
+          "end_rel_s": 89.98
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 94.98,
+          "end_rel_s": 95.071
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 95.086,
+          "end_rel_s": 97.096
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 100.071,
+          "end_rel_s": 100.16
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 105.161,
+          "end_rel_s": 105.254
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 110.254,
+          "end_rel_s": 110.344
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 115.344,
+          "end_rel_s": 115.435
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 120.435,
+          "end_rel_s": 120.524
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 125.525,
+          "end_rel_s": 125.618
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 130.618,
+          "end_rel_s": 130.71
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 135.711,
+          "end_rel_s": 135.8
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 140.8,
+          "end_rel_s": 140.894
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 145.895,
+          "end_rel_s": 145.983
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 150.983,
+          "end_rel_s": 151.072
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 156.072,
+          "end_rel_s": 156.161
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 157.097,
+          "end_rel_s": 158.14
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 161.162,
+          "end_rel_s": 161.252
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 166.253,
+          "end_rel_s": 166.344
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 171.344,
+          "end_rel_s": 171.434
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 176.435,
+          "end_rel_s": 176.529
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 181.529,
+          "end_rel_s": 181.618
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 186.619,
+          "end_rel_s": 186.712
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 191.713,
+          "end_rel_s": 191.803
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 196.804,
+          "end_rel_s": 196.898
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 201.899,
+          "end_rel_s": 201.991
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 206.992,
+          "end_rel_s": 207.082
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 212.082,
+          "end_rel_s": 212.174
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 217.175,
+          "end_rel_s": 217.27
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 218.141,
+          "end_rel_s": 220.156
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 222.27,
+          "end_rel_s": 222.36
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 227.36,
+          "end_rel_s": 227.45
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 232.45,
+          "end_rel_s": 232.541
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 237.541,
+          "end_rel_s": 237.641
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 242.642,
+          "end_rel_s": 242.733
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 247.733,
+          "end_rel_s": 247.82
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 252.82,
+          "end_rel_s": 252.912
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 257.913,
+          "end_rel_s": 258.002
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 263.003,
+          "end_rel_s": 263.092
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 268.092,
+          "end_rel_s": 268.187
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 273.187,
+          "end_rel_s": 273.275
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 278.275,
+          "end_rel_s": 278.369
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 280.157,
+          "end_rel_s": 282.165
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 283.369,
+          "end_rel_s": 283.457
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 288.457,
+          "end_rel_s": 288.547
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 293.547,
+          "end_rel_s": 293.635
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 298.635,
+          "end_rel_s": 298.721
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 303.721,
+          "end_rel_s": 303.809
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 308.809,
+          "end_rel_s": 308.897
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 313.898,
+          "end_rel_s": 313.989
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 318.989,
+          "end_rel_s": 319.082
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 324.083,
+          "end_rel_s": 324.174
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 329.174,
+          "end_rel_s": 329.268
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 334.268,
+          "end_rel_s": 334.359
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 339.359,
+          "end_rel_s": 339.446
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 342.165,
+          "end_rel_s": 344.172
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 344.446,
+          "end_rel_s": 344.534
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 349.534,
+          "end_rel_s": 349.617
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 354.618,
+          "end_rel_s": 354.711
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 359.711,
+          "end_rel_s": 359.802
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 364.802,
+          "end_rel_s": 364.89
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 369.891,
+          "end_rel_s": 369.982
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 374.982,
+          "end_rel_s": 375.071
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 380.071,
+          "end_rel_s": 380.161
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 385.162,
+          "end_rel_s": 385.251
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 390.251,
+          "end_rel_s": 390.342
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 395.343,
+          "end_rel_s": 395.433
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 400.433,
+          "end_rel_s": 400.523
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 404.173,
+          "end_rel_s": 406.179
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 405.523,
+          "end_rel_s": 405.622
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 410.622,
+          "end_rel_s": 410.714
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 415.714,
+          "end_rel_s": 415.807
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 420.807,
+          "end_rel_s": 420.898
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 425.898,
+          "end_rel_s": 425.988
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 430.988,
+          "end_rel_s": 431.079
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 436.079,
+          "end_rel_s": 436.169
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 441.169,
+          "end_rel_s": 441.259
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 446.26,
+          "end_rel_s": 446.347
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 451.348,
+          "end_rel_s": 451.435
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 456.435,
+          "end_rel_s": 456.525
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 461.526,
+          "end_rel_s": 461.619
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 466.179,
+          "end_rel_s": 467.82
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 466.619,
+          "end_rel_s": 466.722
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 471.722,
+          "end_rel_s": 471.814
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 476.814,
+          "end_rel_s": 476.904
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 481.905,
+          "end_rel_s": 482
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 487,
+          "end_rel_s": 487.088
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 492.088,
+          "end_rel_s": 492.175
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 497.175,
+          "end_rel_s": 497.261
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 502.262,
+          "end_rel_s": 502.35
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 507.351,
+          "end_rel_s": 507.443
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 512.444,
+          "end_rel_s": 512.532
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 517.533,
+          "end_rel_s": 517.626
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 522.626,
+          "end_rel_s": 522.72
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 527.72,
+          "end_rel_s": 527.807
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 527.821,
+          "end_rel_s": 529.832
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 532.808,
+          "end_rel_s": 532.898
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 537.899,
+          "end_rel_s": 537.995
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 542.995,
+          "end_rel_s": 543.082
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 548.083,
+          "end_rel_s": 548.167
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 553.168,
+          "end_rel_s": 553.259
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 558.259,
+          "end_rel_s": 558.347
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 563.347,
+          "end_rel_s": 563.439
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 568.44,
+          "end_rel_s": 568.529
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 573.529,
+          "end_rel_s": 573.62
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 578.62,
+          "end_rel_s": 578.71
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 583.71,
+          "end_rel_s": 583.795
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 588.795,
+          "end_rel_s": 588.888
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 589.833,
+          "end_rel_s": 591.837
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 593.888,
+          "end_rel_s": 593.982
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 598.982,
+          "end_rel_s": 599.076
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 604.076,
+          "end_rel_s": 604.167
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 609.168,
+          "end_rel_s": 609.259
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 614.259,
+          "end_rel_s": 614.351
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 619.352,
+          "end_rel_s": 619.438
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 624.438,
+          "end_rel_s": 624.526
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 629.527,
+          "end_rel_s": 629.623
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 634.623,
+          "end_rel_s": 634.721
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 639.722,
+          "end_rel_s": 639.809
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 644.809,
+          "end_rel_s": 644.899
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 649.899,
+          "end_rel_s": 649.988
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 651.838,
+          "end_rel_s": 653.849
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 654.989,
+          "end_rel_s": 655.08
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 660.08,
+          "end_rel_s": 660.168
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 665.169,
+          "end_rel_s": 665.259
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 670.26,
+          "end_rel_s": 670.35
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 675.35,
+          "end_rel_s": 675.438
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 680.439,
+          "end_rel_s": 680.529
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 685.529,
+          "end_rel_s": 685.616
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 690.616,
+          "end_rel_s": 690.706
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 695.706,
+          "end_rel_s": 695.794
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 700.794,
+          "end_rel_s": 700.882
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 705.883,
+          "end_rel_s": 705.971
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 710.972,
+          "end_rel_s": 711.069
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 713.849,
+          "end_rel_s": 715.855
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 716.069,
+          "end_rel_s": 716.153
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 721.154,
+          "end_rel_s": 721.243
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 726.244,
+          "end_rel_s": 726.333
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 731.333,
+          "end_rel_s": 731.425
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 736.425,
+          "end_rel_s": 736.516
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 741.516,
+          "end_rel_s": 741.603
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 746.603,
+          "end_rel_s": 746.691
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 751.692,
+          "end_rel_s": 751.785
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 756.786,
+          "end_rel_s": 756.88
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 761.881,
+          "end_rel_s": 761.969
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 766.969,
+          "end_rel_s": 767.053
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 772.054,
+          "end_rel_s": 772.14
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 775.856,
+          "end_rel_s": 777.861
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 777.14,
+          "end_rel_s": 777.233
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 782.233,
+          "end_rel_s": 782.327
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 787.327,
+          "end_rel_s": 787.419
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 792.42,
+          "end_rel_s": 792.51
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 797.51,
+          "end_rel_s": 797.604
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 802.604,
+          "end_rel_s": 802.69
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 807.691,
+          "end_rel_s": 807.78
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 812.78,
+          "end_rel_s": 812.876
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 817.876,
+          "end_rel_s": 817.97
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 822.97,
+          "end_rel_s": 823.066
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 828.066,
+          "end_rel_s": 828.16
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 833.161,
+          "end_rel_s": 833.252
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 837.862,
+          "end_rel_s": 839.868
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 838.253,
+          "end_rel_s": 838.344
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 843.345,
+          "end_rel_s": 843.437
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 848.438,
+          "end_rel_s": 848.526
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 853.526,
+          "end_rel_s": 853.619
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 858.619,
+          "end_rel_s": 858.707
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 863.707,
+          "end_rel_s": 863.801
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 868.801,
+          "end_rel_s": 868.89
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 873.891,
+          "end_rel_s": 873.981
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 878.981,
+          "end_rel_s": 879.071
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 884.072,
+          "end_rel_s": 884.161
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 889.161,
+          "end_rel_s": 889.247
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 894.247,
+          "end_rel_s": 894.348
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 899.348,
+          "end_rel_s": 899.439
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 899.869,
+          "end_rel_s": 901.874
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 904.439,
+          "end_rel_s": 904.532
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 909.532,
+          "end_rel_s": 909.619
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 914.619,
+          "end_rel_s": 914.711
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 919.711,
+          "end_rel_s": 919.804
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 924.804,
+          "end_rel_s": 924.893
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 929.893,
+          "end_rel_s": 929.986
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 934.986,
+          "end_rel_s": 935.074
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 940.074,
+          "end_rel_s": 940.164
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 945.164,
+          "end_rel_s": 945.254
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 950.255,
+          "end_rel_s": 950.349
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 955.35,
+          "end_rel_s": 955.435
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 960.435,
+          "end_rel_s": 960.531
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 961.875,
+          "end_rel_s": 963.881
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 965.532,
+          "end_rel_s": 965.626
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 970.627,
+          "end_rel_s": 970.718
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 975.718,
+          "end_rel_s": 975.809
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 980.809,
+          "end_rel_s": 980.898
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 985.899,
+          "end_rel_s": 985.987
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 990.988,
+          "end_rel_s": 991.072
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 996.072,
+          "end_rel_s": 996.159
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1001.159,
+          "end_rel_s": 1001.246
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1006.247,
+          "end_rel_s": 1006.336
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1011.336,
+          "end_rel_s": 1011.426
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1016.426,
+          "end_rel_s": 1016.517
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1021.518,
+          "end_rel_s": 1021.605
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1023.881,
+          "end_rel_s": 1025.887
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1026.606,
+          "end_rel_s": 1026.699
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1031.699,
+          "end_rel_s": 1031.79
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1036.79,
+          "end_rel_s": 1036.879
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1041.879,
+          "end_rel_s": 1041.97
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1046.97,
+          "end_rel_s": 1047.059
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1052.059,
+          "end_rel_s": 1052.148
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1057.148,
+          "end_rel_s": 1057.237
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1062.237,
+          "end_rel_s": 1062.329
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1067.329,
+          "end_rel_s": 1067.422
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1072.422,
+          "end_rel_s": 1072.507
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1077.508,
+          "end_rel_s": 1077.596
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1082.597,
+          "end_rel_s": 1082.685
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1085.887,
+          "end_rel_s": 1087.894
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1087.686,
+          "end_rel_s": 1087.778
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1092.778,
+          "end_rel_s": 1092.867
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1097.867,
+          "end_rel_s": 1097.954
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1102.954,
+          "end_rel_s": 1103.046
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1108.046,
+          "end_rel_s": 1108.141
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1113.141,
+          "end_rel_s": 1113.231
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1118.231,
+          "end_rel_s": 1118.318
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1123.319,
+          "end_rel_s": 1123.408
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1128.409,
+          "end_rel_s": 1128.498
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1133.498,
+          "end_rel_s": 1133.584
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1138.585,
+          "end_rel_s": 1138.677
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1143.678,
+          "end_rel_s": 1143.769
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1147.895,
+          "end_rel_s": 1149.901
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1148.769,
+          "end_rel_s": 1148.867
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1153.867,
+          "end_rel_s": 1153.954
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1158.954,
+          "end_rel_s": 1159.043
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1164.043,
+          "end_rel_s": 1164.133
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1169.133,
+          "end_rel_s": 1169.22
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1174.221,
+          "end_rel_s": 1174.311
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1179.311,
+          "end_rel_s": 1179.402
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1184.403,
+          "end_rel_s": 1184.494
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1189.495,
+          "end_rel_s": 1189.582
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1194.582,
+          "end_rel_s": 1194.674
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1199.674,
+          "end_rel_s": 1199.761
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1204.762,
+          "end_rel_s": 1204.849
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1209.849,
+          "end_rel_s": 1209.94
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1209.902,
+          "end_rel_s": 1211.908
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1214.94,
+          "end_rel_s": 1215.031
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1220.031,
+          "end_rel_s": 1220.128
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1225.129,
+          "end_rel_s": 1225.219
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1230.219,
+          "end_rel_s": 1230.307
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1235.308,
+          "end_rel_s": 1235.395
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1240.395,
+          "end_rel_s": 1240.484
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1245.484,
+          "end_rel_s": 1245.575
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1250.576,
+          "end_rel_s": 1250.671
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1255.671,
+          "end_rel_s": 1255.772
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1260.773,
+          "end_rel_s": 1260.86
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1265.861,
+          "end_rel_s": 1265.949
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1270.95,
+          "end_rel_s": 1271.037
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1271.909,
+          "end_rel_s": 1273.914
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1276.038,
+          "end_rel_s": 1276.123
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1281.123,
+          "end_rel_s": 1281.208
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1286.209,
+          "end_rel_s": 1286.296
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1291.297,
+          "end_rel_s": 1291.384
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1296.384,
+          "end_rel_s": 1296.473
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1301.473,
+          "end_rel_s": 1301.561
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1306.561,
+          "end_rel_s": 1306.649
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1311.649,
+          "end_rel_s": 1311.741
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1316.741,
+          "end_rel_s": 1316.831
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1321.831,
+          "end_rel_s": 1321.922
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1326.922,
+          "end_rel_s": 1327.02
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1332.02,
+          "end_rel_s": 1332.105
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1333.915,
+          "end_rel_s": 1334.931
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1337.105,
+          "end_rel_s": 1337.193
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1342.193,
+          "end_rel_s": 1342.283
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1347.284,
+          "end_rel_s": 1347.375
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1352.376,
+          "end_rel_s": 1352.463
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1357.464,
+          "end_rel_s": 1357.55
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1362.551,
+          "end_rel_s": 1362.637
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1367.638,
+          "end_rel_s": 1367.721
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1372.722,
+          "end_rel_s": 1372.814
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1377.815,
+          "end_rel_s": 1377.906
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1382.907,
+          "end_rel_s": 1382.996
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1387.997,
+          "end_rel_s": 1388.086
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1393.086,
+          "end_rel_s": 1393.181
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1394.932,
+          "end_rel_s": 1396.942
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1398.181,
+          "end_rel_s": 1398.271
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1403.272,
+          "end_rel_s": 1403.357
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1408.358,
+          "end_rel_s": 1408.451
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1413.451,
+          "end_rel_s": 1413.538
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1418.539,
+          "end_rel_s": 1418.629
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1423.629,
+          "end_rel_s": 1423.734
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1428.734,
+          "end_rel_s": 1428.821
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1433.822,
+          "end_rel_s": 1433.916
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1438.916,
+          "end_rel_s": 1439.005
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1444.006,
+          "end_rel_s": 1444.097
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1449.098,
+          "end_rel_s": 1449.189
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1454.189,
+          "end_rel_s": 1454.285
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1456.943,
+          "end_rel_s": 1458.954
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1459.285,
+          "end_rel_s": 1459.372
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1464.372,
+          "end_rel_s": 1464.462
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1469.462,
+          "end_rel_s": 1469.551
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1474.551,
+          "end_rel_s": 1474.638
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1479.638,
+          "end_rel_s": 1479.729
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1484.729,
+          "end_rel_s": 1484.816
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1489.817,
+          "end_rel_s": 1489.909
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1494.91,
+          "end_rel_s": 1495.007
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1500.007,
+          "end_rel_s": 1500.093
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1505.094,
+          "end_rel_s": 1505.183
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1510.184,
+          "end_rel_s": 1510.272
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1515.272,
+          "end_rel_s": 1515.361
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1518.955,
+          "end_rel_s": 1520.966
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1520.362,
+          "end_rel_s": 1520.578
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1525.579,
+          "end_rel_s": 1525.676
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1530.676,
+          "end_rel_s": 1530.768
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1535.768,
+          "end_rel_s": 1535.857
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1540.857,
+          "end_rel_s": 1540.952
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1545.952,
+          "end_rel_s": 1546.04
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1551.04,
+          "end_rel_s": 1551.13
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1556.13,
+          "end_rel_s": 1556.216
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1561.216,
+          "end_rel_s": 1561.306
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1566.307,
+          "end_rel_s": 1566.394
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1571.394,
+          "end_rel_s": 1571.486
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1576.486,
+          "end_rel_s": 1576.575
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1580.967,
+          "end_rel_s": 1582.975
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1581.575,
+          "end_rel_s": 1581.684
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1586.685,
+          "end_rel_s": 1586.776
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1591.777,
+          "end_rel_s": 1591.865
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1596.865,
+          "end_rel_s": 1596.951
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1601.951,
+          "end_rel_s": 1602.043
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1607.043,
+          "end_rel_s": 1607.13
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1612.13,
+          "end_rel_s": 1612.217
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1617.218,
+          "end_rel_s": 1617.314
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1622.315,
+          "end_rel_s": 1622.406
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1627.406,
+          "end_rel_s": 1627.493
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1632.493,
+          "end_rel_s": 1632.587
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1637.588,
+          "end_rel_s": 1637.676
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1642.677,
+          "end_rel_s": 1642.765
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1642.975,
+          "end_rel_s": 1644.98
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1647.765,
+          "end_rel_s": 1647.856
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1652.856,
+          "end_rel_s": 1652.949
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1657.949,
+          "end_rel_s": 1658.039
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1663.039,
+          "end_rel_s": 1663.131
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1668.131,
+          "end_rel_s": 1668.218
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1673.219,
+          "end_rel_s": 1673.304
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1678.304,
+          "end_rel_s": 1678.401
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1683.401,
+          "end_rel_s": 1683.492
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1688.493,
+          "end_rel_s": 1688.581
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1693.581,
+          "end_rel_s": 1693.671
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1698.671,
+          "end_rel_s": 1698.757
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1703.758,
+          "end_rel_s": 1703.867
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1704.98,
+          "end_rel_s": 1706.993
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1708.868,
+          "end_rel_s": 1708.959
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1713.959,
+          "end_rel_s": 1714.049
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1719.05,
+          "end_rel_s": 1719.143
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1724.143,
+          "end_rel_s": 1724.235
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1729.236,
+          "end_rel_s": 1729.325
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1734.326,
+          "end_rel_s": 1734.416
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1739.416,
+          "end_rel_s": 1739.51
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1744.51,
+          "end_rel_s": 1744.608
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1749.608,
+          "end_rel_s": 1749.696
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1754.696,
+          "end_rel_s": 1754.795
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1759.795,
+          "end_rel_s": 1759.883
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1764.884,
+          "end_rel_s": 1764.972
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1766.993,
+          "end_rel_s": 1769.005
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1769.972,
+          "end_rel_s": 1770.063
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1775.064,
+          "end_rel_s": 1775.158
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1780.159,
+          "end_rel_s": 1780.249
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1785.249,
+          "end_rel_s": 1785.344
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1790.344,
+          "end_rel_s": 1790.48
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1795.481,
+          "end_rel_s": 1795.577
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1800.577,
+          "end_rel_s": 1800.667
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1805.668,
+          "end_rel_s": 1805.752
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1810.752,
+          "end_rel_s": 1810.841
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1815.842,
+          "end_rel_s": 1815.934
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1820.934,
+          "end_rel_s": 1821.026
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1826.026,
+          "end_rel_s": 1826.118
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1829.006,
+          "end_rel_s": 1831.011
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1831.118,
+          "end_rel_s": 1831.21
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1836.21,
+          "end_rel_s": 1836.299
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1841.3,
+          "end_rel_s": 1841.388
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1846.388,
+          "end_rel_s": 1846.479
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1851.479,
+          "end_rel_s": 1851.57
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1856.57,
+          "end_rel_s": 1856.659
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1861.66,
+          "end_rel_s": 1861.721
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1866.721,
+          "end_rel_s": 1866.722
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1871.723,
+          "end_rel_s": 1871.728
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1876.729,
+          "end_rel_s": 1876.73
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1881.73,
+          "end_rel_s": 1881.731
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1886.732,
+          "end_rel_s": 1886.737
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 1891.011,
+          "end_rel_s": 1893.016
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1891.737,
+          "end_rel_s": 1891.739
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1896.739,
+          "end_rel_s": 1896.745
+        },
+        {
+          "source": "inc-app-stmt-5s",
+          "start_rel_s": 1901.746,
+          "end_rel_s": 1901.752
+        }
+      ],
+      "completed_before_k6": 19,
+      "first_in_k6": {
+        "source": "inc-app-stmt-5s",
+        "start_rel_s": 3.138,
+        "end_rel_s": 3.142
+      }
+    },
+    "db_start_to_k6_s": 152.338,
+    "db_start_to_seed_s": 65.565,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-20T14:44:22.299219+00:00",
+          "last_autoanalyze": null
+        },
+        "seat_hold": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": "2026-10-20T14:44:22.30103+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "The Z Garbage Collector",
+      "stops": 2629,
+      "stop_ms_max": 5.309172,
+      "nested": 0,
+      "log_bytes": 7075788,
+      "k6": {
+        "stops": 2589,
+        "stop_ms_total": 108.70532199999967,
+        "stop_ms_max": 0.123665,
+        "nested": 0,
+        "gc_ids": 2589,
+        "safepoint_other_max_ms": 0.113025,
+        "full": 0,
+        "stalls": 0,
+        "stall_ms_max": 0,
+        "worker_stalls": 0,
+        "worker_stall_ms_max": 0
+      }
+    },
+    "reconciler": null
+  },
+  "reconcile_shape": "split",
+  "incremental": {
+    "method": "stmt",
+    "interval": "5s",
+    "inject_app": false,
+    "source": "inc-app-stmt-5s",
+    "safety_source": "safety-app",
+    "where": "app"
+  }
+}

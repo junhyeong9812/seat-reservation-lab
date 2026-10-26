@@ -369,7 +369,7 @@ SH
 
 # ---- ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — 회차 전에 한 번, 측정 대상 앱 SHA 기준) -------------------------------------------------
 # 매수 방식은 src/main/resources/application.yml만 정할 수 있고 그 값은 counter-upsert-precheck여야 한다. 프로필 설정(loadtest 등)이 덮으면 '기본값'을 잰 것이 아니다.
-#   ① <SHA>의 src/main/resources 아래 application*.{yml,yaml,properties}(하위 폴더 포함) 중 application.yml이 아닌 파일에서 limit[._-]?strategy(대소문자 무시, 주석 제외)가
+#   ① <SHA>의 src/main/resources(새 구조는 main-app/src/main/resources) 아래 application*.{yml,yaml,properties}(하위 폴더 포함) 중 application.yml이 아닌 파일에서 limit[._-]?strategy(대소문자 무시, 주석 제외)가
 #      한 번이라도 나오면 limit-set-by-profile
 #   ② application.yml: 그 정규식이 나오는 (주석 아닌) 줄이 정확히 하나이고 그 줄이 `limit-strategy: counter-upsert-precheck`가 아니면 limit-default-not-precheck
 #   ③ 실제로 띄울 compose 파일들(인자)의 주석 아닌 줄에 SPRING_CONFIG_가 있으면 spring-config-override(외부 설정 위치 — 내용을 볼 수 없다)
@@ -379,7 +379,10 @@ SH
 # 인자: sha compose파일... (compose 파일은 로컬 경로 — 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 사본) → 한 줄 JSON {"sha","files","application_yml","spring_config","reasons"}
 limit_config_check() {
   local sha="$1"; shift
-  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf
+  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf res=src/main/resources core=()
+  # 저장소 구조(task 04b): 그 SHA에 main-app/src/main/resources가 있으면 그쪽(새 구조), 없으면 src/main/resources(옛 구조)
+  [[ -n "$(git -C "$REPO_ROOT" ls-tree -d --name-only "$sha" -- main-app/src/main/resources 2>/dev/null)" ]] && res=main-app/src/main/resources core=(reconcile-core/src/main/resources)
+  # 새 구조: reconcile-core도 main-app 런타임 classpath에 올라가므로 그 자원(application*)도 같이 본다(04b 리뷰)
   strip() { case "$1" in *.properties) grep -vE '^[[:space:]]*[#!]' ;; *) sed -E 's/(^|[[:space:]])#.*$//' ;; esac; }
   while IFS= read -r f; do
     [[ "$(basename "$f")" =~ ^application.*\.(ya?ml|properties)$ ]] || continue
@@ -388,13 +391,13 @@ limit_config_check() {
     [[ "$k" =~ ^[0-9]+$ ]] || return 1
     (( k == 0 )) || reasons+=("spring-config-import")
     files=$(jq -c --arg f "$f" --argjson n "${n:-0}" --argjson k "$k" '. + [{path:$f, matches:$n, config_keys:$k}]' <<< "$files")
-    if [[ "$f" == src/main/resources/application.yml ]]; then
+    if [[ "$f" == "$res/application.yml" ]]; then
       app_lines=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -iE 'limit[._-]?strategy')
       if [[ "$(grep -c . <<< "$app_lines")" == 1 ]] && grep -qE '^[[:space:]]*limit-strategy:[[:space:]]*counter-upsert-precheck[[:space:]]*$' <<< "$app_lines"; then app_ok=true; fi
     elif (( n > 0 )); then
       reasons+=("limit-set-by-profile")
     fi
-  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- src/main/resources) || return 1
+  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res" ${core[@]+"${core[@]}"}) || return 1
   [[ "$files" != "[]" ]] || return 1   # 설정 파일을 하나도 못 찾으면 확인 실패(조용히 통과하지 않게)
   [[ "$app_ok" == true ]] || reasons+=("limit-default-not-precheck")
   for cf in "$@"; do
@@ -404,6 +407,30 @@ limit_config_check() {
   (( sc == 0 )) || reasons+=("spring-config-override")
   jq -nc --arg sha "$sha" --argjson files "$files" --argjson ok "$app_ok" --argjson sc "$sc" --arg r "$(printf '%s\n' "${reasons[@]}" | sort -u | grep . | tr '\n' ' ')" \
     '{sha:$sha, files:$files, application_yml:{precheck:$ok}, spring_config:$sc, reasons:($r | split(" ") | map(select(. != "")))}'
+}
+
+# ---- ADR-012 기본값 교체(명세 §10 K9) — 측정 대상 SHA의 업무 앱 기본값이 옛 C(ADR-009 default 셀)인가 ------------------------------------------------
+# <SHA>의 업무 앱 application.yml(새 구조 main-app/src/main/resources · 없으면 task 04b 전 옛 구조 src/main/resources)에서
+#   seat.hold.counter-drift.reconcile.enabled == true 그리고 ….reconcile.incremental.enabled != true(키 없음 포함)면 0(옛 C 기본값 — run.sh --cond default 허용 ·
+#   campaign.sh의 C 셀 = --cond default) · reconcile.enabled가 true가 아닌 다른 값이거나 증분이 켜져 있으면 1(옛 C가 아니다 — default 거부 · C 셀 = --cond A+C --cleanup schedule).
+#   2 = 판정 불가(호출 쪽이 거부 — 추측하지 않는다): 없는 SHA·git 오류 · 두 구조 어디에도 application.yml 없음 · YAML 파싱 실패 · 조건부 문서(on-profile 등 — cfgkeys.py) ·
+#   reconcile.enabled 키 없음(ADR-009 기본값 커밋 8e4c92e3 전 SHA — C의 기본은 코드 기본값이 정했고 그 값은 yml로 알 수 없다).
+#   '파일 없음'은 커밋이 있는 것을 먼저 확인한 뒤 git cat-file -e <sha>:<path>로만 가른다(다른 git 오류를 다른 판정으로 읽지 않게). 값은 소문자로 비교(YAML True·TRUE).
+#   교체 커밋 SHA를 상수로 두지 않는다(병합 방식에 따라 조상 관계가 달라진다) — 그 SHA의 파일 내용으로 정한다.
+app_default_is_old_c() {
+  local path y c i key=seat.hold.counter-drift.reconcile
+  [[ -n "${1:-}" ]] || return 2
+  git -C "$REPO_ROOT" cat-file -e "$1^{commit}" 2>/dev/null || return 2
+  for path in main-app/src/main/resources/application.yml src/main/resources/application.yml ""; do
+    [[ -z "$path" ]] && return 2
+    git -C "$REPO_ROOT" cat-file -e "$1:$path" 2>/dev/null && break
+  done
+  y="$(git -C "$REPO_ROOT" show "$1:$path")" || return 2
+  c="$(python3 -I "$LIB_DIR/cfgkeys.py" --value "$key.enabled" <<< "$y")" || return 2
+  i="$(python3 -I "$LIB_DIR/cfgkeys.py" --value "$key.incremental.enabled" <<< "$y")" || return 2
+  [[ -n "$c" ]] || return 2
+  [[ "${c,,}" == true && "${i,,}" != true ]] && return 0
+  return 1
 }
 
 # ---- ADR-009 카운터 어긋남(명세 §5·§10·§11 · 설계 §9) --------------------------------------------------------------------------------
@@ -426,6 +453,223 @@ SELECT json_build_object('triggers', (SELECT coalesce(json_agg(DISTINCT tgname),
 SQL
 }
 
+# ---- ADR-012 2단계(새 조건 A+I·A+X — run.sh가 그 조건에서만 부른다) ----------------------------------------------------------------
+# 스키마(§4.2.2 기동 검사와 같은 대상 — 하네스가 DB에서 다시 본다, rep_status schema-mismatch):
+#   {"updated_at_column": user_hold_quota.updated_at 열 있음, "updated_at_index": idx_user_hold_quota_updated_at 있음, "touch_trigger": 트리거 user_hold_quota_touch 있음,
+#    "tables": [V10 테이블 중 있는 것 — counter_safety_run · counter_inc_gap · counter_app_inject]}
+db_schema() {
+  db_json <<'SQL'
+SELECT json_build_object(
+  'updated_at_column', EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user_hold_quota' AND column_name = 'updated_at'),
+  'updated_at_index', to_regclass('idx_user_hold_quota_updated_at') IS NOT NULL,
+  'touch_trigger', EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'user_hold_quota_touch'),
+  'tables', (SELECT coalesce(json_agg(table_name ORDER BY table_name), '[]') FROM information_schema.tables
+             WHERE table_schema = current_schema() AND table_name IN ('counter_safety_run', 'counter_inc_gap', 'counter_app_inject')));
+SQL
+}
+# R5(하네스 ⑧ — §4.2.9): 쿼터 테이블 갱신·HOT 갱신 누적값 · updated_at 인덱스 크기(V9 방식만 부른다) — 한 줄 JSON {"t","n_tup_upd","n_tup_hot_upd","idx_bytes","table_bytes"}
+quota_hot() {
+  db_json <<'SQL'
+SELECT json_build_object('t', clock_timestamp(), 'n_tup_upd', s.n_tup_upd, 'n_tup_hot_upd', s.n_tup_hot_upd,
+  'idx_bytes', (SELECT pg_relation_size(to_regclass('idx_user_hold_quota_updated_at'))), 'table_bytes', pg_relation_size('user_hold_quota'))
+FROM pg_stat_user_tables s WHERE s.relname = 'user_hold_quota';
+SQL
+}
+# M3 외부 앱(reconciler-app · .158 — ADR-012 §4.2.8 '하네스가 띄우고 내리는 법' ①~⑤ · 명세 §4 .158 범위). run.sh가 --cond A+X에서만 부른다.
+#   범위(명세 §4 — 환경변수로 바꿀 수 없다): 서버 홈 기준 경로 labs/seat-reservation-lab-reconciler · compose 프로젝트 seatlab-reconciler · 포트 8103 · 이미지 태그 seatlab-reconciler:<SHA>.
+#   sudo를 쓰지 않는다 · 이 프로젝트 밖의 컨테이너·이미지·볼륨은 건드리지 않는다(docker 호출은 모두 프로젝트 이름 · 컨테이너 이름 · 이 이미지 태그 · 이 경로의 compose 파일로 한정).
+#   배포(§4.2.8 ①②): 이미지는 k6 PC에서 빌드한다(SHA의 git archive → PC docker build -t seatlab-reconciler:<SHA> · 라벨 org.seatlab.sha=<전체 SHA>) →
+#     `docker save | ssh .158 docker load`(.158에 같은 이미지가 이미 있으면 보내지 않는다) → <경로>/<SHA>/compose.yml 하나만 복사.
+#     .158에서는 빌드·pull을 하지 않는다(기반 이미지·빌드 캐시가 .158에 쌓이지 않음 — compose.yml에 build 절 없음 · pull_policy never · up --no-build).
+#     '같은 이미지' = 라벨 SHA + 층 diff ID 목록(RootFS.Layers)이 같다 — .Id는 이미지 저장소 방식(classic 대 containerd)이 다르면 같은 이미지라도 달라질 수 있어 쓰지 않는다.
+#   비밀번호(§4.2.8 ③): k6 PC 셸 환경 EXT_DB_PASSWORD, 없으면 측정 커밋 compose.yml의 측정 DB 고정값(ext_db_password) — ssh 표준 입력으로 넘겨 원격 셸이 `IFS= read -r`로 받는다(명령 인자·파일·셸 이력·로그에 남지 않음).
+#     남는 위험(rv46 — 지금은 막지 않는다): 값은 컨테이너 환경에 들어간다(.158의 docker inspect Config.Env · 데몬 config.v2.json(root만) · compose 프로세스 /proc/<pid>/environ(본인·root만)).
+#     그래서 하네스는 .158에서 Env를 빼는 --format 없이 docker inspect를 부르지 않고, docker compose config를 부르지 않는다(둘 다 값을 평문으로 찍는다).
+#   원격 명령에 끼우는 값은 모두 형식을 확인한다(rv46): SHA = 16진 · EXT_SERVER의 사용자·호스트 · SERVER_HOST · EXT_DB_USERNAME = [A-Za-z0-9._-](앞 '-' 금지 — ext_inputs_ok) ·
+#     compose 변수 = 허용 목록(ext_kv_ok). 어긋나면 2(run.sh·campaign.sh는 준비 점검 실패로 exit 2).
+#   서버 이름만 EXT_SERVER로 바꿀 수 있다(기본 jun@192.168.55.158). DB = .164(SERVER_HOST):15432 · application_name seatlab-reconciler-ext
+#   정리(수동 — 하네스는 옛 이미지·폴더를 지우지 않는다): ADR-012 §4.2.8의 정리 명령(옛 seatlab-reconciler:<SHA> 태그와 그 SHA 폴더만 — 남길 SHA 하나를 주고, -f 없이)
+EXT_SERVER="${EXT_SERVER:-jun@192.168.55.158}"
+EXT_HOST="${EXT_SERVER#*@}"
+EXT_REMOTE_BASE="labs/seat-reservation-lab-reconciler"
+EXT_PROJECT="seatlab-reconciler"
+EXT_IMAGE_REPO="seatlab-reconciler"
+EXT_PORT=8103
+EXT_CONTAINER="$EXT_PROJECT-reconciler-1"   # compose 기본 이름(<프로젝트>-<서비스>-1) — 표본·로그는 이 컨테이너만
+EXT_COMPOSE="docker compose -p $EXT_PROJECT -f compose.yml"   # <경로>/<SHA>/compose.yml(reconciler-app/compose.yml 사본 — 그 폴더에는 이 파일뿐)
+EXTERNAL_URL="http://${EXT_HOST}:${EXT_PORT}"
+EXT_DB_URL="jdbc:postgresql://${SERVER_HOST}:15432/seat?ApplicationName=seatlab-reconciler-ext"
+EXT_DB_USERNAME="${EXT_DB_USERNAME:-seat}"
+# PC 빌드 입력(git archive — 루트 Dockerfile과 같은 빌드 입력 · main-app은 빌드 파일만: settings가 세 프로젝트를 포함한다)
+EXT_PATHS=(gradlew settings.gradle.kts build.gradle.kts gradle .dockerignore main-app/build.gradle.kts reconcile-core reconciler-app)
+ext_remote_t() { local t="$1"; shift; timeout "$t" ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$EXT_SERVER" "$@"; }
+ext_sha_ok() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]]; }
+ext_name_ok() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != -* ]]; }
+# 원격 명령(작은따옴표 안 포함)에 들어가는 이름들 — 하나라도 형식이 아니면 2(값은 %q로만 보인다)
+ext_inputs_ok() {
+  local u=""; [[ "$EXT_SERVER" == *@* ]] && u="${EXT_SERVER%%@*}"
+  if { [[ "$EXT_SERVER" != *@* ]] || ext_name_ok "$u"; } && ext_name_ok "$EXT_HOST" && ext_name_ok "${SERVER_HOST:-}" && ext_name_ok "$EXT_DB_USERNAME"; then return 0; fi
+  printf 'external: 원격 명령에 넣을 값 형식 아님([A-Za-z0-9._-]만 · 앞 - 금지) — EXT_SERVER=%q SERVER_HOST=%q EXT_DB_USERNAME=%q\n' "$EXT_SERVER" "${SERVER_HOST:-}" "$EXT_DB_USERNAME" >&2
+  return 2
+}
+# compose 변수 허용 목록(reconciler-app/compose.yml이 읽는 것 중 하네스가 바꾸는 것만 — DB_*·RECONCILER_TAG는 external_app_up이 정한다: 태그를 바꾸면 기록된 SHA와 다른 이미지가 돈다) ·
+#   값은 공백·따옴표·셸 특수문자 없는 글자만
+ext_kv_ok() { [[ "$1" =~ ^(INC_METHOD|INC_INTERVAL|INC_TRACK|DETECT_SHAPE|RECONCILER_JVM_OPTS[234]?|RECONCILER_CPUS|RECONCILER_MEM)=[A-Za-z0-9:+._=-]*$ ]]; }
+# '같은 이미지' 지문(라벨 SHA + 층 diff ID) — docker image inspect --format(Env를 찍지 않는다)
+EXT_IMAGE_FMT='{{index .Config.Labels "org.seatlab.sha"}} {{json .RootFS.Layers}} {{json .Config}}'   # 지문 = 라벨 SHA + 층 diff ID + 이미지 설정(실행 명령·환경 — rv46 재점검: 층만 같고 설정이 다른 이미지를 막는다)
+external_app_supported() { return 0; }
+# 캠페인·run.sh 전 점검: 원격에 넣을 값 형식 · 비밀번호가 PC 환경에 있나 · PC docker(빌드) · .158 도달 · docker·compose · 포트 8103을 이 프로젝트 밖에서 쓰지 않나. 결과 한 줄을 표준 오류로 · 0 = 준비됨
+# DB 비밀번호(§4.2.8 ③): EXT_DB_PASSWORD가 있으면 그 값 · 없으면 측정 커밋의 하네스 compose(k6/ADR-009/compose.yml — .164 측정 DB를 회차마다 만드는 파일)의
+#   POSTGRES_PASSWORD 고정값을 쓴다(측정 전용 DB · 값은 이미 저장소에 커밋됨 · 사용자 결정 10-21). 값은 출력하지 않고 변수에만 둔다(export 안 함 — k6 등 자식에 안 물림)
+ext_db_password() {  # 인자: sha(없으면 HEAD) → EXT_DB_PASSWORD를 채운다. 실패면 1
+  [[ -n "${EXT_DB_PASSWORD:-}" ]] && return 0
+  local v; v=$(git -C "$REPO_ROOT" show "${1:-HEAD}:k6/ADR-009/compose.yml" 2>/dev/null | sed -nE 's/^[[:space:]]*POSTGRES_PASSWORD:[[:space:]]*"?([^"#[:space:]]+)"?.*$/\1/p' | head -1)
+  [[ -n "$v" ]] || return 1
+  EXT_DB_PASSWORD="$v"
+}
+external_app_ready() {
+  ext_inputs_ok || return 2
+  ext_db_password || { echo "external_app_ready: DB 비밀번호를 정하지 못했다(EXT_DB_PASSWORD 없음 · 하네스 compose.yml POSTGRES_PASSWORD 못 읽음)" >&2; return 1; }
+  docker version --format '{{.Server.Version}}' > /dev/null 2>&1 || { echo "external_app_ready: k6 PC docker를 쓸 수 없다(외부 앱 이미지는 PC에서 빌드한다 — §4.2.8 ①)" >&2; return 1; }
+  local out
+  out=$(ext_remote_t 60 bash -s -- "$EXT_PROJECT" "$EXT_PORT" "$EXT_REMOTE_BASE" <<'REMOTE'
+set -u
+p="$1" port="$2" base="$3"
+docker version --format '{{.Server.Version}}' > /dev/null 2>&1 || { echo "docker-unavailable"; exit 1; }
+cv=$(docker compose version --short 2>/dev/null) || { echo "compose-unavailable"; exit 1; }
+# 포트 8103을 쓰는 컨테이너는 이 프로젝트 것뿐이어야 한다 — 다른 프로젝트·프로세스면 거부(그 컨테이너는 건드리지 않는다)
+others=$(docker ps --filter "publish=$port" --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | awk -v p="$p" '$2 != p {print $1}')
+[ -z "$others" ] || { echo "port-$port-used-by:$others"; exit 1; }
+if [ -z "$(docker ps -q --filter "label=com.docker.compose.project=$p")" ] && (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then echo "port-$port-busy(non-docker)"; exit 1; fi
+mkdir -p "$base" || { echo "mkdir-failed"; exit 1; }
+echo "ok compose=$cv disk_avail_kb=$(df -Pk "$base" | awk 'NR == 2 {print $4}') deployed=$(ls -d "$base"/*/ 2>/dev/null | wc -l) images=$(docker image ls -q "$p" | sort -u | wc -l)"
+REMOTE
+) || { echo "external_app_ready: $EXT_SERVER 점검 실패 — ${out:-ssh 실패}" >&2; return 1; }
+  [[ "$out" == ok* ]] || { echo "external_app_ready: $out" >&2; return 1; }
+  echo "external_app_ready: $EXT_SERVER $out" >&2
+}
+# 배포(§4.2.8 ①②) — ① PC 빌드(같은 태그가 이 커밋 라벨이면 다시 짓지 않는다) ② .158에 같은 이미지가 없을 때만 docker save | docker load → 지문 확인
+#   ③ compose 파일 하나를 <경로>/<SHA>/compose.yml로(임시 폴더에 쓰고 확인한 뒤 이름을 바꿔 .deployed). 인자: sha. 빌드·적재 출력은 표준 오류
+external_app_deploy() {
+  local sha="$1" b="$EXT_REMOTE_BASE" img="$EXT_IMAGE_REPO:$1" full lfp rfp i ok=0
+  ext_sha_ok "$sha" || { log "external_app_deploy: SHA 형식 아님 — $sha"; return 2; }
+  ext_inputs_ok || return 2
+  for i in compose.yml Dockerfile; do
+    git -C "$REPO_ROOT" cat-file -e "$sha:reconciler-app/$i" 2>/dev/null || { log "external_app_deploy: $sha에 reconciler-app/$i이 없다"; return 2; }
+  done
+  full=$(git -C "$REPO_ROOT" rev-parse --verify "$sha^{commit}") || return 2
+  # ① PC 빌드 — 빌드 문맥 = git archive tar(표준 입력 — 작업트리가 아니라 커밋 그대로)
+  # rv46 재점검: 라벨만 같은 다른 이미지가 태그를 차지했을 수 있어 늘 다시 짓는다(빌드 캐시로 빠름 — 결과 이미지 = 이 커밋)
+  log "external build $img (k6 PC — git archive $sha)"
+  git -C "$REPO_ROOT" archive --format=tar "$sha" -- "${EXT_PATHS[@]}" \
+    | docker build -f reconciler-app/Dockerfile -t "$img" --label "org.seatlab.sha=$full" - >&2
+  (( PIPESTATUS[0] == 0 && PIPESTATUS[1] == 0 )) || { log "external build $img 실패"; return 1; }
+  lfp=$(docker image inspect --format "$EXT_IMAGE_FMT" "$img" 2>/dev/null)
+  [[ "$lfp" == "$full "* ]] || { log "external build: $img 라벨이 $full이 아니다 — $lfp"; return 1; }
+  # ② 전송 — .158 지문이 같으면 건너뛴다(같은 SHA 재배포 · 이어서 실행)
+  for i in 1 2 3; do
+    rfp=$(ext_remote_t 30 "docker image inspect --format '$EXT_IMAGE_FMT' $img 2>/dev/null") || rfp=""
+    if [[ "$rfp" == "$lfp" ]]; then ok=1; break; fi
+    log "external image $img → $EXT_SERVER docker load (attempt $i)"
+    docker save "$img" | ext_remote_t 900 "docker load" >&2
+    log "external image load pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]}"
+    (( i < 3 )) && sleep $((i * 10))
+  done
+  (( ok )) || { rfp=$(ext_remote_t 30 "docker image inspect --format '$EXT_IMAGE_FMT' $img 2>/dev/null") && [[ "$rfp" == "$lfp" ]]; } \
+    || { log "external image: .158 $img 지문이 PC와 다르다(또는 없다)"; return 1; }
+  # ③ compose 파일만
+  for i in 1 2 3; do
+    log "external deploy compose.yml($sha) → $EXT_SERVER:$b/$sha (attempt $i)"
+    if git -C "$REPO_ROOT" show "$sha:reconciler-app/compose.yml" \
+       | ext_remote_t 60 "mkdir -p $b && rm -rf $b/.tmp-$sha && mkdir -p $b/.tmp-$sha && cat > $b/.tmp-$sha/compose.yml && test -s $b/.tmp-$sha/compose.yml && touch $b/.tmp-$sha/.deployed && rm -rf $b/$sha && mv $b/.tmp-$sha $b/$sha"; then
+      return 0
+    fi
+    log "external deploy attempt $i failed — retry in $((i * 20))s"; sleep $((i * 20))
+  done
+  return 1
+}
+# 외부 앱 띄우기: compose up(빌드·pull 없음 — 배포가 적재한 이미지 그대로) → 8103 health UP. 인자: sha 회차폴더 KEY=VALUE…(ext_kv_ok 허용 목록만)
+#   회차폴더에 external-compose.log(compose 출력 — 비밀번호 없음) · external-container.json(적용된 cpus·메모리 한도·이미지만 — 환경(Env)은 읽지 않는다)
+external_app_up() {
+  local sha="$1" dir="$2" i; shift 2
+  ext_sha_ok "$sha" || return 2
+  ext_inputs_ok 2>>"$dir/errors.log" || return 2
+  ext_db_password "$sha" || { echo "$(date -Is) external_app_up: DB 비밀번호를 정하지 못함(EXT_DB_PASSWORD 없음 · $sha compose.yml POSTGRES_PASSWORD 없음)" >> "$dir/errors.log"; return 1; }
+  local kv; for kv in "$@"; do ext_kv_ok "$kv" || { printf '%s external_app_up: 허용 목록 밖 변수·형식 아님 — %q\n' "$(date -Is)" "$kv" >> "$dir/errors.log"; return 2; }; done
+  for i in 1 2; do
+    log "external compose up ($sha) $* (attempt $i)"
+    if printf '%s\n' "$EXT_DB_PASSWORD" | ext_remote_t 180 "IFS= read -r DB_PASSWORD && export DB_PASSWORD && cd $EXT_REMOTE_BASE/$sha && env RECONCILER_TAG=$sha DB_URL='$EXT_DB_URL' DB_USERNAME='$EXT_DB_USERNAME' $* $EXT_COMPOSE up -d --no-build --force-recreate" >> "$dir/external-compose.log" 2>&1; then
+      break
+    fi
+    (( i == 2 )) && return 1
+    sleep 20
+  done
+  external_wait_health "${EXT_HEALTH_S:-180}" || { echo "$(date -Is) external health timeout ($EXTERNAL_URL)" >> "$dir/errors.log"; return 1; }
+  ext_remote_t 30 "docker inspect $EXT_CONTAINER --format '{{json .HostConfig.NanoCpus}} {{json .HostConfig.Memory}} {{json .Config.Image}} {{json .Image}}'" 2>>"$dir/errors.log" \
+    | jq -Rc 'split(" ") | {container: "'"$EXT_CONTAINER"'", cpu: (.[0] | fromjson), mem: (.[1] | fromjson), image: (.[2] | fromjson), image_id: (.[3] | fromjson)}' > "$dir/external-container.json" 2>>"$dir/errors.log" \
+    || echo "$(date -Is) external-container.json failed" >> "$dir/errors.log"
+  return 0
+}
+external_wait_health() {
+  local deadline=$((SECONDS + ${1:-180}))
+  until curl -fsS --max-time 5 "$EXTERNAL_URL/actuator/health" 2>/dev/null | grep -q '"UP"'; do
+    (( SECONDS > deadline )) && return 1
+    sleep 2
+  done
+}
+# 외부 앱 내리기: 이 프로젝트만(compose down — 배포 폴더의 compose 파일 · 변수는 내리기에 쓰이지 않는 자리 값) → 이 프로젝트 라벨의 컨테이너가 0개인지 확인. 인자: sha
+#   배포 폴더가 없으면(배포 전) 컨테이너가 0개인지만 본다. 3번까지 · 끝내 남으면 1
+external_app_down() {
+  local sha="$1" i
+  ext_sha_ok "$sha" || return 2
+  ext_inputs_ok || return 2
+  for i in 1 2 3; do
+    log "external compose down ($sha) (attempt $i)"
+    ext_remote_t 120 "if [ -f $EXT_REMOTE_BASE/$sha/compose.yml ]; then cd $EXT_REMOTE_BASE/$sha && env DB_URL=- DB_USERNAME=- DB_PASSWORD=- INC_METHOD=- $EXT_COMPOSE down --remove-orphans; fi" >&2
+    if ext_remote_t 30 "[ -z \"\$(docker ps -aq --filter label=com.docker.compose.project=$EXT_PROJECT)\" ]" >&2; then return 0; fi
+    log "external compose down: $EXT_PROJECT 컨테이너가 남았거나 확인 실패 — retry in 10s"; sleep 10
+  done
+  return 1
+}
+# 외부 앱 적용 설정(8103 configprops — F의 reconciler-config.json과 같은 모양 {configprops:[…]}, 비밀번호 키 제외) → 표준 출력
+external_app_configprops() {
+  curl -fsS --max-time 10 "$EXTERNAL_URL/actuator/configprops" | jq -c '{configprops: [.contexts[].beans[] | select(.prefix | test("^(seat\\.hold(\\..+)?|spring\\.datasource\\.hikari|server)$"))
+      | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]}'
+}
+# ⑥ 외부 앱 컨테이너 docker stats 한 번(이 컨테이너만) → 표본 한 줄 {"t"(.158 시각),"load","stats":{…}}. run.sh 표본기가 10초마다 부른다.
+#   docker stats가 실패했거나 그 컨테이너가 돌고 있는 행(Name 일치 · CPUPerc 숫자 · PIDs ≥ 1)이 아니면 시각 행을 내지 않는다(rv46 — 빈 표본이 공백 판정을 통과하지 않게):
+#   대신 {"miss_pc_t"(PC 시각),"error"} 한 줄(gapcheck는 '{"t"' 줄만 센다 → 그 자리는 공백 → external-sample-missing) · 1
+external_stats() {
+  local out
+  ext_inputs_ok 2>/dev/null || { printf '{"miss_pc_t":"%s","error":"inputs"}\n' "$(date -Is)"; return 2; }
+  out=$(ext_remote_t 20 bash -s -- "$EXT_CONTAINER" <<'REMOTE'
+set -u
+c="$1"
+t=$(date -Is); l=$(cut -d' ' -f1-3 /proc/loadavg)
+s=$(docker stats --no-stream --format '{{json .}}' "$c" 2>/dev/null) || exit 1
+[ -n "$s" ] || exit 1
+printf '{"t":"%s","load":"%s","stats":%s}\n' "$t" "$l" "$s"
+REMOTE
+)
+  if jq -ce --arg c "$EXT_CONTAINER" 'select(.stats.Name == $c and (.stats.CPUPerc | test("^[0-9.]+%$")) and (.stats.PIDs | test("^[1-9][0-9]*$")))' <<< "$out" 2>/dev/null | grep -m1 '^{"t"'; then
+    return 0
+  fi
+  printf '{"miss_pc_t":"%s","error":"stats-row-missing"}\n' "$(date -Is)"
+  return 1
+}
+# 회차 끝·기동 실패: 외부 앱 로그(external.log.gz — 컨테이너 전체: 회차마다 새로 만든다(up --force-recreate) · 시각 거르기(--since)를 쓰지 않는다 — PC·.158 시계가 다르다)·
+#   GC 로그(external-gc.log.gz) — 상태 한 줄씩 external-status.txt(rep_status external-log-missing). 인자: 회차폴더
+external_app_logs() {
+  local dir="$1" lf
+  ext_inputs_ok 2>>"$dir/errors.log" || return 2
+  lf="$dir/external.log.gz"
+  ext_remote_t 120 "docker logs $EXT_CONTAINER 2>&1" | gzip > "$lf"
+  echo "log pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/external-status.txt"
+  lf="$dir/external-gc.log.gz"
+  ext_remote_t 120 "docker exec $EXT_CONTAINER cat /dev/shm/gc.log" | gzip > "$lf"
+  echo "gc pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$lf" 2>/dev/null | wc -c)" >> "$dir/external-status.txt"
+}
+
 # 대조 첫 바퀴 기다리기(C·F — reconcile-missing의 근거): counter_reconcile_run에 source 행이 생길 때까지(최대 인자 초). 한 줄 JSON {"source","runs","waited_s"}
 wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
   local src="$1" max="$2" t0=$SECONDS n=0 base
@@ -443,31 +687,40 @@ wait_reconcile_run() {  # 인자: source(reconcile-app|reconcile-proc) 최대초
 
 # V7 기록 테이블 전부(회차마다 DB 볼륨을 새로 만들므로 이 회차의 행뿐이다 — 시드 초기화는 V7을 비우지 않으므로 요약기가 k6 구간으로 다시 거른다).
 # counter_drift_log는 페이지로 전부(N-5 — 총 수 함께). 시각은 DB(서버) 시계
-drift_db_dump() {
+drift_db_dump() {  # 인자: (선택) v10 — ADR-012 새 조건: V10 기록 테이블(counter_safety_run · counter_inc_gap · counter_app_inject)도 머리 JSON에(행 수가 작다 — 안전망 1분 · 보장 밖 사건 · 주입 수십)
+  local v10=""
+  if [[ "${1:-}" == v10 ]]; then v10=",
+  'safety_runs', (SELECT coalesce(json_agg(s ORDER BY s.run_id), '[]') FROM counter_safety_run s),
+  'inc_gaps', (SELECT coalesce(json_agg(g ORDER BY g.id), '[]') FROM counter_inc_gap g),
+  'app_inject', (SELECT coalesce(json_agg(a ORDER BY a.id), '[]') FROM counter_app_inject a)"; fi
   # N-5: counter_drift_log는 id 순 페이지(DRIFT_PAGE, 기본 20,000행)로 끝까지 모은다 — 총수(먼저 셈)보다 적게 모이면 호출자(rep_status)가 drift-db-incomplete(수집 실패)
-  local head page last=0 n tmp; tmp=$(mktemp)
-  head=$(db_json <<'SQL'
+  # 리뷰(10-21 인자 한도 감사): 페이지(최대 20,000행 × 약 190B ≈ 3.8MB)를 --argjson으로 넘기면 약 700행부터 인자 한도(128KB)를 넘어 jq가 실행되지 못한다 —
+  #   예전에는 그 실패가 && 사슬에 묻혀 페이지를 조용히 버렸다(rep_status drift-db-incomplete로만 드러남). 페이지는 파일로 받아 --slurpfile, 실패하면 1(drift-db-failed)
+  local head last=0 n tmp pf; tmp=$(mktemp); pf=$(mktemp)
+  head=$(db_json <<SQL
 SELECT json_build_object(
   'db_now', clock_timestamp(),
   'drift_log_total', (SELECT count(*) FROM counter_drift_log),
   'reconcile_runs', (SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM counter_reconcile_run r),
-  'cleanup_runs', (SELECT coalesce(json_agg(c ORDER BY c.id), '[]') FROM counter_cleanup_run c));
+  'cleanup_runs', (SELECT coalesce(json_agg(c ORDER BY c.id), '[]') FROM counter_cleanup_run c)$v10);
 SQL
 ) || { rm -f "$tmp"; return 1; }
   echo '[]' > "$tmp"
   local pages=0
   while :; do
-    page=$(db_json <<SQL
+    db_json > "$pf" <<SQL || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
 SELECT coalesce(json_agg(d ORDER BY d.id), '[]') FROM (SELECT * FROM counter_drift_log WHERE id > $last ORDER BY id LIMIT ${DRIFT_PAGE:-20000}) d;
 SQL
-) || { rm -f "$tmp"; return 1; }
-    n=$(jq 'length' <<< "$page") || { rm -f "$tmp"; return 1; }
+    n=$(jq 'length' "$pf") && [[ "$n" =~ ^[0-9]+$ ]] || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
     pages=$((pages + 1))
-    (( n > 0 )) && { jq -c --argjson p "$page" '. + $p' "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp"; last=$(jq '.[-1].id' <<< "$page"); }
+    if (( n > 0 )); then
+      { jq -c --slurpfile p "$pf" '. + $p[0]' "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp" && last=$(jq -e '.[-1].id' "$pf"); } || { rm -f "$tmp" "$pf" "$tmp.n"; return 1; }
+    fi
     (( n < ${DRIFT_PAGE:-20000} )) && break
   done
-  jq -c --slurpfile l "$tmp" --argjson pages "$pages" '. + {drift_log: $l[0], drift_log_pages: $pages}' <<< "$head"
-  rm -f "$tmp"
+  jq -c --slurpfile l "$tmp" --argjson pages "$pages" '. + {drift_log: $l[0], drift_log_pages: $pages}' <<< "$head"; local rc=$?
+  rm -f "$tmp" "$pf"
+  return $rc
 }
 
 # 어긋남 주입(설계 §9 주입기 — 부하 중 DB 직접 조작, 한 트랜잭션). 인자: D L1 L2 H 제외쌍("(s,u),(s,u)" 또는 빈 값)
@@ -479,9 +732,27 @@ SQL
 #   모두 열린 회차(starts_at > now)의 cnt = 1 쌍, 종류끼리·이전 주입과 겹치지 않는다. 고르는 순서는 결정적(D·L1 = 홀드 id · L2 = 예약 id · H = (회차, 사용자)).
 #   고른 뒤 (회차, 사용자) 순서로 FOR UPDATE 잠그고 조건을 다시 본다(H-7 — 바뀐 쌍은 dropped_after_lock). 변경은 상대값(cnt ± 1), 종류별 영향 행 수(applied)를 함께 낸다.
 #   출력 한 줄 JSON(+ applied·dropped_after_lock) {"at","at_epoch","counts":{…},"pairs":[{kind,schedule_id,user_id,cnt_before,held_at,expires_at}]}
+#   ADR-012 --inject-app on(INJECT_TRACK=1 — §4.2.7 'S3e DB 직접 주입 쌍도 같은 표에'): 같은 트랜잭션에서 counter_app_inject에 주입 쌍마다 1행
+#     (at = clock_timestamp() · tx_started_at = now() · path 'db' · kind D|L1|L2|H · delta = H +1 · 그 밖 −1 · cnt_after = D NULL(행 삭제) · 그 밖 cnt_before + delta) → 출력 + tracked(넣은 행 수).
+#     고르는 쪽은 앱 경로 주입 쌍((회차 × 31 + 사용자) mod INJECT_APP_EVERY = 0 — 앱이 고를 쌍)과 이미 기록된 주입 쌍을 뺀다(두 주입이 같은 쌍에 겹치지 않게).
+#     INJECT_TRACK이 0(기본)이면 SQL 문자열이 이전과 같다
 inject_drift() {
   local d="$1" l1="$2" l2="$3" h="$4" excl="${5:-}" held="${INJECT_HELD_MIN_S:-250}" margin="${INJECT_EXP_MARGIN_S:-15}"
+  local track="${INJECT_TRACK:-0}" every="${INJECT_APP_EVERY:-50}" xa="" tk="" tj=""
   [[ "$d$l1$l2$h$held$margin" =~ ^[0-9]+$ ]] || return 2
+  [[ "$track" =~ ^[01]$ && "$every" =~ ^[1-9][0-9]*$ ]] || return 2
+  if (( track )); then
+    xa=" AND NOT EXISTS (SELECT 1 FROM counter_app_inject a WHERE a.schedule_id = q.schedule_id AND a.user_id = q.user_id) AND (q.schedule_id * 31 + q.user_id) % $every <> 0"
+    tk="
+CREATE TEMP TABLE tracked ON COMMIT DROP AS
+WITH t AS (INSERT INTO counter_app_inject (at, tx_started_at, path, kind, schedule_id, user_id, delta, cnt_after)
+           SELECT clock_timestamp(), now(), 'db', i.kind, i.schedule_id, i.user_id, CASE WHEN i.kind = 'H' THEN 1 ELSE -1 END,
+                  CASE WHEN i.kind = 'D' THEN NULL WHEN i.kind = 'H' THEN i.cnt_before + 1 ELSE i.cnt_before - 1 END
+           FROM inj i ORDER BY i.kind, i.schedule_id, i.user_id RETURNING 1)
+SELECT count(*) AS n FROM t;"
+    tj="
+  'tracked', (SELECT n FROM tracked),"
+  fi
   [[ -z "$excl" || "$excl" =~ ^(\([0-9]+,[0-9]+\),?)+$ ]] || return 2
   db_json <<SQL
 BEGIN;
@@ -493,14 +764,14 @@ SELECT 'D', q.schedule_id, q.user_id, q.cnt, h.held_at, h.expires_at
 FROM seat_hold h JOIN user_hold_quota q ON q.schedule_id = h.schedule_id AND q.user_id = h.user_id
 JOIN product_schedule s ON s.id = h.schedule_id AND s.starts_at > now()
 WHERE h.held_at <= now() - make_interval(secs => $held) AND h.expires_at >= now() + make_interval(secs => $margin) AND q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
 ORDER BY h.id LIMIT $d;
 INSERT INTO inj
 SELECT 'L1', q.schedule_id, q.user_id, q.cnt, h.held_at, h.expires_at
 FROM seat_hold h JOIN user_hold_quota q ON q.schedule_id = h.schedule_id AND q.user_id = h.user_id
 JOIN product_schedule s ON s.id = h.schedule_id AND s.starts_at > now()
 WHERE h.held_at <= now() - make_interval(secs => $held) AND h.expires_at >= now() + make_interval(secs => $margin) AND q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY h.id LIMIT $l1;
 INSERT INTO inj
@@ -510,14 +781,14 @@ JOIN product_schedule s ON s.id = r.schedule_id AND s.starts_at > now()
 WHERE r.status = 'CONFIRMED' AND q.cnt = 1
   AND NOT EXISTS (SELECT 1 FROM seat_hold x WHERE x.schedule_id = q.schedule_id AND x.user_id = q.user_id)
   AND NOT EXISTS (SELECT 1 FROM reservation r2 WHERE r2.schedule_id = q.schedule_id AND r2.user_id = q.user_id AND r2.status = 'CONFIRMED' AND r2.id <> r.id)
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY r.id LIMIT $l2;
 INSERT INTO inj
 SELECT 'H', q.schedule_id, q.user_id, q.cnt, NULL, NULL
 FROM user_hold_quota q JOIN product_schedule s ON s.id = q.schedule_id AND s.starts_at > now()
 WHERE q.cnt = 1
-  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)
+  AND NOT EXISTS (SELECT 1 FROM excl e WHERE e.schedule_id = q.schedule_id AND e.user_id = q.user_id)$xa
   AND NOT EXISTS (SELECT 1 FROM inj i WHERE i.schedule_id = q.schedule_id AND i.user_id = q.user_id)
 ORDER BY q.schedule_id, q.user_id LIMIT $h;
 -- H-7: 고른 쌍의 쿼터 행을 앱과 같은 순서((회차, 사용자))로 잠근 뒤 조건을 다시 본다 — 고른 뒤 잠그기 전에 바뀐 쌍(확정·만료·cnt 변경)은 뺀다(dropped_after_lock)
@@ -541,8 +812,8 @@ CREATE TEMP TABLE applied ON COMMIT DROP AS
 WITH d AS (DELETE FROM user_hold_quota q USING inj i WHERE i.kind = 'D' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
      l AS (UPDATE user_hold_quota q SET cnt = q.cnt - 1 FROM inj i WHERE i.kind IN ('L1', 'L2') AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1),
      h AS (UPDATE user_hold_quota q SET cnt = q.cnt + 1 FROM inj i WHERE i.kind = 'H' AND q.schedule_id = i.schedule_id AND q.user_id = i.user_id RETURNING 1)
-SELECT (SELECT count(*) FROM d) AS d, (SELECT count(*) FROM l) AS l, (SELECT count(*) FROM h) AS h;
-SELECT json_build_object('at', clock_timestamp(), 'at_epoch', extract(epoch FROM clock_timestamp()),
+SELECT (SELECT count(*) FROM d) AS d, (SELECT count(*) FROM l) AS l, (SELECT count(*) FROM h) AS h;$tk
+SELECT json_build_object('at', clock_timestamp(), 'at_epoch', extract(epoch FROM clock_timestamp()),$tj
   'counts', (SELECT json_build_object('D', count(*) FILTER (WHERE kind = 'D'), 'L1', count(*) FILTER (WHERE kind = 'L1'),
                                       'L2', count(*) FILTER (WHERE kind = 'L2'), 'H', count(*) FILTER (WHERE kind = 'H')) FROM inj),
   'applied', (SELECT json_build_object('D', d, 'L', l, 'H', h) FROM applied),

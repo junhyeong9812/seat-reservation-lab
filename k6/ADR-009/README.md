@@ -13,7 +13,7 @@ ADR-008 하네스(`k6/ADR-008/`)를 복사하고 **조건 축 `--cond`**, **정�
 | `compose.reconciler.yml` | F 오버레이 — 같은 이미지, 프로필 `loadtest,reconciler`, 포트 8102, CPU 1, `ApplicationName=seatlab-reconciler`, JSON은 대조 주기·풀·Flyway만 |
 | `compose.tmpfs.yml` | ADR-007 그대로(데이터 디렉터리 tmpfs · DB 메모리 8g). 크기는 run.sh `--pg-tmpfs-size <GiB>`로 바꿀 수 있다(DB 메모리 = 크기 + 2g · 지정 안 하면 6g·8g) |
 | `compose.probe.yml` | ADR-011 서버 측정기 — 서비스 `probe`(이미지 `${PROBE_IMAGE:-grafana/k6:2.2.0}` · `pull_policy: never` · 앱에 `http://app:8101`). `--probes` 회차만 주 k6 직전에 띄우고 회차 끝에 지운다 · `compose_down`이 늘 함께 내린다 |
-| `scripts/tail.py` | **ADR-011 새로 씀** — 판정 지표(ADR-011 §4 T1~T5: 느린 초 · 26초 성분 검정 · 지연 분해 · 측정기 튐 겹침 · Go GC 겹침 · 1분 p99 추세 · 안정성 4항목 · 메모리 ÷ 한도) · `--probe-check`(회차 사유 `probe-missing`) |
+| `scripts/tail.py` | **ADR-011 새로 씀** — 판정 지표(ADR-011 §4 T1~T5: 느린 초 · 26초 성분 검정 · 지연 분해 · 측정기 튐 겹침 · Go GC 겹침 · 1분 p99 추세 · 안정성 4항목 · 메모리 ÷ 한도) · `--probe-check`(회차 사유 `probe-missing`) · **ADR-012 1단계 지표**(회차 결과 `late`·`steady_window`·`cpu_steady`·`rounds`·`a12_missing`·`a12_warn` — 창 기준 = 정상 구간 첫 초 s_min(t0의 올림)): ① 후반 창 [s_min+900, s_min+1800)초의 느린 초·서버형 느린 초·1초 p99 최대(summarize와 같은 계산) + 관측·빈·얇은 초 — 빈+얇은 > 9초면 값은 두고 `late_unavailable`(정상 구간은 `steady_sparse`) ② 정상 구간 [t0, 주 k6 끝] 컨테이너 CPU 평균·최대·표본 수·표본 간격 최대 · F는 한도(회차 `app-config.json` NanoCpus — 없으면 compose 기본 1 가정, `limit_source`) × 100 × 0.95 이상 표본 비율(ADR-012 R1 판정 유효 조건) ⑦ 출처별 대조 바퀴 — 시작·끝이 모두 창 안인 바퀴의 수·중앙·최대 + 창 경계에 걸친 바퀴 수(`crossing`) · 바퀴(걸침 포함) 중/밖 Hikari pending>0 비율·CPU 평균/최대·F 포화 비율과 표본 수 · 기대 출처(회차 `meta.json` cond → summarize `RECONCILE_SOURCE`)·기대 컨테이너(앱·DB, A+F면 F)가 비면 `a12_missing`에 사유(표 상태·'결측·주의' 칸 — 빈 칸으로 두지 않음) — 표는 `--set adr012s1`에서만) |
 | `scenarios/probe-ping.js` | ADR-011 저율 측정기 시나리오 — 고정 도착률 50/s `GET /actuator`(actuator 링크 목록 200 — DB를 거치지 않음. `/actuator/health/ping`은 이 앱에서 404 · `/actuator/health`는 DB 검사를 부른다) · 요청 시각 ms |
 | `scripts/run.sh` | 조건 하나 실행기(ADR-008 + 아래 '바뀐 점') |
 | `scripts/campaign.sh` | 확정 측정 캠페인 84회(아래) · `--dry-run` = 계획·순서·예상 시간만 |
@@ -29,6 +29,12 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 (`counter-drift.expiry-repair` · `counter-drift.reconcile.enabled` · `counter-drift.cleanup.mode`)를 **늘 명시**한다 — 아래 표에 없는 쪽은 끔(`false` · `false` · `--cleanup` 값, 기본 `none`)으로 넣어
 전환 전과 같은 실효 설정으로 뜬다(렌더 대조: 전환 전·후 조건별 실효 값 동일).
 
+ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 A · 앱 안 증분 ⓑ 트리거 1초 · 안전망 · split · C 끔 · V9 트리거·V10 위치)도 같은 방식이다.
+`default` 밖의 조건은 증분·안전망·탐지 모양도 **늘 명시**한다 — `A+I`·`A+X` 밖 = `incremental.method=none` · `incremental.enabled=false` · `safety-net.enabled=false` ·
+`detect-shape=one-shot`(`A+I`는 방식·켬·켬·`--reconcile-shape`(없으면 one-shot) · `A+X` 업무 앱은 방식·끔·끔·one-shot). Flyway 위치는 전부터 늘 명시한다.
+F 컨테이너(`compose.reconciler.yml`)는 `incremental.method=none`과 탐지 모양(없으면 one-shot)을 넣고, 증분·안전망은 `application-reconciler.yml`이 끈다.
+교체 뒤 렌더는 바뀌지만 조건별 실효 값은 교체 전과 같다(ADR-009 선례 46f5b04d와 같이 받아들임).
+
 | 조건 | 업무 앱에 넣는 키(세 키 밖은 키 없음 = 앱 기본값) | 그 밖 |
 |------|------|------|
 | `control` | 세 키 끔 (후보 끔 · 판매 마감 켬 — ADR-008 대조군과 같은 실효 설정) | |
@@ -38,13 +44,13 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `A+F` | A + `counter-drift.external-reconciler=true` | `compose.reconciler.yml`(대조 60s) |
 | `B` | `limit-strategy=counter-trigger` | `spring.flyway.locations += classpath:db/migration-trigger`(V8) |
 | `B+C` | B + reconcile 60s(A 없이 — 명세 §11) | 효과 셀만 |
-| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C |
+| `default` | **없음** — 앱 기본값(A 켬 · C 켬 60s · 정리 ① schedule · 마감 켬 · counter-upsert-precheck). `--cleanup`은 받지 않는다 | 기본값 스모크(task 07a). 키가 없다는 증거 = `limit-key.json` 앱 `drift`·`drift_cmd` 0(아니면 `drift-key-present`) · 효과 셀 기대 = A+C. **ADR-012 기본값 교체 뒤 SHA에서는 계획 단계에서 거부**(`lib.sh app_default_is_old_c` — 그 SHA의 `application.yml`이 `reconcile.enabled=true` · 증분 아님이 아니면 · 판정 불가도 거부) — C 셀은 `--cond A+C --cleanup schedule`. 교체 전 SHA의 이어서 실행·옛 결과 집계(`summarize.py`·`tail.py`)는 default = C 그대로 |
 
 - `--cleanup none|schedule|zero` → `counter-drift.cleanup.mode`(마감 임박 셀 S3c). `default` 밖에서는 `none`도 키로 넣는다.
 - 한계: `default` 조건의 키 없음 확인(`drift`·`drift_cmd`)은 앱 컨테이너 **환경변수·명령줄만** 본다 — 프로필 yml(`application-*.yml`)이 세 키를 바꾸는 경우는 configprops 대조(`cond-config-mismatch` — 기대 = A 켬 · C 켬 · SCHEDULE)가 잡는다.
 - 매수 방식 키는 **B·B+C에서만** 넣는다. 그 밖은 ADR-008처럼 넣지 않고 기본값(`counter-upsert-precheck`)을 configprops로 대조한다.
   `limit-key.json`의 기대 개수가 조건마다 다르다(앱 환경 등장 수 B = 1 · 나머지 0 · F 컨테이너 늘 0).
-- 적용 확인(회차마다): configprops `seat.hold.counterDrift`·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch`) ·
+- 적용 확인(회차마다): configprops `seat.hold.counterDrift`(ADR-012 교체 뒤 `reconcile.incremental.method`·`incremental.enabled`·`safetyNet.enabled`·`detectShape` 포함)·`salesClose` = 조건 기대(`cond-config-mismatch`) · F 컨테이너 configprops(`reconciler-config-mismatch` — 증분·안전망 끔 · 방식 NONE 포함) ·
   `pg_trigger` 두 이름 ⇔ B(`trigger-mismatch`).
   F 컨테이너는 `application-reconciler.yml`이 A·정리를 끈다(대조 전용 — `reconciler-config-mismatch`가 A 끔·정리 NONE도 본다).
 
@@ -78,7 +84,8 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 - 시작 = 시드 끝 → 첫 요청 맞춤 sleep 직전(PC는 배경 프로세스, 서버는 배경 ssh — 시한 `PROBE_UP_TIMEOUT_S` 120초, 넘으면 기동 rc 124 → `probe-missing` · 맞춤을 밀지 않는다) · 끝 = 주 k6가 끝나자마자 신호(SIGINT·SIGTERM → k6 정상 종료 105, CSV를 닫는다). 길이 = 램프 + 구간 × 30 + 180초(그보다 오래 돌면 스스로 끝난다).
 - 상태 `probe-status.json`(시작·끝 시각 · 종료 코드 · 수거) · 판정 `probe-check.json`(`tail.py --probe-check`: 종료 코드 0·105 · CSV 무결 · 창(램프 끝 ~ 주 k6 끝) 안 응답만으로 공백 ≤ 10초(창 시작 → 첫 응답 · 응답 사이 · 마지막 응답 → 창 끝) · 건수 ≥ 0.9 × 50/s × 창 · 200 아닌 응답 ≤ 1%). 도중에 끝나면 EXIT 트랩이 PC 측정기를 끈다.
 
-**캠페인 세트(ADR-011 §3 — 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정 = ABAB)**:
+**캠페인 세트(ADR-011 §3 — 모두 default × S4c4200 tmpfs × 세대형 ZGC · 회차 우선 · 조건 순서 고정 = ABAB)**.
+ADR-012 기본값 교체 뒤 SHA에서는 아래 세트·`jvm-*`의 `default`(C 셀 — `c-*` 포함)가 `--cond A+C --cleanup schedule`로 바뀐다(`campaign.sh` `C_COND` — 교체 전 SHA는 이전 줄 그대로라 옛 캠페인 폴더의 이어서 실행 `conditions.txt` 대조가 깨지지 않는다):
 
 | 세트 | 조건(폴더) | 회차 | 손잡이 | 기본 id |
 |------|------|------|------|------|
@@ -86,6 +93,14 @@ ADR-009 결정(명세 §12 — task 07a)으로 앱 기본값이 A 켬 · C 켬 �
 | `pretouch`(E2) | `none-pretouch` · `xms-pretouch`(`--app-xms-full`) · `pt-pretouch`(`--app-xms-full --app-pretouch`)(4g) | 3 | `--k6-bin`(캠페인 인자 — 필수) · `--probes` | `<날짜>-adr011-pretouch-<SHA>` |
 | `soak`(E3) | `2g-zgc-soak` | 2 | `--k6-bin`(필수) · `--probes --s4c-steps 60 --seed-schedules 800`(30분 · 800만 석) | `<날짜>-adr011-soak-<SHA>` |
 | `soakrc`(E3 대조 켜고 끄기) | `noc-soakrc`(`--cond A --cleanup schedule` — 앱 대조 C만 끔) · `c-soakrc`(default) | 1 | soak과 같음 + `--pg-tmpfs-size 12` · 순서 noc → c 고정 | `<날짜>-adr011-soakrc-<SHA>` |
+
+**캠페인 세트(ADR-012 §4 1단계)** — 조건 순서는 회차마다 1칸 회전(noc c f → c f noc → f noc c):
+
+| 세트 | 조건(폴더) | 회차 | 손잡이 | 기본 id |
+|------|------|------|------|------|
+| `adr012s1`(ADR-012 1단계) | `noc-adr012s1`(`--cond A --cleanup schedule`) · `c-adr012s1`(default) · `f-adr012s1`(`--cond A+F --cleanup schedule` — default에서 C 대신 F) | 3 | soakrc와 같음(`--k6-bin` 필수 · `--probes --s4c-steps 60 --seed-schedules 800 --pg-tmpfs-size 12`) | `<날짜>-adr012s1-<SHA>` |
+
+adr012s1은 `tail.py --set adr012s1` → `TAIL.md` 4·5·6절(후반 꼬리·정상 구간 CPU · 대조 바퀴 R1 표 · 회차별). F 컨테이너는 `compose.reconciler.yml` 기본 한도(cpus 1 · mem 1g)이고, Hikari 표본은 업무 앱 풀만 잰다.
 
 캠페인은 시작 전에 바이너리 version을 대조한다(k6ver: v2.2.0·v2.3.0 + v2.2.0 sha256 = 공식 빌드). `--probe-k6-bin`을 주면 조건 줄에 붙는다. 비교: 조건마다 `summarize.py` 뒤 `tail.py --set <세트> results/<id>` → `TAIL.md`·`tail.json`(정의 = 스크립트 머리말 — 느린 초는 ADR-010 log '느린 초 대조'와 같다). 판정 손잡이(환경변수 — 쓴 값은 결과 `knobs`): `TAIL_NULL`(26초 성분 귀무 — 기본 `ar` = AR(4) 스펙트럼 대리 계열 1000개) · `TAIL_SPIKE_FLOOR_MS`(측정기 튐 하한 20) · `TAIL_GC_STW_MS`(5)·`TAIL_GC_WALL_MS`(100 — Go GC 사건) · `TAIL_PERIOD_TOL_S`(1.5 — 주기 초). 겹침마다 최대 배수(1 ÷ 우연 비율)를 내고 2 미만이면 '판정 불가'.
 

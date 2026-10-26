@@ -1,0 +1,40 @@
+{
+ "cond": "A+X",
+ "want": {
+  "method": "trigger",
+  "interval": "1s",
+  "shape": "split",
+  "inject": false,
+  "every": "50"
+ },
+ "got": {
+  "app": {
+   "method": "TRIGGER",
+   "enabled": false,
+   "interval": "PT1S",
+   "trackInject": false,
+   "safetyNet": false,
+   "detectShape": "ONE_SHOT",
+   "reconcile": false
+  },
+  "external": {
+   "method": "TRIGGER",
+   "enabled": true,
+   "interval": "PT1S",
+   "trackInject": false,
+   "safetyNet": true,
+   "detectShape": "SPLIT",
+   "reconcile": false
+  },
+  "inject_app": {
+   "enabled": false,
+   "every": 50,
+   "maxPairs": 60,
+   "paths": [
+    "HOLD",
+    "EXPIRY"
+   ]
+  }
+ },
+ "reasons": []
+}

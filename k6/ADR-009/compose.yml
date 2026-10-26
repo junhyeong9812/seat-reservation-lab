@@ -11,6 +11,12 @@
 #   DRIFT_C_ENABLED=true|false → "counter-drift.reconcile.enabled"(A+C·B+C = true, 나머지 전환 전 조건 = false, default = 비움)
 #   DRIFT_C=<주기>         → "counter-drift.reconcile.interval"(대조를 켜는 조건만)
 #   DRIFT_CLEANUP=<모드>   → "counter-drift.cleanup.mode"(none|schedule|zero — 전환 전 조건은 늘 넣는다(--cleanup, 기본 none), default = 비움)
+#   ADR-012 2단계(run.sh --cond A+I·A+X에서 방식별 값을 넘긴다). ADR-012 기본값 교체(명세 §10 K9 — 업무 앱 기본값 증분 trigger 1초 · 안전망 · split) 뒤에는
+#   default 밖의 모든 조건이 INC_METHOD·INC_ENABLED·SAFETY_ENABLED·APP_DETECT_SHAPE를 늘 넘긴다(그 밖 = none · false · false · one-shot — 교체 전과 같은 실효 값). default만 비운다:
+#   INC_METHOD=none|memory|trigger|stmt → "counter-drift.reconcile.incremental.method" · INC_ENABLED=true|false → ".incremental.enabled"(A+X 업무 앱 = false — 표시만) ·
+#   INC_INTERVAL=<주기> → ".incremental.interval" · INC_TRACK=1 → ".incremental.track-inject":true(효과 셀 --inject-app on) ·
+#   SAFETY_ENABLED=true|false → "counter-drift.reconcile.safety-net.enabled"(A+I = true) · APP_DETECT_SHAPE=<모양> → "counter-drift.reconcile.detect-shape"(A+I --reconcile-shape · 그 밖 one-shot) ·
+#   INJECT_APP=1 → "loadtest.inject-app.enabled":true(효과 셀 앱 경로 주입 — loadtest 프로필 빈만, ADR-012 §4.2.7) · INJECT_APP_PATHS=expiry → "loadtest.inject-app.paths"(--inject-app expiry)
 #   점(.)이 든 키는 Spring이 그대로 이어 붙인다(seat.hold + counter-drift.expiry-repair) — 적용 값은 회차마다 configprops로 대조한다(run.sh cond-config-mismatch).
 # DB 세션 구분(IV-009-7): 앱 커넥션 ApplicationName=seatlab-app, F 컨테이너 seatlab-reconciler(compose.reconciler.yml). C는 앱 풀을 같이 쓰므로(명세 §10 D8)
 #   application_name으로는 가를 수 없다 — 대기 표본(lib.sh db_sampler by_src)이 문장 표지로 가른다.
@@ -66,7 +72,7 @@ services:
       DB_USERNAME: seat
       DB_PASSWORD: seat
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{${LIMIT_TRIGGER:+"limit-strategy":"counter-trigger",}${SALES_CLOSE_OFF:+"sales-close.enabled":false,}${DRIFT_A:+"counter-drift.expiry-repair":${DRIFT_A},}${DRIFT_EXTERNAL:+"counter-drift.external-reconciler":true,}${DRIFT_C_ENABLED:+"counter-drift.reconcile.enabled":${DRIFT_C_ENABLED},}${DRIFT_C:+"counter-drift.reconcile.interval":"${DRIFT_C}",}${DRIFT_CLEANUP:+"counter-drift.cleanup.mode":"${DRIFT_CLEANUP}",}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
+        {"seat":{"hold":{${LIMIT_TRIGGER:+"limit-strategy":"counter-trigger",}${SALES_CLOSE_OFF:+"sales-close.enabled":false,}${DRIFT_A:+"counter-drift.expiry-repair":${DRIFT_A},}${DRIFT_EXTERNAL:+"counter-drift.external-reconciler":true,}${DRIFT_C_ENABLED:+"counter-drift.reconcile.enabled":${DRIFT_C_ENABLED},}${DRIFT_C:+"counter-drift.reconcile.interval":"${DRIFT_C}",}${DRIFT_CLEANUP:+"counter-drift.cleanup.mode":"${DRIFT_CLEANUP}",}${INC_METHOD:+"counter-drift.reconcile.incremental.method":"${INC_METHOD}",}${INC_ENABLED:+"counter-drift.reconcile.incremental.enabled":${INC_ENABLED},}${INC_INTERVAL:+"counter-drift.reconcile.incremental.interval":"${INC_INTERVAL}",}${INC_TRACK:+"counter-drift.reconcile.incremental.track-inject":true,}${SAFETY_ENABLED:+"counter-drift.reconcile.safety-net.enabled":${SAFETY_ENABLED},}${APP_DETECT_SHAPE:+"counter-drift.reconcile.detect-shape":"${APP_DETECT_SHAPE}",}${INJECT_APP:+"loadtest.inject-app.enabled":true,}${INJECT_APP_PATHS:+"loadtest.inject-app.paths":"${INJECT_APP_PATHS}",}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}

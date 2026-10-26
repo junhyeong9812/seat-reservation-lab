@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """ADR-011 꼬리 지연 판정 지표(ADR-011 §4 가설 T1~T5) — 회차별·조건별 값만 낸다(성립·기각 판정은 메인 몫).
 
-    scripts/tail.py --set k6ver|pretouch|soak|soakrc results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+    scripts/tail.py --set k6ver|pretouch|soak|soakrc|adr012s1|adr012r8|adr012s2|adr012s2x|adr012eff|adr012effx results/<campaign-id>   → <campaign-id>/TAIL.md · tail.json
+                                                                       (adr012s1 = ADR-012 1단계 — 아래 'ADR-012' 지표 표 4·5를 더한다)
+                                                                       (adr012r8 = ADR-012 R8 — 같은 표 + 대조 바퀴 표에 ①·② 갈래 시간 열 · 회차 표에 탐지 모양)
+                                                                       (adr012s2·adr012s2x = ADR-012 2단계·2' — 표 4~6 + 7절 R2 증분 틱 · R7 안전망 · 보장 밖 기록 · R5 선점 p99·HOT·인덱스)
+                                                                       (adr012eff·adr012effx = ADR-012 효과 M2·M3 — S3e 회차 effect.json만: 경로별 복구 · R4(예상 담당) · R6 · 보장 밖 · 오탐)
                                                                        (먼저 조건마다 summarize.py — 안정성 4항목·메모리는 summary.json을 쓴다)
     scripts/tail.py --rep <회차폴더>                                    → 회차 하나의 지표 JSON(표준 출력 — 스모크용, summary.json 없이 되는 것만)
     scripts/tail.py --probe-check <회차폴더>                            → probe-check.json · exit 0 = 두 측정기 정상(run.sh rep_status probe-missing)
@@ -37,6 +41,38 @@
     안정성 4항목(ADR-010 §9) = compare.jvm_rep 값 그대로: ① 정상 구간 Full GC 0·앱 스레드 멈춤 0 ② GC 정지 최대 < 10ms ③ 에러율 0·코드 0 비율 0·성공 RPS ÷ 4,200 > 0.995
     ④ 앱 메모리 램프 뒤 첫 1분 → 마지막 1분 < 10%. 앱 메모리 최대 ÷ 한도 = docker stats 최대 MiB ÷ (app-jvm.json mem_bytes ÷ 1 MiB).
   - 조건 묶음 값 = ok 회차만(겹침·기대는 합한 값으로 배수 — 회차별 값은 회차 표). 손으로 채우지 않는다 — 없으면 '누락'.
+  - ADR-012 1단계(ADR-012 §4 창 정의 · 하네스 ①②⑦ — 회차 결과 late · cpu_steady · rounds, 표는 --set adr012s1에서만):
+    정상 구간 = 정상 구간 첫 초 s_min(= t0의 올림)부터 1,800초 [s_min, s_min + 1800) · 후반 = [s_min + 900, s_min + 1800)(정상 구간이 1,800초 미만이면 late = null · late_unavailable 사유).
+    ① 후반 느린 초 · 후반 서버형 느린 초(위 정의 그대로) · 후반 1초 p99 최대(초마다 hold 응답(코드 0 제외) 정렬 값[int(n × 0.99)], 계획 도착률 절반 미만 초 제외 — summarize와 같다).
+       창 공백: 관측 초(응답 있는 초) · 빈 초(응답 0 — 창 초 수 − 관측 초) · 얇은 초(응답 < 계획 도착률 절반). 빈 + 얇은 > 9초(GAP_MAX_S)면 값은 남기고
+       late_unavailable(후반) · steady_sparse(정상 구간 — 같은 기준) 사유를 적는다.
+    ② 정상 구간 컨테이너 CPU% 평균·최대(docker stats — 서버 시각 − 시계 차가 [t0, 주 k6 끝] 안인 표본만 · 100% = 1코어) · 표본 수 · 표본 간격 최대(결측 판단).
+       F 포화: F 컨테이너 표본 중 CPU% ≥ 한도 코어 × 100 × 0.95(SAT_FRAC)인 비율(sat_share). 한도 = 회차 app-config.json containers의 seatlab-reconciler-1 NanoCpus ÷ 10⁹
+       (run.sh app_config가 docker inspect로 남긴다 — limit_source), 기록이 없으면 compose.reconciler.yml 기본 RECONCILER_CPUS = 1로 가정하고 limit_source에 그렇게 적는다.
+    ⑦ 대조 바퀴(drift-db reconcile_runs — 출처별: reconcile-app = 앱 안 C · reconcile-proc = F): 바퀴 시간 = finished − started. 창(정상 구간·후반) 안 바퀴 = 시작과 끝이
+       모두 창 안([시작, 끝] ⊂ [창 시작, 창 끝)) — 수·중앙값·최대. 창 경계에 걸친 바퀴(창과 겹치지만 안에 다 들지 않음)는 crossing으로 수만 따로.
+       바퀴 중 대 밖: 정상 구간 표본(Hikari·docker stats) 중 그 출처의 어느 바퀴(경계에 걸친 것 포함)와 겹치면 바퀴 중 — Hikari(업무 앱 풀) pending > 0 표본 비율 ·
+       컨테이너 CPU% 평균·최대(F는 포화 비율도) · 표본 수(in_n·out_n).
+    R8(--set adr012r8 — ADR-012 §4.1·§5 'R8 판정' 주 지표): 같은 창 안 바퀴(시작·끝 모두 창 안 — 위 ⑦과 같은 바퀴)마다 ① 쿼터 청크 시간 chunk_ms_total ·
+       ② 행 없음 갈래 시간 orphan_ms_total(drift-db reconcile_runs 열 — 앱이 잰 벽시계 ms) → 창별 중앙값·최대(값 없는 바퀴는 빼고 n에 안 셈). 회차 표 '탐지 모양' =
+       회차 reconciler-config.json의 counterDrift.reconcile.detectShape(없으면 '누락' — run.sh reconciler-config-mismatch가 셀과 같은지 본다).
+    결측 사유(a12_missing — 빈 칸으로 두지 않는다): 기대 출처 = 회차 meta.json cond → summarize.RECONCILE_SOURCE(A = 없음 · default = reconcile-app · A+F = reconcile-proc) ·
+    기대 컨테이너 = 앱·DB(늘) + F(cond A+F). 기대 출처 바퀴 0(정상 구간 — 안·걸침 모두) · drift-db 없음 · 기대 컨테이너 표본 0 · 시계 차·docker stats 없음이면 사유 한 줄씩.
+    a12_warn: 출처 없는 바퀴 행(표에 'None' 행으로 두지 않고 뺀다) · 기대하지 않은 출처·F 표본.
+  - ADR-012 2단계(--set adr012s2·adr012s2x — ADR-012 §4·§5 R2·R5·R7 · 회차 결과 a12x, 판정은 메인 몫):
+    기대 출처(새 조건 A+I·A+X) = meta.json incremental의 [증분 source, 안전망 source](summarize.expected_sources) — 둘 다 표 5·6에 행이 있고 정상 구간 바퀴 0이면 결측 사유.
+    창(DB 시계) = 정상 구간 [s_min, s_min + 1800) + 시계 차. R2 = 증분 틱 시간(finished − started ms — 기록 앱 시계, A+X는 .158 시계 · 시계 차 미보정) 첫 5분 대 마지막 5분 중앙값
+    (반증 = 2배 이상 그리고 +20ms 이상 — summarize.inc_r2). R7 = counter_safety_run 실행(db_started_at이 창 안) ①~⑤(summarize.safety_r7 — 허용식의 repair-budget·wall-cap·repair-cap은
+    configprops, 없으면 §4.2.5 기본값 + 출처 표시 · 자기 기록 INSERT = actsnap safety.self_record MAX의 스냅숏 최대 — 최근 약 2분 창이라 하한, 표에 '≥ 값'). 보장 밖 = counter_inc_gap 종류별 행 수.
+    R7 판정 불가(summarize.safety_r7 undecidable) = 창 안 실행 0 · 안전망 counter_reconcile_run과 counter_safety_run의 run_id 짝 없음·필수 열 없음(summarize 머리말 'R7 기록 짝') —
+    그 회차의 ①~④ 수·⑤는 '위반 없음'으로 읽지 않는다(조건 행은 판정 불가 회차 수/ok 회차 수).
+    R5 = 정상 구간(분 0~29) 선점 hold 응답(코드 0 제외) p99(분별 배열 — 단정밀도) · 같은 캠페인 noc(조건 이름 noc-…) 중앙값 대비 % · HOT 비율 = k6 구간 Δn_tup_hot_upd ÷ Δn_tup_upd
+    (io-before/after quota_table) · updated_at 인덱스 크기 = quota-hot.json(k6 직전 · 회차 끝 — V9 방식만). HOT 칸(10-21): V9 방식(trg·stmt — quota-hot.json 있음)만 —
+    그 밖 '—'. k6 구간 갱신이 0이면 비율이 정의되지 않는다(0 ÷ 0) — '갱신 0'으로 적는다(누락 아님 — S4c는 선점마다 새 (회차, 사용자) 쿼터 행 INSERT라 갱신 0이 실측).
+    io 두 파일 중 하나라도 없거나 값이 아니면 '누락'.
+  - ADR-012 효과(--set adr012eff — M2 · adr012effx — M3 외부 앱): 회차 effect.json(summarize.effect — run.sh가 회차 끝에 만든다)의 종류별 주입/복구/끝 일치 ·
+    R4 위반/판정 불가/보장 밖 · 적체 기준 실행이 주입 뒤 첫 실행(no-prior-run) 쌍 수 · 예상 담당(recent·reread·full-cursor — 위반 쌍 몫) · R6 위반/판정/판정 불가 · 오탐 복구 · unexpected.
+    정의(적체 기준 실행 · 예상 담당 · R6 판정 불가)는 summarize.py 머리말 'ADR-012 추가'.
 측정기 정상(--probe-check — 두 측정기 모두): 기동·종료 코드(PC 0·105 · 강제 종료 아님 / 서버 기동 0 · 종료 0·105 · 수거 0) · CSV gzip 무결 ·
   창(램프 끝 t0 ~ 주 k6 끝) 안 응답만으로 — 공백 ≤ 10초(창 시작 → 첫 응답 · 응답 사이 · 마지막 응답 → 창 끝 모두) · 건수 ≥ 0.9 × 도착률 × 창 길이 · 코드 200 아닌 비율 ≤ 1%.
 """
@@ -97,11 +133,12 @@ def ramp_end(d):
 
 
 # ---- 원시 읽기 ----------------------------------------------------------------------------------------
-def main_csv(d, t0):
+def main_csv(d, t0, keep=None):
     """주 k6 CSV(hold) → 초별 {n, n10, mx, comp(최대 응답 요청의 waiting·blocked·sending·receiving)} · 분별 응답 목록(코드 0 제외, s ≥ t0).
+    keep = (lo, hi)면 lo ≤ s < hi인 초의 응답 목록(배정밀도 — summarize 1초 p99와 같은 값)도 secv에 모은다(ADR-012 후반 창).
     한 요청의 행은 http_req_duration 다음에 blocked·connecting·tls·sending·waiting·receiving이 붙어 온다(k6 CSV — 요청 한 묶음)."""
     from array import array
-    per, mins, last = {}, {}, None
+    per, mins, last, secv = {}, {}, None, {}
     s_min = math.ceil(t0)
     comp_idx = {"http_req_blocked": 0, "http_req_sending": 1, "http_req_waiting": 2, "http_req_receiving": 3}
     with gzip.open(d / "k6-requests.csv.gz", "rt", newline="") as f:
@@ -120,6 +157,8 @@ def main_csv(d, t0):
                 e["mx"] = dur
                 e["comp"] = (c[4], c[2], c[3], c[5])   # waiting, blocked, sending, receiving
             mins.setdefault((s - s_min) // 60, array("f")).append(dur)
+            if keep is not None and keep[0] <= s < keep[1]:
+                secv.setdefault(s, array("d")).append(dur)
         for line in f:
             if not line.startswith("http_req_"):
                 continue
@@ -140,7 +179,7 @@ def main_csv(d, t0):
                 cur[2 + comp_idx[m]] = float(c[i_val])
         if cur is not None:
             close(cur)
-    return per, mins, last
+    return per, mins, last, secv
 
 
 def probe_csv(path, shift=0.0):
@@ -326,8 +365,178 @@ def minute_trend(mins):
     return out
 
 
-def rep_tail(d):
-    """회차 하나의 ADR-011 지표(원시 파일만 — summary.json 불필요)."""
+# ---- ADR-012 1단계 지표(ADR-012 §4 '창 정의'·'측정 전에 하네스에 필요한 것' ①②⑦ · §5 R1 판정표) -----------------------
+STEADY_S, LATE_FROM_S = 1800, 900   # 정상 구간 = 정상 구간 첫 초부터 1,800초 · 후반 = 그 900초 이상 1,800초 미만(ADR-012 §4 — 바꾸면 ADR과 함께)
+GAP_MAX_S = 9                         # 창 안 빈 초 + 얇은 초가 이보다 많으면 그 창 값에 판정 불가 표시(값은 남긴다 — rv37)
+SAT_FRAC = 0.95                       # F 포화 표본 = CPU% ≥ 한도 × 100 × 이 값(ADR-012 §5 R1 판정 유효 조건)
+F_CPUS_DEFAULT = 1.0                  # compose.reconciler.yml cpus: ${RECONCILER_CPUS:-1} — 회차에 한도 기록이 없을 때의 가정
+A12_CONDS = {"control", "control-noclose", "A", "A+C", "A+F", "B", "B+C", "default", "A+I", "A+X"}   # run.sh CONDS — 이 밖의 cond는 결측 사유(기대 출처를 정할 수 없다)
+INC_CONDS = ("A+I", "A+X")   # ADR-012 2단계 새 조건 — 기대 출처 = meta.json incremental(summarize.expected_sources)
+
+
+def iso_ts(x):
+    from datetime import datetime
+    return datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp()
+
+
+def sec_gaps(per, lo, hi, thin):
+    """창 [lo, hi)의 초 공백: 관측 초(hold 응답(코드 0 제외) 있는 초) · 빈 초(창 초 수 − 관측 초) · 얇은 초(응답 < thin) · 빈 + 얇은 > GAP_MAX_S면 사유."""
+    obs = [s for s in range(lo, hi) if s in per]
+    th = sum(1 for s in obs if per[s]["n"] < thin)
+    empty = (hi - lo) - len(obs)
+    why = (f"빈 초 {empty} + 얇은 초 {th} = {empty + th} > {GAP_MAX_S}초 — 값은 남기되 판정 불가") if empty + th > GAP_MAX_S else None
+    return {"secs_window": hi - lo, "secs": len(obs), "secs_empty": empty, "secs_thin": th, "thin_min_n": thin}, why
+
+
+def late_window(per, secv, slow, server, s_min, steady_n, thin):
+    """후반 창 [s_min + 900, s_min + 1800) — 느린 초 · 서버형 느린 초(decomp와 같은 정의) · 1초 p99 최대(summarize와 같은 계산: 초마다 hold 응답(코드 0 제외)
+    정렬 값[int(n × 0.99)], 계획 도착률 절반 미만인 초(thin)는 뺌). 정상 구간이 1,800초 미만이면 None + 사유 · 빈 + 얇은 초 > GAP_MAX_S면 값 + 사유."""
+    if steady_n < STEADY_S:
+        return None, f"정상 구간 {steady_n}초 < {STEADY_S}초 — 후반 창 판정 불가"
+    lo, hi = s_min + LATE_FROM_S, s_min + STEADY_S
+    p = {s: p99(v.tolist()) for s, v in secv.items() if lo <= s < hi and len(v) >= thin}
+    mx = max(p, key=p.get) if p else None
+    gaps, why = sec_gaps(per, lo, hi, thin)
+    return {"window_rel_s": [LATE_FROM_S, STEADY_S], **gaps,
+            "slow_secs": sum(1 for s in slow if lo <= s < hi), "server_slow_secs": sum(1 for s in server if lo <= s < hi),
+            "sec_p99_max_ms": p[mx] if mx is not None else None, "sec_p99_max_rel_s": (mx - s_min) if mx is not None else None}, (f"후반 {why}" if why else None)
+
+
+def cpu_limits(d):
+    """F 컨테이너 CPU 한도(코어) · 출처 — app-config.json containers(run.sh app_config: docker inspect HostConfig.NanoCpus) → 없으면 compose 기본 1(가정)."""
+    for x in ((load(d / "app-config.json") or {}).get("containers") or []):
+        if isinstance(x, dict) and str(x.get("name", "")).lstrip("/") == "seatlab-reconciler-1" and num(x.get("cpu")):
+            if x["cpu"] > 0:
+                return {"f": (x["cpu"] / 1e9, "app-config.json NanoCpus")}
+            return {"f": (None, "app-config.json NanoCpus 0 — 한도 없음(포화 비율 없음)")}
+    return {"f": (F_CPUS_DEFAULT, "가정: compose.reconciler.yml RECONCILER_CPUS 기본 1 — 회차 app-config.json에 F 한도 기록 없음")}
+
+
+def cpu_stat(v, lim=None):
+    """CPU% 표본 → 평균·최대·수 (+ 한도가 있으면 ≥ 한도 × 100 × SAT_FRAC 표본 수·비율)."""
+    r = {"mean": statistics.mean(v) if v else None, "max": max(v) if v else None, "n": len(v)}
+    if lim is not None:
+        thr = lim[0] * 100 * SAT_FRAC if num(lim[0]) else None
+        k = sum(1 for x in v if x >= thr) if thr is not None else None
+        r.update(limit_cores=lim[0], limit_source=lim[1], sat_threshold_pct=thr, sat_n=k, sat_share=(k / len(v)) if v and k is not None else None)
+    return r
+
+
+def server_stats(d, off):
+    """timeline-server.jsonl(서버에서 찍은 'date -Is' 줄 + docker stats 줄들) → [(PC 시각, {컨테이너 이름: CPU%})] — 시각 = 서버 시각 − 시계 차(compare.cpu와 같다)."""
+    out, cur = [], None
+    p = d / "timeline-server.jsonl"
+    if not p.exists():
+        return None
+    for line in p.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "t" in row:
+            cur = (iso_ts(row["t"]) - off, {})
+            out.append(cur)
+            continue
+        if cur is None or "Name" not in row:
+            continue
+        try:
+            cur[1][row["Name"]] = float(str(row.get("CPUPerc", "")).rstrip("%"))
+        except ValueError:
+            pass
+    return out
+
+
+def steady_cpu(stats, t0, t1, containers, limits):
+    """정상 구간 [t0, 주 k6 끝] 안 docker stats 표본만 — 컨테이너별 CPU% 평균·최대·표본 수(100% = 1코어) · 표본 간격 최대(창 시작 → 첫 표본 · 사이 · 마지막 → 창 끝 — 결측 판단용).
+    F는 한도(limits — cpu_limits) 대비 포화 표본 비율도."""
+    win = [x for x in stats if t0 <= x[0] <= t1]
+    ts_ = [x[0] for x in win]
+    res = {"window": [t0, t1], "samples": len(win), "head_gap_s": (ts_[0] - t0) if ts_ else None, "tail_gap_s": (t1 - ts_[-1]) if ts_ else None,
+           "max_inner_gap_s": max((b - a for a, b in zip(ts_, ts_[1:])), default=None), "containers": {}}
+    for k, name in containers.items():
+        v = [x[1][name] for x in win if name in x[1]]
+        if v or k != "f":   # F 컨테이너는 있을 때만(없는 조건에 '0 표본'을 남기지 않는다 — F가 기대인데 없으면 rep_tail이 a12_missing에 적는다)
+            res["containers"][k] = {**cpu_stat(v, limits.get(k)), "missing": len(win) - len(v)}
+    return res
+
+
+def _dist(xs):
+    return {"n": len(xs), "median_s": statistics.median(xs) if xs else None, "max_s": max(xs) if xs else None}
+
+
+def _dist_ms(xs):
+    v = [x for x in xs if num(x)]
+    return {"n": len(v), "median_ms": statistics.median(v) if v else None, "max_ms": max(v) if v else None}
+
+
+def recon_rounds(d, off, s_min, stats, containers, limits):
+    """drift-db.json reconcile_runs → 출처(source — reconcile-app = 앱 안 C · reconcile-proc = F)별 바퀴 시간(finished − started, DB 시계 차이라 보정 불필요) · 경고 목록.
+    시각 = DB 시각 − 시계 차 → PC 시계. 창 = 정상 구간 [s_min, s_min + 1800) · 후반 [s_min + 900, s_min + 1800). 창 안 바퀴 = 시작·끝 모두 창 안 · 경계에 걸친 바퀴 = crossing(수만).
+    바퀴 중 대 바퀴 밖(정상 구간 안의 표본만, 바퀴 = 그 출처의 모든 바퀴 — 경계에 걸친 것 포함): Hikari pending > 0 표본 비율(timeline-hikari.jsonl — PC 'date -Is' 초 단위 →
+    표본 = [T, T+1)이 바퀴 [시작, 끝]과 겹치면 바퀴 중) · docker stats 컨테이너별 CPU% 평균·최대(표본 시각이 바퀴 [시작, 끝] 안이면 바퀴 중 — F는 포화 비율도) · 표본 수.
+    Hikari는 업무 앱 풀만 잰다(F 컨테이너 풀은 없음). 출처 없는 행·시각 못 읽은 행은 빼고 경고에 센다(빈 칸·'None' 행으로 두지 않는다)."""
+    db = load(d / "drift-db.json")
+    if db is None or not isinstance(db.get("reconcile_runs"), list):
+        return None, []
+    w0, w1, l0 = s_min, s_min + STEADY_S, s_min + LATE_FROM_S
+    runs, nosrc, bad, ms = {}, 0, 0, {}
+    for r in db["reconcile_runs"]:
+        try:
+            a, b = iso_ts(r["started_at"]) - off, iso_ts(r["finished_at"]) - off
+        except (KeyError, TypeError, ValueError):
+            bad += 1
+            continue
+        if not r.get("source"):
+            nosrc += 1
+            continue
+        runs.setdefault(r["source"], []).append((a, b))
+        ms.setdefault(r["source"], {})[(a, b)] = (r.get("chunk_ms_total"), r.get("orphan_ms_total"))   # R8 ①·② 갈래 시간(바퀴 기록 열)
+    warns = ([f"drift-db reconcile_runs 출처(source) 없는 바퀴 {nosrc}행 — 뺐다"] if nosrc else []) + \
+            ([f"drift-db reconcile_runs 시각(started_at·finished_at) 못 읽은 바퀴 {bad}행 — 뺐다"] if bad else [])
+    hik = []
+    hp = d / "timeline-hikari.jsonl"
+    if hp.exists():
+        for line in hp.read_text().splitlines():
+            try:
+                row = json.loads(line)
+                t = iso_ts(row["t"])
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            if w0 <= t < w1 and num(row.get("pending")):
+                hik.append((t, row["pending"]))
+    sw = [x for x in (stats or []) if w0 <= x[0] < w1]
+    inside = lambda rr, lo, hi: [(a, b) for a, b in rr if lo <= a and b < hi]
+    crossing = lambda rr, lo, hi: [(a, b) for a, b in rr if a < hi and b >= lo and not (lo <= a and b < hi)]
+    out = {}
+    for src, rr in sorted(runs.items()):
+        st, lt = inside(rr, w0, w1), inside(rr, l0, w1)
+        hin = [p for t, p in hik if any(t < b and t + 1 > a for a, b in rr)]
+        hout = [p for t, p in hik if not any(t < b and t + 1 > a for a, b in rr)]
+        cin = [x for x in sw if any(a <= x[0] <= b for a, b in rr)]
+        cout = [x for x in sw if not any(a <= x[0] <= b for a, b in rr)]
+        cpu = {}
+        for k, name in containers.items():
+            vi, vo = [x[1][name] for x in cin if name in x[1]], [x[1][name] for x in cout if name in x[1]]
+            if vi or vo:
+                lim = limits.get(k)
+                ci, co = cpu_stat(vi, lim), cpu_stat(vo, lim)
+                cpu[k] = {"in_mean": ci["mean"], "in_max": ci["max"], "in_n": ci["n"], "out_mean": co["mean"], "out_max": co["max"], "out_n": co["n"]}
+                if lim is not None:
+                    cpu[k].update(limit_cores=ci["limit_cores"], limit_source=ci["limit_source"], sat_threshold_pct=ci["sat_threshold_pct"],
+                                  in_sat_n=ci["sat_n"], in_sat_share=ci["sat_share"], out_sat_n=co["sat_n"], out_sat_share=co["sat_share"])
+        out[src] = {"total": len(rr), "steady": _dist([b - a for a, b in st]), "steady_crossing": len(crossing(rr, w0, w1)),
+                    "late": _dist([b - a for a, b in lt]), "late_crossing": len(crossing(rr, l0, w1)),
+                    "steady_dur_s": [round(b - a, 3) for a, b in st],
+                    "hikari": {"in_n": len(hin), "in_pending_share": (sum(1 for p in hin if p > 0) / len(hin)) if hin else None,
+                               "out_n": len(hout), "out_pending_share": (sum(1 for p in hout if p > 0) / len(hout)) if hout else None},
+                    "stats_samples": {"in_n": len(cin), "out_n": len(cout)}, "cpu": cpu,
+                    "branch_ms": {k: {"steady": _dist_ms([ms[src][x][i] for x in st]), "late": _dist_ms([ms[src][x][i] for x in lt])}
+                                  for i, k in enumerate(("chunk", "orphan"))}}
+    return out, warns
+
+
+def rep_tail(d, a12x=False):
+    """회차 하나의 ADR-011 지표(원시 파일만 — summary.json 불필요). a12x = ADR-012 2단계 지표(a12x — 새 세트·--rep에서만: 이전 세트의 tail.json 그대로)."""
     d = Path(d)
     out = {"dir": str(d), "status": (d / "status").read_text().strip() if (d / "status").exists() else None, "notes": [],
            "knobs": {"null": NULL, "surrogates": PERMS, "spike_x": SPIKE_X, "spike_floor_ms": SPIKE_FLOOR_MS, "gc_stw_ms": GC_STW_MS, "gc_wall_ms": GC_WALL_MS,
@@ -336,8 +545,8 @@ def rep_tail(d):
     if t0 is None or not (d / "k6-requests.csv.gz").exists():
         out["notes"].append("k6-summary startedAt 또는 k6-requests.csv.gz 없음")
         return out
-    per, mins, last = main_csv(d, t0)
     s_min = math.ceil(t0)
+    per, mins, last, secv = main_csv(d, t0, keep=(s_min + LATE_FROM_S, s_min + STEADY_S))
     steady = list(range(s_min, (last or s_min) + 1))
     slow = sorted(s for s in steady if s in per and per[s]["mx"] > SLOW_MS)
     k6_start = int(load(d / "k6-summary.json")["setup_data"]["startedAt"] / 1000)
@@ -385,7 +594,112 @@ def rep_tail(d):
                        "stw_max_ms": max(stw) if stw else None, "wall_med_ms": statistics.median(wl) if wl else None, "overlap": ov,
                        "overlap_all": overlap(slow, steady, [(t - (w or 0) / 1000, t) for t, w, _ in allg])}
     out["minute"] = minute_trend(mins)
+    # ADR-012 1단계(위 'ADR-012' 함수들) — ① 후반 창 ② 정상 구간 CPU ⑦ 대조 바퀴
+    rates = (load(d / "k6-summary.json") or {}).get("stage_rates") or []
+    thin = (min(rates) / 2) if rates else 0
+    out["late"], why = late_window(per, secv, slow, server, s_min, len(steady), thin)
+    if why:
+        out["late_unavailable"] = why
+    out["steady_window"], why = sec_gaps(per, s_min, s_min + STEADY_S, thin)
+    if why:
+        out["steady_sparse"] = f"정상 구간 {why}"
+    sys.path.insert(0, str(HERE))
+    from compare import CONTAINERS, S   # noqa: E402 — app·f(seatlab-reconciler-1)·db 이름 한 곳 · summarize(조건 → 기대 대조 출처 RECONCILE_SOURCE)
+    # 결측 사유(머리말 'a12_missing') — 기대 출처·컨테이너는 회차 meta.json cond에서
+    miss, warn = [], []
+    meta = load(d / "meta.json") or {}
+    cond = meta.get("cond")
+    exp_src, exp_f = S.RECONCILE_SOURCE.get(cond), cond == "A+F"
+    exp_srcs = [exp_src] if exp_src else []
+    out["a12_expect"] = {"cond": cond, "source": exp_src, "f_container": exp_f}
+    if cond in INC_CONDS:   # ADR-012 새 조건: 기대 출처 2개(증분 · 안전망) — 표 행은 sources로
+        exp_srcs = S.expected_sources(meta)
+        exp_src = exp_srcs[0] if exp_srcs else None
+        out["a12_expect"].update(source=exp_src, sources=exp_srcs)
+        if not exp_srcs:
+            miss.append("meta.json incremental 없음 — 기대 증분·안전망 출처를 정할 수 없다")
+    if cond is None:
+        miss.append("meta.json cond 없음 — 기대 대조 출처·F 컨테이너를 정할 수 없다")
+    elif cond not in A12_CONDS:
+        miss.append(f"meta.json cond {cond!r} 알 수 없음 — 기대 대조 출처·F 컨테이너를 정할 수 없다")
+    limits = cpu_limits(d) if exp_f or cond not in A12_CONDS else {}
+    if off is None:
+        out["notes"].append("clock-offset 없음 — docker stats·대조 바퀴(서버 시계)를 PC 시계로 옮길 수 없다(cpu_steady·rounds 없음)")
+        miss.append("clock-offset 없음 — CPU·대조 바퀴 없음")
+        out["cpu_steady"] = out["rounds"] = None
+    else:
+        stats = server_stats(d, off)
+        if stats is None:
+            miss.append("timeline-server.jsonl 없음 — CPU 없음")
+        elif not num(t1):
+            miss.append("주 k6 끝 시각 없음 — 정상 구간 CPU 없음")
+        out["cpu_steady"] = steady_cpu(stats, t0, t1, CONTAINERS, limits) if stats is not None and num(t1) else None
+        out["rounds"], rw = recon_rounds(d, off, s_min, stats, CONTAINERS, limits)
+        warn += rw
+        if out["rounds"] is None:
+            miss.append("drift-db.json reconcile_runs 없음 — 대조 바퀴 없음")
+        else:
+            for es in exp_srcs:
+                r = out["rounds"].get(es) or {}
+                n_in = (_get(r, "steady", "n") or 0) + (r.get("steady_crossing") or 0)
+                if n_in == 0:
+                    miss.append(f"기대 출처 {es} 바퀴 0(정상 구간 — 걸침 포함 · 전체 {r.get('total', 0)})")
+            for src, r in out["rounds"].items():
+                if src not in exp_srcs:
+                    warn.append(f"기대하지 않은 출처 {src} 바퀴 {r['total']}(cond {cond})")
+        cs = (out["cpu_steady"] or {}).get("containers") or {}
+        if out["cpu_steady"] is not None:
+            for k in ("app", "db") + (("f",) if exp_f else ()):
+                if not _get(cs, k, "n"):
+                    miss.append(f"{k} 컨테이너({CONTAINERS[k]}) docker stats 표본 0(정상 구간)")
+            if not exp_f and _get(cs, "f", "n"):
+                warn.append(f"F 컨테이너 표본 {cs['f']['n']}(cond {cond} — 기대 없음)")
+    out["a12_missing"], out["a12_warn"] = miss, warn
+    if a12x:
+        out["a12x"] = a12x_rep(d, meta, cond, off, s_min, mins)
     return out
+
+
+def a12x_rep(d, meta, cond, off, s_min, mins):
+    """ADR-012 2단계 회차 지표(머리말 'ADR-012 2단계') — R2 · R7 · 보장 밖 · R5. 시계 차가 없으면 R2·R7은 None(사유 notes)."""
+    import numpy as np
+    sys.path.insert(0, str(HERE))
+    import summarize as S2   # noqa: E402
+    x = {"notes": []}
+    # R5 선점 p99(정상 구간 분 0~29 — main_csv 분 번호 = (s − s_min) // 60)
+    arrs = [np.frombuffer(mins[m], dtype=np.float32) for m in range(STEADY_S // 60) if m in mins and len(mins[m])]
+    v = np.concatenate(arrs) if arrs else np.array([], dtype=np.float32)
+    x["hold_p99_steady_ms"] = float(np.partition(v, int(len(v) * 0.99))[int(len(v) * 0.99)]) if len(v) else None
+    x["hold_n_steady"] = int(len(v))
+    qa, qb = (((load(d / f) or {}).get("pg") or {}).get("quota_table") or {} for f in ("io-after.json", "io-before.json"))
+    du, dh = (qa.get(k) - qb.get(k) if num(qa.get(k)) and num(qb.get(k)) else None for k in ("n_tup_upd", "n_tup_hot_upd"))
+    qh = load(d / "quota-hot.json") or {}
+    x["r5"] = {"v9": (d / "quota-hot.json").exists(), "upd_k6": du, "hot_upd_k6": dh, "hot_ratio_k6": (dh / du) if num(du) and du and num(dh) else None,
+               "hot_undefined": num(du) and du == 0,   # k6 구간 갱신 0 — 비율 0 ÷ 0(머리말 HOT 칸)
+               "idx_bytes_k6": _get(qh, "k6", "idx_bytes"), "idx_bytes_end": _get(qh, "end", "idx_bytes"), "table_bytes_end": _get(qh, "end", "table_bytes")}
+    if cond not in INC_CONDS:
+        return x
+    if off is None:
+        x["notes"].append("clock-offset 없음 — R2·R7 창을 DB 시계로 옮길 수 없다")
+        return x
+    db = load(d / "drift-db.json") or {}
+    inc = meta.get("incremental") or {}
+    w0, w1 = s_min + off, s_min + STEADY_S + off
+    x["r2"] = S2.inc_r2(db.get("reconcile_runs"), inc.get("source"), w0, w1) if inc.get("source") else None
+    if cond == "A+X":
+        x["notes"].append("A+X 증분 틱 시각 = 외부 앱(.158) 시계 — 시계 차(⑥) 미보정(task 07)")
+    cfg = d / ("external-config.json" if cond == "A+X" else "app-config.json")
+    knobs, ksrc = S2.safety_knobs((load(cfg) or {}).get("configprops"))
+    srec = S2.self_record_max_ms([load(d / f) or {} for f in ("drift-before.json", "drift-after-k6.json", "drift-end.json")]) if cond == "A+I" else None
+    if srec is None:
+        x["notes"].append("안전망 자기 기록 INSERT 지표 없음 — R7 허용식에 0" + ("(외부 앱 지표 — task 07)" if cond == "A+X" else ""))
+    if not isinstance(db.get("safety_runs"), list):
+        x["notes"].append("drift-db.json safety_runs 없음 — R7 없음")
+    x["r7"] = (S2.safety_r7(db.get("safety_runs") or [], knobs, srec, w0, w1, db.get("reconcile_runs") or [], inc.get("safety_source"))
+               if isinstance(db.get("safety_runs"), list) else None)
+    x["knobs"], x["knob_source"] = knobs, ksrc
+    x["gaps"] = S2.gap_counts(db.get("inc_gaps") or [], inc.get("source"))
+    return x
 
 
 # ---- 측정기 정상(run.sh rep_status probe-missing) ------------------------------------------------------
@@ -464,15 +778,19 @@ def table(out, head, rows):
 def campaign(set_name, root):
     root = Path(root)
     sys.path.insert(0, str(HERE))
+    if set_name in ("adr012eff", "adr012effx"):   # ADR-012 효과 — S3e 회차(effect.json)만, 꼬리 지표 없음
+        return effect_campaign(root, set_name)
     import compare as C   # noqa: E402 — 안정성 4항목·앱 메모리(jvm_rep) 재사용
     conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
-    expect = {"soak": 2, "soakrc": 1}.get(set_name, 3)
+    expect = {"soak": 2, "soakrc": 1, "adr012s1": 3, "adr012r8": 3, "adr012s2": 3, "adr012s2x": 3}.get(set_name, 3)
+    a12x = set_name in A12X_SETS
     camp = C.Camp(root, expect_reps=expect)
     js = {"campaign": root.name, "set": set_name, "conds": {}}
     out = [f"# ADR-011 꼬리 지연 지표 — `{root.name}` (--set {set_name})\n",
            "> `k6/ADR-009/scripts/tail.py`가 회차 원시 파일(주 k6·측정기 CSV · gctrace · clock-offset)과 summary.json(안정성·메모리)에서 산출. 정의는 스크립트 머리말. "
            "값만 낸다 — 가설 T1~T5의 성립·기각 판정은 담지 않는다. 조건 묶음 = ok 회차만.\n"]
     per_rep_rows, cond_rows, stab_rows = [], [], []
+    a12_cond, a12_rep, a12_rcond, a12_rrep = [], [], [], []   # ADR-012 1단계(adr012s1에서만 표로)
     for c in conds:
         folder_reps = sorted(p for p in (root / c / "L4" / "S4c4200").glob("rep*") if p.is_dir() and "." not in p.name)
         summ_reps = {r.get("rep"): r for r in ((camp.summ.get(c) or {}).get("L4/S4c4200") or [])}
@@ -480,7 +798,7 @@ def campaign(set_name, root):
             camp.notes.append(f"{c}: summary.json 없음 — 안정성·메모리 칸은 누락(summarize.py 먼저)")
         reps = []
         for rd in folder_reps:
-            t = rep_tail(rd)
+            t = rep_tail(rd, a12x=a12x)
             r = summ_reps.get(rd.name)
             if r is not None:
                 jv = C.jvm_rep(camp, c, r)
@@ -521,6 +839,8 @@ def campaign(set_name, root):
                           sum(1 for t in ok if num(_get(t, "period", "p")) and _get(t, "period", "p") <= P_SIG),
                           rng(("decomp", "server_type")), rng(("decomp", "aperiodic_server_slow")), pool("probes", "pc", "overlap"), rng(("probes", "pc", "spikes")),
                           pool("probes", "server", "overlap"), rng(("probes", "server", "spikes")), pool("gogc", "overlap")])
+        if set_name in A12_SETS:
+            _a12_rows(c, reps, ok, a12_cond, a12_rep, a12_rcond, a12_rrep, camp.notes, r8=set_name == "adr012r8")
     out.append("## 1. 조건별(ok 회차) — 값 = 중앙값 [최소–최대] · 겹침 = 합한 겹침/느린 초(우연 기대 · 배수)\n")
     table(out, ["조건", "n(ok)", "느린 초", "26초 성분 p(24~31초)", "p ≤ 0.05 회차 수", "서버형 느린 초", "주기 없는 서버형(T4)", "PC 측정기 겹침", "PC 측정기 튐 수", "서버 측정기 겹침",
                 "서버 측정기 튐 수", "Go GC 겹침"], cond_rows)
@@ -530,6 +850,28 @@ def campaign(set_name, root):
     out.append("## 3. 안정성(ADR-010 §9 4항목) · 앱 메모리 · 1분 p99 추세\n")
     table(out, ["조건", "회차", "상태", "① Full GC·앱 멈춤 0", "② 정지 최대 < 10ms", "③ 에러·코드 0·RPS", "④ 메모리 추세 < 10%", "메모리 추세 %", "앱 메모리 최대 MiB",
                 "한도 MiB", "최대 ÷ 한도 %", "분 수", "첫 5분 p99 ms", "마지막 5분 p99 ms", "증가 %", "순위 상관", "1초 p99 최대 ms", "> 50ms 초(summarize)"], stab_rows)
+    if set_name in A12_SETS:
+        r8 = set_name == "adr012r8"
+        lab = "ADR-012 R8(1단계 보강 — 탐지 모양)" if r8 else {"adr012s2": "ADR-012 2단계", "adr012s2x": "ADR-012 2'단계"}.get(set_name, "ADR-012 1단계")
+        out.append(f"## 4. {lab} — 후반 꼬리 · 정상 구간 CPU(조건별 ok 회차 — 중앙값 [최소–최대])\n")
+        out.append("> 후반 = 정상 구간 첫 초 s_min(t0의 올림) + 900초 이상 1,800초 미만 · 빈 초 = 응답 0인 초 · 얇은 초 = 계획 도착률 절반 미만(빈 + 얇은 > %d초면 회차 상태에 판정 불가 사유) · "
+                   "CPU = docker stats 평균 %%(100%% = 1코어, 정상 구간 [t0, 주 k6 끝]) · F = seatlab-reconciler-1 · F 포화 = 표본 CPU %% ≥ 한도 × 100 × %g(한도 출처 = 회차 표 'F 한도 출처'). "
+                   "정의는 스크립트 머리말 'ADR-012'.\n" % (GAP_MAX_S, SAT_FRAC))
+        table(out, A12_HEAD + ["결측·주의(회차)"], a12_cond)
+        out.append(f"## 5. {lab} — 대조 바퀴({'R8 주 지표 = 후반 ① 시간' if r8 else 'R1'} — 조건·출처별 ok 회차 — 중앙값 [최소–최대])\n")
+        out.append("> 출처 reconcile-app = 앱 안 C · reconcile-proc = F. 바퀴 수(안) = 시작·끝 모두 창(정상 구간 [s_min, s_min + 1800) · 후반 [s_min + 900, s_min + 1800)) 안 — "
+                   "중앙·최대도 이것만 · 걸침 = 창 경계에 걸친 바퀴 수 · 바퀴 시간 = finished − started(초). "
+                   "바퀴 중/밖 = 정상 구간 표본 중 그 출처의 어느 바퀴(걸침 포함) [시작, 끝]과 겹친 것/아닌 것 — 표본 칸은 그 수(CPU = docker stats 표본) · Hikari는 업무 앱 풀. "
+                   "기대 출처(회차 meta.json cond)는 바퀴가 없어도 행을 두고 상태 칸에 사유를 적는다."
+                   + (" ① = chunk_ms_total(쿼터 청크) · ② = orphan_ms_total(행 없음 갈래) — 바퀴 기록 열(ms), 창 안 바퀴의 중앙·최대." if r8 else "") + "\n")
+        rhead = A12_RHEAD + (A12_R8_HEAD if r8 else [])
+        table(out, rhead, a12_rcond or [["(대조 바퀴 없음)"] + [""] * (len(rhead) - 1)])
+        out.append(f"## 6. {lab} — 회차별\n")
+        table(out, ["조건", "회차", "상태"] + A12_HEAD[2:] + ["F 한도 출처"] + (["탐지 모양(reconciler-config)"] if r8 else []), a12_rep)
+        rh = ["조건", "회차", "상태", "출처"] + rhead[3:]
+        table(out, rh, a12_rrep or [["(대조 바퀴 없음)"] + [""] * (len(rh) - 1)])
+    if a12x:
+        a12x_tables(out, js, lab, camp.notes)
     out.append("## 누락·의심\n")
     out += [f"- {n}" for n in camp.notes] or ["- 자동 점검에서 걸린 항목 없음"]
     js["notes"] = camp.notes
@@ -537,6 +879,257 @@ def campaign(set_name, root):
     (root / "tail.json").write_text(json.dumps(js, ensure_ascii=False, indent=1, default=str))
     print(root / "TAIL.md")
     return 0
+
+
+A12_HEAD = ["조건", "n(ok)", "후반 느린 초", "후반 서버형 느린 초", "후반 1초 p99 최대 ms", "후반 관측 초", "후반 빈 초", "후반 얇은 초", "앱 CPU %", "DB CPU %",
+            "F CPU %", "F CPU 최대 %", "F ≥ 한도 95% 표본 비율", "F 한도 코어", "CPU 표본 수", "표본 간격 최대 s"]
+A12_RHEAD = ["조건", "출처", "n(ok)", "바퀴 수(전체)", "바퀴 수(정상 — 안)", "걸침(정상)", "바퀴 시간 중앙 s(정상)", "바퀴 시간 최대 s(정상)", "바퀴 수(후반 — 안)", "걸침(후반)",
+             "바퀴 시간 중앙 s(후반)", "바퀴 시간 최대 s(후반)", "pending > 0 비율 바퀴 중", "pending > 0 비율 바퀴 밖", "Hikari 표본 바퀴 중", "Hikari 표본 바퀴 밖",
+             "CPU 표본 바퀴 중", "CPU 표본 바퀴 밖", "DB CPU % 바퀴 중", "DB CPU % 바퀴 밖", "앱 CPU % 바퀴 중", "앱 CPU % 바퀴 밖", "F CPU % 바퀴 중", "F CPU % 바퀴 밖",
+             "F CPU 최대 % 바퀴 중", "F ≥ 한도 95% 비율 바퀴 중"]
+
+
+# ---- ADR-012 2단계·2' 7절(a12x) · 효과 세트 -----------------------------------------------------------------
+A12X_HEAD = ["조건", "n(ok)", "증분 틱 수(정상)", "틱 ms 중앙", "R2 첫 5분 ms", "R2 마지막 5분 ms", "R2 반증 회차", "후보 쌍 중앙(첫5 → 끝5)",
+             "안전망 실행", "R7 판정 불가", "R7 ① 허용식 초과", "R7 ② 벽시계 > cap", "R7 ③ 복구 쌍 > cap", "R7 ④ 청크 > 500ms", "R7 ⑤ 추세 반증 회차", "실행 db_ms 중앙", "실행 db_ms 최대",
+             "첫 5분 → 마지막 5분 db_ms", "청크 최대 ms", "표본 db_ms 중앙", "자기 기록 INSERT ms(하한)", "적체 id 최대", "바퀴 완료", "이월 최대 · 넘침", "경계 건너뜀 id",
+             "보장 밖(kind 행)", "선점 p99 ms(정상)", "noc 대비 %", "HOT 비율(k6)", "updated_at 인덱스 MB(끝)"]
+
+
+def _a12x_vals(t):
+    x = t.get("a12x") or {}
+    g = lambda *k: _get(x, *k)
+    gp = "; ".join(f"{k} {v['rows']}" for k, v in sorted((x.get("gaps") or {}).items())) if isinstance(x.get("gaps"), dict) else None
+    return {"ticks": g("r2", "ticks"), "tick_ms": g("r2", "tick_ms_median"), "f5": g("r2", "first5_ms"), "l5": g("r2", "last5_ms"), "r2v": g("r2", "violation"),
+            "pf": g("r2", "pairs_first5"), "pl": g("r2", "pairs_last5"),
+            "runs": g("r7", "runs"), "r7u": g("r7", "undecidable"), "srec": g("r7", "self_record_ms"), "v1": g("r7", "v1_db_over_tol"), "v2": g("r7", "v2_wall_over_cap"), "v3": g("r7", "v3_pairs_over_cap"), "v4": g("r7", "v4_chunk_over_500"),
+            "v5": g("r7", "v5_trend"), "db_med": g("r7", "db_ms_total", "median"), "db_max": g("r7", "db_ms_total", "max"), "f5db": g("r7", "first5_db_ms"), "l5db": g("r7", "last5_db_ms"),
+            "chunk": g("r7", "chunk_ms_max", "max"), "smp": g("r7", "sample_db_ms", "median"), "lag": g("r7", "lag_ids", "max"), "laps": g("r7", "laps_completed"),
+            "carry": g("r7", "carry_out_max"), "drop": g("r7", "carry_dropped"), "skip": g("r7", "recent_skip_ids"), "gaps": gp,
+            "p99": x.get("hold_p99_steady_ms"), "hot": g("r5", "hot_ratio_k6"), "idx": (g("r5", "idx_bytes_end") / 1048576) if num(g("r5", "idx_bytes_end")) else None,
+            "v9": g("r5", "v9"), "hot0": g("r5", "hot_undefined") is True}
+
+
+def _hot_cell(vals, d=3):
+    """HOT 비율 칸(머리말 R5 HOT 칸) — V9가 아니면 '—', 비율이 있는 회차는 범위, 갱신 0 회차는 '갱신 0'(n), 나머지는 누락 수."""
+    if not vals:
+        return "누락"
+    if not any(v["v9"] for v in vals):
+        return "—"
+    r = [v["hot"] for v in vals if num(v["hot"])]
+    z = sum(1 for v in vals if not num(v["hot"]) and v["hot0"])
+    m = len(vals) - len(r) - z
+    parts = ([_rngd(r, d)] if r else []) + ([f"갱신 0({z}/{len(vals)})" if len(vals) > 1 else "갱신 0"] if z else []) + ([f"누락 {m}"] if m else [])
+    return " · ".join(parts) or "누락"
+
+
+def a12x_tables(out, js, lab, notes):
+    """7절 — 조건별(ok 회차 — 중앙값 [최소–최대] · 위반 수는 합 · 반증 회차 수) · 회차별. R5 noc 대비 = 조건 이름이 noc-로 시작하는 조건의 ok 회차 선점 p99 중앙값 기준."""
+    out.append(f"## 7. {lab} — R2 증분 틱 · R7 안전망 · 보장 밖 기록 · R5 선점 비용(정상 구간 — 조건별 ok 회차)\n")
+    out.append("> 정의는 스크립트 머리말 'ADR-012 2단계'. R7 ①~④ = 위반 실행 수(ok 회차 합) · ⑤·R2 = 반증 회차 수. 증분·안전망이 없는 조건(noc·c)은 R2·R7 칸 '—'. "
+               "noc 대비 % = (조건 중앙값 ÷ noc 중앙값 − 1) × 100(§5 R5 허용선 +10%). 판정(성립·기각)은 담지 않는다.\n")
+    noc = [c for c in js["conds"] if c.startswith("noc-")]
+    noc_p99 = None
+    if noc:
+        v = [(t.get("a12x") or {}).get("hold_p99_steady_ms") for t in js["conds"][noc[0]] if t["status"] == "ok"]
+        v = [x for x in v if num(x)]
+        noc_p99 = statistics.median(v) if v else None
+    else:
+        notes.append("7절: noc 조건(noc-…) 없음 — R5 noc 대비 % 없음")
+    cond_rows, rep_rows = [], []
+    for c, reps in js["conds"].items():
+        ok = [t for t in reps if t["status"] == "ok"]
+        vals = [_a12x_vals(t) for t in ok]
+        has_inc = any(_get(t, "a12_expect", "sources") for t in reps)
+        col = lambda k, d=1: _rngd([v[k] for v in vals], d)
+        sm = lambda k: (str(sum(v[k] for v in vals if num(v[k]))) + (f" · 누락 {sum(1 for v in vals if not num(v[k]))}" if any(not num(v[k]) for v in vals) else "")) if vals else "누락"
+        cnt = lambda k: f"{sum(1 for v in vals if v[k] is True)}/{len(vals)}"
+        p99m = statistics.median([v["p99"] for v in vals if num(v["p99"])]) if any(num(v["p99"]) for v in vals) else None
+        inc_cells = [col("ticks", 0), col("tick_ms"), col("f5"), col("l5"), cnt("r2v"), f'{col("pf", 0)} → {col("pl", 0)}',
+                     col("runs", 0), f'{sum(1 for v in vals if v["r7u"])}/{len(vals)}', sm("v1"), sm("v2"), sm("v3"), sm("v4"), cnt("v5"), col("db_med"), col("db_max"),
+                     f'{col("f5db")} → {col("l5db")}', col("chunk"), col("smp"), ("≥ " + col("srec")) if any(num(v["srec"]) for v in vals) else "없음", col("lag", 0), col("laps", 0), f'{col("carry", 0)} · {sm("drop")}', sm("skip"),
+                     "; ".join(sorted({v["gaps"] for v in vals if v["gaps"]})) or ("0" if vals else "누락")]
+        if not has_inc:
+            inc_cells = ["—"] * len(inc_cells)
+        v9 = any(v["v9"] for v in vals)   # updated_at 인덱스는 V9 방식(trg·stmt)만 — 그 밖은 '—'(누락 아님)
+        cond_rows.append([c, len(ok)] + inc_cells + [col("p99", 2), fx((p99m / noc_p99 - 1) * 100, 1) if num(p99m) and noc_p99 else "누락",
+                                                     _hot_cell(vals), col("idx", 1) if v9 else "—"])
+        for t in reps:
+            v = _a12x_vals(t)
+            nt = (t.get("a12x") or {}).get("notes") or []
+            ic = [fx(v["ticks"], 0), fx(v["tick_ms"]), fx(v["f5"]), fx(v["l5"]), fx(v["r2v"]), f'{fx(v["pf"], 0)} → {fx(v["pl"], 0)}', fx(v["runs"], 0), v["r7u"] or "-",
+                  fx(v["v1"], 0), fx(v["v2"], 0), fx(v["v3"], 0), fx(v["v4"], 0), fx(v["v5"]), fx(v["db_med"]), fx(v["db_max"]), f'{fx(v["f5db"])} → {fx(v["l5db"])}',
+                  fx(v["chunk"]), fx(v["smp"]), ("≥ " + fx(v["srec"])) if num(v["srec"]) else "없음", fx(v["lag"], 0), fx(v["laps"], 0), f'{fx(v["carry"], 0)} · {fx(v["drop"], 0)}', fx(v["skip"], 0), v["gaps"] or "0"]
+            if not _get(t, "a12_expect", "sources"):
+                ic = ["—"] * len(ic)
+            rep_rows.append([c, Path(t["dir"]).name, " · ".join([t["status"] or "누락"] + nt)] + ic
+                            + [fx(v["p99"], 2), fx((v["p99"] / noc_p99 - 1) * 100, 1) if num(v["p99"]) and noc_p99 else "누락", _hot_cell([v]), fx(v["idx"], 1) if v["v9"] else "—"])
+            notes += [f"{c} {Path(t['dir']).name} ADR-012 2단계: {n}" for n in nt]
+    table(out, A12X_HEAD, cond_rows)
+    table(out, ["조건", "회차", "상태"] + A12X_HEAD[2:], rep_rows)
+
+
+EFF_KINDS = ("D", "L1", "L2", "H", "AH", "AL", "AE")
+
+
+def effect_campaign(root, set_name="adr012eff"):
+    """--set adr012eff | adr012effx: 조건 폴더마다 L*/S3e*/rep* 회차의 effect.json(summarize.effect) → TAIL.md · tail.json. 값만 낸다(R4·R6 성립·기각은 메인 몫)."""
+    conds = [l.split()[0] for l in (root / "conditions.txt").read_text().splitlines() if l.strip()]
+    js, notes, rows, crow = {"campaign": root.name, "set": set_name, "conds": {}}, [], [], []
+    for c in conds:
+        reps = sorted(p for p in (root / c).glob("L*/S3e*/rep*") if p.is_dir() and "." not in p.name)
+        recs = []
+        for rd in reps:
+            e = load(rd / "effect.json")
+            st = (rd / "status").read_text().strip() if (rd / "status").exists() else None
+            rec = {"dir": str(rd), "status": st, "effect": e}
+            recs.append(rec)
+            if not isinstance(e, dict):
+                notes.append(f"{c} {rd.name}: effect.json 없음")
+                rows.append([c, rd.name, st or "누락"] + ["누락"] * 16)
+                continue
+            k = e.get("kinds") or {}
+            kt = lambda x: (lambda d: f'{d["injected"]}/{d["repaired"]}/{d["end_matched"]}' if d else "—")(k.get(x))
+            r4, r6 = e.get("r4") or {}, e.get("r6") or {}
+            srcs = sorted({s for d in k.values() for s in d.get("repaired_by") or []})
+            rows.append([c, rd.name, st or "누락", " · ".join(f"{x} {kt(x)}" for x in EFF_KINDS if k.get(x)), ", ".join(srcs) or "-",
+                         f'{fx(r4.get("violations"), 0)}/{fx(r4.get("pairs"), 0)}', fx(r4.get("undecidable"), 0), fx(r4.get("out_of_guarantee"), 0),
+                         "; ".join(f"{b} {n}" for b, n in (r4.get("by_basis") or {}).items()) or "-", fx(r4.get("backlog_no_prior_run"), 0),
+                         "; ".join(f"{b} {n}" for b, n in (r4.get("by_catcher") or {}).items()) or "-",
+                         "; ".join(f"{b} {n}" for b, n in (r4.get("violations_by_catcher") or {}).items()) or "-", fx(r4.get("lap_max_s")),
+                         f'{fx(r6.get("violations"), 0)}/{fx(r6.get("judged"), 0)}', fx(r6.get("undecidable"), 0), fx(r6.get("excluded_out_of_guarantee"), 0),
+                         f'{fx(e.get("false_repairs"), 0)} · {fx(e.get("noninjected_mismatch"), 0)}', "; ".join(e.get("unexpected") or []) or "-",
+                         "; ".join(f"{g} {v['rows']}" for g, v in sorted((e.get("gaps") or {}).items())) or "0"])
+            if r4.get("clock_note"):
+                notes.append(f"{c} {rd.name}: {r4['clock_note']}")
+        js["conds"][c] = recs
+        ok = [r for r in recs if r["status"] == "ok" and isinstance(r["effect"], dict)]
+        if len(ok) != 3:
+            notes.append(f"{c}: ok 회차 {len(ok)}/3 — {[(Path(r['dir']).name, r['status']) for r in recs]}")
+        g = lambda r, *k: _get(r["effect"], *k)
+        crow.append([c, len(ok), sum(g(r, "r4", "violations") or 0 for r in ok), sum(g(r, "r4", "undecidable") or 0 for r in ok),
+                     sum(g(r, "r4", "out_of_guarantee") or 0 for r in ok), sum(g(r, "r6", "violations") or 0 for r in ok), sum(g(r, "r6", "judged") or 0 for r in ok),
+                     sum(g(r, "r6", "undecidable") or 0 for r in ok),
+                     sum(1 for r in ok if g(r, "injected_mismatch_end")), sum(g(r, "false_repairs") or 0 for r in ok), sum(1 for r in ok if g(r, "unexpected"))])
+    out = [f"# ADR-012 효과 지표 — `{root.name}` (--set {set_name})\n",
+           "> `k6/ADR-009/scripts/tail.py`가 회차 effect.json(summarize.py effect — S3e DB 직접 주입 D·L1·L2·H + 앱 경로 주입 AH·AL·AE)에서 산출. 값만 낸다 — R4·R6 판정은 메인 몫. "
+           "종류 칸 = 주입/복구/끝 일치. R4 = 위반/쌍(보장 밖 쌍 포함 — 기준이 다르다: 증분 '봄'·보장 안 = 주기 + 10초 · 그 밖 = 적체 없으면 120초 · 있으면 2 × 바퀴). "
+           "적체는 주입 트랜잭션 시작 이전 마지막 안전망 실행의 기록(없으면 뒤 첫 실행 — 'no-prior-run' 쌍 수). 예상 담당 = 안전망의 어느 갈래가 잡을 쌍인가(recent·reread·full-cursor — 기록만, R4 기준 그대로). "
+           "R6 = 위반/판정(증분 '봄'·보장 안 쌍의 첫 후보 출처 ≠ 그 셀 증분 source) · 판정 불가 = counter_app_inject 행 없음. 정의는 summarize.py 머리말 'ADR-012 추가'·inc_effect.\n",
+           "## 1. 조건별(ok 회차 합)\n"]
+    table(out, ["조건", "n(ok)", "R4 위반", "R4 판정 불가", "보장 밖 쌍", "R6 위반", "R6 판정 쌍", "R6 판정 불가", "끝 주입 쌍 불일치 회차", "오탐 복구", "unexpected 회차"], crow)
+    out.append("## 2. 회차별\n")
+    table(out, ["조건", "회차", "상태", "종류(주입/복구/끝 일치)", "복구 출처", "R4 위반/쌍", "R4 판정 불가", "보장 밖", "R4 기준별 쌍", "적체 기준 no-prior-run 쌍",
+                "예상 담당별 쌍", "R4 위반 예상 담당", "바퀴 최대 s", "R6 위반/판정", "R6 판정 불가", "R6 보장 밖 제외", "오탐 복구 · 주입 밖 끝 어긋남", "unexpected", "보장 밖 기록(kind 행)"], rows)
+    out.append("## 누락·의심\n")
+    out += [f"- {n}" for n in notes] or ["- 자동 점검에서 걸린 항목 없음"]
+    js["notes"] = notes
+    (root / "TAIL.md").write_text("\n".join(out) + "\n")
+    (root / "tail.json").write_text(json.dumps(js, ensure_ascii=False, indent=1, default=str))
+    print(root / "TAIL.md")
+    return 0
+
+
+def _gap(t):
+    c = t.get("cpu_steady") or {}
+    g = [x for x in (c.get("head_gap_s"), c.get("max_inner_gap_s"), c.get("tail_gap_s")) if num(x)]
+    return max(g) if g else None
+
+
+def _a12_vals(t):
+    g = lambda *k: _get(t, *k)
+    f = lambda k: g("cpu_steady", "containers", "f", k)
+    return [g("late", "slow_secs"), g("late", "server_slow_secs"), g("late", "sec_p99_max_ms"), g("late", "secs"), g("late", "secs_empty"), g("late", "secs_thin"),
+            g("cpu_steady", "containers", "app", "mean"), g("cpu_steady", "containers", "db", "mean"), f("mean"), f("max"), f("sat_share"), f("limit_cores"),
+            g("cpu_steady", "samples"), _gap(t)]
+
+
+A12_D = [0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 3, 1, 0, 1]
+
+
+def _a12_rvals(r):
+    g = lambda *k: _get(r, *k)
+    return [g("total"), g("steady", "n"), g("steady_crossing"), g("steady", "median_s"), g("steady", "max_s"), g("late", "n"), g("late_crossing"), g("late", "median_s"),
+            g("late", "max_s"), g("hikari", "in_pending_share"), g("hikari", "out_pending_share"), g("hikari", "in_n"), g("hikari", "out_n"),
+            g("stats_samples", "in_n"), g("stats_samples", "out_n"), g("cpu", "db", "in_mean"), g("cpu", "db", "out_mean"),
+            g("cpu", "app", "in_mean"), g("cpu", "app", "out_mean"), g("cpu", "f", "in_mean"), g("cpu", "f", "out_mean"), g("cpu", "f", "in_max"), g("cpu", "f", "in_sat_share")]
+
+
+A12_RD = [0, 0, 0, 2, 2, 0, 0, 2, 2, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 3]
+A12_SETS = ("adr012s1", "adr012r8", "adr012s2", "adr012s2x")
+A12X_SETS = ("adr012s2", "adr012s2x")   # ADR-012 2단계·2' — 7절(a12x)
+# R8(--set adr012r8 — 머리말 'R8'): 대조 바퀴 표 끝에 ①·② 갈래 시간 열
+A12_R8_HEAD = ["① 시간 중앙 ms(정상)", "① 시간 최대 ms(정상)", "① 시간 중앙 ms(후반)", "① 시간 최대 ms(후반)",
+               "② 시간 중앙 ms(정상)", "② 시간 최대 ms(정상)", "② 시간 중앙 ms(후반)", "② 시간 최대 ms(후반)"]
+A12_R8_RD = [1] * len(A12_R8_HEAD)
+
+
+def _a12_r8vals(r):
+    g = lambda *k: _get(r, *k)
+    return [g("branch_ms", b, w, m) for b in ("chunk", "orphan") for w in ("steady", "late") for m in ("median_ms", "max_ms")]
+
+
+def _detect_shape(t):
+    p = (load(Path(t["dir"]) / "reconciler-config.json") or {}).get("configprops") or []
+    v = [_get(x, "properties", "counterDrift", "reconcile", "detectShape") for x in p if isinstance(x, dict) and x.get("prefix") == "seat.hold"]
+    return v[0] if v and v[0] else "누락"
+
+
+def _a12_why(t):
+    """회차 상태 칸에 붙일 사유 — 후반·정상 구간 공백(late_unavailable·steady_sparse) · 결측(a12_missing). 원시 읽기에서 멈춘 회차(a12_missing 없음)는 notes."""
+    w = [t[k] for k in ("late_unavailable", "steady_sparse") if t.get(k)]
+    w += t["a12_missing"] if "a12_missing" in t else [f"결측: {n}" for n in t.get("notes") or ["ADR-012 지표 없음"]]
+    return w
+
+
+A12_F = [i for i, h in enumerate(A12_HEAD[2:]) if h.startswith("F ")]          # F 열(값 목록 기준) — F를 기대하지 않는 회차는 '—'(누락 아님)
+A12_RF = [i for i, h in enumerate(A12_RHEAD[3:]) if h.startswith("F ")]
+NO_RUNS = {"total": 0, "steady": {"n": 0}, "steady_crossing": 0, "late": {"n": 0}, "late_crossing": 0}   # drift-db는 있는데 그 출처 바퀴가 없음 = 0(누락 아님)
+
+
+def _rounds_of(t, src):
+    r = t.get("rounds")
+    return None if r is None else (r.get(src) or NO_RUNS)
+
+
+def _a12_rows(c, reps, ok, cond_rows, rep_rows, rcond_rows, rrep_rows, notes, r8=False):
+    """ADR-012 1단계 표 행(조건별·회차별) — 조건 묶음 = ok 회차만(위 표와 같은 규칙). 사유(_a12_why)는 회차 행 상태 칸 · 조건 행 '결측·주의' 칸 · 누락·의심 목록에 —
+    빈 칸으로 두지 않는다. 기대 출처(a12_expect)는 바퀴가 0이어도 행을 만든다(바퀴 수 0 + 상태 칸 사유). F를 기대하지 않는 회차(cond ≠ A+F)의 F 열은 '—'."""
+    exp_f = lambda t: _get(t, "a12_expect", "f_container") is not False
+    dash = lambda cells, idx, on: [("—" if on and i in idx else x) for i, x in enumerate(cells)]
+    vals = [_a12_vals(t) for t in ok]
+    why = {Path(t["dir"]).name: _a12_why(t) for t in reps}
+    warn = {Path(t["dir"]).name: [f"주의 {w}" for w in t.get("a12_warn") or []] for t in reps}
+    no_f = bool(reps) and not any(exp_f(t) for t in reps)
+    cond_rows.append([c, len(ok)] + dash([_rngd([v[i] for v in vals], A12_D[i]) for i in range(len(A12_D))], A12_F, no_f)
+                     + ["; ".join(f"{k}: {' · '.join(why[k] + warn[k])}" for k in why if why[k] or warn[k]) or "없음"])
+    for t in reps:
+        name = Path(t["dir"]).name
+        st = " · ".join([t["status"] or "누락"] + why[name])
+        lim = _get(t, "cpu_steady", "containers", "f", "limit_source")
+        rep_rows.append([c, name, st] + dash([fx(v, A12_D[i]) for i, v in enumerate(_a12_vals(t))], A12_F, not exp_f(t))
+                        + [lim or ("—" if not exp_f(t) else "누락(F 표본 없음)")] + ([_detect_shape(t) if exp_f(t) else "—"] if r8 else []))
+        notes += [f"{c} {name} ADR-012: {w}" for w in why[name]] + [f"{c} {name} ADR-012 주의: {w}" for w in t.get("a12_warn") or []]
+    srcs = sorted({s for t in reps for s in ((t.get("rounds") or {}).keys())} | {_get(t, "a12_expect", "source") for t in reps if _get(t, "a12_expect", "source")}
+                  | {x for t in reps for x in (_get(t, "a12_expect", "sources") or [])})   # ADR-012 새 조건: 증분·안전망 둘 다
+    for src in srcs:
+        rv = [_a12_rvals(_rounds_of(t, src)) for t in ok]
+        rcond_rows.append([c, src, len(ok)] + dash([_rngd([v[i] for v in rv], A12_RD[i]) for i in range(len(A12_RD))], A12_RF, no_f)
+                          + ([_rngd([_a12_r8vals(_rounds_of(t, src))[i] for t in ok], A12_R8_RD[i]) for i in range(len(A12_R8_RD))] if r8 else []))
+        for t in reps:
+            name = Path(t["dir"]).name
+            rrep_rows.append([c, name, " · ".join([t["status"] or "누락"] + why[name]), src]
+                             + dash([fx(v, A12_RD[i]) for i, v in enumerate(_a12_rvals(_rounds_of(t, src)))], A12_RF, not exp_f(t))
+                             + ([fx(v, A12_R8_RD[i]) for i, v in enumerate(_a12_r8vals(_rounds_of(t, src)))] if r8 else []))
+
+
+def _rngd(vals, d):
+    """_rng와 같은 모양(중앙값 [최소–최대] · 누락 수)에 소수 자리 d를 고정한 것(ADR-012 표 — CPU·ms 값이 정수로 뭉개지지 않게)."""
+    v = [x for x in vals if num(x)]
+    if not v:
+        return "누락"
+    s = fx(statistics.median(v), d) if len(v) == 1 else f"{fx(statistics.median(v), d)} [{fx(min(v), d)}–{fx(max(v), d)}]"
+    return s + (f" · 누락 {len(vals) - len(v)}" if len(v) < len(vals) else "")
 
 
 def _get(x, *k):
@@ -596,9 +1189,9 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "--probe-check":
         return probe_check(argv[1])
     if len(argv) == 2 and argv[0] == "--rep":
-        print(json.dumps(rep_tail(argv[1]), ensure_ascii=False, indent=1, default=str))
+        print(json.dumps(rep_tail(argv[1], a12x=True), ensure_ascii=False, indent=1, default=str))
         return 0
-    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc"):
+    if len(argv) == 3 and argv[0] == "--set" and argv[1] in ("k6ver", "pretouch", "soak", "soakrc", "adr012s1", "adr012r8", "adr012s2", "adr012s2x", "adr012eff", "adr012effx"):
         return campaign(argv[1], argv[2])
     print(__doc__, file=sys.stderr)
     return 2

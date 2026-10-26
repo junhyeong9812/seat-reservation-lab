@@ -62,8 +62,9 @@ services:
       DB_PASSWORD: seat
       # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
       # ADR-009 후보·정리는 끔 고정(ADR-009 결정으로 앱 기본값이 A·C·정리 ① 켬으로 바뀌었다 — 이 하네스는 그 축이 없던 측정이라 이전 기본값 끔을 명시. 카운터 계열이 아닌 매수 방식은 켠 채로는 기동 검사가 거부한다)
+      # ADR-012 증분·안전망·탐지 모양도 옛 값 고정(ADR-012 기본값 교체 — 업무 앱 기본값이 증분 trigger 1초 · 안전망 · split · V9 트리거·V10 위치로 바뀌었다. 이 하네스는 그 축이 없던 측정이라 이전 실효 값을 명시)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","limit-strategy":"${SEAT_HOLD_LIMIT_STRATEGY:-none}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false},"cleanup":{"mode":"none"}}}},
+        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","limit-strategy":"${SEAT_HOLD_LIMIT_STRATEGY:-none}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false,"incremental":{"method":"none","enabled":false},"safety-net":{"enabled":false},"detect-shape":"one-shot"},"cleanup":{"mode":"none"}}}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}

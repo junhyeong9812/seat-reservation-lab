@@ -1,0 +1,1235 @@
+{
+  "sha": "71585d53",
+  "level": 4,
+  "cell": "S3e-a20",
+  "rep": 1,
+  "started": "2026-10-21T15:58:14+09:00",
+  "ended": "2026-10-21T16:21:35+09:00",
+  "k6_started": "2026-10-21T16:00:13+09:00",
+  "k6_ended": "2026-10-21T16:15:12+09:00",
+  "ttl_s": 300,
+  "strategy": "pessimistic-nowait",
+  "pool": 10,
+  "apps": 1,
+  "delay_ms": 0,
+  "bg": 0,
+  "limit_strategy": "counter-upsert-precheck",
+  "limit_source": "default",
+  "injected_limit_strategy": null,
+  "harness": "sha:71585d53",
+  "cond": "A+I",
+  "cleanup": "schedule",
+  "reconcile_interval": "60s",
+  "applied": {
+    "strategy": "PESSIMISTIC_NOWAIT",
+    "limit_strategy": "COUNTER_UPSERT_PRECHECK"
+  },
+  "k6_env": "RATE=300 TOTAL=200000 SEATS=10000 RETRIES=3 THINK_MIN_S=30 THINK_MAX_S=240 TAIL_S=360 ABANDON=0.2",
+  "app_env": "HOLD_TTL=5m EXPIRY_INTERVAL=10s HOLD_STRATEGY=pessimistic-nowait FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-incremental POOL_SIZE=10 CRITICAL_SECTION_DELAY=0ms PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=12g DB_MEM=14g LIMIT_TRIGGER= SALES_CLOSE_OFF= DRIFT_A=true DRIFT_EXTERNAL= DRIFT_C_ENABLED=false DRIFT_C= DRIFT_CLEANUP=schedule RECONCILE_INTERVAL=60s INC_METHOD=memory INC_ENABLED=true INC_INTERVAL=5s SAFETY_ENABLED=true APP_DETECT_SHAPE=split INC_TRACK=1 INJECT_APP=1 APP_MEM=2g APP_JVM_OPTS=-XX:+UseZGC APP_JVM_OPTS2=-XX:+ZGenerational APP_JVM_OPTS3= APP_JVM_OPTS4= APP_CPUS=4 DB_CPUS=4",
+  "k6_exit": 0,
+  "status": "ok",
+  "k6_version": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "k6_bin": "/home/jun/.local/opt/k6-v2.2.0/k6",
+  "adr011": {
+    "gctrace": false,
+    "probes": false,
+    "app_pretouch": false,
+    "app_xms_full": false,
+    "s4c_steps": 12,
+    "seed_schedules": 200,
+    "pg_tmpfs_gb": 12
+  },
+  "io_settle_s": 11,
+  "pg_preset": "tmpfs",
+  "pg_env": "PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_SIZE=12g DB_MEM=14g",
+  "pg_applied": {
+    "checkpoint_timeout": "5min",
+    "max_wal_size": "1GB",
+    "shared_buffers": "128MB",
+    "log_checkpoints": "on",
+    "track_io_timing": "on",
+    "track_wal_io_timing": "on",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "clock_offset": {
+    "before": {
+      "offset_s": -0.0054,
+      "rtt_s": 0.0028,
+      "at": 1792566013.3804607
+    },
+    "after": {
+      "offset_s": -0.0341,
+      "rtt_s": 0.0029,
+      "at": 1792566912.7181096
+    }
+  },
+  "pre_k6": {
+    "mode": "fixed-after-seed",
+    "seed_done_epoch": 1792565926.9295583,
+    "k6_start_epoch": 1792566013.409089,
+    "seed_to_k6_s": 86.48,
+    "hold_s": 70,
+    "target_s": 87,
+    "tol_s": 5,
+    "reconcile_wait_s": 5,
+    "hold_reached_s": 5.279,
+    "hold_slept_s": 64.721,
+    "topup_s": 0.187,
+    "first_request_epoch": 1792566013.9838448,
+    "first_request_source": "csv(1s)",
+    "seed_to_first_request_s": 87.054,
+    "k6_startup_s": 0.575,
+    "reconcile_phase": {
+      "passes": [
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -83.521,
+          "end_rel_s": -83.513
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -78.512,
+          "end_rel_s": -78.51
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -73.509,
+          "end_rel_s": -73.507
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -68.505,
+          "end_rel_s": -68.505
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -63.504,
+          "end_rel_s": -63.502
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -58.501,
+          "end_rel_s": -58.499
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -53.498,
+          "end_rel_s": -53.496
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": -48.582,
+          "end_rel_s": -48.575
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -48.495,
+          "end_rel_s": -48.494
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -43.494,
+          "end_rel_s": -43.492
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -38.49,
+          "end_rel_s": -38.489
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -33.488,
+          "end_rel_s": -33.487
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -28.485,
+          "end_rel_s": -28.484
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -23.482,
+          "end_rel_s": -23.481
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -18.479,
+          "end_rel_s": -18.478
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -13.477,
+          "end_rel_s": -13.476
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -8.476,
+          "end_rel_s": -8.474
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": -3.473,
+          "end_rel_s": -3.472
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 1.529,
+          "end_rel_s": 1.545
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 6.546,
+          "end_rel_s": 6.569
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 11.429,
+          "end_rel_s": 11.465
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 11.571,
+          "end_rel_s": 11.576
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 16.578,
+          "end_rel_s": 16.582
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 21.583,
+          "end_rel_s": 21.587
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 26.588,
+          "end_rel_s": 26.598
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 31.598,
+          "end_rel_s": 31.609
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 36.61,
+          "end_rel_s": 36.613
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 41.614,
+          "end_rel_s": 41.618
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 46.619,
+          "end_rel_s": 46.622
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 51.622,
+          "end_rel_s": 51.625
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 56.625,
+          "end_rel_s": 56.629
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 61.63,
+          "end_rel_s": 61.632
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 66.633,
+          "end_rel_s": 66.636
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 71.466,
+          "end_rel_s": 71.555
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 71.637,
+          "end_rel_s": 71.64
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 76.64,
+          "end_rel_s": 76.643
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 81.644,
+          "end_rel_s": 81.646
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 86.647,
+          "end_rel_s": 86.65
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 91.65,
+          "end_rel_s": 91.653
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 96.654,
+          "end_rel_s": 96.656
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 101.656,
+          "end_rel_s": 101.658
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 106.659,
+          "end_rel_s": 106.661
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 111.661,
+          "end_rel_s": 111.664
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 116.664,
+          "end_rel_s": 116.666
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 121.666,
+          "end_rel_s": 121.668
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 126.669,
+          "end_rel_s": 126.671
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 131.555,
+          "end_rel_s": 131.633
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 131.671,
+          "end_rel_s": 131.674
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 136.674,
+          "end_rel_s": 136.676
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 141.677,
+          "end_rel_s": 141.679
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 146.679,
+          "end_rel_s": 146.681
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 151.682,
+          "end_rel_s": 151.685
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 156.686,
+          "end_rel_s": 156.687
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 161.688,
+          "end_rel_s": 161.69
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 166.69,
+          "end_rel_s": 166.693
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 171.693,
+          "end_rel_s": 171.694
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 176.695,
+          "end_rel_s": 176.697
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 181.698,
+          "end_rel_s": 181.7
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 186.701,
+          "end_rel_s": 186.703
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 191.633,
+          "end_rel_s": 191.689
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 191.703,
+          "end_rel_s": 191.705
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 196.705,
+          "end_rel_s": 196.707
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 201.707,
+          "end_rel_s": 201.709
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 206.71,
+          "end_rel_s": 206.712
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 211.713,
+          "end_rel_s": 211.715
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 216.715,
+          "end_rel_s": 216.718
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 221.718,
+          "end_rel_s": 221.72
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 226.721,
+          "end_rel_s": 226.722
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 231.723,
+          "end_rel_s": 231.724
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 236.725,
+          "end_rel_s": 236.727
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 241.727,
+          "end_rel_s": 241.73
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 246.73,
+          "end_rel_s": 246.732
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 251.69,
+          "end_rel_s": 251.742
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 251.733,
+          "end_rel_s": 251.735
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 256.735,
+          "end_rel_s": 256.737
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 261.737,
+          "end_rel_s": 261.738
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 266.739,
+          "end_rel_s": 266.74
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 271.741,
+          "end_rel_s": 271.742
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 276.743,
+          "end_rel_s": 276.744
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 281.745,
+          "end_rel_s": 281.747
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 286.747,
+          "end_rel_s": 286.748
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 291.749,
+          "end_rel_s": 291.75
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 296.751,
+          "end_rel_s": 296.752
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 301.752,
+          "end_rel_s": 301.754
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 306.754,
+          "end_rel_s": 306.756
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 311.743,
+          "end_rel_s": 311.802
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 311.756,
+          "end_rel_s": 311.76
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 316.762,
+          "end_rel_s": 316.764
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 321.765,
+          "end_rel_s": 321.767
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 326.768,
+          "end_rel_s": 326.769
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 331.77,
+          "end_rel_s": 331.772
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 336.773,
+          "end_rel_s": 336.774
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 341.775,
+          "end_rel_s": 341.777
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 346.778,
+          "end_rel_s": 346.78
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 351.78,
+          "end_rel_s": 351.782
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 356.783,
+          "end_rel_s": 356.785
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 361.785,
+          "end_rel_s": 361.787
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 366.787,
+          "end_rel_s": 366.789
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 371.789,
+          "end_rel_s": 371.793
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 371.802,
+          "end_rel_s": 371.852
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 376.793,
+          "end_rel_s": 376.797
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 381.797,
+          "end_rel_s": 381.801
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 386.801,
+          "end_rel_s": 386.805
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 391.805,
+          "end_rel_s": 391.806
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 396.807,
+          "end_rel_s": 396.808
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 401.809,
+          "end_rel_s": 401.811
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 406.812,
+          "end_rel_s": 406.813
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 411.813,
+          "end_rel_s": 411.815
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 416.815,
+          "end_rel_s": 416.817
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 421.817,
+          "end_rel_s": 421.818
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 426.819,
+          "end_rel_s": 426.82
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 431.82,
+          "end_rel_s": 431.822
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 431.852,
+          "end_rel_s": 431.896
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 436.822,
+          "end_rel_s": 436.824
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 441.824,
+          "end_rel_s": 441.825
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 446.826,
+          "end_rel_s": 446.827
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 451.827,
+          "end_rel_s": 451.829
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 456.829,
+          "end_rel_s": 456.83
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 461.831,
+          "end_rel_s": 461.832
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 466.832,
+          "end_rel_s": 466.833
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 471.834,
+          "end_rel_s": 471.835
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 476.835,
+          "end_rel_s": 476.837
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 481.837,
+          "end_rel_s": 481.838
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 486.838,
+          "end_rel_s": 486.84
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 491.84,
+          "end_rel_s": 491.841
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 491.896,
+          "end_rel_s": 491.942
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 496.842,
+          "end_rel_s": 496.843
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 501.843,
+          "end_rel_s": 501.844
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 506.845,
+          "end_rel_s": 506.846
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 511.847,
+          "end_rel_s": 511.847
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 516.848,
+          "end_rel_s": 516.849
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 521.85,
+          "end_rel_s": 521.851
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 526.852,
+          "end_rel_s": 526.853
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 531.853,
+          "end_rel_s": 531.855
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 536.855,
+          "end_rel_s": 536.857
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 541.857,
+          "end_rel_s": 541.858
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 546.859,
+          "end_rel_s": 546.86
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 551.861,
+          "end_rel_s": 551.862
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 551.943,
+          "end_rel_s": 552.008
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 556.862,
+          "end_rel_s": 556.864
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 561.864,
+          "end_rel_s": 561.865
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 566.866,
+          "end_rel_s": 566.867
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 571.867,
+          "end_rel_s": 571.869
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 576.869,
+          "end_rel_s": 576.87
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 581.87,
+          "end_rel_s": 581.871
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 586.872,
+          "end_rel_s": 586.873
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 591.874,
+          "end_rel_s": 591.874
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 596.875,
+          "end_rel_s": 596.876
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 601.876,
+          "end_rel_s": 601.878
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 606.878,
+          "end_rel_s": 606.879
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 611.879,
+          "end_rel_s": 611.881
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 612.008,
+          "end_rel_s": 612.068
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 616.881,
+          "end_rel_s": 616.882
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 621.883,
+          "end_rel_s": 621.884
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 626.884,
+          "end_rel_s": 626.886
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 631.886,
+          "end_rel_s": 631.887
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 636.887,
+          "end_rel_s": 636.889
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 641.889,
+          "end_rel_s": 641.89
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 646.891,
+          "end_rel_s": 646.892
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 651.892,
+          "end_rel_s": 651.893
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 656.894,
+          "end_rel_s": 656.895
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 661.895,
+          "end_rel_s": 661.896
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 666.897,
+          "end_rel_s": 666.898
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 671.899,
+          "end_rel_s": 671.904
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 672.069,
+          "end_rel_s": 672.133
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 676.906,
+          "end_rel_s": 676.913
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 681.914,
+          "end_rel_s": 681.917
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 686.917,
+          "end_rel_s": 686.919
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 691.919,
+          "end_rel_s": 691.921
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 696.921,
+          "end_rel_s": 696.927
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 701.928,
+          "end_rel_s": 701.934
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 706.935,
+          "end_rel_s": 706.941
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 711.943,
+          "end_rel_s": 711.943
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 716.944,
+          "end_rel_s": 716.949
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 721.951,
+          "end_rel_s": 721.954
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 726.955,
+          "end_rel_s": 726.96
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 731.961,
+          "end_rel_s": 731.963
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 732.134,
+          "end_rel_s": 732.169
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 736.963,
+          "end_rel_s": 736.964
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 741.965,
+          "end_rel_s": 741.97
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 746.972,
+          "end_rel_s": 746.977
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 751.979,
+          "end_rel_s": 751.984
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 756.986,
+          "end_rel_s": 756.987
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 761.987,
+          "end_rel_s": 761.992
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 766.993,
+          "end_rel_s": 766.994
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 771.995,
+          "end_rel_s": 772
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 777.002,
+          "end_rel_s": 777.003
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 782.004,
+          "end_rel_s": 782.005
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 787.005,
+          "end_rel_s": 787.01
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 792.011,
+          "end_rel_s": 792.017
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 792.169,
+          "end_rel_s": 792.232
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 797.018,
+          "end_rel_s": 797.023
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 802.024,
+          "end_rel_s": 802.025
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 807.026,
+          "end_rel_s": 807.031
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 812.033,
+          "end_rel_s": 812.038
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 817.04,
+          "end_rel_s": 817.043
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 822.044,
+          "end_rel_s": 822.046
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 827.047,
+          "end_rel_s": 827.048
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 832.048,
+          "end_rel_s": 832.05
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 837.051,
+          "end_rel_s": 837.056
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 842.057,
+          "end_rel_s": 842.058
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 847.059,
+          "end_rel_s": 847.061
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 852.062,
+          "end_rel_s": 852.067
+        },
+        {
+          "source": "safety-app",
+          "start_rel_s": 852.233,
+          "end_rel_s": 852.29
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 857.069,
+          "end_rel_s": 857.07
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 862.071,
+          "end_rel_s": 862.076
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 867.077,
+          "end_rel_s": 867.078
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 872.079,
+          "end_rel_s": 872.084
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 877.085,
+          "end_rel_s": 877.087
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 882.088,
+          "end_rel_s": 882.09
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 887.09,
+          "end_rel_s": 887.092
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 892.093,
+          "end_rel_s": 892.094
+        },
+        {
+          "source": "inc-app-mem-5s",
+          "start_rel_s": 897.094,
+          "end_rel_s": 897.095
+        }
+      ],
+      "completed_before_k6": 18,
+      "first_in_k6": {
+        "source": "inc-app-mem-5s",
+        "start_rel_s": 1.529,
+        "end_rel_s": 1.545
+      }
+    },
+    "db_start_to_k6_s": 115.209,
+    "db_start_to_seed_s": 28.729,
+    "db_during_wait": {
+      "tables": {
+        "product_seat": {
+          "autovacuum_count": 2,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-21T06:59:48.241994+00:00",
+          "last_autoanalyze": "2026-10-21T06:59:48.255309+00:00"
+        },
+        "seat_hold": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-21T06:58:48.217475+00:00",
+          "last_autoanalyze": "2026-10-21T06:59:48.241762+00:00"
+        },
+        "reservation": {
+          "autovacuum_count": 0,
+          "autoanalyze_count": 0,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": null,
+          "last_autoanalyze": null
+        },
+        "user_hold_quota": {
+          "autovacuum_count": 1,
+          "autoanalyze_count": 1,
+          "vacuum_count": 0,
+          "analyze_count": 0,
+          "last_autovacuum": "2026-10-21T06:58:48.220673+00:00",
+          "last_autoanalyze": "2026-10-21T06:58:48.221006+00:00"
+        }
+      },
+      "checkpoints": {
+        "timed": 0,
+        "req": 0
+      },
+      "autovacuum_workers_at_k6": [],
+      "same_postmaster": true
+    }
+  },
+  "gc": {
+    "app": {
+      "collector": "The Z Garbage Collector",
+      "stops": 428,
+      "stop_ms_max": 0.695519,
+      "nested": 0,
+      "log_bytes": 1329423,
+      "k6": {
+        "stops": 393,
+        "stop_ms_total": 12.297283999999989,
+        "stop_ms_max": 0.124043,
+        "nested": 0,
+        "gc_ids": 393,
+        "safepoint_other_max_ms": 0.108599,
+        "full": 0,
+        "stalls": 0,
+        "stall_ms_max": 0,
+        "worker_stalls": 0,
+        "worker_stall_ms_max": 0
+      }
+    },
+    "reconciler": null
+  },
+  "reconcile_shape": "split",
+  "incremental": {
+    "method": "mem",
+    "interval": "5s",
+    "inject_app": true,
+    "source": "inc-app-mem-5s",
+    "safety_source": "safety-app",
+    "where": "app",
+    "inject_app_every": 50
+  }
+}

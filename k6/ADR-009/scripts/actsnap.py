@@ -92,4 +92,17 @@ out = {
     "process_cpu_usage": pick("process.cpu.usage", stat="VALUE"),
     "process_cpu_time_s": pick("process.cpu.time", stat="VALUE") if "process.cpu.time" in NAMES else None,
 }
+# ADR-012 2단계(§4.2.6 지표 — 손잡이가 켜질 때만 등록된다): 증분·안전망 이름이 목록에 하나라도 있을 때만 키를 더한다(이전 조건의 스냅숏 모양 그대로).
+#   errors = 태그(stage) 합 · self_record = 안전망 자기 행 INSERT 타이머(MAX는 최근 약 2분 창 — R7 허용식의 '자기 기록 INSERT(지표 최대값)')
+I, SN = f"{R}.incremental", "seat.hold.counter.safety"
+if any(n.startswith(I + ".") for n in NAMES):
+    out["incremental"] = {"borrows": pick(f"{I}.borrows"), "errors": pick(f"{I}.errors"), "candidates": pick(f"{I}.candidates"),
+                          "window_clamped": pick(f"{I}.window_clamped"), "hidden_sessions": pick(f"{I}.hidden_sessions"),
+                          "memory_overflow": pick(f"{I}.memory.overflow"), "memory_requeued": pick(f"{I}.memory.requeued"),
+                          "memory_size": pick(f"{I}.memory.size", stat="VALUE"), "tick": timer(f"{I}.tick")}
+if any(n.startswith(SN + ".") for n in NAMES):
+    out["safety"] = {"borrows": pick(f"{SN}.borrows"), "errors": pick(f"{SN}.errors"), "expedited": pick(f"{SN}.expedited"),
+                     "lap_overdue": pick(f"{SN}.lap_overdue"), "carry_dropped": pick(f"{SN}.carry_dropped"),
+                     "recent_skipped_ids": pick(f"{SN}.recent.skipped_ids"), "lag_ids": pick(f"{SN}.recent.lag_ids", stat="VALUE"),
+                     "run": timer(f"{SN}.run"), "self_record": timer(f"{SN}.self_record")}
 print(json.dumps(out, ensure_ascii=False))

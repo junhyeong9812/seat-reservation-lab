@@ -351,7 +351,7 @@ SH
 
 # ---- ADR-008 설정 파일 정적 검사(리뷰 루프 1 C4 — 회차 전에 한 번, 측정 대상 앱 SHA 기준) -------------------------------------------------
 # 매수 방식은 src/main/resources/application.yml만 정할 수 있고 그 값은 counter-upsert-precheck여야 한다. 프로필 설정(loadtest 등)이 덮으면 '기본값'을 잰 것이 아니다.
-#   ① <SHA>의 src/main/resources 아래 application*.{yml,yaml,properties}(하위 폴더 포함) 중 application.yml이 아닌 파일에서 limit[._-]?strategy(대소문자 무시, 주석 제외)가
+#   ① <SHA>의 src/main/resources(새 구조는 main-app/src/main/resources) 아래 application*.{yml,yaml,properties}(하위 폴더 포함) 중 application.yml이 아닌 파일에서 limit[._-]?strategy(대소문자 무시, 주석 제외)가
 #      한 번이라도 나오면 limit-set-by-profile
 #   ② application.yml: 그 정규식이 나오는 (주석 아닌) 줄이 정확히 하나이고 그 줄이 `limit-strategy: counter-upsert-precheck`가 아니면 limit-default-not-precheck
 #   ③ 실제로 띄울 compose 파일들(인자)의 주석 아닌 줄에 SPRING_CONFIG_가 있으면 spring-config-override(외부 설정 위치 — 내용을 볼 수 없다)
@@ -361,7 +361,10 @@ SH
 # 인자: sha compose파일... (compose 파일은 로컬 경로 — 작업트리 스모크면 작업트리, 아니면 SHA에서 꺼낸 사본) → 한 줄 JSON {"sha","files","application_yml","spring_config","reasons"}
 limit_config_check() {
   local sha="$1"; shift
-  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf
+  local f files="[]" n k app_lines app_ok=false sc=0 reasons=() cf res=src/main/resources core=()
+  # 저장소 구조(task 04b): 그 SHA에 main-app/src/main/resources가 있으면 그쪽(새 구조), 없으면 src/main/resources(옛 구조)
+  [[ -n "$(git -C "$REPO_ROOT" ls-tree -d --name-only "$sha" -- main-app/src/main/resources 2>/dev/null)" ]] && res=main-app/src/main/resources core=(reconcile-core/src/main/resources)
+  # 새 구조: reconcile-core도 main-app 런타임 classpath에 올라가므로 그 자원(application*)도 같이 본다(04b 리뷰)
   strip() { case "$1" in *.properties) grep -vE '^[[:space:]]*[#!]' ;; *) sed -E 's/(^|[[:space:]])#.*$//' ;; esac; }
   while IFS= read -r f; do
     [[ "$(basename "$f")" =~ ^application.*\.(ya?ml|properties)$ ]] || continue
@@ -370,13 +373,13 @@ limit_config_check() {
     [[ "$k" =~ ^[0-9]+$ ]] || return 1
     (( k == 0 )) || reasons+=("spring-config-import")
     files=$(jq -c --arg f "$f" --argjson n "${n:-0}" --argjson k "$k" '. + [{path:$f, matches:$n, config_keys:$k}]' <<< "$files")
-    if [[ "$f" == src/main/resources/application.yml ]]; then
+    if [[ "$f" == "$res/application.yml" ]]; then
       app_lines=$(git -C "$REPO_ROOT" show "$sha:$f" | strip "$f" | grep -iE 'limit[._-]?strategy')
       if [[ "$(grep -c . <<< "$app_lines")" == 1 ]] && grep -qE '^[[:space:]]*limit-strategy:[[:space:]]*counter-upsert-precheck[[:space:]]*$' <<< "$app_lines"; then app_ok=true; fi
     elif (( n > 0 )); then
       reasons+=("limit-set-by-profile")
     fi
-  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- src/main/resources) || return 1
+  done < <(git -C "$REPO_ROOT" ls-tree -r --name-only "$sha" -- "$res" ${core[@]+"${core[@]}"}) || return 1
   [[ "$files" != "[]" ]] || return 1   # 설정 파일을 하나도 못 찾으면 확인 실패(조용히 통과하지 않게)
   [[ "$app_ok" == true ]] || reasons+=("limit-default-not-precheck")
   for cf in "$@"; do

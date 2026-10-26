@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: seat-reservation-lab
+  # 기본값을 두지 않는다 — 로컬 5432의 다른 DB에 실수로 붙지 않게. 로컬 실행은 ./gradlew bootTestRun (Testcontainers)
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  # 업무 앱 기본값(ADR-012 §8.9 · 명세 §10 K1): 기본 위치 + V9 트리거 위치(ⓑ updated_at 트리거) + V10(안전망·기록 테이블) — 증분 방식 trigger의 스키마.
+  # 옛 방식(ADR-009 C — V1~V7)으로 새 DB를 띄우려면 classpath:db/migration만 준다(K2). 매수 방식·좌석 전략에 따른 위치(migration-unique·migration-trigger)는 지금처럼 더한다
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental
+
+server:
+  port: 8101
+
+# actuator는 loadtest 프로필에서만 연다 (application-loadtest.yml)
+management:
+  # Redis는 Redis 전략에서만 쓴다 — 다른 전략에서 health가 Redis 연결 실패로 DOWN이 되지 않게
+  health:
+    redis:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        exclude: "*"
+
+seat:
+  hold:
+    ttl: 5m
+    max-per-user: 2
+    expiry-interval: 10s
+    # 같은 좌석 경합 제어 방식(ADR-003). 기본 = ADR-003 결정 pessimistic-nowait(none = ADR-000 기준선)
+    strategy: pessimistic-nowait
+    # 같은 사용자 동시 요청의 매수 제어(ADR-005). 기본 = ADR-008 결정 counter-upsert-precheck(none = 조회 후 비교, ADR-000 기준선)
+    limit-strategy: counter-upsert-precheck
+    # 임계 구역 지연(ADR-004 실험 장치). 기본 0 = 기준선
+    critical-section-delay: 0s
+    # 카운터 어긋남 대조·쿼터 행 정리 — 업무 앱 기본값 = ADR-012 판정(§8.9 · 명세 §10 K1): A 켬 · 앱 안 증분 대조 ⓑ(DB 트리거 updated_at) 1초 + 안전망 · split 탐지 ·
+    #   C(60초 전체 대조) 끔 · 정리 ① schedule. 코드 기본값(SeatHoldProperties · core ReconcileProperties)은 ADR-009 값 그대로다 — 업무 앱 기본값은 이 파일이 정한다.
+    # 옛 방식(ADR-009 C 60초 · one-shot) 되돌리기(K2): reconcile.enabled=true · incremental.enabled=false · incremental.method=none · safety-net.enabled=false ·
+    #   detect-shape=one-shot · spring.flyway.locations=classpath:db/migration(이미 V9·V10을 적용한 DB면 method=trigger · 위치 그대로 — K3)
+    # 카운터 계열이 아닌 매수 방식(none·quota·advisory 등)은 A·정리·증분·안전망을 끄고 method=none · 위치 db/migration, counter-trigger(B)는 A·증분을, counter는 정리를 끈다
+    #   — 기동 검사가 조합을 거부하고 끌 키를 안내한다(C + 증분 · F(external-reconciler) + 증분·안전망도 거부)
+    counter-drift:
+      expiry-repair: true
+      reconcile:
+        enabled: false
+        detect-shape: split
+        incremental:
+          method: trigger
+          enabled: true
+          interval: 1s
+        safety-net:
+          enabled: true
+      cleanup:
+        mode: schedule

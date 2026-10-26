@@ -1,0 +1,243 @@
+external_app_ready: jun@192.168.55.158 ok compose=5.0.0 disk_avail_kb=157280788 deployed=2 images=2
+[2026-10-22 02:53:10] external build seatlab-reconciler:ee649b8d (k6 PC — git archive ee649b8d)
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon    256kB
+Step 1/17 : FROM eclipse-temurin:21-jdk AS build
+ ---> bd15556c8747
+Step 2/17 : WORKDIR /src
+ ---> Using cache
+ ---> 5199b9c14fd4
+Step 3/17 : COPY gradlew settings.gradle.kts build.gradle.kts ./
+ ---> Using cache
+ ---> 09973524a86d
+Step 4/17 : COPY gradle gradle
+ ---> Using cache
+ ---> 037dcbc154e7
+Step 5/17 : COPY main-app/build.gradle.kts main-app/
+ ---> Using cache
+ ---> ea6ac7fff1d6
+Step 6/17 : COPY reconcile-core/build.gradle.kts reconcile-core/
+ ---> Using cache
+ ---> 056c0c7ff93e
+Step 7/17 : COPY reconciler-app/build.gradle.kts reconciler-app/
+ ---> Using cache
+ ---> 944240e698b2
+Step 8/17 : RUN ./gradlew --no-daemon -q :reconciler-app:dependencies > /dev/null
+ ---> Using cache
+ ---> c54117968a8c
+Step 9/17 : COPY reconcile-core reconcile-core
+ ---> Using cache
+ ---> aedbd6ae6f17
+Step 10/17 : COPY reconciler-app/src/main reconciler-app/src/main
+ ---> Using cache
+ ---> 717922d4c77b
+Step 11/17 : RUN ./gradlew --no-daemon -q :reconciler-app:bootJar
+ ---> Using cache
+ ---> 79c5c5490f2e
+Step 12/17 : FROM eclipse-temurin:21-jre
+ ---> c3686c504caa
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> b9313ce51f7b
+Step 14/17 : COPY --from=build /src/reconciler-app/build/libs/reconciler-app-0.0.1-SNAPSHOT.jar app.jar
+ ---> Using cache
+ ---> 912a8f6b61b3
+Step 15/17 : EXPOSE 8103
+ ---> Using cache
+ ---> adc536e21c2d
+Step 16/17 : ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ ---> Using cache
+ ---> a0a8ea9ae271
+Step 17/17 : LABEL org.seatlab.sha=ee649b8dacdd6b4ff99f03e207e62918b4fa053a
+ ---> Using cache
+ ---> 24612e6ce28c
+Successfully built 24612e6ce28c
+Successfully tagged seatlab-reconciler:ee649b8d
+[2026-10-22 02:53:11] external deploy compose.yml(ee649b8d) → jun@192.168.55.158:labs/seat-reservation-lab-reconciler/ee649b8d (attempt 1)
+[2026-10-22 02:53:12] matrix 20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x: cond=A+X cleanup=schedule levels=[4] reps=3 cells=[S4c4200] pg_preset=tmpfs
+[2026-10-22 02:53:12] L4 S4c4200 rep1 cond=A+X cleanup=schedule → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x/L4/S4c4200/rep1
+[2026-10-22 02:53:25] external compose up (ee649b8d) INC_METHOD=trigger INC_INTERVAL=5s DETECT_SHAPE=split INC_TRACK= RECONCILER_JVM_OPTS=-XX:+UseZGC RECONCILER_JVM_OPTS2=-XX:+ZGenerational RECONCILER_JVM_OPTS3= RECONCILER_JVM_OPTS4= (attempt 1)
+[2026-10-22 03:34:27] compose down (ee649b8d) (attempt 1)
+ Container seatlab-app-1 Stopping 
+ Container seatlab-app-1 Stopped 
+ Container seatlab-app-1 Removing 
+ Container seatlab-app-1 Removed 
+ Container seatlab-db-1 Stopping 
+ Container seatlab-redis-1 Stopping 
+ Container seatlab-redis-1 Stopped 
+ Container seatlab-redis-1 Removing 
+ Container seatlab-redis-1 Removed 
+ Container seatlab-db-1 Stopped 
+ Container seatlab-db-1 Removing 
+ Container seatlab-db-1 Removed 
+ Network seatlab_default Removing 
+ Volume seatlab_pgdata Removing 
+ Volume seatlab_pgdata Removed 
+ Network seatlab_default Removed 
+[2026-10-22 03:34:29] matrix done: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x
+[2026-10-22 03:34:29] cleanup pid=1812427 frozen=/tmp/tmp.nh2tHjwqKz k6_tree=/tmp/tmp.9vK9v7OwZ2
+external_app_ready: jun@192.168.55.158 ok compose=5.0.0 disk_avail_kb=157261124 deployed=2 images=2
+[2026-10-22 07:00:43] external build seatlab-reconciler:ee649b8d (k6 PC — git archive ee649b8d)
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon    256kB
+Step 1/17 : FROM eclipse-temurin:21-jdk AS build
+ ---> bd15556c8747
+Step 2/17 : WORKDIR /src
+ ---> Using cache
+ ---> 5199b9c14fd4
+Step 3/17 : COPY gradlew settings.gradle.kts build.gradle.kts ./
+ ---> Using cache
+ ---> 09973524a86d
+Step 4/17 : COPY gradle gradle
+ ---> Using cache
+ ---> 037dcbc154e7
+Step 5/17 : COPY main-app/build.gradle.kts main-app/
+ ---> Using cache
+ ---> ea6ac7fff1d6
+Step 6/17 : COPY reconcile-core/build.gradle.kts reconcile-core/
+ ---> Using cache
+ ---> 056c0c7ff93e
+Step 7/17 : COPY reconciler-app/build.gradle.kts reconciler-app/
+ ---> Using cache
+ ---> 944240e698b2
+Step 8/17 : RUN ./gradlew --no-daemon -q :reconciler-app:dependencies > /dev/null
+ ---> Using cache
+ ---> c54117968a8c
+Step 9/17 : COPY reconcile-core reconcile-core
+ ---> Using cache
+ ---> aedbd6ae6f17
+Step 10/17 : COPY reconciler-app/src/main reconciler-app/src/main
+ ---> Using cache
+ ---> 717922d4c77b
+Step 11/17 : RUN ./gradlew --no-daemon -q :reconciler-app:bootJar
+ ---> Using cache
+ ---> 79c5c5490f2e
+Step 12/17 : FROM eclipse-temurin:21-jre
+ ---> c3686c504caa
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> b9313ce51f7b
+Step 14/17 : COPY --from=build /src/reconciler-app/build/libs/reconciler-app-0.0.1-SNAPSHOT.jar app.jar
+ ---> Using cache
+ ---> 912a8f6b61b3
+Step 15/17 : EXPOSE 8103
+ ---> Using cache
+ ---> adc536e21c2d
+Step 16/17 : ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ ---> Using cache
+ ---> a0a8ea9ae271
+Step 17/17 : LABEL org.seatlab.sha=ee649b8dacdd6b4ff99f03e207e62918b4fa053a
+ ---> Using cache
+ ---> 24612e6ce28c
+Successfully built 24612e6ce28c
+Successfully tagged seatlab-reconciler:ee649b8d
+[2026-10-22 07:00:44] external deploy compose.yml(ee649b8d) → jun@192.168.55.158:labs/seat-reservation-lab-reconciler/ee649b8d (attempt 1)
+[2026-10-22 07:00:45] matrix 20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x: cond=A+X cleanup=schedule levels=[4] reps=3 cells=[S4c4200] pg_preset=tmpfs
+[2026-10-22 07:00:45] L4 S4c4200 rep2 cond=A+X cleanup=schedule → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x/L4/S4c4200/rep2
+[2026-10-22 07:00:59] external compose up (ee649b8d) INC_METHOD=trigger INC_INTERVAL=5s DETECT_SHAPE=split INC_TRACK= RECONCILER_JVM_OPTS=-XX:+UseZGC RECONCILER_JVM_OPTS2=-XX:+ZGenerational RECONCILER_JVM_OPTS3= RECONCILER_JVM_OPTS4= (attempt 1)
+[2026-10-22 07:41:58] compose down (ee649b8d) (attempt 1)
+ Container seatlab-app-1 Stopping 
+ Container seatlab-app-1 Stopped 
+ Container seatlab-app-1 Removing 
+ Container seatlab-app-1 Removed 
+ Container seatlab-redis-1 Stopping 
+ Container seatlab-db-1 Stopping 
+ Container seatlab-redis-1 Stopped 
+ Container seatlab-redis-1 Removing 
+ Container seatlab-redis-1 Removed 
+ Container seatlab-db-1 Stopped 
+ Container seatlab-db-1 Removing 
+ Container seatlab-db-1 Removed 
+ Network seatlab_default Removing 
+ Volume seatlab_pgdata Removing 
+ Volume seatlab_pgdata Removed 
+ Network seatlab_default Removed 
+[2026-10-22 07:42:00] matrix done: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x
+[2026-10-22 07:42:00] cleanup pid=2194008 frozen=/tmp/tmp.T2QeLf392D k6_tree=/tmp/tmp.7gGqR6AWNE
+external_app_ready: jun@192.168.55.158 ok compose=5.0.0 disk_avail_kb=157241928 deployed=2 images=2
+[2026-10-22 11:08:07] external build seatlab-reconciler:ee649b8d (k6 PC — git archive ee649b8d)
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon    256kB
+Step 1/17 : FROM eclipse-temurin:21-jdk AS build
+ ---> bd15556c8747
+Step 2/17 : WORKDIR /src
+ ---> Using cache
+ ---> 5199b9c14fd4
+Step 3/17 : COPY gradlew settings.gradle.kts build.gradle.kts ./
+ ---> Using cache
+ ---> 09973524a86d
+Step 4/17 : COPY gradle gradle
+ ---> Using cache
+ ---> 037dcbc154e7
+Step 5/17 : COPY main-app/build.gradle.kts main-app/
+ ---> Using cache
+ ---> ea6ac7fff1d6
+Step 6/17 : COPY reconcile-core/build.gradle.kts reconcile-core/
+ ---> Using cache
+ ---> 056c0c7ff93e
+Step 7/17 : COPY reconciler-app/build.gradle.kts reconciler-app/
+ ---> Using cache
+ ---> 944240e698b2
+Step 8/17 : RUN ./gradlew --no-daemon -q :reconciler-app:dependencies > /dev/null
+ ---> Using cache
+ ---> c54117968a8c
+Step 9/17 : COPY reconcile-core reconcile-core
+ ---> Using cache
+ ---> aedbd6ae6f17
+Step 10/17 : COPY reconciler-app/src/main reconciler-app/src/main
+ ---> Using cache
+ ---> 717922d4c77b
+Step 11/17 : RUN ./gradlew --no-daemon -q :reconciler-app:bootJar
+ ---> Using cache
+ ---> 79c5c5490f2e
+Step 12/17 : FROM eclipse-temurin:21-jre
+ ---> c3686c504caa
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> b9313ce51f7b
+Step 14/17 : COPY --from=build /src/reconciler-app/build/libs/reconciler-app-0.0.1-SNAPSHOT.jar app.jar
+ ---> Using cache
+ ---> 912a8f6b61b3
+Step 15/17 : EXPOSE 8103
+ ---> Using cache
+ ---> adc536e21c2d
+Step 16/17 : ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ ---> Using cache
+ ---> a0a8ea9ae271
+Step 17/17 : LABEL org.seatlab.sha=ee649b8dacdd6b4ff99f03e207e62918b4fa053a
+ ---> Using cache
+ ---> 24612e6ce28c
+Successfully built 24612e6ce28c
+Successfully tagged seatlab-reconciler:ee649b8d
+[2026-10-22 11:08:08] external deploy compose.yml(ee649b8d) → jun@192.168.55.158:labs/seat-reservation-lab-reconciler/ee649b8d (attempt 1)
+[2026-10-22 11:08:09] matrix 20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x: cond=A+X cleanup=schedule levels=[4] reps=3 cells=[S4c4200] pg_preset=tmpfs
+[2026-10-22 11:08:09] L4 S4c4200 rep3 cond=A+X cleanup=schedule → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x/L4/S4c4200/rep3
+[2026-10-22 11:08:22] external compose up (ee649b8d) INC_METHOD=trigger INC_INTERVAL=5s DETECT_SHAPE=split INC_TRACK= RECONCILER_JVM_OPTS=-XX:+UseZGC RECONCILER_JVM_OPTS2=-XX:+ZGenerational RECONCILER_JVM_OPTS3= RECONCILER_JVM_OPTS4= (attempt 1)
+[2026-10-22 11:49:28] compose down (ee649b8d) (attempt 1)
+ Container seatlab-app-1 Stopping 
+ Container seatlab-app-1 Stopped 
+ Container seatlab-app-1 Removing 
+ Container seatlab-app-1 Removed 
+ Container seatlab-redis-1 Stopping 
+ Container seatlab-db-1 Stopping 
+ Container seatlab-redis-1 Stopped 
+ Container seatlab-redis-1 Removing 
+ Container seatlab-redis-1 Removed 
+ Container seatlab-db-1 Stopped 
+ Container seatlab-db-1 Removing 
+ Container seatlab-db-1 Removed 
+ Network seatlab_default Removing 
+ Volume seatlab_pgdata Removing 
+ Volume seatlab_pgdata Removed 
+ Network seatlab_default Removed 
+[2026-10-22 11:49:31] matrix done: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-009/results/20261022-adr012s2x-ee649b8d/x-trg-5s-adr012s2x
+[2026-10-22 11:49:31] cleanup pid=2574428 frozen=/tmp/tmp.z3oxZFP2tz k6_tree=/tmp/tmp.KEmpk7KsgB

@@ -99,3 +99,5 @@
 
 - V6: `src/main/resources/db/migration/V6__backfill_user_hold_quota.sql`(신규 31줄 — LOCK TABLE → 실제 ≥1 upsert 덮어쓰기 → 실제 0 행 cnt=0).
 - 남은 것: push·PR(사용자 확인) · 이슈 아카이브 범위(사용자 확인) · R1·fail-fast·쿼터 행 정리 → ADR-009.
+
+> 시각 주(2026-10-19 사후 대조 검토): 이 log 타임라인의 일부 행 시각이 대화 기록·커밋 시각과 몇 시간씩 어긋난다. log는 발생 시점 기록이라 고치지 않는다 — 해당 ADR의 의사결정 기록이 대화 기록 시각을 기준으로 쓰고 어긋난 행을 적어 두었다(그 ADR의 '검토 기록' 표).
