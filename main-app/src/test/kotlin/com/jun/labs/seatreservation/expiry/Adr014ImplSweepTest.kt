@@ -225,7 +225,7 @@ class Adr014ImplSweepTest : Adr014ImplSupport() {
         val a = seat(SeatStatus.HELD)
         dbHold(a, 1, -1.0)
         quota(s, 1, 1)
-        listOf("seat_hold", "user_hold_quota", "product_seat").forEach { table ->
+        listOf("seat_hold", "user_hold_quota", "product_seat", "product_schedule").forEach { table ->
             rawConnection().use { other ->
                 other.exec("SELECT count(*) FROM $table") // 검사 뒤 새로 붙은 세션의 열린 트랜잭션 — ACCESS SHARE 잠금을 쥔다
                 rawConnection().use { c ->

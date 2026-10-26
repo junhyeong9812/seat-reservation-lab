@@ -31,10 +31,12 @@ BEGIN
 END
 $quiesce$;
 
--- 코드 리뷰 CR14-29: 검사 직후 T1·T2가 쓰고 읽는 테이블(seat_hold · user_hold_quota · product_seat — product_schedule은 읽기만)을 COMMIT까지 쥔다.
+-- 코드 리뷰 CR14-29: 검사 직후 T1·T2가 쓰고 읽는 테이블(seat_hold · user_hold_quota · product_seat · T1이 읽는 product_schedule)을 COMMIT까지 쥔다.
+--   product_schedule도 함께 쥐는 이유(재점검 CR14-31): 빼면 검사 뒤 붙은 세션이 product_schedule을 먼저 잠그고 seat_hold를 기다릴 때
+--   T1의 product_schedule 읽기와 서로 기다리는 교착이 된다 — 정지 상태라 읽기 차단의 비용은 없다.
 --   검사 뒤 새로 붙은 세션은 이 테이블을 읽지도 쓰지도 못하고 기다린다(잠금은 트랜잭션 끝에 풀린다). 다른 세션이 이미 그 테이블 잠금을 쥐고 있으면
 --   기다리지 않고 멈춘다(NOWAIT — SQLSTATE 55P03 lock_not_available · 트랜잭션 롤백).
-LOCK TABLE seat_hold, user_hold_quota, product_seat IN ACCESS EXCLUSIVE MODE NOWAIT;
+LOCK TABLE seat_hold, user_hold_quota, product_seat, product_schedule IN ACCESS EXCLUSIVE MODE NOWAIT;
 
 -- T1 남은 만료 홀드 삭제 + 쌍별 감소(지운 행 수만큼 — 규칙 ②). 열린 회차만 감소(마감 회차는 카운터를 쓰지 않는다 — 정리 ①과 같은 뜻)
 WITH d AS (DELETE FROM seat_hold WHERE expires_at <= now() RETURNING schedule_id, user_id),
