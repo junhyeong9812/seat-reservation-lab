@@ -867,7 +867,9 @@ def rep_summary(d):
                 if st and st.get("W") is not None:
                     M["state"]["L_A"] = st["W"] / M["flow"]["n_exp"] if M["flow"]["n_exp"] else None
         h4 = jsonl(d / "timeline-h4.jsonl")
-        if h4 is not None:
+        if h4 is None:
+            flags.append("h4-sampler-missing(주 셀인데 timeline-h4.jsonl 없음 — M10 회수 대기 자료 없음 · 이름표만 — 측정 전 재해석 CR14-12)")
+        else:
             M["h4"] = {"samples": len(h4), "seen": sum(1 for x in h4 if (x.get("h4_active") or 0) > 0), "lock": sum(1 for x in h4 if (x.get("h4_lock") or 0) > 0)}
             if method in ("B", "C", "D") and (M.get("app") or {}).get("reclaim", {}).get("COUNT") and not M["h4"]["seen"]:
                 flags.append("h4-marker-unseen(회수는 있었는데 표지가 표본에 없다 — [구현 검증] #24 · 해석 메모)")
