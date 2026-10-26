@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.transaction.TransactionDefinition
 
@@ -110,6 +112,74 @@ class ExpiryCounters(
         )
     }
 
+    // ---- ADR-014 B·C·D — 행을 지운 뒤의 감소(회수 H5 · 배치 C5·D5) · 지우기 앞의 MISSING 복구(H3 · C3b · D3) ------------------------
+
+    /**
+     * ADR-014 §2.4 규칙 ②·③: 이 트랜잭션의 `DELETE … RETURNING`이 실제로 지운 [n]행만큼 쌍의 cnt를 내린다. 호출 전에 그 쌍의 쿼터 행을 잠가 둔다(규칙 ①).
+     * 문장·등록은 A([decrement])와 같다(선검증 DS14-6 — stmt면 `updated_at = now()` · 1행이면 ⓐ 등록). 측정 주입(afterExpiryDecrement)은 부르지 않는다
+     * (B·C·D와 주입은 기동 거부 — Q13). 가드가 0행이면 그 자리에서 복구한다 — 행을 이미 지웠으므로 excludeHoldIds는 비우고 pendingDecrement = [n](DS14-7).
+     * expiry-repair=false면 A의 옛 경로처럼 실패한다(트랜잭션 롤백 — [legacyDecrement]와 같은 뜻).
+     */
+    fun decrementDeleted(source: String, scheduleId: Long, userId: Long, n: Int) {
+        if (n == 0) return
+        if (!properties.counterDrift.expiryRepair) {
+            check(jdbc.update(legacySql, n, scheduleId, userId) == 1) { "카운터 행 없음: 회차 $scheduleId 사용자 $userId" }
+            changes.changed(scheduleId, userId)
+            return
+        }
+        if (jdbc.update(guardSql, n, scheduleId, userId, n) == 1) {
+            changes.changed(scheduleId, userId) // ⓐ 등록(커밋 뒤) — 복구 갈래는 PairRepair가 등록한다
+            return
+        }
+        val observed = jdbc.queryForList(
+            "SELECT cnt FROM user_hold_quota WHERE schedule_id = ? AND user_id = ?", Int::class.java, scheduleId, userId,
+        ).singleOrNull()
+        val actual = PairRepair.actualOf(jdbc, scheduleId, userId)
+        val kind = when {
+            observed == null -> DriftKind.MISSING
+            observed > actual + n -> DriftKind.ABOVE
+            else -> DriftKind.BELOW
+        }
+        tick.get()?.attempted?.add(DriftOutcome(source, scheduleId, userId, kind, observed, actual, DriftAction.SKIPPED))
+        countCommitted(repair.repairInCurrentTx(source, scheduleId, userId, kind, pendingDecrement = n))
+    }
+
+    /**
+     * ADR-014 §2.4 · §3.1 H3(DS14-8) · §3.4 C3b·D3(DS14-5): 쿼터 행이 없는 쌍(MISSING)은 홀드를 지우기 **앞에서** 복구한다 — PairRepair가 행을 만들고 잠가
+     * (INSERT한 행은 커밋까지 이 트랜잭션이 쥔다) 규칙 ①이 MISSING 쌍에도 서게 한다(행 없이 지우면 그 사이 같은 사용자의 upsert가 만든 cnt를 감소가 내려 무음 below).
+     * [deletingHoldIds] = 이 트랜잭션이 곧 지울 홀드 — 배치는 실제 값에서 빼고 그 수를 감소 예정으로 넘긴다(그 쌍은 C5·D5 감소를 하지 않는다 — A와 같다).
+     * 회수(H3)는 빈 목록 — 지울 행까지 센 값으로 덮고 감소는 H5가 한다. expiry-repair=false면 A의 옛 경로처럼 실패한다.
+     */
+    fun repairMissingBeforeDelete(source: String, scheduleId: Long, userId: Long, deletingHoldIds: List<Long>) {
+        check(properties.counterDrift.expiryRepair) { "카운터 행 없음: 회차 $scheduleId 사용자 $userId" }
+        val actual = PairRepair.actualOf(jdbc, scheduleId, userId, deletingHoldIds)
+        tick.get()?.attempted?.add(DriftOutcome(source, scheduleId, userId, DriftKind.MISSING, null, actual, DriftAction.SKIPPED))
+        countCommitted(
+            repair.repairInCurrentTx(
+                source, scheduleId, userId, DriftKind.MISSING, excludeHoldIds = deletingHoldIds, pendingDecrement = deletingHoldIds.size,
+            ),
+        )
+    }
+
+    /**
+     * 복구 결과는 커밋된 것만 센다 — 틱 안(배치)이면 틱이 커밋 뒤에 세고, 틱 밖(선점의 회수)이면 그 트랜잭션의 커밋 뒤에 센다.
+     * 회수 복구는 선점이 뒤에서 실패하면(NOWAIT 패배 · 매수 초과 등) 함께 롤백된다(규칙 ③) — 그 쌍은 다음 선점·배치·대조가 다시 본다(WARN 로그).
+     */
+    private fun countCommitted(outcome: DriftOutcome) {
+        val current = tick.get()
+        if (current != null) {
+            current.outcomes.add(outcome)
+            return
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return recorder.count(outcome)
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCompletion(status: Int) {
+                if (status == TransactionSynchronization.STATUS_COMMITTED) recorder.count(outcome)
+                else log.warn("복구({})가 트랜잭션과 함께 롤백됐다: 회차 {} 사용자 {} — 다음 선점·배치·대조가 다시 본다", outcome.source, outcome.scheduleId, outcome.userId)
+            }
+        })
+    }
+
     // ---- 틱 경계(ExpireHoldsService가 트랜잭션 밖에서 부른다) ----------------------------------------------
 
     fun beginTick() = tick.set(Tick())
@@ -139,6 +209,8 @@ class ExpiryCounters(
 
     companion object {
         private val log = LoggerFactory.getLogger(ExpiryCounters::class.java)
+        /** ADR-014 선점 회수(H3~H5)의 복구 기록 출처(`counter_drift_log.source`) — C·D 배치는 A와 같은 [DriftSource.EXPIRY_REPAIR] */
+        const val SOURCE_HOLD_RECLAIM = "hold-reclaim"
         private const val GUARD_SQL = "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ? AND cnt >= ?"
         private const val GUARD_STMT_SQL = "UPDATE user_hold_quota SET cnt = cnt - ?, updated_at = now() WHERE schedule_id = ? AND user_id = ? AND cnt >= ?"
         private const val LEGACY_SQL = "UPDATE user_hold_quota SET cnt = cnt - ? WHERE schedule_id = ? AND user_id = ?"
