@@ -497,6 +497,20 @@ def server_rows(path, off):
     return rows, tlines
 
 
+def gc_untimed(path):
+    """GC 로그에서 시각 머리(ADR-009 GC_TIME)를 못 읽는 정지(safepoint)·stall 줄 수(코드 리뷰 CR14-25). ADR-009 gc_summary는 이 줄의 시각을 None으로 두어
+    판정 창(k6 버킷) 밖으로 무음 처리한다 — ADR-009 하네스는 고치지 않고(기존 결과 보존) ADR-014가 같은 정규식으로 따로 센다. 읽기 실패 = None."""
+    n = 0
+    try:
+        with gzip.open(path, "rt", errors="replace") as f:
+            for line in f:
+                if (S9.GC_SAFEPOINT.search(line) or S9.GC_STALL.search(line)) and not S9.GC_TIME.match(line):
+                    n += 1
+    except (OSError, EOFError):
+        return None
+    return n
+
+
 def gaps_ok(times, w0, w1, gap_max):
     edges = [w0] + sorted(times) + [w1]
     return max(b - a for a, b in zip(edges, edges[1:])), edges
@@ -770,6 +784,13 @@ def rep_summary(d):
     if not gc or not gc.get("collector"):
         inp.miss("gc", "GC 로그 없음·빈 로그·수집기 줄 없음")
         gc = None
+    else:
+        # 코드 리뷰 CR14-25: 시각을 못 읽는 정지·stall 줄이 하나라도 있으면 창 안 GC 값(P12 ②③ · env-stall GC)을 세울 수 없다 → gc-log-missing(무효 — 0으로 보지 않는다)
+        nu = gc_untimed(d / "gc.log.gz")
+        M["gc_untimed_lines"] = nu
+        if nu != 0:
+            inp.miss("gc", f"GC 로그 시각 못 읽는 정지·stall 줄 {nu}(ADR-009 gc_summary는 창 밖으로 센다 — CR14-25)")
+            gc = None
     pc = inp.json("probe_check", "probe-check.json", need=("ok",))
     if pc is not None and pc["ok"] is not True:
         reasons.add("probe-missing")

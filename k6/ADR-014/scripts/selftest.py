@@ -393,6 +393,7 @@ def run(tmp):
     early_check_rules(tmp)
     generative(tmp)
     generative_campaign(tmp)
+    round3_followup(tmp)
 
 
 # ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
@@ -844,6 +845,25 @@ def generative_campaign(tmp):
     r = verdict(root)
     check("생성형 캠페인: A 부당 실패 값 None(유효 회차 요약 깨짐) → 유효로 세지 않음 → G4 실패(A 유지 ④ — 판정 불가)",
           not r["A"]["G4"] and "④" in r["decision"]["verdict"], r["decision"]["verdict"])
+
+
+def round3_followup(tmp):
+    """㉔ 코드 리뷰 루프 3 후속 — 지적(CR14-25 · 27 · 28 · 30)마다 한 블록."""
+    base = make_rep(tmp / "f-base")
+    check("CR14-25·28 바탕 회차 ok · 시각 못 읽는 GC 줄 0", (s := rep(base))["status"] == "ok" and s["metrics"].get("gc_untimed_lines") == 0, s["status"])
+    # CR14-25 — GC 정지·stall 줄의 시각 머리를 못 읽음 → gc-log-missing(ADR-009 gc_summary는 창 밖으로 센다)
+    for name, mk in (("정지 줄 시각 머리 없음", lambda ls: ls[:3] + [ls[3].split("]", 1)[1]] + ls[4:]),
+                     ("정지 줄 시각 깨짐", lambda ls: ls[:3] + ["[garbage]" + ls[3].split("]", 1)[1]] + ls[4:]),
+                     ("stall 줄 시각 머리 없음", lambda ls: ls + ["[1s][info][gc,phases] Allocation Stall (http-nio-8080-exec-1) 250.000ms"])):
+        d = tmp / "f" / f"gc-{name.replace(' ', '-')}"
+        shutil.copytree(base, d)
+        with gzip.open(d / "gc.log.gz", "rt") as f:
+            ls = f.read().splitlines()
+        with gzip.open(d / "gc.log.gz", "wt") as f:
+            f.write("\n".join(mk(ls)) + "\n")
+        s = rep(d)
+        check(f"CR14-25 GC {name} → gc-log-missing(창 밖으로 무음 처리하지 않는다)", "gc-log-missing" in s["reasons"] and s["metrics"].get("gc_untimed_lines") == 1,
+              s["status"] + f" untimed {s['metrics'].get('gc_untimed_lines')}")
 
 
 def early_check_rules(tmp):
