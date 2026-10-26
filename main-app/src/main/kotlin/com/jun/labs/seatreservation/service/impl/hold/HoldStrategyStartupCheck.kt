@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.service.impl.hold
 
+import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
@@ -73,6 +74,7 @@ class HoldStrategyMigrationGate {
  *   후보(A·C·F·정리)와 매수 방식 조합 · 후보를 켜면 V7 기록 테이블 · reconciler 프로필이면 만료 스케줄러 끔.
  * - ADR-012 기본값 교체(§8.9 · 명세 §10 K4~K7): 업무 앱 기본값(application.yml)이 A · 증분(trigger 1초) · 안전망 · 정리 ①을 켜고 C를 끈다 —
  *   검사는 기본값을 조용히 끄지 않고 거부 메시지에 끌 키를 안내한다. 더한 거부: F(external-reconciler) + 증분·안전망(대조 중복) · C + 증분(옛 방식 복귀 착각).
+ * - ADR-014(§설계-6 · N7): sweep이 아닌 만료 방식(expiry-mode)은 기본 조합(3b + counter-upsert-precheck)에서만 · 측정 주입(inject-app)과 함께 쓰지 않는다.
  * - 순서: 설정만으로 판정되는 검사([checkConfig])는 Flyway 마이그레이션 앞에서 먼저 돈다([HoldStrategyMigrationGate]) — 거부된 기동이 스키마를 바꾸지 않게.
  *   DB 상태가 필요한 검사(인덱스·트리거·테이블·Redis·증분 스키마)는 여기 [run]에서 본다.
  */
@@ -147,7 +149,29 @@ class HoldStrategyStartupCheck(
             check(properties.limitStrategy == UserLimitStrategyType.NONE || strategy == HoldStrategyType.PESSIMISTIC_NOWAIT) {
                 "매수 방식 ${properties.limitStrategy}는 좌석 전략 PESSIMISTIC_NOWAIT에서만 쓴다(현재 $strategy) — 락 순서·격리 수준 설정이 이 조합을 전제한다"
             }
+            checkExpiryModeConfig(properties)
             checkCounterDriftConfig(properties, environment)
+        }
+
+        /**
+         * ADR-014 §설계-6(N7): sweep이 아닌 만료 방식은 기본 조합에서만 — 다른 조합에서 조용히 A로 돌지 않게 거부한다(명세 §2 적용 범위).
+         * 좌석 3b가 아니면 '홀드를 만들거나 RESERVED로 바꾸는 경로가 좌석 행 잠금을 먼저 쥔다'(§설계-4 (가)의 전제)가 깨지고,
+         * counter-trigger는 V8 트리거의 홀드 DELETE −1이 회수 H5의 앱 감소와 겹치며, 선조회가 없는 방식은 H1의 자리가 없다.
+         * 측정 주입(inject-app)도 거부한다(Q13) — 주입의 expiry 경로가 A의 감소(ExpiryCounters.decrement) 안에만 있다.
+         */
+        private fun checkExpiryModeConfig(properties: SeatHoldProperties) {
+            val mode = properties.expiryMode
+            check(properties.expiryBatchSize > 0) { "seat.hold.expiry-batch-size는 1 이상이어야 한다(현재 ${properties.expiryBatchSize})" }
+            if (mode == ExpiryMode.SWEEP) return
+            check(properties.strategy == HoldStrategyType.PESSIMISTIC_NOWAIT && properties.limitStrategy == COUNTER_UPSERT_PRECHECK) {
+                "만료 방식 $mode(seat.hold.expiry-mode)는 좌석 전략 PESSIMISTIC_NOWAIT + 매수 방식 COUNTER_UPSERT_PRECHECK(기본 조합)에서만 쓴다 " +
+                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. seat.hold.strategy=pessimistic-nowait · seat.hold.limit-strategy=counter-upsert-precheck로 두거나 " +
+                    "seat.hold.expiry-mode=sweep으로 띄워라(ADR-014 §설계-6)"
+            }
+            check(!properties.loadtest.injectApp.enabled) {
+                "만료 방식 $mode(seat.hold.expiry-mode)와 측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 함께 쓰지 않는다 " +
+                    "— 주입 expiry 경로는 sweep의 만료 감소 안에만 있다. inject-app.enabled=false로 두거나 expiry-mode=sweep으로 띄워라(ADR-014 Q13)"
+            }
         }
 
         private fun checkCounterDriftConfig(properties: SeatHoldProperties, environment: Environment?) {

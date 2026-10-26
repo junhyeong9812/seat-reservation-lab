@@ -25,6 +25,10 @@ data class SeatHoldProperties(
     val counterDrift: CounterDrift = CounterDrift(),
     /** 측정 전용 장치(ADR-012 §4.2.7 — `seat.hold.loadtest.*`). 기본 전부 끔 — loadtest 프로필에서만 쓴다(기동 검사). */
     val loadtest: Loadtest = Loadtest(),
+    /** ADR-014 홀드 만료 방식. 기본 sweep(A) = 지금 코드 그대로 — lazy·lazy-sweep·derived는 기본 조합에서만(기동 검사 · §설계-6). */
+    val expiryMode: ExpiryMode = ExpiryMode.SWEEP,
+    /** ADR-014 C·D 만료 배치의 청크 크기(C = 후보 좌석 수 · D = 후보 쌍 수 — §설계-3.4). A·B는 쓰지 않는다. 값은 `[구현 검증]` #7 */
+    val expiryBatchSize: Int = 500,
 ) {
     data class Loadtest(
         /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7) — 선점·만료 경로 안에서 고른 쌍의 cnt를 일부러 틀리게 쓴다 */
