@@ -346,21 +346,23 @@ abstract class Adr014ModeContractBase : IntegrationTest() {
         val n = 12
         val seats = (1..n).map { seat(storedHeld) }
         val holds = seats.mapIndexed { i, seat -> jdbcTemplate.dbHold(seat, s, 5_000L + i, "${200 + 40 * i} milliseconds") }
-        // 메인 수정(blind 테스트 시간 설계): 첫 홀드가 아니라 마지막 홀드의 만료를 기다린다 — 첫 만료만 기다리면 대부분 좌석이 아직 활성이라 X 확정이 정당하게 이긴다
-        jdbcTemplate.awaitDbTimeAfter(holdExpiresAt(holds.last()))
+        // 첫 홀드의 만료만 기다린다(blind 원래 설계) — 좌석마다 만료가 40ms씩 어긋나 있어 출발 순간 일부는 막 만료되고 일부는 아직 활성이다.
+        // 그 경계에서 X 확정과 Y 선점·확정이 겹치는 것이 이 테스트가 재현하려는 것이다. 메인 수정(코드 리뷰 CR14-4): 앞서 '마지막 만료까지 대기'로 바꿨다가
+        // 모든 좌석이 만료된 뒤 출발하게 돼 경계 재현이 사라졌다 — 되돌린다. 그래서 어느 쪽이 이기는지는 타이밍에 달렸고(활성이면 X가 정당하게 이긴다) 진행성은 단언하지 않는다
+        jdbcTemplate.awaitDbTimeAfter(holdExpiresAt(holds.first()))
         val results = pool.together(2 * n) { k ->
             val i = k / 2
             if (k % 2 == 0) {
                 "X:" + tryConfirm(holds[i], 5_000L + i)
             } else {
-                // 메인 수정: X 확정이 좌석을 쥔 순간의 NOWAIT 패배(§3.1 H7 — 설계된 409)는 한 번 다시 시도한다
+                // 메인 수정(유지): X 확정이 좌석을 쥔 순간의 NOWAIT 패배(§3.1 H7 — 설계된 409)는 한 번 다시 시도한다 — X 확정이 끝난 뒤의 판정까지 겹침을 넓힌다
                 var r = runCatching { hold(seats[i], 6_000L + i) }
                 if (r.isFailure && outcomeOf { r.getOrThrow() } == "SEAT_NOT_AVAILABLE") r = runCatching { hold(seats[i], 6_000L + i) }
                 "Y:" + (r.getOrNull()?.let { tryConfirm(it.holdId, 6_000L + i) } ?: outcomeOf { r.getOrThrow() })
             }
         }
         assertTrue(results.none { it.contains("ERR:") }, "예상 밖 예외: $results")
-        assertTrue(results.any { it == "Y:ok" }, "만료된 좌석 일부는 남이 다시 잡아 확정해야 한다(B·C·D 비어 있음 규칙): $results")
+        // 불변식만 단언한다(메인 수정 — CR14-4): 진행성(Y:ok가 하나는 있다)은 경계 타이밍에 달려 단언하지 않는다
         seats.forEach { assertTrue(jdbcTemplate.confirmedOfSeat(it) <= 1, "좌석 $it 확정 ≤ 1: $results") }
         assertNoDoubleSale("만료 경계 스트레스: $results")
         assertCounterConsistent("만료 경계 스트레스")
