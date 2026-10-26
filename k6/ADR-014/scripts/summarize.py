@@ -459,18 +459,23 @@ def state_metrics(rows, w0s, w1s, ttl):
 
 # ---- docker stats(M9 · P12 ④) -------------------------------------------------------------------------------------------------
 def server_rows(path, off):
-    """timeline-server.jsonl → [(PC 시각, 이름, CPU%, MemMiB)] — 컨테이너 줄의 시각 = 바로 앞 서버 시각 줄({"t"…}). 서버 시각 줄 목록도 함께."""
+    """timeline-server.jsonl → [(PC 시각, 이름, CPU%, MemMiB)] — 컨테이너 줄의 시각 = 바로 앞 서버 시각 줄({"t"…}). 서버 시각 줄 목록도 함께.
+    깨진 '{' 줄은 [jsonl]처럼 broken에 센다 — 찢긴 마지막 줄 하나만 예외(코드 리뷰 CR14-28: 가운데 서버 시각 줄이 찢기면 뒤 컨테이너 줄이 앞 시각으로 붙고
+    path-gap 공백도 숨는다 — 무음으로 버리지 않는다 · 부르는 쪽이 broken > 0이면 db-cpu-missing)."""
     rows, tlines, cur = Rows(), [], None
     p = Path(path)
     if not p.exists():
         return None, None
-    for line in p.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
+    lines = [x.strip() for x in p.read_text(errors="replace").splitlines()]
+    lines = [x for x in lines if x.startswith("{")]
+    rows.broken_json = 0
+    for i, line in enumerate(lines):
         try:
             d = json.loads(line)
         except ValueError:
+            if i != len(lines) - 1:
+                rows.broken_json += 1
+                rows.broken += 1
             continue
         if "t" in d and "load" in d:
             cur = ts(d["t"]) - off
@@ -811,7 +816,8 @@ def rep_summary(d):
     if srows is None:
         inp.miss("server", "timeline-server.jsonl 없음")
     elif srows.broken:
-        inp.miss("server", f"timeline-server.jsonl DB CPU · 앱 메모리 못 읽는 줄 {srows.broken}")   # 버리고 평균 내지 않는다(판정 입력 전수 점검)
+        inp.miss("server", f"timeline-server.jsonl 깨진 줄(마지막 줄 말고 — CR14-28) {srows.broken_json} · DB CPU · 앱 메모리 못 읽는 줄 "
+                           f"{srows.broken - srows.broken_json}")   # 버리고 평균 내지 않는다(판정 입력 전수 점검)
     elif w0 is not None:
         M["db_cpu"] = db_cpu(srows, w0, w1)
         if M["db_cpu"]["missing"]:

@@ -864,6 +864,20 @@ def round3_followup(tmp):
         s = rep(d)
         check(f"CR14-25 GC {name} → gc-log-missing(창 밖으로 무음 처리하지 않는다)", "gc-log-missing" in s["reasons"] and s["metrics"].get("gc_untimed_lines") == 1,
               s["status"] + f" untimed {s['metrics'].get('gc_untimed_lines')}")
+    # CR14-28 — 서버 시각 줄 찢김
+    srv = (base / "timeline-server.jsonl").read_text().splitlines()
+    i = next(i for i, l in enumerate(srv) if '"load"' in l and i > 10)
+    for name, ls, want_ok in (("가운데 서버 시각 줄 찢김", srv[:i] + [srv[i][:15]] + srv[i + 1:], False),
+                              ("찢긴 마지막 줄 하나", srv + ['{"t": "2027'], True)):
+        d = tmp / "f" / f"srv-{name.replace(' ', '-')}"
+        shutil.copytree(base, d)
+        (d / "timeline-server.jsonl").write_text("\n".join(ls) + "\n")
+        s = rep(d)
+        if want_ok:
+            check(f"CR14-28 timeline-server.jsonl {name} → 무효 아님", s["status"] == "ok", s["status"])
+        else:
+            check(f"CR14-28 timeline-server.jsonl {name} → db-cpu-missing(버리고 앞 시각에 붙이지 않는다)",
+                  "db-cpu-missing" in s["reasons"] and "깨진 줄(마지막 줄 말고 — CR14-28) 1" in s["missing_inputs"].get("server", ""), s["status"] + json.dumps(s["missing_inputs"], ensure_ascii=False))
 
 
 def early_check_rules(tmp):
