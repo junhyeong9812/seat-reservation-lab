@@ -472,13 +472,25 @@ def rep_round2(tmp):
               s["status"] + json.dumps(pm["judged_missing"], ensure_ascii=False))
     # CR14-23 — 판정 요청 응답이 예상 밖(400·404) → 판정 불가 응답 → 분모에서 빠지고 probe-incomplete
     for name, odd in (("PR-1 h1 400", {("pr1", 2): {"h1": "400"}}), ("PR-2 h1 404", {("pr2", 3): {"h1": "404"}}),
-                      ("PR-3 v 400", {("pr3", 6): {"v": "400"}}), ("PR-3 c 404", {("pr3", 7): {"c": "404"}})):
+                      ("PR-3 v 400", {("pr3", 6): {"v": "400"}}), ("PR-3 c 400", {("pr3", 7): {"c": "400"}})):
         s = rep(make_rep(tmp / f"r3-odd-{name.replace(' ', '-')}", judged_odd=odd))
         pm = s["metrics"]["probe"]
         check(f"CR14-23 {name} → 판정 불가 응답 1 · probe-incomplete · probe-anomaly 이름표 · M3 분모에서 빠짐",
               "probe-incomplete" in s["reasons"] and len(pm["unjudgeable"]) == 1 and any("probe-anomaly" in f for f in s["flags"])
               and (pm["m3"]["den"] == base["metrics"]["probe"]["m3"]["den"] - (1 if "h1" in name else 0)),
               s["status"] + json.dumps(pm["unjudgeable"], ensure_ascii=False) + f" den {pm['m3']['den']}")
+    # 측정 전 재해석(2026-10-28 · 스모크) — 확정 c 404(HOLD_NOT_FOUND)는 판정 가능: δc > 0(i=7 → +1.0) = 거부 · δc < 0(i=4 → −1.0) = 실패(early_not200)
+    bp = base["metrics"]["probe"]["pr3"]
+    s = rep(make_rep(tmp / "r4-c404-late", judged_odd={("pr3", 7): {"c": "404"}}))
+    pm = s["metrics"]["probe"]
+    check("확정 c 404 · δc > 0 → 판정 불가 아님 · 만료 뒤 거부로 셈(late_n 같음 · late_200 같음)",
+          "probe-incomplete" not in s["reasons"] and not pm["unjudgeable"] and pm["pr3"]["late_n"] == bp["late_n"] and pm["pr3"]["late_200"] == bp["late_200"],
+          s["status"] + json.dumps(pm["pr3"], ensure_ascii=False))
+    s = rep(make_rep(tmp / "r4-c404-early", judged_odd={("pr3", 4): {"c": "404"}}))
+    pm = s["metrics"]["probe"]
+    check("확정 c 404 · δc < 0 → 만료 전 홀드 소실 = 실패(early_not200 + 1)",
+          "probe-incomplete" not in s["reasons"] and not pm["unjudgeable"] and pm["pr3"]["early_not200"] == bp["early_not200"] + 1,
+          s["status"] + json.dumps(pm["pr3"], ensure_ascii=False))
     # CR14-21 — 끝 판정기 active_on_reserved_seats > 0 → 정합 위반(모든 방식 기대 0)
     for m in "ABCD":
         s = rep(make_rep(tmp / f"r3-aor-{m}", method=m, cons_set={"active_on_reserved_seats": 2}))

@@ -347,7 +347,10 @@ def probe_metrics(method, plan, rows, off_s):
             continue
         # 판정 요청 응답이 예상 밖(5xx·0 밖이고 PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409} — 400·404 등)이면 '판정 불가 응답'이다.
         # 분모(M3 · PR-3 판정)에서 빼고 probe-incomplete로 센다(측정 전 재해석 CR14-23 — 측정-9 '탐침 기록 수 ≠ 계획'의 판정 탐침 쪽 · CR14-10과 같은 꼴)
-        want = {"h1": ("201", "409"), "v": ("201", "409"), "c": ("200", "409")}
+        # 확정 c의 404(HOLD_NOT_FOUND — 확정 경로의 404는 이것뿐: ConfirmReservationService · LazyConfirmProcess K1)는 판정 가능한 응답이다
+        # (측정 전 재해석 2026-10-28 · 스모크 — 배치·sweep이 만료 홀드 행을 먼저 지운 '만료 뒤 확정 거부'): δc > 0이면 거부(late_n · 200 아님),
+        # δc < 0이면 만료 전에 홀드가 지워진 것이라 실패(early_not200 → P9 반증) — 아래 PR-3 갈래가 그대로 센다
+        want = {"h1": ("201", "409"), "v": ("201", "409"), "c": ("200", "409", "404")}
         odd = [f"{j}:{steps[j].get('st')}:{steps[j].get('code')}" for j in judged if steps[j].get("st") not in want[j]]
         if odd:
             res["unjudgeable"].append(f"{pr}#{pid}:" + ",".join(odd))
