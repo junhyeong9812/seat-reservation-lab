@@ -75,6 +75,8 @@ export function sleepUntilSrv(targetSrvMs) {
 // ---- 호출 -----------------------------------------------------------------------------------------------------------------
 // 원인 표지 집계(측정-5 M3 ③): 선점 409마다 헤더 값(rule · nowait · 없으면 missing · 그 밖 값은 other)을 세션 안에서 세고, 잠들기(생각 시간 · 재방문 대기) 전에
 //   0이 아닌 갈래만 한 행씩(rej{cause}) 낸다 — gracefulStop이 잠든 세션을 끊어도 그 앞 409의 표지가 사라지지 않게(세션 끝에만 내면 TTL 30초 칸에서 끊긴 세션 몫이 빠진다).
+//   다음 요청(맹목의 다른 좌석 선점 · 지도의 두 번째 좌석 맵) 전에도 낸다 — gracefulStop이 그 요청 도중의 반복을 끊으면 finally가 돌지 않아 앞 409 몫이 빠진다
+//   (스모크 smoke14net-20261028 B: 지도 흐름 409 2,138 중 149가 rej에 없음 — 100Mbps에서 좌석 맵이 느려 끊긴 반복이 늘었다).
 // 요약기가 k6 실행 전체 합을 앱 지표 seat.hold.rejected{cause} 증분과 대조한다(app-metric-missing — 409가 1건 이상인 회차만 · 리뷰 MR-17)
 export const rej = new Counter('rej');
 export function newTally() { return { rule: 0, nowait: 0, missing: 0, other: 0 }; }

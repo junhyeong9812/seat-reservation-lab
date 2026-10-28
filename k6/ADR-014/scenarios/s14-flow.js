@@ -118,7 +118,7 @@ export function blind() {
       while (tried.has(seat)) seat = hotSeat(r);
       tried.add(seat);
       const res = send(holdReq(MAIN_SCHEDULE, seat, user));
-      if (res.status === 409) { tally[rejectCause(res)] += 1; continue; }   // 409만 다른 좌석으로(S3 그대로)
+      if (res.status === 409) { tally[rejectCause(res)] += 1; flushTally(tally); continue; }   // 409만 다른 좌석으로(S3 그대로) · 다음 요청 전에 낸다(lib14 flushTally 머리말)
       if (res.status !== 201) return;                                          // 5xx·코드 0 — 세션 중단(S3 그대로 · 요약기 M11)
       afterHold(res, seat, user, a, tally, 'first');
       return;
@@ -155,7 +155,7 @@ export function mapFlow() {
       const seat = pool[Math.floor(r() * pool.length)];
       prev = seat;
       const res = send(holdReq(MAIN_SCHEDULE, seat, user));
-      if (res.status === 409) { tally[rejectCause(res)] += 1; continue; }
+      if (res.status === 409) { tally[rejectCause(res)] += 1; flushTally(tally); continue; }   // 다음 좌석 맵 요청 전에 낸다(lib14 flushTally 머리말)
       if (res.status !== 201) return;
       afterHold(res, seat, user, a, tally, 'first');
       return;
