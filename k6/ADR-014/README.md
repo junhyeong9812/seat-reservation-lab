@@ -92,7 +92,7 @@ k6/ADR-014/results/<id>/
 | `state-sampler-gap` | `timeline-seatstate.jsonl` → `state_metrics`(창 양끝 포함 간격 > 3초 · 수 < 창 초 × 0.95 · 파일 없음) |
 | `db-cpu-missing` | `timeline-server.jsonl` → `db_cpu`(DB 행 < ⌈창 ÷ 15⌉ · 공백 > 30초 · DB·앱 줄 CPU·메모리 못 읽음 · 깨진 '{' 줄 — 찢긴 마지막 줄 하나 제외 · CR14-28) — 비용 판정 전에 무효 |
 | `dropped-iterations` | CSV `dropped_iterations` 창 안(주 흐름 시나리오) |
-| `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감(첫 선점이 5xx 아닌 이유로 실패한 탐침 포함 — 코드 리뷰 CR14-10 · 첫 선점 기록 행 자체가 없는 탐침 — CR14-22) · 판정 불가 응답(판정 요청 응답이 5xx·0 밖의 예상 밖 값 — PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409} — CR14-23) · 탐침 기록 못 읽는 행 · 계획에 없는 칸 · 기록 없는 계획 칸(판정 입력 전수 점검) · 칸 < 계획 절반) |
+| `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감(첫 선점이 5xx 아닌 이유로 실패한 탐침 포함 — 코드 리뷰 CR14-10 · 첫 선점 기록 행 자체가 없는 탐침 — CR14-22) · 판정 불가 응답(판정 요청 응답이 5xx·0 밖의 예상 밖 값 — PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409, 404} — CR14-23 · c 404 HOLD_NOT_FOUND는 δc > 0 거부 · δc < 0 실패(측정 전 재해석 2026-10-28)) · 탐침 기록 못 읽는 행 · 계획에 없는 칸 · 기록 없는 계획 칸(판정 입력 전수 점검) · 칸 < 계획 절반) |
 | `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음 · 앞뒤 `rtt_s`가 없거나 음수 — 코드 리뷰 CR14-9) |
 | `table-stats-missing` | `table-{before,after,end}.json`(P6 — 비용 셀은 end 없음) |
 | `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17) · 판정 창 끝 스냅숏(`act14-window-end.json`) 시작이 창 끝 뒤 [0, 10]초 밖(코드 리뷰 CR14-13) |
