@@ -19,6 +19,7 @@ ADR-009 하네스(`k6/ADR-009/scripts/lib.sh` · `scenarios/` · `compose.yml` �
 | `scripts/psql-sampler.sh` | 서버 쪽 표본기(표준 입력으로 보낸다 — 배포 불필요): `state` 1초(측정-5 머리 SQL + `sample_ms`) · `h4` 0.5초(`/* seatlab:h4-reclaim */` 활성·Lock 대기 — M10). 시작 시각 격자(간격이 쌓여 늘지 않게) |
 | `scripts/actsnap14.py` | 앱 지표 스냅숏 — `seat.hold.rejected{cause}` · `seat.hold.reclaim` · `seat.hold.expiry.{deleted,missing_pairs,skip_locked,revert,chunk,missing_mismatch,tick}` · 정리 ①. 카운터·틱·증분·안전망은 ADR-009 `actsnap.py`가 같은 시점에 |
 | `scripts/campaign.sh` | 60자리 · 시작 조건 ⓪~⑦ · `--sha` 동결(git archive · 해시) · 이어서 실행 대조 · 재측정(환경 2번 · 하네스 2번 따로) · 멈춤 규칙 · 루프 안 `run.sh < /dev/null` · 끝 집계 전 계획 대 실행 대조(exit 6) · `--dry-run` · `--simulate` · `--check` |
+| `scripts/pclink14.sh` | PC 링크 끊김 수집(사용자 결정 ② 2026-10-29) — `journalctl -k --since @<회차 시작> --until @<끝>`의 `eno1: Link is Down` 줄 → JSON(readable · down · lines) · sudo 없이(이 PC 사용자 adm 그룹 — 확인함) · 못 읽음을 따로 가른다 |
 | `scripts/hhash.sh` | 하네스 경로·해시 단일 출처(캠페인 동결본 대 회차 원본 대조) |
 | `scripts/summarize.py` | `--rep`(회차 사유 → status · 지표 M1~M14 · 방식 위반 자료) · 캠페인(성공 · 고르는 규칙 1~4단 · 관문 G1~G4 · 결론 · 가설 자료 · `RESULT.md`) · `--crn-check` · `--early-check` · `--sample-cost` · `--r0`. **판정 입력은 `Inputs` 한 곳에서 읽고 검증** — 결측은 0이 아니라 그 입력의 사유(INPUT_REASON)로 무효 · 캠페인에서 None은 판정 불가 |
 | `scripts/selftest.py` | 가짜 원자료 단위 확인(회차 사유 · 판정 불가 · 고르는 규칙 분기) · `--campaign` = `campaign.sh --simulate` 루프 시험(60자리 · stdin · 재측정 상한 · `--check`) |
@@ -80,7 +81,7 @@ k6/ADR-014/results/<id>/
 
 ## 회차 status · 사유(측정-9)
 
-`ok`(유효 — 방식 실패는 `rep-summary.json` `violations`) · `invalid:<사유,…>`(하네스 — 재측정). `invalid:env-stall`만이면 환경 상한(자리마다 2번 — 하네스 2번과 따로).
+`ok`(유효 — 방식 실패는 `rep-summary.json` `violations`) · `invalid:<사유,…>`(하네스 — 재측정). `invalid:env-stall`만이거나 `pc-link-down`이 들었으면 환경 상한(자리마다 2번 — 하네스 2번과 따로 · `campaign.sh kind_of` = `summarize.py _kind`).
 
 | 사유 | 어디서(입력 → 계산) |
 |------|------|
@@ -101,6 +102,7 @@ k6/ADR-014/results/<id>/
 | `warmup-failed` | 예열 k6 rc ≠ 0(run.sh가 그 자리에서 abort14) · `warmup-status.json` 없음·rc 숫자 아님(코드 리뷰 CR14-14 — 이름:상태 분포도 남긴다) |
 | `env-stall` | CSV 초별 응답 0이 5초 이상 연속 → `classify_chunk`: 서버 측정기 무응답 > 5초 ∧ GC 정지 < 100ms ∧ ① 대기 표본(공백 ≤ 1초) `app|Lock:*` 0 ∧ ②③ Hikari(앞·안·뒤) pending 0 · active < 최대 |
 | `reconcile-missing` | `drift-db.json` reconcile_runs(시드 뒤 `inc-*` · `safety*` 0 — P8 생존) |
+| `pc-link-down`(**환경**) · `pc-link-missing`(하네스) | `pc-link.json`(run.sh `finish14` → `scripts/pclink14.sh <회차 시작> <끝>` — 이 PC `journalctl -k`의 `eno1: Link is Down` 줄) → 1줄 이상 = `pc-link-down`(다른 사유와 함께여도 환경 상한 — 끊김의 결과로 본다) · `readable` 아님(rc ≠ 0 · 권한 경고 · 이번 부팅 커널 줄 0) · 파일·열 없음 · 수집 구간이 판정 창을 덮지 않음 = `pc-link-missing`(사용자 결정 ② 2026-10-29 · ADR 측정-9 재해석) |
 | `gc-log-missing` · `container-log-missing` · `probe-missing` · `path-gap` · `waits-gap` · `drift-*` · `cleanup-errors` · `k6-exit-N` · `schedule-closed-seen` | ADR-009 회차 합격 사유(S3e·S3c·C·F 전용 제외) 대응 — 아래 해석 메모 6 |
 
 판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · `h4-sampler-missing`(주 셀인데 `timeline-h4.jsonl` 없음 — 코드 리뷰 CR14-12) · `hikari-broken`(Hikari 표본 깨짐 → 정지 덩어리는 방식 정지) · 비용 셀 dropped.
@@ -128,6 +130,7 @@ k6/ADR-014/results/<id>/
 | `logs-status.txt` | 783-785 | 기존 `container-log-missing` | 측정-9(ADR-009) |
 | `gc.log.gz` → ADR-009 `gc_summary` | 786-798 · P12 GC 1079-1083 · M["gc"] 936 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
 | GC 정지(safepoint)·stall 줄 시각 머리 | `gc_untimed` 505-516 · 792-798 | **고침(CR14-25)** — 시각을 못 읽는 줄이 하나라도 있으면 `gc-log-missing`(회차 무효 — 판정 입력 결측 규칙 · 전: ADR-009 `gc_summary`가 그 줄의 시각을 None으로 두어 k6 창 밖으로 무음 처리 · ADR-009 하네스는 고치지 않고 같은 정규식으로 따로 센다 · `metrics.gc_untimed_lines`) | 측정-9 · P12 ②③ · env-stall(GC < 100ms) |
+| `pc-link.json` readable · down · since_epoch · until_epoch | 812-822 | **고침(2026-10-29 ②)** — 없음 · readable이 true 아님 · 숫자 아님 · 구간이 판정 창을 덮지 않음 → `pc-link-missing`(링크 끊김 '없음'으로 넘기지 않는다) · down ≥ 1 → `pc-link-down` | 측정-9 재해석 2026-10-29 ② |
 | `probe-check.json` ok | 799-801 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
 | `k6-requests.csv.gz` | `read_csv` 194 · 803-810 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
 | `k6-window.json` exit | 811-813 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
