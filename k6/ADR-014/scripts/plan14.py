@@ -56,8 +56,10 @@ USERS = {"blind": 1_000_000, "map": 3_000_000, "pr1": 5_000_000, "pr2": 6_000_00
 PROBE_SCHEDULE = 2                                                     # 탐침 회차(측정-0)
 PROBE_SEAT0 = {"pr1": 10001, "pr2": 11001, "pr3": 13001}               # 회차 2 좌석 = 10,001~20,000(LoadtestDataService.reset 좌석 id 규칙)
 PROBE_SEATS_PER = {"pr1": 1, "pr2": 3, "pr3": 1}
+PRE_VUS_T300 = {"blind": 12000, "map": 1000, "probe": 100}            # TTL 5분 칸(2026-10-29 사용자 결정): 만석 뒤 확정 세션이 생각 시간(30~240초) 동안 VU를 쥐어 동시 반복이
+                                                                       # 수천~1만에 이를 수 있다(추정) — maxVUs 14,000 안에서 미리 올리고 확인 스모크 a50-t300 1회로 실측(VU 최대 · dropped)
 MAX_VUS_MIN = 14000                                                    # 측정-4 MR-11(S3 선례)
-PRE_VUS = {"blind": 4000, "map": 400, "probe": 100}                    # 미리 만든 VU — 모자라면 k6가 실행 중에 VU를 늦게 만들어 그 사이 반복을 버린다(dropped_iterations).
+PRE_VUS = {"blind": 4000, "map": 400, "probe": 100}                    # 미리 만든 VU(TTL 30초 칸) — 모자라면 k6가 실행 중에 VU를 늦게 만들어 그 사이 반복을 버린다(dropped_iterations).
                                                                        # 스모크 a50-t30(10-29 · 1Gbps) blind 동시 반복 약 2,244 > 2,000 → t0 + 17~20초 blind 7건 버림(maxVUs 14,000은 안 닿음) · ×1.5 넘게 올림
 STATE_EVERY = (1, 10)
 CONVERGE_EXTRA_S = 22                                                  # 수렴 대기 = TTL + 20 + 2(ADR-009 run.sh:861)
@@ -166,11 +168,12 @@ def render(method, cell, rep, knobs=None):
     mv = {f: (knobs.get("max_vus") or {}).get(f, MAX_VUS_MIN) for f in ("blind", "map", "probe")}
     tmin, tmax = THINK[ttl]
     pp = probe_plan(ttl, d_arr)
+    pv = PRE_VUS_T300 if ttl >= 300 else PRE_VUS
     env = {"REP": str(rep), "D_ARR_S": str(d_arr), "TTL_S": str(ttl), "ABANDON": str(ab), "THINK_MIN_S": str(tmin), "THINK_MAX_S": str(tmax),
            "GRACE_STOP_S": str(GRACE_STOP[ttl]), "BLIND_RATE": str(BLIND_RATE), "MAP_RATE": str(map_rate), "RETRIES": str(RETRIES),
            "SEATS": str(SEATS), "HOT_RATIO": str(HOT_RATIO), "HOT_SHARE": str(HOT_SHARE), "RHO": str(RHO), "REVISIT_MAX_S": str(REVISIT_MAX_S),
            "MAX_VUS_BLIND": str(mv["blind"]), "MAX_VUS_MAP": str(mv["map"]), "MAX_VUS_PROBE": str(mv["probe"]),
-           "PRE_VUS_BLIND": str(PRE_VUS["blind"]), "PRE_VUS_MAP": str(PRE_VUS["map"]), "PRE_VUS_PROBE": str(PRE_VUS["probe"]),
+           "PRE_VUS_BLIND": str(pv["blind"]), "PRE_VUS_MAP": str(pv["map"]), "PRE_VUS_PROBE": str(pv["probe"]),
            "USER_BLIND": str(USERS["blind"]), "USER_MAP": str(USERS["map"]),
            "PROBES": "1", "PR_START_S": str(pp["start_s"]), "PR_SCHEDULE": str(PROBE_SCHEDULE),
            "PR1_PERIOD_MS": str(pp["period_ms"]["pr1"]), "PR2_PERIOD_MS": str(pp["period_ms"]["pr2"]), "PR3_PERIOD_MS": str(pp["period_ms"]["pr3"]),
