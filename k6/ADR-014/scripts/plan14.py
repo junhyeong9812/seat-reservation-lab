@@ -57,7 +57,8 @@ PROBE_SCHEDULE = 2                                                     # 탐침 
 PROBE_SEAT0 = {"pr1": 10001, "pr2": 11001, "pr3": 13001}               # 회차 2 좌석 = 10,001~20,000(LoadtestDataService.reset 좌석 id 규칙)
 PROBE_SEATS_PER = {"pr1": 1, "pr2": 3, "pr3": 1}
 MAX_VUS_MIN = 14000                                                    # 측정-4 MR-11(S3 선례)
-PRE_VUS = {"blind": 2000, "map": 200, "probe": 100}
+PRE_VUS = {"blind": 4000, "map": 400, "probe": 100}                    # 미리 만든 VU — 모자라면 k6가 실행 중에 VU를 늦게 만들어 그 사이 반복을 버린다(dropped_iterations).
+                                                                       # 스모크 a50-t30(10-29 · 1Gbps) blind 동시 반복 약 2,244 > 2,000 → t0 + 17~20초 blind 7건 버림(maxVUs 14,000은 안 닿음) · ×1.5 넘게 올림
 STATE_EVERY = (1, 10)
 CONVERGE_EXTRA_S = 22                                                  # 수렴 대기 = TTL + 20 + 2(ADR-009 run.sh:861)
 OTHER_S = 181                                                          # 측정-2 회차 시간 추정의 '그 밖'(기동~수집 — 추정)
