@@ -95,7 +95,7 @@ k6/ADR-014/results/<id>/
 | `probe-timing-bad` · `probe-incomplete` | CSV `probe` 행 → `probe_metrics`(ε = 송신 ms + 시계 차 − 계획 · 칸별 뺀 비율 > 10% · 시작 수 ≠ 계획 · 판정 요청 안 나감(첫 선점이 5xx 아닌 이유로 실패한 탐침 포함 — 코드 리뷰 CR14-10 · 첫 선점 기록 행 자체가 없는 탐침 — CR14-22) · 판정 불가 응답(판정 요청 응답이 5xx·0 밖의 예상 밖 값 — PR-1·2 h1 ∉ {201, 409} · PR-3 v ∉ {201, 409} · c ∉ {200, 409, 404} — CR14-23 · c 404 HOLD_NOT_FOUND는 δc > 0 거부 · δc < 0 실패(측정 전 재해석 2026-10-28)) · 탐침 기록 못 읽는 행 · 계획에 없는 칸 · 기록 없는 계획 칸(판정 입력 전수 점검) · 칸 < 계획 절반) |
 | `clock-offset-bad` | `clock-offset.json`(앞뒤 · 왕복/2 > 20ms · 앞뒤 차 > 100ms · 없음 · 앞뒤 `rtt_s`가 없거나 음수 — 코드 리뷰 CR14-9) |
 | `table-stats-missing` | `table-{before,after,end}.json`(P6 — 비용 셀은 end 없음) |
-| `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17) · 판정 창 끝 스냅숏(`act14-window-end.json`) 시작이 창 끝 뒤 [0, 10]초 밖(코드 리뷰 CR14-13) |
+| `app-metric-missing` | `act14-*.json` 없음·조회 실패 · 409 ≥ 1인데 k6 `rej` 합(rule + nowait) = 0 또는 갈래마다 앱 `seat.hold.rejected` 증분과 다름(MR-17 — 허용: 갈래마다 0 ≤ 앱 − k6 · 합 ≤ 응답 없는 선점(코드 0) 수 · 측정 전 재해석 2026-10-29 ①) · 판정 창 끝 스냅숏(`act14-window-end.json`) 시작이 창 끝 뒤 [0, 10]초 밖(코드 리뷰 CR14-13) |
 | `end-check-failed` | `consistency.json` 없음 · 정합 문턱에 쓰는 판정기 열(`summarize.py` `CONS_COLS` — CR14-20 · CR14-21로 `active_on_reserved_seats`까지) 하나라도 없거나 숫자가 아님(0으로 채우지 않는다 — 코드 리뷰 CR14-8) · run.sh 판정기 실패 |
 | `k6-window-missing` · `harness-reasons-missing` | `k6-window.json` 없음·`exit` 숫자 아님(k6 rc를 모른다) · `harness-reasons.txt` 없음(run.sh가 회차 시작에 빈 파일로 만든다 — 하네스 사유를 모른다) — 판정 입력 전수 점검에서 더함(전에는 무음 통과) |
 | `warmup-failed` | 예열 k6 rc ≠ 0(run.sh가 그 자리에서 abort14) · `warmup-status.json` 없음·rc 숫자 아님(코드 리뷰 CR14-14 — 이름:상태 분포도 남긴다) |
@@ -136,7 +136,7 @@ k6/ADR-014/results/<id>/
 | `drift-db.json` drift_log_total · drift_log 행 | 834-836 · m6 967-979 | **고침** — total 숫자 필수 · 시각·action(`repaired`·`false-positive`·`skipped`)을 못 읽는 행 → `drift-db-failed`(전: 시각 −inf로 무음 제외 → `repaired`가 줄어 정합 위반이 숨는다) · reconcile_runs 시각 못 읽음 → 빠짐(→ `reconcile-missing` 쪽 — 규칙대로 보수) | 측정-7 정합(`repaired`) · P8 |
 | `drift-{before,after-k6,end}.json` tick.ok · drift_record_failed · cleanup.errors | 839-844 | **고침** — 숫자 필수 → `drift-snap-failed`(전: `(차분 or 0) > 0`). ADR-009 actsnap.py는 등록 안 된 지표 = 0 · 조회 실패 = None | 측정-9(ADR-009) |
 | `act14-{before,window-end,after-k6,end}.json` rejected.rule · tick.ok · 창 끝 t | 845-861 | **고침** — 두 열 숫자 필수(전: 존재만) · 창 끝 시각은 기존(CR14-13) → `app-metric-missing` | 측정-9 · 측정-5 M11 재해석 CR14-13 |
-| 원인 표지 대조(앱 rejected 증분 대 k6 `rej`) | 924-932 | 기존 — 앱 증분 None이면 불일치 → `app-metric-missing` · k6 `rej.get(k, 0)`은 정의상 0(헤더 행 없음 = 0건 — 합 0이면 그 자체로 무효) | 측정-9 MR-17 |
+| 원인 표지 대조(앱 rejected 증분 대 k6 `rej` · 응답 없는 선점 수 `hold_code0`) | 924-932 | 기존 — 앱 증분 None이면 불일치 → `app-metric-missing` · k6 `rej.get(k, 0)`은 정의상 0(헤더 행 없음 = 0건 — 합 0이면 그 자체로 무효) · **고침(2026-10-29 ①)** 허용 폭 = 갈래마다 0 ≤ 앱 − k6 · 합 ≤ `hold_code0`(CSV 선점 코드 0 — 정의상 0: 행 없음 = 0건 → 허용 0 = 전과 같다) | 측정-9 MR-17 · 측정-5 M3 재해석 2026-10-29 |
 | P5 되돌림 기회 kept_active(배치 + 회수) | 944 | **고침** — 한쪽이라도 None이면 None(전: 회수 쪽 `or 0`) → 캠페인 P5 판정 불가 | 측정-6 P5 |
 | P12 틱 실패 · :missingIds 롤백(창 안 증분) | 952-956 · 1073-1074 | 기존 — None → `p12_unknown`(판정 불가) | 측정-5 M11 재해석 CR14-13 |
 | `table-{before,after,end}.json` n_tup_upd · deadlocks | 957-964 | **고침** — n_tup_upd 숫자 필수 → `table-stats-missing` · deadlocks 없음은 기존 None → P12 deadlock 판정 불가 | 측정-9 · P6 · P12 |
@@ -194,7 +194,7 @@ k6/ADR-014/results/<id>/
 8. **P7 판정 불가 '재선점 0'**은 '남의 (만료) 홀드 뒤 같은 좌석 201'(k6 재구성) 3회 · 주 셀 합으로 센다(남은 만료 행 여부는 k6로 알 수 없다). 좁힌 값('재선점 시각 − 앞 만료 < 배치 주기 10초' — `rehold_other_narrow`)도 함께 남긴다(기록 — 판정은 넓은 값). → ADR 측정-5 M5 측정 전 재해석(코드 리뷰 CR14-19)으로 확정.
 9. **결론**: 관문을 넘은 후보가 있어도 환경 상한 소진 자리(ⓑ)나 'A도 같은 문턱'으로만 판정 불가인 후보(ⓐ)가 있으면 '판정 불가 → 사용자 보고'(잠정 결과 함께).
 10. **H4 표지가 표본에 안 보이면** 무효가 아니라 `h4-marker-unseen` 이름표(측정-5 M10은 app-metric-missing이라 적었다 — ms 단위 문장이라 0.5초 표본이 우연히 놓칠 수 있다. #24 스모크로 정한다). 주 셀인데 표본 파일이 없으면 `h4-sampler-missing` 이름표. → ADR 측정-5 M10 측정 전 재해석(코드 리뷰 CR14-12 — 스모크 #24 뒤 다시 보는 조건 포함)으로 확정.
-11. **원인 표지 대조는 같은 값이어야 한다** — gracefulStop이 HTTP 요청 도중을 끊으면 앱만 센 409가 생길 수 있다(스모크에서 차이가 보이면 보고).
+11. **원인 표지 대조는 같은 값이어야 한다** — gracefulStop이 HTTP 요청 도중을 끊으면 앱만 센 409가 생길 수 있다(스모크에서 차이가 보이면 보고). → 정식 스모크 뒤 사용자 결정 ①(2026-10-29): 앱 − k6가 0 이상 · 응답 없는 선점(코드 0) 수 이하면 일치(ADR 측정-5 M3 재해석). 스모크 6회는 차이 0이었다.
 12. **탐침 요청은 연결을 다시 쓰지 않는다(`Connection: close` — 사용자 결정 2026-10-29)** — 정식 스모크(smoke14-20261029) A에서 탐침 첫 선점 2건이 k6 코드 0(EOF)으로 끝나 P12 방식 위반으로 셌다. 탐침 VU는 TTL + δ(30초 넘게) 쉬고 다음 요청을 보내므로 그 사이 서버가 닫은 keep-alive 연결을 다시 쓰는 경합으로 본다(추정 — 원인 확인 전). PR-1·2·3 요청에만 헤더를 붙이고(`lib14.js` `closeConn`) 주 흐름은 그대로다. 송신 시각(`sent` — 보내기 직전 ms · MR-2)은 연결 수립 앞에 찍히고(새 연결 = LAN 왕복 1회 · 허용 50·100ms보다 훨씬 작다) 원인 표지는 응답 헤더라 영향이 없다. **효과 확인은 다음 스모크**(탐침 코드 0이 0인지 · ε 분포가 그대로인지).
 
 ## 스모크에서 확인할 것(`[구현 검증]` — 측정-11 #15~#25 · §설계-10 #1·#10·#11)
