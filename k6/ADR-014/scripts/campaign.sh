@@ -19,9 +19,9 @@
 #   ⑤ [구현 검증] #15~#25 결과 · 표본 비용(Δc · R₀ · 적용 결과) · 환경 정지 빈도 · 흐름별 VU 최대   — JSON impl_verify.done = true(+ 값은 기록용)
 #   ⑥ 시작 전 1번만 바꾸는 값(D_arr′ · 지도 속도 · maxVUs · 표본 방식) = --knobs(plan.json에 고정 — 이어서 실행 때 다르면 멈춘다)
 #   ⑦ 동시성 테스트 green(§설계-9 N2 · §설계-10 #12) 측정 SHA에서                                 — JSON concurrency_green.done = true · sha = --sha
-# 재측정(측정-9 · 리뷰 MR-10): invalid:*만 — 같은 (방식, 셀, 회차) 자리에서 env-stall(환경) 재측정 최대 2번 · 그 밖 하네스 사유 재측정 최대 2번을 **따로** 센다
+# 재측정(측정-9 · 리뷰 MR-10): invalid:*만 — 같은 (방식, 셀, 회차) 자리에서 환경(env-stall만 · pc-link-down 포함 — kind_of) 재측정 최대 2번 · 그 밖 하네스 사유 재측정 최대 2번을 **따로** 센다
 #   (자리의 시도 이력 rep<k>.attempt<n> · rep<k>의 status로 다시 계산 — 이어서 실행해도 같다) · 캠페인 끝에 원래 순서대로(--attempt n → 결과 표 'rerun').
-#   ok(유효 — 방식 실패 포함)는 다시 재지 않는다. 상한을 다 쓴 자리: 마지막 시도가 env-stall이면 '판정 불가 → 사용자 보고'(요약기 · 측정-8 ⓑ) · 하네스면 그 (방식, 셀) 유효 < 3.
+#   ok(유효 — 방식 실패 포함)는 다시 재지 않는다. 상한을 다 쓴 자리: 마지막 시도가 환경(kind_of env)이면 '판정 불가 → 사용자 보고'(요약기 · 측정-8 ⓑ) · 하네스면 그 (방식, 셀) 유효 < 3.
 # 멈춤(측정-9 '캠페인 멈춤' — 자동 재실행 없음): 하네스 실패(무효) 연속 5회 → exit 3 · 회차 1의 TTL 30초 두 묶음(8자리)이 끝났을 때 A의 W = 0이거나
 #   A의 PR-1 δ ∈ {1, 3} 부당 실패 0(G4·P3 양성 대조가 처음부터 무너짐 — summarize.py --early-check) → exit 4.
 # 공통 난수: 본 바퀴 끝과 재측정 바퀴마다 summarize.py --crn-check(같은 (회차, 셀)에서 다수와 다른 방식 → status에 crn-mismatch → 재측정 대상).
@@ -146,7 +146,8 @@ LOG="$ROOT/CAMPAIGN.log"
 RUN_KNOBS=(); [[ -s "$ROOT/knobs.json" ]] && RUN_KNOBS=(--knobs "$ROOT/knobs.json")
 RUN_MODE=(); (( SIMU )) && RUN_MODE=(--simulate) && (( C14_WT )) && RUN_MODE+=(--worktree)
 PROBE_ARG=(); [[ -n "$PROBE_K6_BIN" ]] && PROBE_ARG=(--probe-k6-bin "$PROBE_K6_BIN")
-kind_of() { case "$1" in invalid:env-stall) echo env ;; invalid:*) echo harness ;; "") echo harness ;; *) echo valid ;; esac; }   # status 없는 시도(도중 끊김)는 하네스로 센다
+# 환경 = env-stall만 · 또는 pc-link-down이 든 무효(사용자 결정 ② 2026-10-29 — 끊긴 회차의 다른 사유는 끊김의 결과) — summarize.py _kind와 같은 규칙. status 없는 시도(도중 끊김)는 하네스로 센다
+kind_of() { case "$1" in invalid:env-stall|invalid:pc-link-down|invalid:pc-link-down,*|invalid:*,pc-link-down|invalid:*,pc-link-down,*) echo env ;; invalid:*) echo harness ;; "") echo harness ;; *) echo valid ;; esac; }
 attempts_of() {   # 인자: rep cell method → 시도 status를 차례대로(앞 시도 rep<k>.attempt<n> · 마지막 rep<k>) 한 줄씩(없으면 빈 줄)
   local d="$ROOT/$2/$3/rep$1" n
   for n in $(ls -d "$d".attempt* 2>/dev/null | sed 's/.*\.attempt//' | sort -n); do cat "$d.attempt$n/status" 2>/dev/null || echo; done

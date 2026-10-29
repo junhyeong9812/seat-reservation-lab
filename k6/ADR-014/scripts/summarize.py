@@ -74,7 +74,10 @@ INPUT_REASON = {
     # 판정 입력 전수 점검(CR14-21~24 재발 방지 — k6/ADR-014/README.md '판정 입력 출처 표'): 없으면 무음 통과하던 입력
     "k6_window": "k6-window-missing",   # k6 rc(k6-exit-N) — 없으면 rc를 모른다
     "harness_reasons": "harness-reasons-missing",   # run.sh가 회차 시작에 빈 파일로 만든다 — 없으면 하네스 사유를 모른다
+    "pc_link": "pc-link-missing",       # PC 커널 로그(pclink14.sh)를 못 읽음 — 링크 끊김을 '없음'으로 넘기지 않는다(사용자 결정 ② 2026-10-29)
 }
+# 환경 사유(측정-9 — 재측정은 환경 상한: 자리마다 2번 · 하네스 상한과 따로) = `_kind`: env-stall은 그것만일 때 환경(원문) · pc-link-down은 다른 사유와 함께여도 환경
+# (사용자 결정 ② 2026-10-29 — PC 링크가 끊긴 회차의 다른 사유는 끊김의 결과로 본다). campaign.sh kind_of와 같은 규칙(selftest가 둘을 대조한다)
 # P12 고정 항목(측정-6 P12 · 측정-7) — 회차 요약 violations.p12_checked에 '계산했다'를 남긴다. 캠페인은 적용되는 항목이 checked에도 unknown에도 없으면
 # 판정 불가로 본다(키가 없다 = 0이 아니다 — 판정 입력 전수 점검). 5xx_or_0:<요청 이름>은 CSV 집계(행 없음 = 0건)라 이 목록 밖이다
 P12_FIXED = ("deadlock", "tick_failed", "missing_mismatch", "method_stall_secs", "probe_errors", "gc_full_or_stall", "gc_pause_ge_10ms", "mem_growth_ge_10pct")
@@ -800,6 +803,17 @@ def rep_summary(d):
         if nu != 0:
             inp.miss("gc", f"GC 로그 시각 못 읽는 정지·stall 줄 {nu}(ADR-009 gc_summary는 창 밖으로 센다 — CR14-25)")
             gc = None
+    # PC 링크 끊김(사용자 결정 ② 2026-10-29 · 측정-9 재해석): 회차 시작 ~ 끝 이 PC 커널 로그의 '<IF>: Link is Down' 줄 ≥ 1 → pc-link-down(환경 — 무효 → 재측정)
+    # 못 읽음(readable 아님) · 파일·열 없음 · 수집 구간이 판정 창을 덮지 않음 → pc-link-missing(판정 입력 결측 — 출처 표 규칙)
+    pl = inp.json("pc_link", "pc-link.json", need=("readable",), nums=("down", "since_epoch", "until_epoch"))
+    if pl is not None and pl["readable"] is not True:
+        pl = inp.miss("pc_link", f"PC 커널 로그 못 읽음({pl.get('why')!r})")
+    if pl is not None and w0 is not None and not (pl["since_epoch"] <= w0 and pl["until_epoch"] >= w1):
+        pl = inp.miss("pc_link", f"pc-link.json 수집 구간 [{pl['since_epoch']}, {pl['until_epoch']}]이 판정 창 [{w0:.0f}, {w1:.0f})을 덮지 않음")
+    if pl is not None:
+        M["pc_link"] = {"down": pl["down"], "iface": pl.get("iface"), "lines": (pl.get("lines") or [])[:10]}
+        if pl["down"] > 0:
+            reasons.add("pc-link-down")
     pc = inp.json("probe_check", "probe-check.json", need=("ok",))
     if pc is not None and pc["ok"] is not True:
         reasons.add("probe-missing")
@@ -1115,7 +1129,7 @@ def rep_summary(d):
         for r in ("state-sampler-gap", "probe-incomplete", "probe-timing-bad", "dropped-iterations"):
             reasons.discard(r)
     status = "ok" if not reasons else "invalid:" + ",".join(sorted(reasons))
-    out = {"status": status, "reasons": sorted(reasons), "env_stall_only": reasons == {"env-stall"}, "missing_inputs": inp.missing,
+    out = {"status": status, "reasons": sorted(reasons), "env_stall_only": reasons == {"env-stall"}, "env": _kind(status) == "env", "missing_inputs": inp.missing,
            "flags": flags, "metrics": M, "violations": V, "rerun": bool((meta or {}).get("rerun")), "attempt": (meta or {}).get("attempt")}
     (d / "rep-summary.json").write_text(json.dumps(_clean(out), ensure_ascii=False, indent=1, default=_jdefault))
     return out
@@ -1664,9 +1678,13 @@ def campaign(root):
 
 
 def _kind(st):
-    if st == "invalid:env-stall":
-        return "env"
-    if not st or st.startswith("invalid:"):
+    """회차 status → valid · env(환경 상한) · harness. 환경 = 사유가 env-stall 하나뿐 · 또는 pc-link-down이 들었다(INPUT_REASON 아래 머리말 — campaign.sh kind_of와 같은 규칙)."""
+    if st and st.startswith("invalid:"):
+        rs = set(st[len("invalid:"):].split(","))
+        if rs == {"env-stall"} or "pc-link-down" in rs:
+            return "env"
+        return "harness"
+    if not st:
         return "harness"
     return "valid"
 

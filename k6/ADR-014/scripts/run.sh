@@ -123,6 +123,7 @@ if (( DRY )); then
   echo "표본기: 서버·docker stats 10s · 대기 0.5s(db_sampler) · Hikari 1s$([[ $KIND == main ]] && echo " · 상태 1s(만료 행 ${EVERY}틱) · H4 표지 0.5s")"
   echo "k6: env $K6_ENV CLOCK_OFFSET_MS=<k6 직전 시계 차> BASE_URL=http://$SERVER_HOST:8101 OUT_DIR=$DIR $K6_BIN run --quiet --out csv=$DIR/k6-requests.csv.gz <k6 트리>/$K6_SCRIPT"
   echo "측정기: PC $PROBE_K6_BIN probe-ping.js 50/s · 서버 $PROBE_IMAGE(compose.probe.yml)"
+  echo "PC 링크: 회차 끝에 pclink14.sh <회차 시작> <끝> → pc-link.json(journalctl -k '${PC_IFACE:-eno1}: Link is Down' — 지금 읽기: $(bash "$S14/pclink14.sh" "$(( $(date +%s) - 60 ))" "$(date +%s)" | jq -r '"readable \(.readable) \(.why)"'))"
   echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초 · k6 $(P .k6.duration_s)초 · 창 끝 스냅숏 k6 실행 + $(P '.window.from_s + .window.len_s') + ${WEND_LAG_S}초 · 직후 스냅숏 k6 끝 + ${IDLE_AFTER_K6_S}초 · 수렴 $(P .converge_s)초 · 판정 창 $(P '.window | "\(.kind) [\(.from_s), \(.from_s + .len_s))초"')"
   [[ "$KIND" == main ]] && P '.probes | "탐침: 칸 [\(.start_s), \(.end_s))초 · 수 \(.count) · 마지막 요청 \(.last_request_s) < D_arr − 5"'
   exit 0
@@ -154,7 +155,7 @@ fi
 mkdir -p "$DIR"; MATRIX_LOG="$OUT_ROOT/MATRIX.log"
 echo "$PLAN_JSON" | jq . > "$DIR/plan.json"
 cp "$IMAGES" "$DIR/images.json"
-STARTED=$(date -Is)
+STARTED=$(date -Is) STARTED_EPOCH=$(date +%s)
 K6_TREE="$(mktemp -d)"
 if (( WORKTREE )); then mkdir -p "$K6_TREE/k6/ADR-009" "$K6_TREE/k6/ADR-014" && cp -r "$REPO_ROOT/k6/ADR-009/scenarios" "$K6_TREE/k6/ADR-009/" && cp -r "$REPO_ROOT/k6/ADR-014/scenarios" "$K6_TREE/k6/ADR-014/"
 else git -C "$REPO_ROOT" archive "$SHA" k6/ADR-009/scenarios k6/ADR-014/scenarios | tar -x -C "$K6_TREE"; fi
@@ -171,6 +172,8 @@ finish14() {   # 판정(summarize --rep) → status · meta. 인자: (선택) �
       k6_version: $k6, k6_sha256: $k6sha, probe_k6_version: $pk6, app_env: $app, res_env: $res, k6_env: $k6env, harness_hash: $hh, app_image_id: $img,
       seed_done_epoch: $seed, k6_launch_epoch: $k0, k6_end_epoch: $k1, k6_exit: $kx}' > "$DIR/meta.json.tmp" \
     && mv "$DIR/meta.json.tmp" "$DIR/meta.json" || { hreason meta-write-failed; st="invalid:meta-write-failed"; }
+  # PC 링크 끊김(사용자 결정 ② 2026-10-29 — 회차 시작 ~ 지금의 이 PC 커널 로그 'eno1: Link is Down'): 요약기가 pc-link-down(환경) · 못 읽음 = pc-link-missing으로 판정
+  bash "$S14/pclink14.sh" "$STARTED_EPOCH" "$(( $(date +%s) + 1 ))" > "$DIR/pc-link.json" 2>>"$DIR/errors.log" || echo "$(date -Is) pclink14 실패 rc=$?" >> "$DIR/errors.log"
   if [[ -z "$st" ]]; then st=$(python3 -I "$S14/summarize.py" --rep "$DIR" 2>>"$DIR/errors.log" | tail -1); [[ "$st" =~ ^(ok|invalid:) ]] || st="invalid:summarize-failed"; fi
   echo "$st" > "$DIR/status"
   echo "$(date -Is) $CELL $METHOD rep$REP attempt$ATTEMPT $st" >> "$MATRIX_LOG"

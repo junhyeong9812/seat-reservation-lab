@@ -24,9 +24,11 @@
     jsonl 깨진 줄 · CSV 기록 깨짐 · env-stall 입력 깨짐(→ 방식 정지) · 캠페인 요약 판정 열 결측 → 유효로 세지 않음 · 비용·2단 지표 None → 결론 판정 불가
  ㉔ 코드 리뷰 루프 3 후속: GC 로그 시각 못 읽는 정지·stall 줄 → gc-log-missing(CR14-25) · crn 다수결은 유효 회차끼리만 · 유효 1개면 대조 안 함(CR14-27) ·
     서버 시각 줄 가운데 찢김 → db-cpu-missing · 찢긴 마지막 줄 하나는 괜찮다(CR14-28) · A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(CR14-30)
- ㉕ 정식 스모크 뒤 사용자 결정(2026-10-29): ① 원인 표지 대조 허용(0 ≤ 앱 − k6 ≤ 응답 없는 선점 수)"""
+ ㉕ 정식 스모크 뒤 사용자 결정(2026-10-29): ① 원인 표지 대조 허용(0 ≤ 앱 − k6 ≤ 응답 없는 선점 수) · ② PC 링크 끊김 → pc-link-down(환경 — kind_of = _kind) ·
+    못 읽음·없음·구간 부족 → pc-link-missing · pclink14.sh 갈래(가짜 journalctl) · 캠페인 루프 환경 상한에 pc-link-down"""
 import gzip
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -98,6 +100,11 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
     (d / "logs-status.txt").write_text("app pipe=0/0 bytes=100\ndb pipe=0/0 bytes=100\n")
     wj(d / "probe-check.json", {"ok": True})
     win = plan["window"]
+    if not kw.get("no_pc_link"):   # PC 링크 끊김 수집(pclink14.sh — 사용자 결정 ②): 회차 시작 ~ 끝
+        nd = kw.get("pc_link_down", 0)
+        wj(d / "pc-link.json", {"readable": kw.get("pc_link_readable", True), "iface": "eno1", "since_epoch": int(T0 - 300) + kw.get("pc_link_since_shift", 0),
+                                "until_epoch": int(T0 + win["from_s"] + win["len_s"] + 400), "down": nd,
+                                "lines": [f"2026-10-29T00:00:0{i}+09:00 pc kernel: r8169 eno1: Link is Down" for i in range(nd)], "why": ""})
     w0, w1 = T0 + win["from_s"], T0 + win["from_s"] + win["len_s"]
     if not kw.get("no_gc"):
         g = [f"[{iso(T0 - 100, '+0000')}][0.009s][info][gc     ] Using The Z Garbage Collector"]
@@ -401,6 +408,7 @@ def run(tmp):
     generative_campaign(tmp)
     round3_followup(tmp)
     rej_tolerance(tmp)
+    pc_link_rules(tmp)
 
 
 # ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
@@ -681,6 +689,7 @@ REP_INPUTS = [
     ("probe-check.json", "ok", "probe-missing"), ("logs-status.txt", None, "container-log-missing"), ("gc.log.gz", None, "gc-log-missing"),
     ("k6-requests.csv.gz", None, "k6-csv-missing"), ("timeline-server.jsonl", None, "db-cpu-missing"), ("timeline-seatstate.jsonl", None, "state-sampler-gap"),
     ("timeline-waits.jsonl", None, "waits-gap"),
+    ("pc-link.json", None, "pc-link-missing"), *[("pc-link.json", k, "pc-link-missing") for k in ("readable", "down", "since_epoch", "until_epoch")],
     *[("consistency.json", k, "end-check-failed") for k in S.CONS_COLS], ("consistency.json", "expiry_mode", "expiry-mode-mismatch"),
     ("drift-db.json", "drift_log_total", "drift-db-failed"),
     *[(f"drift-{f}.json", k, "drift-snap-failed") for f in ("before", "after-k6", "end") for k in ("tick", "drift_record_failed", "cleanup.errors")],
@@ -879,6 +888,66 @@ def rej_tolerance(tmp):
     check("결정 ① 코드 0 선점 0인데 앱 − k6 = 1 → app-metric-missing(전과 같다)", "app-metric-missing" in s["reasons"], s["status"])
 
 
+def pc_link_rules(tmp):
+    # PC 링크 끊김(측정 전 재해석 2026-10-29 · 스모크 — 사용자 결정 ②): 회차 시작 ~ 끝 커널 로그 'eno1: Link is Down' ≥ 1 → pc-link-down(환경) · 못 읽음 → 결측(무효)
+    s = rep(make_rep(tmp / "pcl-down", pc_link_down=2))
+    check("결정 ② Link is Down 2줄 → invalid:pc-link-down · 분류 환경", s["status"] == "invalid:pc-link-down" and s["env"] and S._kind(s["status"]) == "env", s["status"])
+    s = rep(make_rep(tmp / "pcl-down-drop", pc_link_down=1, dropped=True))
+    check("결정 ② pc-link-down + 다른 하네스 사유(dropped-iterations) → 그래도 환경(끊김의 결과)", "pc-link-down" in s["reasons"] and "dropped-iterations" in s["reasons"]
+          and S._kind(s["status"]) == "env", s["status"])
+    s = rep(make_rep(tmp / "pcl-unread", pc_link_readable=False))
+    check("결정 ② 커널 로그 못 읽음(readable false) → pc-link-missing(하네스 — 무효 · 끊김 없음으로 넘기지 않는다)", s["status"] == "invalid:pc-link-missing"
+          and S._kind(s["status"]) == "harness", s["status"])
+    s = rep(make_rep(tmp / "pcl-none", no_pc_link=True))
+    check("결정 ② pc-link.json 없음 → pc-link-missing", s["status"] == "invalid:pc-link-missing", s["status"])
+    s = rep(make_rep(tmp / "pcl-late", pc_link_since_shift=400))
+    check("결정 ② 수집 구간이 판정 창 앞을 덮지 않음 → pc-link-missing", "pc-link-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "pcl-cost", cell="S4c4200", method="D", rej_rows=False, pc_link_down=1))
+    check("결정 ② 비용 셀도 pc-link-down", s["status"] == "invalid:pc-link-down", s["status"])
+    s = rep(make_rep(tmp / "pcl-envstall-mixed", stall=(100, 8), index=0))
+    check("env-stall + 하네스 사유(pc-link-down 없음) → 하네스(원문 그대로)", S._kind(s["status"]) == "harness" and "env-stall" in s["reasons"], s["status"])
+    # campaign.sh kind_of = summarize._kind(같은 규칙 — 대조)
+    sts = ["ok", "", "invalid:env-stall", "invalid:pc-link-down", "invalid:dropped-iterations,pc-link-down", "invalid:pc-link-down,probe-incomplete",
+           "invalid:dropped-iterations,pc-link-down,probe-incomplete", "invalid:env-stall,pc-link-down", "invalid:env-stall,gc-log-missing", "invalid:pc-link-missing",
+           "invalid:gc-log-missing"]
+    fn = next(l for l in (HERE / "campaign.sh").read_text().splitlines() if l.startswith("kind_of()"))
+    got = subprocess.run(["bash", "-c", fn + "\nfor s in \"$@\"; do kind_of \"$s\"; done", "x", *sts], capture_output=True, text=True).stdout.split()
+    want = [S._kind(x) for x in sts]
+    check("결정 ② campaign.sh kind_of = summarize._kind(11가지 status)", got == want, f"{list(zip(sts, got, want))}")
+    # pclink14.sh — 가짜 journalctl(PATH 앞)로 갈래 확인
+    fb = tmp / "fakebin"
+    fb.mkdir(exist_ok=True)
+    (fb / "journalctl").write_text("""#!/bin/sh
+# 가짜 journalctl — FAKE_J: down · quiet · hint · rc · nokernel / '-b'가 든 호출 = 이번 부팅 커널 줄 확인
+case " $* " in *" -b "*) boot=1 ;; *) boot=0 ;; esac
+case "$FAKE_J" in
+  rc) echo "Failed to open journal" >&2; exit 1 ;;
+  hint) echo "Hint: You are currently not seeing messages from other users and the system." >&2; echo "-- No entries --"; exit 0 ;;
+  nokernel) echo "-- No entries --"; exit 0 ;;
+esac
+if [ "$boot" = 1 ]; then echo "2026-10-29T15:00:00+09:00 pc kernel: x"; exit 0; fi
+if [ "$FAKE_J" = down ]; then
+  echo "2026-10-29T15:00:00+09:00 pc kernel: r8169 0000:03:00.0 eno1: Link is Down"
+  echo "2026-10-29T15:00:03+09:00 pc kernel: r8169 0000:03:00.0 eno1: Link is Up - 1Gbps/Full"
+  echo "2026-10-29T15:00:05+09:00 pc kernel: r8169 0000:03:00.0 eno1: Link is Down"
+else echo "-- No entries --"; fi
+""")
+    (fb / "journalctl").chmod(0o755)
+
+    def pcl(mode):
+        env = {**os.environ, "PATH": f"{fb}:{os.environ['PATH']}", "FAKE_J": mode}
+        r = subprocess.run(["bash", str(HERE / "pclink14.sh"), "100", "200"], capture_output=True, text=True, env=env)
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            return {"rc": r.returncode, "err": r.stderr}
+    a, b, c, e, f = pcl("down"), pcl("quiet"), pcl("hint"), pcl("rc"), pcl("nokernel")
+    check("pclink14: Link is Down 2줄(Up 줄 제외) → down 2 · readable", a.get("readable") is True and a.get("down") == 2, str(a))
+    check("pclink14: 줄 없음 → down 0 · readable", b.get("readable") is True and b.get("down") == 0, str(b))
+    check("pclink14: 권한 경고 · rc ≠ 0 · 이번 부팅 커널 줄 0 → readable false(못 읽음)",
+          c.get("readable") is False and e.get("readable") is False and f.get("readable") is False, f"{c} {e} {f}")
+
+
 def round3_followup(tmp):
     """㉔ 코드 리뷰 루프 3 후속 — 지적(CR14-25 · 27 · 28 · 30)마다 한 블록."""
     base = make_rep(tmp / "f-base")
@@ -983,6 +1052,14 @@ def campaign_sim(tmp):
     c = sorted(p.name for p in (out / "rerun" / "a20-t30" / "C").glob("rep3*"))
     check("재측정: env-stall만 → 환경 2번 뒤 멈춤(시도 3)", b == ["rep2", "rep2.attempt1", "rep2.attempt2"], str(b))
     check("재측정: 하네스 2번 + 환경 2번을 따로 센다(시도 5)", c == ["rep3", "rep3.attempt1", "rep3.attempt2", "rep3.attempt3", "rep3.attempt4"], str(c))
+    lines = [f"2:a50-t30:D:{a}=invalid:pc-link-down,probe-incomplete" for a in (1, 2, 3)] + ["3:a50-t30:B:1=invalid:gc-log-missing", "3:a50-t30:B:2=invalid:pc-link-down",
+                                                                                         "3:a50-t30:B:3=invalid:gc-log-missing", "3:a50-t30:B:4=invalid:env-stall",
+                                                                                         "3:a50-t30:B:5=invalid:gc-log-missing"]
+    rc, log = run_c("rerun-pcl", lines)
+    dd = sorted(p.name for p in (out / "rerun-pcl" / "a50-t30" / "D").glob("rep2*"))
+    bb = sorted(p.name for p in (out / "rerun-pcl" / "a50-t30" / "B").glob("rep3*"))
+    check("재측정: pc-link-down(+ 다른 사유) → 환경 상한 2번 뒤 멈춤(시도 3 — 하네스 몫을 쓰지 않는다)", dd == ["rep2", "rep2.attempt1", "rep2.attempt2"], str(dd))
+    check("재측정: pc-link-down · env-stall이 같은 환경 몫(2번) · 하네스 2번 따로(시도 5)", bb == ["rep3", "rep3.attempt1", "rep3.attempt2", "rep3.attempt3", "rep3.attempt4"], str(bb))
     rc2 = subprocess.run(["bash", str(cs), "--check", str(out / "all-ok")], capture_output=True, text=True).returncode
     shutil.rmtree(out / "all-ok" / "a20-t300" / "D" / "rep3")
     p = subprocess.run(["bash", str(cs), "--check", str(out / "all-ok")], capture_output=True, text=True)
