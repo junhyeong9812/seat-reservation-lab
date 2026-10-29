@@ -47,6 +47,11 @@ const MAIN_SCHEDULE = 1;
 // 주 흐름 길이 = D_arr − 주기의 절반(ms 내림). D_arr가 주기의 정수배면 끝 경계(t0 + D_arr)에 반복 하나가 더 시작될 수도 안 될 수도 있어
 // 세션 수가 방식 사이에 갈렸다(스모크 10-29 a50-t30 map 3,601 대 3,600 → crn 합이 다름 · 탐침의 (계획 수 − 0.5) × 주기와 같은 처방).
 const mainDurMs = (ratePerS) => Math.floor(D_ARR_S * 1000 - 500 / ratePerS);
+// 그래도 끝 경계의 타이머와 duration 만료가 함께 준비되면(부하로 수 ms 늦은 고루틴) k6 select가 무작위로 하나를 고른다 — 주기의 절반이 1.7ms인
+// 맹목에서 스모크 B가 108,001 세션(A·C·D 108,000)이었다. 계획 세션 수(round(D_arr × 도착률)) 밖의 반복은 요청도 crn 기록도 없이 끝낸다(창 밖 — t0 + D_arr 뒤).
+const mainPlanN = (ratePerS) => Math.round(D_ARR_S * ratePerS);
+const PLAN_N_BLIND = mainPlanN(N('BLIND_RATE'));
+const PLAN_N_MAP = mainPlanN(N('MAP_RATE'));
 const scenarios = {
   blind: {
     executor: 'constant-arrival-rate', rate: N('BLIND_RATE'), timeUnit: '1s', duration: `${mainDurMs(N('BLIND_RATE'))}ms`,
@@ -109,6 +114,7 @@ function afterHold(res, seat, user, a, tally, kind) {
 
 export function blind() {
   const sid = exec.scenario.iterationInTest;
+  if (sid >= PLAN_N_BLIND) return;   // 끝 경계 반복(위 mainPlanN)
   const user = USER_BLIND + sid;
   const a = sessionAttrs(REP, 'blind', sid, P);
   recordSession('blind', sid, a);
@@ -142,6 +148,7 @@ function availableSeats(res) {
 }
 export function mapFlow() {
   const sid = exec.scenario.iterationInTest;
+  if (sid >= PLAN_N_MAP) return;     // 끝 경계 반복(위 mainPlanN)
   const user = USER_MAP + sid;
   const a = sessionAttrs(REP, 'map', sid, P);
   recordSession('map', sid, a);
