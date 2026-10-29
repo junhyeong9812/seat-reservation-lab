@@ -23,7 +23,8 @@
  ㉓ 판정 입력 전수 점검(생성형): REP_INPUTS 표의 판정 입력을 하나씩 지우거나 숫자 아닌 값으로 바꾼 회차 → 모두 기대 사유로 무효 · P12 입력 → p12_unknown ·
     jsonl 깨진 줄 · CSV 기록 깨짐 · env-stall 입력 깨짐(→ 방식 정지) · 캠페인 요약 판정 열 결측 → 유효로 세지 않음 · 비용·2단 지표 None → 결론 판정 불가
  ㉔ 코드 리뷰 루프 3 후속: GC 로그 시각 못 읽는 정지·stall 줄 → gc-log-missing(CR14-25) · crn 다수결은 유효 회차끼리만 · 유효 1개면 대조 안 함(CR14-27) ·
-    서버 시각 줄 가운데 찢김 → db-cpu-missing · 찢긴 마지막 줄 하나는 괜찮다(CR14-28) · A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(CR14-30)"""
+    서버 시각 줄 가운데 찢김 → db-cpu-missing · 찢긴 마지막 줄 하나는 괜찮다(CR14-28) · A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(CR14-30)
+ ㉕ 정식 스모크 뒤 사용자 결정(2026-10-29): ① 원인 표지 대조 허용(0 ≤ 앱 − k6 ≤ 응답 없는 선점 수)"""
 import gzip
 import json
 import shutil
@@ -122,6 +123,8 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
         else:
             for _ in range(5):
                 rows.append(http(s, "hold", "201", "s4", tags="stage=0" if rel >= 60 else "stage=ramp"))
+    for i in range(kw.get("hold_code0", 0)):   # 응답 없는 선점(k6 코드 0 — 서버는 409로 셌을 수 있다 · 원인 표지 대조 허용 — 사용자 결정 ①)
+        rows.append(http(T0 + 50 + i, "hold", "0", "blind"))
     alt = kw.get("crn_alt")   # True = 999(다른 해시) · 정수 = 그 값(CR14-27 — 무효 회차끼리 같은 다른 해시)
     for sc in ("blind", "map"):
         rows += [cnt("crn_n", T0, sc, "", 100), cnt("crn_h1", T0, sc, "", 12345 if not alt else 999 if alt is True else alt), cnt("crn_h2", T0, sc, "", 777)]
@@ -397,6 +400,7 @@ def run(tmp):
     generative(tmp)
     generative_campaign(tmp)
     round3_followup(tmp)
+    rej_tolerance(tmp)
 
 
 # ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
@@ -860,6 +864,19 @@ def generative_campaign(tmp):
     r = verdict(root)
     check("생성형 캠페인: A 부당 실패 값 None(유효 회차 요약 깨짐) → 유효로 세지 않음 → G4 실패(A 유지 ④ — 판정 불가)",
           not r["A"]["G4"] and "④" in r["decision"]["verdict"], r["decision"]["verdict"])
+
+
+def rej_tolerance(tmp):
+    # 원인 표지 대조 허용(측정 전 재해석 2026-10-29 · 스모크 — 사용자 결정 ①): 0 ≤ 앱 − k6 ≤ 그 회차 응답 없는 선점(k6 코드 0) 수면 일치
+    s = rep(make_rep(tmp / "rejtol-ok", hold_code0=2, app_rule_extra=2))
+    check("결정 ① 앱 − k6 = 2 ≤ 코드 0 선점 2 → 일치(app-metric-missing 아님 · P12는 그대로 5xx_or_0)", s["status"] == "ok"
+          and s["violations"]["p12"].get("5xx_or_0:hold") == 2, s["status"] + " " + str(s["flags"]))
+    s = rep(make_rep(tmp / "rejtol-over", hold_code0=1, app_rule_extra=2))
+    check("결정 ① 앱 − k6 = 2 > 코드 0 선점 1 → app-metric-missing", "app-metric-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "rejtol-neg", hold_code0=3, app_rule_extra=-1))
+    check("결정 ① k6가 더 많다(앱 − k6 = −1) → app-metric-missing(코드 0이 있어도)", "app-metric-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "rejtol-none", app_rule_extra=1))
+    check("결정 ① 코드 0 선점 0인데 앱 − k6 = 1 → app-metric-missing(전과 같다)", "app-metric-missing" in s["reasons"], s["status"])
 
 
 def round3_followup(tmp):

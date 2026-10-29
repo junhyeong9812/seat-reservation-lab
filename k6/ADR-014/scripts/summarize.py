@@ -197,7 +197,7 @@ def read_csv(path, w0, w1, kind):
     dropped(시나리오별 창 안) · crn(흐름별 n·h1·h2) · rej(원인별 합) · hold_ok · confirm_rec · revisit_rec · probe · soldout · sec_hold(초별 선점 지연 — 1초 p99)."""
     out = {"lat": {}, "per_sec": {}, "err": {}, "err_all": {}, "hold409": 0, "hold409_by_scen": {}, "confirm_reqs": 0, "confirm_200": 0,
            "dropped": {}, "dropped_all": 0, "crn": {}, "rej": {}, "hold_ok": [], "confirm_rec": [], "revisit_rec": [], "probe": [], "soldout": 0,
-           "sec_hold": {}, "hold_req_n": 0}
+           "sec_hold": {}, "hold_req_n": 0, "hold_code0": 0}
     with gzip.open(path, "rt", newline="") as f:
         head = next(csv.reader([f.readline()]))
         ix = {k: head.index(k) for k in ("metric_name", "timestamp", "metric_value", "name", "scenario", "status", "extra_tags")}
@@ -218,6 +218,7 @@ def read_csv(path, w0, w1, kind):
                     out["err_all"][name] = out["err_all"].get(name, 0) + 1
                 if name == "hold":
                     out["hold_req_n"] += 1
+                    out["hold_code0"] += st == "0"   # 응답 없는 선점(k6 실행 전체 — 원인 표지 대조 허용의 상한 · 사용자 결정 2026-10-29 ①)
                     if st == "409":
                         out["hold409"] += 1
                         out["hold409_by_scen"][sc] = out["hold409_by_scen"].get(sc, 0) + 1
@@ -923,15 +924,22 @@ def rep_summary(d):
         if env_secs > 0:
             reasons.add("env-stall")
         # 원인 표지 대조(M3 ③ · app-metric-missing — 409가 1건 이상인 회차만 · 재점검 MR-17)
+        # 측정 전 재해석(2026-10-29 · 스모크 — 사용자 결정 ①): 앱이 409로 셌는데 k6가 응답을 못 받은 선점(코드 0 — EOF·끊김)은 k6 헤더 합에 없다.
+        # 갈래마다 0 ≤ 앱 − k6 · 두 갈래 차의 합 ≤ 그 회차 응답 없는 선점 수(k6 실행 전체)면 일치 — k6가 더 많거나 차이가 그보다 크면 지금처럼 불일치
         if act["before"] and act["after"]:
             app_rule = _d(act["before"], act["after"], "rejected", "rule")
             app_now = _d(act["before"], act["after"], "rejected", "nowait")
             M["rej_app"] = {"rule": app_rule, "nowait": app_now}
+            M["hold_code0_k6"] = csvd["hold_code0"]
             if csvd["hold409"] >= 1:
                 k6_tot = (csvd["rej"].get("rule", 0) + csvd["rej"].get("nowait", 0))
-                if k6_tot == 0 or app_rule != csvd["rej"].get("rule", 0) or app_now != csvd["rej"].get("nowait", 0):
+                gap = [a - csvd["rej"].get(k, 0) if num(a) else None for k, a in (("rule", app_rule), ("nowait", app_now))]
+                M["rej_gap"] = {"rule": gap[0], "nowait": gap[1], "allow": csvd["hold_code0"]}
+                if k6_tot == 0 or None in gap or min(gap) < 0 or sum(gap) > csvd["hold_code0"]:
                     reasons.add("app-metric-missing")
-                    flags.append(f"원인 표지 대조 k6 {csvd['rej']} ≠ 앱 {M['rej_app']}")
+                    flags.append(f"원인 표지 대조 k6 {csvd['rej']} ≠ 앱 {M['rej_app']}(허용: 0 ≤ 앱 − k6 · 합 ≤ 응답 없는 선점 {csvd['hold_code0']})")
+                elif sum(gap) > 0:
+                    flags.append(f"원인 표지 앱 − k6 = {sum(gap):g} ≤ 응답 없는 선점 {csvd['hold_code0']} — 일치로 본다(측정 전 재해석 2026-10-29 ①)")
             unk = csvd["rej"].get("missing", 0) + csvd["rej"].get("other", 0)
             if unk:
                 flags.append(f"reject-cause-unknown(주 흐름·탐침 헤더 없음·모르는 값) {unk}")
