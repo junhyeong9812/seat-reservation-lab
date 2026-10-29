@@ -12,7 +12,7 @@
     plan14.py --darr-extend '<{"셀": T95_추정초, …}>'            → 시작 조건 ⑥(리뷰 MR-13)의 D_arr′ = ⌈T95 ÷ 0.6 ÷ 60⌉ × 60(줄이지 않는다) — knobs JSON 조각을 낸다
 
 knobs(시작 조건 ⑤⑥이 캠페인 전에 한 번만 정하는 값 — campaign.sh plan.json에 고정 · 회차 plan.json에도 남는다):
-    {"d_arr": {"a50-t30": 420, …}, "map_rate": 10, "max_vus": {"blind": 14000, "map": 14000, "probe": 14000}, "state_expired_every_s": 1}
+    {"d_arr": {"a50-t300": 2700, …}, "map_rate": 10, "max_vus": {"blind": 14000, "map": 14000, "probe": 14000}, "state_expired_every_s": 1}
     d_arr는 늘리기만(측정-2 'D_arr를 줄이지 않는다') · map_rate는 줄이기만(측정-9 ⑥ 'PC 수신 > 50MB/s면 줄임') · max_vus는 14,000 이상(측정-4 MR-11) ·
     state_expired_every_s ∈ {1, 10}(측정-5 머리 '표본 방식 변경' — expired_rows 하위 질의를 10초 간격 별도 표본으로)."""
 import json
@@ -27,8 +27,8 @@ MAIN = {   # 측정-2 주 셀(D_arr = 리뷰 MR-13 반영 값)
     "a20-t300": {"abandon": 0.2, "ttl_s": 300, "d_arr_s": 1200},
     "a50-t300": {"abandon": 0.5, "ttl_s": 300, "d_arr_s": 2220},
     "a20-t30": {"abandon": 0.2, "ttl_s": 30, "d_arr_s": 240},
-    "a50-t30": {"abandon": 0.5, "ttl_s": 30, "d_arr_s": 360},
-}
+    "a50-t30": {"abandon": 0.5, "ttl_s": 30, "d_arr_s": 420},   # 시작 조건 ⑥ 적용(정식 스모크 2026-10-29 — T95 A 216.20초 = 360초의 60.1% → --darr-extend 420)
+}                                                                  # 나머지 셋은 a50-t30 라운드 길이 외삽 T95_추정이 60% 안 — 그대로(측정-2 ⑥ 적용 기록)
 COST = {"S4c4200": {"ttl_s": 3600, "rate": 4200, "steps": 12, "step_s": 30, "ramp_s": 60, "ramp_from": 50, "seed_schedules": 200}}   # 측정-2 비용 셀(S4c 그대로)
 GROUPS = ["a20-t30", "a50-t30", "a20-t300", "a50-t300", "S4c4200"]   # 측정-2 '회차 안 셀 묶음 순서'
 REPS = 3
