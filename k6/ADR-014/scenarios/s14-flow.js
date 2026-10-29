@@ -18,7 +18,7 @@ import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 import { TREND_STATS, writeSummary } from '../../ADR-009/scenarios/lib/common.js';
 import {
-  codeOf, confirmReq, flushTally, holdBody, holdReq, mulberry32, newTally, recordSession, rej, rejectCause, send, sessionAttrs, sleepUntilSrv, BASE_URL,
+  closeConn, codeOf, confirmReq, flushTally, holdBody, holdReq, mulberry32, newTally, recordSession, rej, rejectCause, send, sessionAttrs, sleepUntilSrv, BASE_URL,
 } from './lib14.js';
 
 const E = (k) => {
@@ -176,6 +176,7 @@ export function mapFlow() {
 }
 
 // ---- 탐침(측정-3.2 — 회차 2 · 주 부하가 건드리지 않는다) ----------------------------------------------------------------------
+// 탐침 요청은 모두 closeConn(Connection: close — lib14 closeConn 머리말 · 사용자 결정 2026-10-29). sent는 그대로 보내기 직전 ms(새 연결 수립은 sent 뒤 — LAN 왕복 1회)
 function precord(pr, pid, d, step, res, sent, plan, eMs, cause) {
   probeRec.add(1, {
     pr, pid: String(pid), d: String(d), step, st: String(res.status), code: codeOf(res), rej: cause || '', sent: String(sent),
@@ -184,7 +185,7 @@ function precord(pr, pid, d, step, res, sent, plan, eMs, cause) {
 }
 function probeHold(pr, pid, d, step, seat, user, plan) {
   const sent = Date.now();
-  const res = send(holdReq(PR_SCHEDULE, seat, user));
+  const res = send(closeConn(holdReq(PR_SCHEDULE, seat, user)));
   let cause = '';
   if (res.status === 409) { cause = rejectCause(res); rej.add(1, { cause }); }
   const b = res.status === 201 ? holdBody(res) : { expMs: NaN, holdId: null };
@@ -234,13 +235,13 @@ export function pr3() {
   const tc = h0.b.expMs + dc * 1000;
   const doConfirm = () => {
     const sent = Date.now();
-    const c = send(confirmReq(h0.b.holdId, u));
+    const c = send(closeConn(confirmReq(h0.b.holdId, u)));
     precord('pr3', i, dc, 'c', c, sent, tc, NaN, '');
   };
   if (Math.round(tc) === Math.round(tv)) {
     sleepUntilSrv(tv);
     const sent = Date.now();
-    const [rv, rc] = http.batch([holdReq(PR_SCHEDULE, seat, v), confirmReq(h0.b.holdId, u)]);
+    const [rv, rc] = http.batch([closeConn(holdReq(PR_SCHEDULE, seat, v)), closeConn(confirmReq(h0.b.holdId, u))]);
     let cause = '';
     if (rv.status === 409) { cause = rejectCause(rv); rej.add(1, { cause }); }
     precord('pr3', i, dc, 'v', rv, sent, tv, NaN, cause);

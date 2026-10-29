@@ -101,6 +101,14 @@ export function confirmReq(holdId, userId, name) {
     params: { headers: { 'X-User-Id': String(userId), 'Content-Type': 'application/json' }, tags: { name: name || 'confirm' }, timeout: '30s' },
   };
 }
+// 탐침(PR-1·2·3) 요청은 연결을 다시 쓰지 않는다(사용자 결정 2026-10-29 · 정식 스모크 smoke14-20261029): 탐침 VU는 TTL + δ(30초 넘게) 쉬고 다음 요청을 보내는데,
+//   그 사이 서버가 닫은 keep-alive 연결을 다시 쓰는 경합으로 첫 선점이 가끔 k6 코드 0(EOF)으로 끝났다(추정 — A 2건 → P12 방식 위반으로 셈).
+//   `Connection: close`면 응답 뒤 연결을 닫아 탐침 VU의 연결 풀에 유휴 연결이 남지 않는다 — 다음 탐침 요청은 늘 새 연결이다.
+//   주 흐름(맹목 · 지도 · 재방문)은 그대로(keep-alive). 송신 시각 기록(sent = 보내기 직전 Date.now() — MR-2)과 원인 표지(응답 헤더 X-Seatlab-Reject)는 요청 헤더와 무관하다.
+export function closeConn(req) {
+  req.params.headers.Connection = 'close';
+  return req;
+}
 export function send(req) {
   return http.request(req.method, req.url, req.body, req.params);
 }
