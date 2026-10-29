@@ -44,13 +44,16 @@ const DELTAS_C = PROBES ? E('PR_DELTAS_C').split(',').map(Number) : [];
 const V_AFTER_MS = PROBES ? N('V_AFTER_MS') : 0;
 const MAIN_SCHEDULE = 1;
 
+// 주 흐름 길이 = D_arr − 주기의 절반(ms 내림). D_arr가 주기의 정수배면 끝 경계(t0 + D_arr)에 반복 하나가 더 시작될 수도 안 될 수도 있어
+// 세션 수가 방식 사이에 갈렸다(스모크 10-29 a50-t30 map 3,601 대 3,600 → crn 합이 다름 · 탐침의 (계획 수 − 0.5) × 주기와 같은 처방).
+const mainDurMs = (ratePerS) => Math.floor(D_ARR_S * 1000 - 500 / ratePerS);
 const scenarios = {
   blind: {
-    executor: 'constant-arrival-rate', rate: N('BLIND_RATE'), timeUnit: '1s', duration: `${D_ARR_S}s`,
+    executor: 'constant-arrival-rate', rate: N('BLIND_RATE'), timeUnit: '1s', duration: `${mainDurMs(N('BLIND_RATE'))}ms`,
     preAllocatedVUs: N('PRE_VUS_BLIND'), maxVUs: N('MAX_VUS_BLIND'), gracefulStop: `${N('GRACE_STOP_S')}s`, exec: 'blind',
   },
   map: {
-    executor: 'constant-arrival-rate', rate: N('MAP_RATE') * 1000, timeUnit: '1000s', duration: `${D_ARR_S}s`,   // 소수 도착률(측정-9 ⑥ 줄임)도 정수 rate로
+    executor: 'constant-arrival-rate', rate: N('MAP_RATE') * 1000, timeUnit: '1000s', duration: `${mainDurMs(N('MAP_RATE'))}ms`,   // 소수 도착률(측정-9 ⑥ 줄임)도 정수 rate로
     preAllocatedVUs: N('PRE_VUS_MAP'), maxVUs: N('MAX_VUS_MAP'), gracefulStop: `${N('GRACE_STOP_S')}s`, exec: 'mapFlow',
   },
 };
