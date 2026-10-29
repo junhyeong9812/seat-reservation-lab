@@ -117,73 +117,74 @@ k6/ADR-014/results/<id>/
 
 | 입력 | 읽는 함수·줄 | 결측·예상 밖 값일 때 | 근거 규칙 |
 |---|---|---|---|
-| `plan.json` method · cell · kind · mode · rep · ttl_s · window.from_s·len_s | `Inputs.json` 725 · 값 검사 727-728 | **고침** — rep·ttl_s·window·mode 필수 숫자 · 방식·셀·종류가 계획 밖이면 `plan-missing`(전: KeyError · 'x' 방식에 plan14가 프로세스 종료) | 측정-9 하네스(계획 대 실행) |
-| `meta.json` | 726 | 기존 `meta-missing` · rerun/attempt는 설명 — 판정 무관(1108 `(meta or {})`) | 측정-9 |
-| `harness-reasons.txt` | 732-737 | **고침** — 없으면 `harness-reasons-missing`(전: 사유 없음으로 통과) | 측정-9 · run.sh:162 |
-| `k6-summary.json` setup_data.startedAt(t0) | 738 | **고침** — 숫자 필수(전: 문자열이면 TypeError) → `k6-summary-missing` | 측정-0 판정 창 |
-| `clock-offset.json` 앞뒤 offset_s · rtt_s | `clock` 173-182 | 기존(CR14-9) `clock-offset-bad` | 측정-9 · CR14-9 |
-| `pre-k6.json` seed_done_epoch | 750-754 | **고침** — 숫자 필수 → `pre-k6-mismatch` | 측정-9(ADR-009 pre-k6) |
-| `app-config.json` configprops · 풀 최대 | 756-765 → `plan14.config_check` | **고침** — configprops가 묶음 목록이 아니면 `cond-config-missing`(전: AttributeError) · 값 다름·없음은 기존 비교로 `*-mismatch` | 측정-1 · 측정-9 |
-| `warmup-status.json` rc | 767-771 | 기존(CR14-14) `warmup-failed` | 측정-9 재해석 CR14-14 |
-| `limit-key.json` env · cmd · drift · drift_cmd · present | 772-774 | **고침** — 네 값 숫자 필수 → `limit-key-missing` · present가 bool false가 아니면 있다고 본다(전: `(drift or 0) > 0`) | 측정-1 · 측정-9 |
-| `seed-check.json` 회차·좌석·홀드·예약·쿼터 수 | 775-781 | **고침** — 8열 숫자 필수 → `seed-mismatch`(전: KeyError) · seat_map_index·flyway_v11 ≠ 1은 기존 `seat-map-index-missing` | 측정-9 |
-| `logs-status.txt` | 783-785 | 기존 `container-log-missing` | 측정-9(ADR-009) |
-| `gc.log.gz` → ADR-009 `gc_summary` | 786-798 · P12 GC 1079-1083 · M["gc"] 936 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
-| GC 정지(safepoint)·stall 줄 시각 머리 | `gc_untimed` 505-516 · 792-798 | **고침(CR14-25)** — 시각을 못 읽는 줄이 하나라도 있으면 `gc-log-missing`(회차 무효 — 판정 입력 결측 규칙 · 전: ADR-009 `gc_summary`가 그 줄의 시각을 None으로 두어 k6 창 밖으로 무음 처리 · ADR-009 하네스는 고치지 않고 같은 정규식으로 따로 센다 · `metrics.gc_untimed_lines`) | 측정-9 · P12 ②③ · env-stall(GC < 100ms) |
-| `pc-link.json` readable · down · since_epoch · until_epoch | 812-822 | **고침(2026-10-29 ②)** — 없음 · readable이 true 아님 · 숫자 아님 · 구간이 판정 창을 덮지 않음 → `pc-link-missing`(링크 끊김 '없음'으로 넘기지 않는다) · down ≥ 1 → `pc-link-down` | 측정-9 재해석 2026-10-29 ② |
-| `probe-check.json` ok | 799-801 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
-| `k6-requests.csv.gz` | `read_csv` 194 · 803-810 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
-| `k6-window.json` exit | 811-813 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
-| `timeline-server.jsonl` DB CPU · 서버 시각 · 앱 메모리 | `server_rows` 461-502 · 815-831 | 기존 `db-cpu-missing` · `path-gap` · **고침** — DB·앱 줄의 CPU·메모리를 못 읽으면 버리지 않고 `db-cpu-missing`(전: `continue`·`pass`로 버리고 평균) · **고침(CR14-28)** — 깨진 '{' 줄(찢긴 마지막 줄 하나 제외 — `jsonl`과 같은 규칙) → `db-cpu-missing`(전: `except ValueError: continue` — 서버 시각 줄이 찢기면 뒤 컨테이너 줄이 앞 시각에 붙고 path-gap 공백이 숨는다) | 측정-9 M9(MR-3) · P12 ④ · path-gap |
-| `consistency.json` 정합 문턱 열 | `CONS_COLS` 83-86 · 833 | 기존(CR14-8 · CR14-20) · **고침(CR14-21)** `active_on_reserved_seats` → `end-check-failed` · expiry_mode 다름은 기존 `expiry-mode-mismatch`(984) | 측정-7 재해석 CR14-8 · 20 · 21 |
-| `drift-db.json` drift_log_total · drift_log 행 | 834-836 · m6 967-979 | **고침** — total 숫자 필수 · 시각·action(`repaired`·`false-positive`·`skipped`)을 못 읽는 행 → `drift-db-failed`(전: 시각 −inf로 무음 제외 → `repaired`가 줄어 정합 위반이 숨는다) · reconcile_runs 시각 못 읽음 → 빠짐(→ `reconcile-missing` 쪽 — 규칙대로 보수) | 측정-7 정합(`repaired`) · P8 |
-| `drift-{before,after-k6,end}.json` tick.ok · drift_record_failed · cleanup.errors | 839-844 | **고침** — 숫자 필수 → `drift-snap-failed`(전: `(차분 or 0) > 0`). ADR-009 actsnap.py는 등록 안 된 지표 = 0 · 조회 실패 = None | 측정-9(ADR-009) |
-| `act14-{before,window-end,after-k6,end}.json` rejected.rule · tick.ok · 창 끝 t | 845-861 | **고침** — 두 열 숫자 필수(전: 존재만) · 창 끝 시각은 기존(CR14-13) → `app-metric-missing` | 측정-9 · 측정-5 M11 재해석 CR14-13 |
-| 원인 표지 대조(앱 rejected 증분 대 k6 `rej` · 응답 없는 선점 수 `hold_code0`) | 924-932 | 기존 — 앱 증분 None이면 불일치 → `app-metric-missing` · k6 `rej.get(k, 0)`은 정의상 0(헤더 행 없음 = 0건 — 합 0이면 그 자체로 무효) · **고침(2026-10-29 ①)** 허용 폭 = 갈래마다 0 ≤ 앱 − k6 · 합 ≤ `hold_code0`(CSV 선점 코드 0 — 정의상 0: 행 없음 = 0건 → 허용 0 = 전과 같다) | 측정-9 MR-17 · 측정-5 M3 재해석 2026-10-29 |
-| P5 되돌림 기회 kept_active(배치 + 회수) | 944 | **고침** — 한쪽이라도 None이면 None(전: 회수 쪽 `or 0`) → 캠페인 P5 판정 불가 | 측정-6 P5 |
-| P12 틱 실패 · :missingIds 롤백(창 안 증분) | 952-956 · 1073-1074 | 기존 — None → `p12_unknown`(판정 불가) | 측정-5 M11 재해석 CR14-13 |
-| `table-{before,after,end}.json` n_tup_upd · deadlocks | 957-964 | **고침** — n_tup_upd 숫자 필수 → `table-stats-missing` · deadlocks 없음은 기존 None → P12 deadlock 판정 불가 | 측정-9 · P6 · P12 |
-| `db.log.gz` deadlock 줄 시각 | `_db_log_deadlocks` 1162 | 규칙대로 — 시각을 못 읽으면 None → k6 구간 증분(보수) | 측정-5 M11 재해석 CR14-13 |
-| `timeline-hikari.jsonl` pending · active | 862-867 · `classify_chunk` 585-594 | **고침** — 깨진 줄·시각 없는 줄·pending·active 숫자 아님 → env-stall ②③을 세우지 못함 → 방식 정지(전: 깨진 줄을 버리고 env 쪽 · 없는 열은 KeyError) | 측정-9 env-stall 행(MR-6) |
-| `timeline-waits.jsonl` 시각 · by_src | 868-877 · `classify_chunk` 572-580 | **고침** — 깨진 줄·시각 못 읽는 줄 → `waits-gap` · 정지 구간 표본에 by_src 없음 → 방식 정지(전: `or {}` → Lock 0 → env 쪽) | 측정-9 env-stall ① |
-| `k6-probe-server.csv.gz`(서버 측정기) · 풀 최대 | 880-887 · `classify_chunk` 557-560 · 585-590 | 규칙대로 — 없음·읽기 실패 → 정지 덩어리는 방식(세우지 못함) | 측정-9 env-stall |
-| GC 긴 정지 목록(덩어리 구간) | `classify_chunk` 568 `default=0.0` | 정의상 0 — `long_stops` = 50ms 넘는 정지 목록 · 없으면 그 구간 최대 < 50ms < 100ms 문턱 | 측정-9 env-stall(GC < 100ms) |
-| 정지 초(초별 완료 응답 수) | `stall_chunks` 543 `per_sec.get(s, 0)` | 정의상 0 — 응답 행이 없는 초 = 정지 초 | 측정-9 · P12 정지 초 |
-| `timeline-seatstate.jsonl` t · reserved · held_no_active · active_not_held · multi_active · active_on_reserved | `jsonl` 116-131 · 989-1002 · `state_metrics` 416 | **고침** — 깨진 줄(찢긴 마지막 줄 하나 제외) · 판정 열 없음·숫자 아님 → `state-sampler-gap`(전: 깨진 줄 `except: pass` — 그 초의 위반 표본이 숨는다) · 없음·공백은 기존 | 측정-9 · 측정-7 상태 문턱 |
-| T_x(T90·T95) 창 안 미도달 | `state_metrics` 435-437 | 규칙대로 — INF(창 밖 = 가장 나쁨) | 측정-5 M2 |
-| CSV `probe` 행(탐침 · M3 · PR-3) | `probe_metrics` 280-412 | **고침** — 못 읽는 행(285-289) · 계획에 없는 칸(294-304) · 기록 없는 계획 칸(389-393) · 송신·계획 시각 못 읽음(335-339) · **CR14-22** 첫 선점 기록 없음(310-319) · **CR14-23** 판정 요청 예상 밖 응답(347-355 · 400 — 분모에서 빼고 `unjudgeable`) → `probe-incomplete` · 5xx 가름 `_err5`(숫자 아닌 상태에서 int() 예외 없음) · 첫 선점·판정 5xx는 기존 방식 M11 | 측정-9 `probe-incomplete` · 재해석 CR14-10 · 22 · 23 |
-| CSV `hold_ok` · `confirm_rec`(겹침 · 확정 뒤 201 · N_exp) | `flow_metrics` 602-619 · 1019-1021 | **고침** — exp·seat·sent·rt 못 읽는 행 → `k6-csv-missing`(전: `continue`·`except: pass`로 건너뜀 · rt 없음 `or 0`) | 측정-7 정합(M5) |
-| CSV `revisit_rec`(재방문) | `flow_metrics` 645-661 | 설명 — 판정 무관(P13 · M5 설명 — 못 읽는 행은 `unparsed`로 센다) | 측정-6 P13 |
-| 정합 항목 묶음(integ) | 1037-1063 | **고침(CR14-21)** `active_on_reserved_end` · **고침** — 표본 열 `.get(k, 0)` 제거(표본 0개 = 이미 무효) · 주 셀인데 흐름·탐침 재구성 없음 → `k6-csv-missing` · 값이 숫자 아님 → `end-check-failed`(전: None이 `if v`에서 '위반 없음'으로 걸러졌다) | 측정-7 정합 |
-| 상태 기대값 문턱(5·6·7·8행) | `state_thresholds` 675-690 | **고침** — 표본 열 `.get(k, 0)` 제거 | 측정-7 MR-7 |
-| `expect-mismatch`(기대 0 아닌 칸) | `expect_mismatch` 692-707 `or 0` | 설명 — 판정 무관(이름표 — 측정-9 '판정 자료') | 측정-9 · M12 |
-| P12 항목 계산 기록 | 1068-1087 `p12_checked` | **고침** — 계산한 항목(0 포함)을 남긴다(캠페인이 '키 없음 = 0'으로 읽지 않게) · 5xx_or_0:<이름>은 정의상 0(CSV 집계) | 측정-6 P12 · 측정-7 |
-| P4 · P9 · P6 자료 | 1090-1100 | 기존 — P6 입력 None → `p6 = None`(캠페인 판정 불가) | 측정-6 P4 · P6 · P9 |
-| 비용 셀 dropped · 1초 p99 · 느린 초 · crn · 원인 표지 미상 · M14 · H4 표본 · reclaim MAX · 창 밖 증분 | 891-905 · 932 · 1026-1035 · 940 · 950-956 | 설명 — 판정 무관(기록 · 이름표) | 측정-9 '판정 자료' · M10 · M14 |
-| `rej` cause 없음 → '?' | `read_csv` 249 | 설명 — 판정 무관(`reject-cause-unknown` 이름표 집계) | 측정-5 M3 |
-| 예열 상태 분포(`--warmup-status`) | `warmup_status` 1771-1787 `except: pass` | 설명 — 판정 무관(by_status None · 판정은 rc가 한다) | 측정-9 재해석 CR14-14 |
+| `plan.json` method · cell · kind · mode · rep · ttl_s · window.from_s·len_s | `Inputs.json` 729 · 값 검사 731-732 | **고침** — rep·ttl_s·window·mode 필수 숫자 · 방식·셀·종류가 계획 밖이면 `plan-missing`(전: KeyError · 'x' 방식에 plan14가 프로세스 종료) | 측정-9 하네스(계획 대 실행) |
+| `meta.json` | 730 | 기존 `meta-missing` · rerun/attempt는 설명 — 판정 무관(1108 `(meta or {})`) | 측정-9 |
+| `harness-reasons.txt` | 736-741 | **고침** — 없으면 `harness-reasons-missing`(전: 사유 없음으로 통과) | 측정-9 · run.sh:162 |
+| `k6-summary.json` setup_data.startedAt(t0) | 742 | **고침** — 숫자 필수(전: 문자열이면 TypeError) → `k6-summary-missing` | 측정-0 판정 창 |
+| `clock-offset.json` 앞뒤 offset_s · rtt_s | `clock` 176-185 | 기존(CR14-9) `clock-offset-bad` | 측정-9 · CR14-9 |
+| `pre-k6.json` seed_done_epoch | 754-758 | **고침** — 숫자 필수 → `pre-k6-mismatch` | 측정-9(ADR-009 pre-k6) |
+| `app-config.json` configprops · 풀 최대 | 760-769 → `plan14.config_check` | **고침** — configprops가 묶음 목록이 아니면 `cond-config-missing`(전: AttributeError) · 값 다름·없음은 기존 비교로 `*-mismatch` | 측정-1 · 측정-9 |
+| `warmup-status.json` rc | 771-775 | 기존(CR14-14) `warmup-failed` | 측정-9 재해석 CR14-14 |
+| `limit-key.json` env · cmd · drift · drift_cmd · present | 776-778 | **고침** — 네 값 숫자 필수 → `limit-key-missing` · present가 bool false가 아니면 있다고 본다(전: `(drift or 0) > 0`) | 측정-1 · 측정-9 |
+| `seed-check.json` 회차·좌석·홀드·예약·쿼터 수 | 779-785 | **고침** — 8열 숫자 필수 → `seed-mismatch`(전: KeyError) · seat_map_index·flyway_v11 ≠ 1은 기존 `seat-map-index-missing` | 측정-9 |
+| `logs-status.txt` | 787-789 | 기존 `container-log-missing` | 측정-9(ADR-009) |
+| `gc.log.gz` → ADR-009 `gc_summary` | 790-802 · P12 GC 1101-1105 · M["gc"] 958 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
+| GC 정지(safepoint)·stall 줄 시각 머리 | `gc_untimed` 509-520 · 796-802 | **고침(CR14-25)** — 시각을 못 읽는 줄이 하나라도 있으면 `gc-log-missing`(회차 무효 — 판정 입력 결측 규칙 · 전: ADR-009 `gc_summary`가 그 줄의 시각을 None으로 두어 k6 창 밖으로 무음 처리 · ADR-009 하네스는 고치지 않고 같은 정규식으로 따로 센다 · `metrics.gc_untimed_lines`) | 측정-9 · P12 ②③ · env-stall(GC < 100ms) |
+| `pc-link.json` readable · down · since_epoch · until_epoch | 806-817 | **고침(2026-10-29 ②)** — 없음 · readable이 true 아님 · 숫자 아님 · 구간이 판정 창을 덮지 않음 → `pc-link-missing`(링크 끊김 '없음'으로 넘기지 않는다) · down ≥ 1 → `pc-link-down` | 측정-9 재해석 2026-10-29 ② |
+| `probe-check.json` ok | 803-805 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
+| `k6-requests.csv.gz` | `read_csv` 197 · 818-825 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
+| `k6-window.json` exit | 826-828 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
+| `timeline-server.jsonl` DB CPU · 서버 시각 · 앱 메모리 | `server_rows` 465-506 · 830-846 | 기존 `db-cpu-missing` · `path-gap` · **고침** — DB·앱 줄의 CPU·메모리를 못 읽으면 버리지 않고 `db-cpu-missing`(전: `continue`·`pass`로 버리고 평균) · **고침(CR14-28)** — 깨진 '{' 줄(찢긴 마지막 줄 하나 제외 — `jsonl`과 같은 규칙) → `db-cpu-missing`(전: `except ValueError: continue` — 서버 시각 줄이 찢기면 뒤 컨테이너 줄이 앞 시각에 붙고 path-gap 공백이 숨는다) | 측정-9 M9(MR-3) · P12 ④ · path-gap |
+| `consistency.json` 정합 문턱 열 | `CONS_COLS` 86-89 · 848 | 기존(CR14-8 · CR14-20) · **고침(CR14-21)** `active_on_reserved_seats` → `end-check-failed` · expiry_mode 다름은 기존 `expiry-mode-mismatch`(984) | 측정-7 재해석 CR14-8 · 20 · 21 |
+| `drift-db.json` drift_log_total · drift_log 행 | 849-851 · m6 989-1001 | **고침** — total 숫자 필수 · 시각·action(`repaired`·`false-positive`·`skipped`)을 못 읽는 행 → `drift-db-failed`(전: 시각 −inf로 무음 제외 → `repaired`가 줄어 정합 위반이 숨는다) · reconcile_runs 시각 못 읽음 → 빠짐(→ `reconcile-missing` 쪽 — 규칙대로 보수) | 측정-7 정합(`repaired`) · P8 |
+| `drift-{before,after-k6,end}.json` tick.ok · drift_record_failed · cleanup.errors | 854-859 | **고침** — 숫자 필수 → `drift-snap-failed`(전: `(차분 or 0) > 0`). ADR-009 actsnap.py는 등록 안 된 지표 = 0 · 조회 실패 = None | 측정-9(ADR-009) |
+| `act14-{before,window-end,after-k6,end}.json` rejected.rule · tick.ok · 창 끝 t | 860-876 | **고침** — 두 열 숫자 필수(전: 존재만) · 창 끝 시각은 기존(CR14-13) → `app-metric-missing` | 측정-9 · 측정-5 M11 재해석 CR14-13 |
+| 원인 표지 대조(앱 rejected 증분 대 k6 `rej` · 응답 없는 선점 수 `hold_code0`) | 940-956 · `read_csv` 223 | 기존 — 앱 증분 None이면 불일치 → `app-metric-missing` · k6 `rej.get(k, 0)`은 정의상 0(헤더 행 없음 = 0건 — 합 0이면 그 자체로 무효) · **고침(2026-10-29 ①)** 허용 폭 = 갈래마다 0 ≤ 앱 − k6 · 합 ≤ `hold_code0`(CSV 선점 코드 0 — 정의상 0: 행 없음 = 0건 → 허용 0 = 전과 같다) | 측정-9 MR-17 · 측정-5 M3 재해석 2026-10-29 |
+| P5 되돌림 기회 kept_active(배치 + 회수) | 966 | **고침** — 한쪽이라도 None이면 None(전: 회수 쪽 `or 0`) → 캠페인 P5 판정 불가 | 측정-6 P5 |
+| P12 틱 실패 · :missingIds 롤백(창 안 증분) | 974-978 · 1095-1096 | 기존 — None → `p12_unknown`(판정 불가) | 측정-5 M11 재해석 CR14-13 |
+| `table-{before,after,end}.json` n_tup_upd · deadlocks | 979-986 | **고침** — n_tup_upd 숫자 필수 → `table-stats-missing` · deadlocks 없음은 기존 None → P12 deadlock 판정 불가 | 측정-9 · P6 · P12 |
+| `db.log.gz` deadlock 줄 시각 | `_db_log_deadlocks` 1184 | 규칙대로 — 시각을 못 읽으면 None → k6 구간 증분(보수) | 측정-5 M11 재해석 CR14-13 |
+| `timeline-hikari.jsonl` pending · active | 877-882 · `classify_chunk` 589-598 | **고침** — 깨진 줄·시각 없는 줄·pending·active 숫자 아님 → env-stall ②③을 세우지 못함 → 방식 정지(전: 깨진 줄을 버리고 env 쪽 · 없는 열은 KeyError) | 측정-9 env-stall 행(MR-6) |
+| `timeline-waits.jsonl` 시각 · by_src | 883-892 · `classify_chunk` 576-584 | **고침** — 깨진 줄·시각 못 읽는 줄 → `waits-gap` · 정지 구간 표본에 by_src 없음 → 방식 정지(전: `or {}` → Lock 0 → env 쪽) | 측정-9 env-stall ① |
+| `k6-probe-server.csv.gz`(서버 측정기) · 풀 최대 | 895-902 · `classify_chunk` 561-564 · 589-594 | 규칙대로 — 없음·읽기 실패 → 정지 덩어리는 방식(세우지 못함) | 측정-9 env-stall |
+| GC 긴 정지 목록(덩어리 구간) | `classify_chunk` 572 `default=0.0` | 정의상 0 — `long_stops` = 50ms 넘는 정지 목록 · 없으면 그 구간 최대 < 50ms < 100ms 문턱 | 측정-9 env-stall(GC < 100ms) |
+| 정지 초(초별 완료 응답 수) | `stall_chunks` 547 `per_sec.get(s, 0)` | 정의상 0 — 응답 행이 없는 초 = 정지 초 | 측정-9 · P12 정지 초 |
+| `timeline-seatstate.jsonl` t · reserved · held_no_active · active_not_held · multi_active · active_on_reserved | `jsonl` 119-134 · 1011-1024 · `state_metrics` 420 | **고침** — 깨진 줄(찢긴 마지막 줄 하나 제외) · 판정 열 없음·숫자 아님 → `state-sampler-gap`(전: 깨진 줄 `except: pass` — 그 초의 위반 표본이 숨는다) · 없음·공백은 기존 | 측정-9 · 측정-7 상태 문턱 |
+| T_x(T90·T95) 창 안 미도달 | `state_metrics` 439-441 | 규칙대로 — INF(창 밖 = 가장 나쁨) | 측정-5 M2 |
+| CSV `probe` 행(탐침 · M3 · PR-3) | `probe_metrics` 284-416 | **고침** — 못 읽는 행(285-289) · 계획에 없는 칸(294-304) · 기록 없는 계획 칸(389-393) · 송신·계획 시각 못 읽음(335-339) · **CR14-22** 첫 선점 기록 없음(310-319) · **CR14-23** 판정 요청 예상 밖 응답(347-355 · 400 — 분모에서 빼고 `unjudgeable`) → `probe-incomplete` · 5xx 가름 `_err5`(숫자 아닌 상태에서 int() 예외 없음) · 첫 선점·판정 5xx는 기존 방식 M11 | 측정-9 `probe-incomplete` · 재해석 CR14-10 · 22 · 23 |
+| CSV `hold_ok` · `confirm_rec`(겹침 · 확정 뒤 201 · N_exp) | `flow_metrics` 606-623 · 1041-1043 | **고침** — exp·seat·sent·rt 못 읽는 행 → `k6-csv-missing`(전: `continue`·`except: pass`로 건너뜀 · rt 없음 `or 0`) | 측정-7 정합(M5) |
+| CSV `revisit_rec`(재방문) | `flow_metrics` 649-665 | 설명 — 판정 무관(P13 · M5 설명 — 못 읽는 행은 `unparsed`로 센다) | 측정-6 P13 |
+| 정합 항목 묶음(integ) | 1059-1085 | **고침(CR14-21)** `active_on_reserved_end` · **고침** — 표본 열 `.get(k, 0)` 제거(표본 0개 = 이미 무효) · 주 셀인데 흐름·탐침 재구성 없음 → `k6-csv-missing` · 값이 숫자 아님 → `end-check-failed`(전: None이 `if v`에서 '위반 없음'으로 걸러졌다) | 측정-7 정합 |
+| 상태 기대값 문턱(5·6·7·8행) | `state_thresholds` 679-694 | **고침** — 표본 열 `.get(k, 0)` 제거 | 측정-7 MR-7 |
+| `expect-mismatch`(기대 0 아닌 칸) | `expect_mismatch` 696-711 `or 0` | 설명 — 판정 무관(이름표 — 측정-9 '판정 자료') | 측정-9 · M12 |
+| P12 항목 계산 기록 | 1090-1109 `p12_checked` | **고침** — 계산한 항목(0 포함)을 남긴다(캠페인이 '키 없음 = 0'으로 읽지 않게) · 5xx_or_0:<이름>은 정의상 0(CSV 집계) | 측정-6 P12 · 측정-7 |
+| P4 · P9 · P6 자료 | 1112-1122 | 기존 — P6 입력 None → `p6 = None`(캠페인 판정 불가) | 측정-6 P4 · P6 · P9 |
+| 비용 셀 dropped · 1초 p99 · 느린 초 · crn · 원인 표지 미상 · M14 · H4 표본 · reclaim MAX · 창 밖 증분 | 906-920 · 950 · 1048-1057 · 962 · 972-978 | 설명 — 판정 무관(기록 · 이름표) | 측정-9 '판정 자료' · M10 · M14 |
+| `rej` cause 없음 → '?' | `read_csv` 253 | 설명 — 판정 무관(`reject-cause-unknown` 이름표 집계) | 측정-5 M3 |
+| 예열 상태 분포(`--warmup-status`) | `warmup_status` 1797-1813 `except: pass` | 설명 — 판정 무관(by_status None · 판정은 rc가 한다) | 측정-9 재해석 CR14-14 |
 
 ### 캠페인 판정(`crn_check` · `early_check` · `campaign`)
 
 | 입력 | 읽는 함수·줄 | 결측·예상 밖 값일 때 | 근거 규칙 |
 |---|---|---|---|
-| 유효 회차 요약의 판정 열(rep · integrity · state · p12 · p12_unknown · p12_checked · 주 셀 T95 · M3 · PR-3 · flow · B·C·D의 P4·P9 · D의 P6) | `summary_gaps` 1304-1332 · 로드 1339-1351 | **고침** — 하나라도 빠지면 그 회차를 유효로 세지 않는다(→ 유효 < 3 → 판정 불가 · RESULT.md에 목록). 전: `.get(..) or {}`로 '없음 = 위반 없음' | 측정-7 '판정 불가면 성공 아님' |
-| crn 합(같은 회차·셀 방식 사이) | `crn_check` 1200-1240 | **고침** — 유효인데 crn이 없는 회차 → `crn-mismatch`(전: 대조에서 빠져 무음 통과) · **고침(CR14-27)** — 다수결은 유효(status ok) 회차끼리만(무효 회차는 대조 밖 · status를 바꾸지 않는다 — 전: 무효 회차 해시도 표로 들어가 유효 회차가 '다수와 다름'이 될 수 있었다) · 유효 회차가 1개 이하면 대조하지 않는다(짝 방식의 그 회차가 무효면 그 셀의 방식 사이 비교가 이미 유효 < 3으로 판정 불가 · `crn-check.json` `compared` false) | 측정-3.5 · 측정-9 |
-| A의 W · PR-1 δ별 결과(조기 확인) | `early_check` 1243-1265 | **고침** — 유효인데 W·by_delta 없음 → exit 1(멈춤 · 전: W None은 무시 · by_delta 없음은 0) | 측정-9 '캠페인 멈춤' |
-| P12 항목(셀별 A도 같은 문턱) | `item_viol` 1406-1423 · 키 목록 1424-1425 | **고침** — 고정 항목이 checked에도 unknown에도 없으면 판정 불가 · 고정 항목은 늘 본다 · 비용 셀 probe_errors 제외 | 측정-7 · P12 |
-| 'A도 같은 문턱' — A의 같은 (항목, 셀) | 1491-1499 | **고침(CR14-30)** — A 쪽이 판정 불가(None)면 X를 실패로 세지 않고 판정 불가(ⓐ 갈래 — 결론 '판정 불가 → 사용자 보고' · 전: None을 '어기지 않음'으로 읽어 X 실패) | 측정-7 재해석 CR14-30 · 측정-8 ⓐ |
-| P7 재선점 기회(넓은 값) | 1440-1450 | **고침** — 값 없는 회차가 있으면 판정 불가(전: `or 0`으로 합) | 측정-6 P7 · 재해석 CR14-19 |
-| P7·P9 PR-3 실행 · P5 · P6 | 1444-1472 | 기존(CR14-11 · None → 판정 불가) | 측정-6 · 재해석 CR14-11 |
-| P3 유효(A 부당 실패) | 1510-1517 | **고침** — 값이 숫자 아니면 None(전: `or 0`) | 측정-8 G2(b) · P3 |
-| G4 · P1 W | 1506 | 기존(숫자 · > 0 검사) | 측정-8 G4 |
-| 2단 T95 · M3ᵦ 범위 | `undec2` 1531-1536 | **고침** — 남은 후보 둘 이상에서 범위 None → 2단 판정 불가(전: `lower(None)` = 거짓 — CR14-24와 같은 꼴) · M3ᵦ 분모 0 → None(1382 기존) | 측정-8 2단 |
-| 3단 비용 6지표 범위 | `undec3` 1538-1551 | **고침(CR14-24)** — 범위 None → 3단 판정 불가 · **고침** — 표본 비용 분리 여부를 모르면(Δc 또는 A 범위 없음) a50-t300 DB CPU를 빼고 돌린 결과가 다를 때 판정 불가 | 측정-8 3단 · 측정-5 머리 |
-| 고르는 규칙 판정 불가 → 결론 | `rivals` · `rank_block` 1611-1615 | **고침(CR14-24 ⓓ)** — 관문 통과 후보 말고 관문을 넘었거나 넘었을 수 있는 후보가 있으면 '판정 불가 → 사용자 보고'(잠정 결과 함께) | 측정-8 재해석 CR14-24 |
-| G2 (a)·(b) | `tri` · `g2` 1572-1588 | **고침** — 셋값(참 · 거짓 · None) — 범위 None을 '비겹침 아님'으로 읽지 않는다 · G2 판정 불가 + G3 걸림 없음 → ⓒ 갈래(1608) · A 유지 ②는 G2가 모두 확정 실패일 때만 | 측정-8 G2 · 재해석 CR14-18 꼴 |
-| G3 비용 5지표 | `g3` 1591-1597 | 기존(CR14-18 None → 판정 불가) · **고침** — 분리 여부를 모르는 a50-t300 DB CPU의 걸림은 판정 불가로 | 측정-8 G3 · 측정-5 머리 |
-| 표본 비용 c_X · Δc · A 범위 | 1395-1403 | **고침** — `sep_unknown`(전: Δc None → '분리 안 함'(거짓)) · result.json `separate_a50t300_db_cpu` = None | 측정-5 머리 |
-| 설명 가설 P1 L_A · P2 · P10 · P11 · P13 · 지도 X ÷ A | `hypotheses` 1667-1690 · 1647 | 설명 — 판정 무관(P13 `or 0` 포함 — 측정-7 '설명 가설은 성공에 쓰지 않는다') | 측정-6 · 측정-7 · MQ2 |
-| 시작 조건 ⑤ 표본 비용 · R₀ | `sample_cost` 1736 · `r0` 1749 | 설명 — 판정 무관(시작 전 log 기록 — 사람이 정한다) | 측정-5 머리 · 측정-9 시작 조건 ⑤ |
+| 유효 회차 요약의 판정 열(rep · integrity · state · p12 · p12_unknown · p12_checked · 주 셀 T95 · M3 · PR-3 · flow · B·C·D의 P4·P9 · D의 P6) | `summary_gaps` 1326-1354 · 로드 1361-1373 | **고침** — 하나라도 빠지면 그 회차를 유효로 세지 않는다(→ 유효 < 3 → 판정 불가 · RESULT.md에 목록). 전: `.get(..) or {}`로 '없음 = 위반 없음' | 측정-7 '판정 불가면 성공 아님' |
+| 회차 status 분류(환경 · 하네스 · 유효 — 재측정 상한 · ⓑ) | `_kind` 1680-1690 · campaign.sh `kind_of` | **고침(2026-10-29 ②)** — 환경 = `env-stall`만 · 또는 `pc-link-down`이 듦(전: `invalid:env-stall`만) · status 없음은 하네스(기존) · 두 곳 같은 규칙(selftest 11가지 대조) | 측정-9 재측정 · 재해석 2026-10-29 ② |
+| crn 합(같은 회차·셀 방식 사이) | `crn_check` 1222-1262 | **고침** — 유효인데 crn이 없는 회차 → `crn-mismatch`(전: 대조에서 빠져 무음 통과) · **고침(CR14-27)** — 다수결은 유효(status ok) 회차끼리만(무효 회차는 대조 밖 · status를 바꾸지 않는다 — 전: 무효 회차 해시도 표로 들어가 유효 회차가 '다수와 다름'이 될 수 있었다) · 유효 회차가 1개 이하면 대조하지 않는다(짝 방식의 그 회차가 무효면 그 셀의 방식 사이 비교가 이미 유효 < 3으로 판정 불가 · `crn-check.json` `compared` false) | 측정-3.5 · 측정-9 |
+| A의 W · PR-1 δ별 결과(조기 확인) | `early_check` 1265-1287 | **고침** — 유효인데 W·by_delta 없음 → exit 1(멈춤 · 전: W None은 무시 · by_delta 없음은 0) | 측정-9 '캠페인 멈춤' |
+| P12 항목(셀별 A도 같은 문턱) | `item_viol` 1428-1445 · 키 목록 1446-1447 | **고침** — 고정 항목이 checked에도 unknown에도 없으면 판정 불가 · 고정 항목은 늘 본다 · 비용 셀 probe_errors 제외 | 측정-7 · P12 |
+| 'A도 같은 문턱' — A의 같은 (항목, 셀) | 1513-1521 | **고침(CR14-30)** — A 쪽이 판정 불가(None)면 X를 실패로 세지 않고 판정 불가(ⓐ 갈래 — 결론 '판정 불가 → 사용자 보고' · 전: None을 '어기지 않음'으로 읽어 X 실패) | 측정-7 재해석 CR14-30 · 측정-8 ⓐ |
+| P7 재선점 기회(넓은 값) | 1462-1472 | **고침** — 값 없는 회차가 있으면 판정 불가(전: `or 0`으로 합) | 측정-6 P7 · 재해석 CR14-19 |
+| P7·P9 PR-3 실행 · P5 · P6 | 1466-1494 | 기존(CR14-11 · None → 판정 불가) | 측정-6 · 재해석 CR14-11 |
+| P3 유효(A 부당 실패) | 1532-1539 | **고침** — 값이 숫자 아니면 None(전: `or 0`) | 측정-8 G2(b) · P3 |
+| G4 · P1 W | 1528 | 기존(숫자 · > 0 검사) | 측정-8 G4 |
+| 2단 T95 · M3ᵦ 범위 | `undec2` 1553-1558 | **고침** — 남은 후보 둘 이상에서 범위 None → 2단 판정 불가(전: `lower(None)` = 거짓 — CR14-24와 같은 꼴) · M3ᵦ 분모 0 → None(1382 기존) | 측정-8 2단 |
+| 3단 비용 6지표 범위 | `undec3` 1560-1573 | **고침(CR14-24)** — 범위 None → 3단 판정 불가 · **고침** — 표본 비용 분리 여부를 모르면(Δc 또는 A 범위 없음) a50-t300 DB CPU를 빼고 돌린 결과가 다를 때 판정 불가 | 측정-8 3단 · 측정-5 머리 |
+| 고르는 규칙 판정 불가 → 결론 | `rivals` · `rank_block` 1633-1637 | **고침(CR14-24 ⓓ)** — 관문 통과 후보 말고 관문을 넘었거나 넘었을 수 있는 후보가 있으면 '판정 불가 → 사용자 보고'(잠정 결과 함께) | 측정-8 재해석 CR14-24 |
+| G2 (a)·(b) | `tri` · `g2` 1594-1610 | **고침** — 셋값(참 · 거짓 · None) — 범위 None을 '비겹침 아님'으로 읽지 않는다 · G2 판정 불가 + G3 걸림 없음 → ⓒ 갈래(1608) · A 유지 ②는 G2가 모두 확정 실패일 때만 | 측정-8 G2 · 재해석 CR14-18 꼴 |
+| G3 비용 5지표 | `g3` 1613-1619 | 기존(CR14-18 None → 판정 불가) · **고침** — 분리 여부를 모르는 a50-t300 DB CPU의 걸림은 판정 불가로 | 측정-8 G3 · 측정-5 머리 |
+| 표본 비용 c_X · Δc · A 범위 | 1417-1425 | **고침** — `sep_unknown`(전: Δc None → '분리 안 함'(거짓)) · result.json `separate_a50t300_db_cpu` = None | 측정-5 머리 |
+| 설명 가설 P1 L_A · P2 · P10 · P11 · P13 · 지도 X ÷ A | `hypotheses` 1693-1716 · 1669 | 설명 — 판정 무관(P13 `or 0` 포함 — 측정-7 '설명 가설은 성공에 쓰지 않는다') | 측정-6 · 측정-7 · MQ2 |
+| 시작 조건 ⑤ 표본 비용 · R₀ | `sample_cost` 1762 · `r0` 1775 | 설명 — 판정 무관(시작 전 log 기록 — 사람이 정한다) | 측정-5 머리 · 측정-9 시작 조건 ⑤ |
 
 ## 해석 메모(구현에서 정한 것 — 메인 확인 필요)
 
