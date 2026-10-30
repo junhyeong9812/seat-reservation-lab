@@ -2,7 +2,7 @@
 
 설계·판정 기준: `docs/adr/ADR-014-hold-expiry.md` **'측정 전 고정 규칙'**(측정-0~12 — 리뷰 MR-1~17 · 결정 MQ1~10 반영) · §설계-8.3(방식별 기대값).
 ADR-009 하네스(`k6/ADR-009/scripts/lib.sh` · `scenarios/` · `compose.yml` · `compose.tmpfs.yml` · `compose.probe.yml`)는 **수정하지 않고** 동결 사본에서 source·`-f`로 쓴다(측정-3.6 · ADR-013 선례).
-측정 조건(측정-1): 서버 .164 · **앱 1대 · lb 없음**(k6 PC → 앱 8101 직접) · L4 · DB tmpfs 12g(DB 14g) · 앱 2g 세대형 ZGC · 카운터 구성 = 업무 앱 기본값 · 배치 주기 10초 · Flyway = 기본 위치 + `classpath:db/migration-seat-map`(V11) · 주입 없음 · `--probes` 켬 · 이미지 고정.
+측정 조건(측정-1): 서버 .164 · **앱 1대 · lb 없음**(k6 PC → 앱 8101 직접) · L4 · DB tmpfs 12g(DB 14g) · 앱 2g 세대형 ZGC · 카운터 구성 = 업무 앱 기본값 · 배치 주기 10초 · Flyway = 기본 위치 + `classpath:db/migration-seat-map`(V11) · 주입 없음 · `--probes` 켬 · 이미지 고정 · **Tomcat `max-connections` 20,000 · 앱 nofile 65,536(측정 compose에서만 — 명세 §10 R5 ① · 앱 기본 설정은 그대로)** · **k6 PC 다른 부하 없음(R5 ② — 시작 조건 ④ · 회차 중 MemAvailable ≥ 4GiB)**.
 
 ## 구성
 
@@ -13,13 +13,14 @@ ADR-009 하네스(`k6/ADR-009/scripts/lib.sh` · `scenarios/` · `compose.yml` �
 | `scenarios/lib14.js` | 결정적 난수(FNV-1a + mulberry32 — (r, 흐름, 세션 번호)) · 세션 속성 해시(crn — MR-11) · 호출 · `X-Seatlab-Reject` 읽기 · 응답 분류(ADR-009 `common.js` errorCodeOf 재사용) |
 | `scenarios/warmup14.js` | 예열 — 선점 + 좌석 맵 + 확정, 회차 1·2, 20초(측정-3.6 · '차가운 JVM') |
 | 비용 셀 | `k6/ADR-009/scenarios/s4-throughput.js` 그대로(S4c4200 — 램프 60초 + 30초 × 12 · 시드 200회차) |
-| `compose.expiry.yml` | ADR-009 compose 위 오버레이 — 앱 이미지 고정(`seatlab-app:<sha8>` · `build: !reset null` · `pull_policy: never`) · `SPRING_APPLICATION_JSON`을 통째로(만료 방식 · TTL · 배치 주기 · Flyway 위치 · 풀). 카운터 키는 넣지 않는다 |
-| `scripts/run.sh` | 회차 하나: 내리기 → 이미지 확인 → 기동 → 예열 → 시드 · 시드 확인 → 표본기 → 시작 대기(87 ± 5초) → k6 · 측정기 → 직후 스냅숏(k6 끝 + 11초) → 수렴(TTL + 22초) → 끝 판정기 · 기록 덤프 → 수집 → `summarize.py --rep`. `--prepare-image` · `--dry-run` · `--simulate` · `--worktree`(스모크) |
+| `compose.expiry.yml` | ADR-009 compose 위 오버레이 — 앱 이미지 고정(`seatlab-app:<sha8>` · `build: !reset null` · `pull_policy: never`) · `SPRING_APPLICATION_JSON`을 통째로(만료 방식 · TTL · 배치 주기 · Flyway 위치 · 풀 · **`server.tomcat.max-connections` 20,000** — R5 ①) · **`ulimits` nofile 65,536**(soft = hard). 카운터 키 · 다른 Tomcat 키(accept-count · threads · keep-alive)는 넣지 않는다. 값은 `plan14.py` `TOMCAT_MAX_CONNECTIONS` · `APP_NOFILE` → `app_env`(변수 없이 렌더해도 같은 값) |
+| `scripts/run.sh` | 회차 하나: 내리기 → 이미지 확인 → 기동 → 예열 → 시드 · 시드 확인 → 표본기 → 시작 대기(87 ± 5초 — k6 lead = 계획 `k6.lead_s`: 0.15초 + 미리 만든 VU × 0.37ms · R5) → k6 · 측정기 → 직후 스냅숏(k6 끝 + 11초) → 수렴(TTL + 22초) → 끝 판정기 · 기록 덤프 → 수집 → `summarize.py --rep`. `--prepare-image` · `--dry-run` · `--simulate` · `--worktree`(스모크) |
 | `scripts/lib14.sh` | ADR-009 `lib.sh` source + compose 렌더 · 이미지 ID · 설정 수집 · 시드 확인 · 테이블 통계 · 앱−DB 시각 · 표본기 기동·복구 · 측정기(ADR-009 run.sh probes_start/stop 복사) |
 | `scripts/psql-sampler.sh` | 서버 쪽 표본기(표준 입력으로 보낸다 — 배포 불필요): `state` 1초(측정-5 머리 SQL + `sample_ms`) · `h4` 0.5초(`/* seatlab:h4-reclaim */` 활성·Lock 대기 — M10). 시작 시각 격자(간격이 쌓여 늘지 않게) |
 | `scripts/actsnap14.py` | 앱 지표 스냅숏 — `seat.hold.rejected{cause}` · `seat.hold.reclaim` · `seat.hold.expiry.{deleted,missing_pairs,skip_locked,revert,chunk,missing_mismatch,tick}` · 정리 ①. 카운터·틱·증분·안전망은 ADR-009 `actsnap.py`가 같은 시점에 |
-| `scripts/campaign.sh` | 60자리 · 시작 조건 ⓪~⑦ · `--sha` 동결(git archive · 해시) · 이어서 실행 대조 · 재측정(환경 2번 · 하네스 2번 따로) · 멈춤 규칙 · 루프 안 `run.sh < /dev/null` · 끝 집계 전 계획 대 실행 대조(exit 6) · `--dry-run` · `--simulate` · `--check` |
+| `scripts/campaign.sh` | 60자리 · 시작 조건 ⓪~⑦(④에 `pccheck14.sh` 자동 점검 — R5 ②) · `--sha` 동결(git archive · 해시) · 이어서 실행 대조 · 재측정(환경 2번 · 하네스 2번 따로) · 멈춤 규칙 · 루프 안 `run.sh < /dev/null` · 끝 집계 전 계획 대 실행 대조(exit 6) · `--dry-run` · `--simulate` · `--check` |
 | `scripts/pclink14.sh` | PC 링크 끊김 수집(사용자 결정 ② 2026-10-29) — `journalctl -k --since @<회차 시작> --until @<끝>`의 `eno1: Link is Down` 줄 → JSON(readable · down · lines) · sudo 없이(이 PC 사용자 adm 그룹 — 확인함) · 못 읽음을 따로 가른다 |
+| `scripts/pccheck14.sh` | k6 PC 다른 부하 점검(명세 R5 ② · 측정-9 시작 조건 ④ 재해석 2026-10-30) — 이 PC `docker ps`의 seatlab 밖 실행 중 컨테이너 0 · 1분 load ≤ 4.0 · MemAvailable ≥ 16GiB(문턱 = `plan14.py --pc-limits`) → JSON · 못 읽으면 막음. campaign.sh 시작(이어서 실행 포함)이 막음 판정에 · run.sh가 회차마다 `pc-check.json`(이름표). 다른 프로세스·컨테이너는 건드리지 않는다 |
 | `scripts/hhash.sh` | 하네스 경로·해시 단일 출처(캠페인 동결본 대 회차 원본 대조) |
 | `scripts/summarize.py` | `--rep`(회차 사유 → status · 지표 M1~M14 · 방식 위반 자료) · 캠페인(성공 · 고르는 규칙 1~4단 · 관문 G1~G4 · 결론 · 가설 자료 · `RESULT.md`) · `--crn-check` · `--early-check` · `--sample-cost` · `--r0`. **판정 입력은 `Inputs` 한 곳에서 읽고 검증** — 결측은 0이 아니라 그 입력의 사유(INPUT_REASON)로 무효 · 캠페인에서 None은 판정 불가 |
 | `scripts/selftest.py` | 가짜 원자료 단위 확인(회차 사유 · 판정 불가 · 고르는 규칙 분기) · `--campaign` = `campaign.sh --simulate` 루프 시험(60자리 · stdin · 재측정 상한 · `--check`) |
@@ -56,13 +57,14 @@ python3 k6/ADR-014/scripts/summarize.py --sample-cost k6/ADR-014/results/smoke14
 python3 k6/ADR-014/scripts/summarize.py --r0 k6/ADR-009/results                                        # R₀(과거 S3-a20 L4 tmpfs 3회 묶음 DB CPU 범위의 최소)
 python3 k6/ADR-014/scripts/plan14.py --darr-extend '{"a50-t30": <T95 최대>, …}'                        # 시작 조건 ⑥ — 늘릴 셀이 있으면 knobs.json으로
 # 3) 캠페인 스모크(시작 조건 ② — 두 자리 이상): 별도 --id로 campaign.sh를 돌리고 두 자리가 실행된 것을 본 뒤 멈춘다
-# 4) 캠페인
+# 4) 캠페인 — 그 전에 PC의 다른 프로젝트 부하(컨테이너 · 빌드)를 사용자가 멈춘다(R5 ② — campaign.sh 시작 조건 ④가 pccheck14.sh로 막는다)
+bash k6/ADR-014/scripts/pccheck14.sh                                     # PC 다른 부하 점검만(JSON · exit 0 = 통과)
 k6/ADR-014/scripts/campaign.sh --sha <SHA> --images <images.json> --start-conditions <json> [--knobs <knobs.json>]
 ```
 
 시작 조건 JSON(측정-9 ⓪~⑦ — 판정은 `campaign.sh cond_lines`):
 `{"smoke":{"done":true,"dirs":[…]},"campaign_smoke":{"done":true},"pc_check":{"done":true,"docker_ps":"…"},"impl_verify":{"done":true,"R0":…,"delta_c":…,"sample_method":"그대로|변경|분리","env_stall_freq":…,"vu_max":{…}},"concurrency_green":{"done":true,"sha":"<SHA>"}}`
-③ dry-run은 JSON이 아니라 `plan14.py --dry-run`을 직접 계산한다. ⑥ knobs(`{"d_arr":{…},"map_rate":…,"max_vus":{…},"state_expired_every_s":1|10}`)는 plan.json에 고정되고 이어서 실행 때 다르면 멈춘다.
+③ dry-run은 JSON이 아니라 `plan14.py --dry-run`을 직접 계산한다. ④는 JSON `pc_check.done`(사람 기록 — 재시작 루프 없음)과 `pccheck14.sh` 자동 통과가 **둘 다** 있어야 한다 — 캠페인 동안 PC의 다른 프로젝트 부하(컨테이너 · 빌드)는 사용자가 멈춘다(R5 ②). ⑥ knobs(`{"d_arr":{…},"map_rate":…,"max_vus":{…},"state_expired_every_s":1|10}`)는 plan.json에 고정되고 이어서 실행 때 다르면 멈춘다.
 
 ## 결과 폴더
 
@@ -73,7 +75,7 @@ k6/ADR-014/results/<id>/
     plan.json · meta.json · status · rep-summary.json · harness-reasons.txt · errors.log
     k6-requests.csv.gz · k6-summary.json · k6-window.json · pre-k6.json · clock-offset.json · k6-stdout.log.gz · warmup.log · warmup-requests.csv.gz · warmup-status.json
     timeline-seatstate.jsonl(1초 상태 — 주 셀) · timeline-h4.jsonl(0.5초 — 주 셀) · timeline-waits.jsonl · timeline-locks.jsonl(0.5초) · timeline-hikari.jsonl(1초)
-    timeline-server.jsonl(docker stats 10초) · timeline-client.jsonl · sampler-recovery.txt
+    timeline-server.jsonl(docker stats 10초) · timeline-client.jsonl(k6 PC 5초 — pcpu · rss · load · mem_avail_kb) · pc-check.json(회차 앞 PC 점검) · sampler-recovery.txt
     seed.json · seed-check.json · app-config.json · limit-key.json · pg-settings.json · db-state-{seed,k6}.json · io-{before,after}.json · pg-storage*.json
     table-{before,after,end}.json · act14-{before,window-end,after-k6,end}.json · drift-{before,after-k6,end}.json · drift-db.json · consistency.json · app-db-clock-{before,after}.json
     probe-status.json · probe-check.json · k6-probe-{pc,server}.csv.gz · app.log.gz · db.log.gz · gc.log.gz · gc.json · app-jvm.json · logs-status.txt · gc-status.txt
@@ -81,12 +83,12 @@ k6/ADR-014/results/<id>/
 
 ## 회차 status · 사유(측정-9)
 
-`ok`(유효 — 방식 실패는 `rep-summary.json` `violations`) · `invalid:<사유,…>`(하네스 — 재측정). `invalid:env-stall`만이거나 `pc-link-down`이 들었으면 환경 상한(자리마다 2번 — 하네스 2번과 따로 · `campaign.sh kind_of` = `summarize.py _kind`).
+`ok`(유효 — 방식 실패는 `rep-summary.json` `violations`) · `invalid:<사유,…>`(하네스 — 재측정). `invalid:env-stall`만이거나 `pc-link-down` · `pc-mem-low`가 들었으면 환경 상한(자리마다 2번 — 하네스 2번과 따로 · `campaign.sh kind_of` = `summarize.py _kind`).
 
 | 사유 | 어디서(입력 → 계산) |
 |------|------|
-| `pre-k6-mismatch` · `pre-k6-overrun` | `pre-k6.json` seed_done → k6 `setup_data.startedAt`(t0) ∉ 87 ± 5초 · run.sh abort14 |
-| `cond-config-mismatch` · `expiry-mode-mismatch` · `ttl-mismatch` · `cond-config-missing` | `app-config.json` → `plan14.config_check`(카운터 = 업무 앱 기본값 · 방식 · TTL · 주기 10초 · Flyway 4위치 · 풀 10) · 판정기 `expiry_mode` |
+| `pre-k6-mismatch` · `pre-k6-overrun` | `pre-k6.json` seed_done → k6 `setup_data.startedAt`(t0) ∉ 87 ± 5초 · run.sh abort14 · 맞춤 lead = `pre-k6.json` `lead_s`(계획 `k6.lead_s` — 미리 만든 VU 수 비례 · R5. 옛 고정 1.2초는 VU 13,300 칸에서 93.2초였다) |
+| `cond-config-mismatch` · `expiry-mode-mismatch` · `ttl-mismatch` · `cond-config-missing` | `app-config.json` → `plan14.config_check`(카운터 = 업무 앱 기본값 · 방식 · TTL · 주기 10초 · Flyway 4위치 · 풀 10 · **configprops `server.tomcat.maxConnections` = 20,000 · `app_nofile` soft·hard ≥ 21,000** — R5 ①) · 판정기 `expiry_mode` |
 | `limit-key-present` · `limit-key-missing` | `limit-key.json`(ADR-009 limit_key_check — 매수·카운터 키 0) |
 | `seed-mismatch` · `seat-map-index-missing` | `seed-check.json`(회차·좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 0 · `idx_product_seat_schedule_id` · Flyway V11) |
 | `crn-mismatch` | `summarize.py --crn-check`(같은 (회차, 셀) 방식 사이 crn 합이 다수와 다름 — 다수결은 유효 회차끼리 · 유효 1개 이하면 대조하지 않음(CR14-27) → status에 더함 — campaign.sh가 끝 대조 전에 부른다) |
@@ -102,10 +104,11 @@ k6/ADR-014/results/<id>/
 | `warmup-failed` | 예열 k6 rc ≠ 0(run.sh가 그 자리에서 abort14) · `warmup-status.json` 없음·rc 숫자 아님(코드 리뷰 CR14-14 — 이름:상태 분포도 남긴다) |
 | `env-stall` | CSV 초별 응답 0이 5초 이상 연속 → `classify_chunk`: 서버 측정기 무응답 > 5초 ∧ GC 정지 < 100ms ∧ ① 대기 표본(공백 ≤ 1초) `app|Lock:*` 0 ∧ ②③ Hikari(앞·안·뒤) pending 0 · active < 최대 |
 | `reconcile-missing` | `drift-db.json` reconcile_runs(시드 뒤 `inc-*` · `safety*` 0 — P8 생존) |
+| `pc-mem-low`(**환경**) · `pc-mem-missing`(하네스) | `timeline-client.jsonl` `mem_avail_kb`(lib14 `client_line14` — 5초) → 판정 창 안 최소 < 4GiB(`plan14.PC_MEM_RUN_MIN_KB`) = `pc-mem-low`(다른 사유와 함께여도 환경 — `pc-link-down`과 같은 규칙 · 메모리 부족의 결과로 본다) · 파일 없음 · 깨진 줄 · 창 안 줄 값 결측·숫자 아님 · 공백(양끝 포함) > 30초 = `pc-mem-missing`(명세 R5 ② · ADR 측정-9 재해석 2026-10-30) |
 | `pc-link-down`(**환경**) · `pc-link-missing`(하네스) | `pc-link.json`(run.sh `finish14` → `scripts/pclink14.sh <회차 시작> <끝>` — 이 PC `journalctl -k`의 `eno1: Link is Down` 줄) → 1줄 이상 = `pc-link-down`(다른 사유와 함께여도 환경 상한 — 끊김의 결과로 본다) · `readable` 아님(rc ≠ 0 · 권한 경고 · 이번 부팅 커널 줄 0) · 파일·열 없음 · 수집 구간이 판정 창을 덮지 않음 = `pc-link-missing`(사용자 결정 ② 2026-10-29 · ADR 측정-9 재해석) |
 | `gc-log-missing` · `container-log-missing` · `probe-missing` · `path-gap` · `waits-gap` · `drift-*` · `cleanup-errors` · `k6-exit-N` · `schedule-closed-seen` | ADR-009 회차 합격 사유(S3e·S3c·C·F 전용 제외) 대응 — 아래 해석 메모 6 |
 
-판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · `h4-sampler-missing`(주 셀인데 `timeline-h4.jsonl` 없음 — 코드 리뷰 CR14-12) · `hikari-broken`(Hikari 표본 깨짐 → 정지 덩어리는 방식 정지) · 비용 셀 dropped.
+판정 자료(사유 아님 — `flags`): `expect-mismatch` · `reject-cause-unknown` · `probe-timing-dropped` · `probe-anomaly` · `h4-marker-unseen` · `h4-sampler-missing`(주 셀인데 `timeline-h4.jsonl` 없음 — 코드 리뷰 CR14-12) · `hikari-broken`(Hikari 표본 깨짐 → 정지 덩어리는 방식 정지) · `pc-busy-before`(회차 앞 `pc-check.json`이 통과 아님·없음 — R5 ② · 판정은 `pc-mem-low`) · 비용 셀 dropped.
 
 ## 판정 입력 출처 표
 
@@ -124,6 +127,7 @@ k6/ADR-014/results/<id>/
 | `clock-offset.json` 앞뒤 offset_s · rtt_s | `clock` 176-185 | 기존(CR14-9) `clock-offset-bad` | 측정-9 · CR14-9 |
 | `pre-k6.json` seed_done_epoch | 754-758 | **고침** — 숫자 필수 → `pre-k6-mismatch` | 측정-9(ADR-009 pre-k6) |
 | `app-config.json` configprops · 풀 최대 | 760-769 → `plan14.config_check` | **고침** — configprops가 묶음 목록이 아니면 `cond-config-missing`(전: AttributeError) · 값 다름·없음은 기존 비교로 `*-mismatch` | 측정-1 · 측정-9 |
+| `app-config.json` configprops `server.tomcat.maxConnections` · `app_nofile` soft·hard | `plan14.config_check` 313-321 · 수집 lib14 `app_config14`(`/proc/1/limits`) | **고침(R5 ① 2026-10-30)** — maxConnections ≠ 20,000 · 묶음 없음 · nofile 없음·숫자 아님·< 21,000 → `cond-config-mismatch`(못 읽은 nofile은 null로 남겨 불일치 — 무음 통과 아님) | 측정-1 재해석 2026-10-30 · 측정-9 |
 | `warmup-status.json` rc | 771-775 | 기존(CR14-14) `warmup-failed` | 측정-9 재해석 CR14-14 |
 | `limit-key.json` env · cmd · drift · drift_cmd · present | 776-778 | **고침** — 네 값 숫자 필수 → `limit-key-missing` · present가 bool false가 아니면 있다고 본다(전: `(drift or 0) > 0`) | 측정-1 · 측정-9 |
 | `seed-check.json` 회차·좌석·홀드·예약·쿼터 수 | 779-785 | **고침** — 8열 숫자 필수 → `seed-mismatch`(전: KeyError) · seat_map_index·flyway_v11 ≠ 1은 기존 `seat-map-index-missing` | 측정-9 |
@@ -131,6 +135,8 @@ k6/ADR-014/results/<id>/
 | `gc.log.gz` → ADR-009 `gc_summary` | 790-802 · P12 GC 1101-1105 · M["gc"] 958 | 기존 `gc-log-missing` · **고침** — P12 GC 값이 숫자가 아니면 None(→ P12 판정 불가 · 전: `(full or 0) + (stalls or 0)`) | 측정-9 · P12 ②③ |
 | GC 정지(safepoint)·stall 줄 시각 머리 | `gc_untimed` 509-520 · 796-802 | **고침(CR14-25)** — 시각을 못 읽는 줄이 하나라도 있으면 `gc-log-missing`(회차 무효 — 판정 입력 결측 규칙 · 전: ADR-009 `gc_summary`가 그 줄의 시각을 None으로 두어 k6 창 밖으로 무음 처리 · ADR-009 하네스는 고치지 않고 같은 정규식으로 따로 센다 · `metrics.gc_untimed_lines`) | 측정-9 · P12 ②③ · env-stall(GC < 100ms) |
 | `pc-link.json` readable · down · since_epoch · until_epoch | 806-817 | **고침(2026-10-29 ②)** — 없음 · readable이 true 아님 · 숫자 아님 · 구간이 판정 창을 덮지 않음 → `pc-link-missing`(링크 끊김 '없음'으로 넘기지 않는다) · down ≥ 1 → `pc-link-down` | 측정-9 재해석 2026-10-29 ② |
+| `timeline-client.jsonl` t · mem_avail_kb(판정 창 안) | 818-847 | **고침(R5 ② 2026-10-30)** — 없음 · 깨진 줄(찢긴 마지막 줄 하나 제외) · 창 안 줄의 값 결측·숫자 아님 · 시각 못 읽음 · 공백 > 30초 → `pc-mem-missing` · 최소 < 4GiB → `pc-mem-low`(환경) | 측정-9 재해석 2026-10-30 |
+| `pc-check.json` ok | 848-851 | 설명 — 판정 무관(이름표 `pc-busy-before` — 시작 막음은 campaign.sh 시작 조건 ④) | 측정-9 시작 조건 ④ 재해석 2026-10-30 |
 | `probe-check.json` ok | 803-805 | **고침** — true만 통과(전: 문자열 'x'도 통과) → `probe-missing` | 측정-9(ADR-009) |
 | `k6-requests.csv.gz` | `read_csv` 197 · 818-825 | 기존 `k6-csv-missing`(읽기 예외) | 측정-9 |
 | `k6-window.json` exit | 826-828 | **고침** — 없거나 숫자 아니면 `k6-window-missing`(전: `load(..) or {}` · exit None 통과) | 측정-9 `k6-exit-N` |
@@ -168,7 +174,7 @@ k6/ADR-014/results/<id>/
 | 입력 | 읽는 함수·줄 | 결측·예상 밖 값일 때 | 근거 규칙 |
 |---|---|---|---|
 | 유효 회차 요약의 판정 열(rep · integrity · state · p12 · p12_unknown · p12_checked · 주 셀 T95 · M3 · PR-3 · flow · B·C·D의 P4·P9 · D의 P6) | `summary_gaps` 1326-1354 · 로드 1361-1373 | **고침** — 하나라도 빠지면 그 회차를 유효로 세지 않는다(→ 유효 < 3 → 판정 불가 · RESULT.md에 목록). 전: `.get(..) or {}`로 '없음 = 위반 없음' | 측정-7 '판정 불가면 성공 아님' |
-| 회차 status 분류(환경 · 하네스 · 유효 — 재측정 상한 · ⓑ) | `_kind` 1680-1690 · campaign.sh `kind_of` | **고침(2026-10-29 ②)** — 환경 = `env-stall`만 · 또는 `pc-link-down`이 듦(전: `invalid:env-stall`만) · status 없음은 하네스(기존) · 두 곳 같은 규칙(selftest 11가지 대조) | 측정-9 재측정 · 재해석 2026-10-29 ② |
+| 회차 status 분류(환경 · 하네스 · 유효 — 재측정 상한 · ⓑ) | `_kind` 1715-1725 · campaign.sh `kind_of` | **고침(2026-10-29 ②)** — 환경 = `env-stall`만 · 또는 `pc-link-down`이 듦(전: `invalid:env-stall`만) · **고침(R5 ② 2026-10-30)** `pc-mem-low`도 같은 규칙 · status 없음은 하네스(기존) · 두 곳 같은 규칙(selftest 11가지 대조) | 측정-9 재측정 · 재해석 2026-10-29 ② |
 | crn 합(같은 회차·셀 방식 사이) | `crn_check` 1222-1262 | **고침** — 유효인데 crn이 없는 회차 → `crn-mismatch`(전: 대조에서 빠져 무음 통과) · **고침(CR14-27)** — 다수결은 유효(status ok) 회차끼리만(무효 회차는 대조 밖 · status를 바꾸지 않는다 — 전: 무효 회차 해시도 표로 들어가 유효 회차가 '다수와 다름'이 될 수 있었다) · 유효 회차가 1개 이하면 대조하지 않는다(짝 방식의 그 회차가 무효면 그 셀의 방식 사이 비교가 이미 유효 < 3으로 판정 불가 · `crn-check.json` `compared` false) | 측정-3.5 · 측정-9 |
 | A의 W · PR-1 δ별 결과(조기 확인) | `early_check` 1265-1287 | **고침** — 유효인데 W·by_delta 없음 → exit 1(멈춤 · 전: W None은 무시 · by_delta 없음은 0) | 측정-9 '캠페인 멈춤' |
 | P12 항목(셀별 A도 같은 문턱) | `item_viol` 1428-1445 · 키 목록 1446-1447 | **고침** — 고정 항목이 checked에도 unknown에도 없으면 판정 불가 · 고정 항목은 늘 본다 · 비용 셀 probe_errors 제외 | 측정-7 · P12 |
@@ -200,6 +206,7 @@ k6/ADR-014/results/<id>/
 10. **H4 표지가 표본에 안 보이면** 무효가 아니라 `h4-marker-unseen` 이름표(측정-5 M10은 app-metric-missing이라 적었다 — ms 단위 문장이라 0.5초 표본이 우연히 놓칠 수 있다. #24 스모크로 정한다). 주 셀인데 표본 파일이 없으면 `h4-sampler-missing` 이름표. → ADR 측정-5 M10 측정 전 재해석(코드 리뷰 CR14-12)으로 확정 · 정식 스모크(10-29) B·C·D 모두 `h4-marker-unseen`(회수 MAX ≤ 1.2ms) → 사용자 결정 ③: 이름표만 · 회수 대기 = `seat.hold.reclaim` 타이머 · 경로 보증 = 동시성 테스트(잠정 아님).
 11. **원인 표지 대조는 같은 값이어야 한다** — gracefulStop이 HTTP 요청 도중을 끊으면 앱만 센 409가 생길 수 있다(스모크에서 차이가 보이면 보고). → 정식 스모크 뒤 사용자 결정 ①(2026-10-29): 앱 − k6가 0 이상 · 응답 없는 선점(코드 0) 수 이하면 일치(ADR 측정-5 M3 재해석). 스모크 6회는 차이 0이었다.
 12. **탐침 요청은 연결을 다시 쓰지 않는다(`Connection: close` — 사용자 결정 2026-10-29)** — 정식 스모크(smoke14-20261029) A에서 탐침 첫 선점 2건이 k6 코드 0(EOF)으로 끝나 P12 방식 위반으로 셌다. 탐침 VU는 TTL + δ(30초 넘게) 쉬고 다음 요청을 보내므로 그 사이 서버가 닫은 keep-alive 연결을 다시 쓰는 경합으로 본다(추정 — 원인 확인 전). PR-1·2·3 요청에만 헤더를 붙이고(`lib14.js` `closeConn`) 주 흐름은 그대로다. 송신 시각(`sent` — 보내기 직전 ms · MR-2)은 연결 수립 앞에 찍히고(새 연결 = LAN 왕복 1회 · 허용 50·100ms보다 훨씬 작다) 원인 표지는 응답 헤더라 영향이 없다. **효과 확인은 다음 스모크**(탐침 코드 0이 0인지 · ε 분포가 그대로인지).
+13. **연결 상한 · PC 부하(명세 §10 R5 — 2026-10-30 확인 스모크)** — ① Tomcat `max-connections`만 20,000으로 올린다(측정 compose · 네 방식 같게). 같은 회차 configprops의 다른 키는 `acceptCount` 100 · `threads.max` 200 · `maxKeepAliveRequests` 100 · `keepAliveTimeout` 없음(커넥터 기본 = `connectionTimeout`)이고 바꾸지 않는다. **보고만(바꾸지 않음)**: TTL 5분 칸 생각 시간 30–240초가 서버 keep-alive 유휴 한도보다 길면 주 흐름 VU도 탐침처럼(해석 메모 12) 서버가 닫은 연결을 다시 쓰는 경합(k6 코드 0 · EOF)을 만날 수 있다 — 다음 스모크에서 주 흐름 코드 0을 본다. ② `PRE_VUS_T300` 맹목 14,000의 근거 VU 최대 9,254는 연결 상한 실패(선점 응답 없음 105,492건)가 섞인 회차 값이라 다음 스모크에서 다시 본다. ③ k6 lead 식(0.15초 + VU × 0.37ms)은 PC 한가함(≈ 0.30ms/VU)과 부하(≈ 0.43ms/VU) 실측의 가운데 — 판정은 늘 실측 t0다. ④ PC 문턱(`plan14.py` PC_*)은 이 PC(24코어 · 39.6GB) 기준이다. k6 RSS가 VU 수에 비례한다는 것은 추정이다(VU 13,300 회차 10.07GiB — 실패가 섞인 회차).
 
 ## 스모크에서 확인할 것(`[구현 검증]` — 측정-11 #15~#25 · §설계-10 #1·#10·#11)
 
