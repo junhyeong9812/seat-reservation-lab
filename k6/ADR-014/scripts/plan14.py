@@ -10,6 +10,7 @@
                                                                   · 문제 있으면 exit 1(시작 조건 ③)
     plan14.py --config-check <A|B|C|D> <셀> <app-config.json>   → 기대 설정 대조 사유 JSON 한 줄 {"reasons":[…],"detail":[…]} · exit 0 일치 · 1 불일치 · 2 판정 불가
     plan14.py --darr-extend '<{"셀": T95_추정초, …}>'            → 시작 조건 ⑥(리뷰 MR-13)의 D_arr′ = ⌈T95 ÷ 0.6 ÷ 60⌉ × 60(줄이지 않는다) — knobs JSON 조각을 낸다
+    plan14.py --pc-limits                                         → PC 다른 부하 문턱 JSON(명세 R5 ② — pccheck14.sh가 읽는다)
 
 knobs(시작 조건 ⑤⑥이 캠페인 전에 한 번만 정하는 값 — campaign.sh plan.json에 고정 · 회차 plan.json에도 남는다):
     {"d_arr": {"a50-t300": 2700, …}, "map_rate": 10, "max_vus": {"blind": 14000, "map": 14000, "probe": 14000}, "state_expired_every_s": 1}
@@ -69,7 +70,16 @@ PRE_VUS_T300 = {"blind": 14000, "map": 1000, "probe": 100}            # TTL 5분
 MAX_VUS_MIN = 14000                                                    # 측정-4 MR-11(S3 선례)
 PRE_VUS = {"blind": 4000, "map": 400, "probe": 100}                    # 미리 만든 VU(TTL 30초 칸) — 모자라면 k6가 실행 중에 VU를 늦게 만들어 그 사이 반복을 버린다(dropped_iterations).
                                                                        # 스모크 a50-t30(10-29 · 1Gbps) blind 동시 반복 약 2,244 > 2,000 → t0 + 17~20초 blind 7건 버림(maxVUs 14,000은 안 닿음) · ×1.5 넘게 올림
-COST_PRE_VUS = 500                                                     # 비용 셀 미리 만든 VU = s4-throughput.js:46 기본값(plan env가 PRE_VUS를 넘기지 않는다)
+# PC 다른 부하 없음(명세 §10 R5 ② · 측정-9 시작 조건 ④ 재해석 2026-10-30): k6 PC(24코어 · 메모리 39.6GB — 2026-10-30 이 PC) 문턱 — pccheck14.sh · summarize.py가 이 값을 읽는다.
+#   시작(캠페인 · 이어서 실행 때마다): ① 이 PC docker ps에 seatlab 밖 실행 중 컨테이너 0 ② 1분 load ≤ 4.0 — k6 주 프로세스 최대 9.84코어(확인 스모크 a50-t300 D
+#   timeline-client k6_pcpu 984%) + 측정기 k6를 얹어도 24코어의 2/3 안 · 확인 스모크의 다른 프로젝트 부하는 load 14~36이었다 ③ MemAvailable ≥ 16GiB — k6 RSS 최대
+#   10.07GiB(VU 13,300 — 같은 회차)를 VU 15,300으로 비례 외삽 11.6GiB(추정 — RSS가 VU 수에 비례한다고 본다) + 회차 중 하한 4GiB.
+#   회차 중(판정 창 · timeline-client.jsonl 5초 표본): MemAvailable 최소 < 4GiB(메모리의 약 10% — 확인 스모크 최저 1.98GiB가 걸린다) → pc-mem-low(환경 — 무효 → 재측정).
+PC_LOAD1_MAX = 4.0
+PC_MEM_START_MIN_KB = 16 * 1024 * 1024
+PC_MEM_RUN_MIN_KB = 4 * 1024 * 1024
+PC_MEM_GAP_MAX_S = 30.0                                                # 회차 중 MemAvailable 표본 공백(창 양끝 포함) > 30초 → pc-mem-missing(db-cpu-missing과 같은 꼴)
+COST_PRE_VUS = 500                                                    # 비용 셀 미리 만든 VU = s4-throughput.js:46 기본값(plan env가 PRE_VUS를 넘기지 않는다)
 # k6 실행 → 첫 요청(setup_data.startedAt = t0) lead(명세 R5 — 시작 대기 '시드 끝 → 첫 요청 87 ± 5초'는 그대로): k6는 미리 만든 VU를 모두 초기화한 뒤 setup을 돈다.
 # 옛 고정값 1.2초는 VU 2,500~4,700 스모크 값이었다 — 확인 스모크 a50-t300 D(VU 13,300)는 6.61초가 걸려 시드 → 첫 요청 93.2초(pre-k6-mismatch)였다.
 # 식 = 0.15초 + VU × 0.37ms. 근거(results 11회 — selftest K6_LEAD_SEEN): PC가 한가할 때 500 VU 0.27초 · 2,500 VU 0.89~1.14초 · 4,700 VU 1.42~1.71초(≈ 0.30ms/VU) ·
@@ -394,6 +404,9 @@ def main(argv):
             return 2
         print(json.dumps({"reasons": res[0], "detail": res[1]}, ensure_ascii=False))
         return 1 if res[0] else 0
+    if argv[:1] == ["--pc-limits"]:
+        print(json.dumps({"load1_max": PC_LOAD1_MAX, "mem_start_min_kb": PC_MEM_START_MIN_KB, "mem_run_min_kb": PC_MEM_RUN_MIN_KB}))
+        return 0
     if argv[:1] == ["--darr-extend"] and len(argv) == 2:
         print(json.dumps(darr_extend(json.loads(argv[1])), ensure_ascii=False))
         return 0

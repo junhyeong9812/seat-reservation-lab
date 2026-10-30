@@ -25,7 +25,10 @@
  ㉔ 코드 리뷰 루프 3 후속: GC 로그 시각 못 읽는 정지·stall 줄 → gc-log-missing(CR14-25) · crn 다수결은 유효 회차끼리만 · 유효 1개면 대조 안 함(CR14-27) ·
     서버 시각 줄 가운데 찢김 → db-cpu-missing · 찢긴 마지막 줄 하나는 괜찮다(CR14-28) · A의 같은 (항목, 셀) 판정 불가 → X도 판정 불가(CR14-30)
  ㉕ 정식 스모크 뒤 사용자 결정(2026-10-29): ① 원인 표지 대조 허용(0 ≤ 앱 − k6 ≤ 응답 없는 선점 수) · ② PC 링크 끊김 → pc-link-down(환경 — kind_of = _kind) ·
-    못 읽음·없음·구간 부족 → pc-link-missing · pclink14.sh 갈래(가짜 journalctl) · 캠페인 루프 환경 상한에 pc-link-down"""
+    못 읽음·없음·구간 부족 → pc-link-missing · pclink14.sh 갈래(가짜 journalctl) · 캠페인 루프 환경 상한에 pc-link-down
+ ㉖ 확인 스모크 뒤 명세 R5(2026-10-30): ① compose 로컬 렌더(max-connections 20000 · nofile 65536 · 네 방식 × 5셀 · 변수 없음) · 적용값 대조(maxConnections ·
+    app_nofile — 다르거나 없으면 cond-config-mismatch · 확인 스모크 실제 8192) · PRE_VUS 처방(×1.5) · k6 lead 식(실측 11회) · run.sh 반영 ·
+    ② pccheck14.sh 갈래(가짜 docker · /proc) · campaign.sh 시작 조건 ④ · 회차 중 MemAvailable < 4GiB → pc-mem-low(환경) · 결측 → pc-mem-missing · client_line14"""
 import gzip
 import json
 import os
@@ -108,6 +111,7 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
                                "seat_map_index": kw.get("index", 1), "flyway_v11": 1, "want_schedules": ss, "want_seats": ss * sn})
     (d / "logs-status.txt").write_text("app pipe=0/0 bytes=100\ndb pipe=0/0 bytes=100\n")
     wj(d / "probe-check.json", {"ok": True})
+    wj(d / "pc-check.json", {"ok": True, "why": [], "containers_other": [], "load1": 0.5, "mem_avail_kb": 30 * 1024 * 1024})   # run.sh pccheck14(이름표만)
     win = plan["window"]
     if not kw.get("no_pc_link"):   # PC 링크 끊김 수집(pclink14.sh — 사용자 결정 ②): 회차 시작 ~ 끝
         nd = kw.get("pc_link_down", 0)
@@ -216,6 +220,8 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
             srv.append(json.dumps({"Name": "seatlab-db-1", "CPUPerc": "120.5%", "MemUsage": "1GiB / 14GiB"}))
         srv.append(json.dumps({"Name": "seatlab-app-1", "CPUPerc": "200%", "MemUsage": f"{900 + (t - w0) * kw.get('mem_slope', 0):.1f}MiB / 2GiB"}))
     (d / "timeline-server.jsonl").write_text("\n".join(srv) + "\n")
+    if not kw.get("no_client"):   # k6 PC 5초 표본(lib14 client_line14) — MemAvailable(명세 R5 ②)
+        (d / "timeline-client.jsonl").write_text(client_rows(w0 - 10, w1 + 10, dip=kw.get("client_dip"), gap=kw.get("client_gap"), drop_mem=kw.get("client_drop_mem")))
     cons = {"expiry_mode": plan["mode"], "v_counter_mismatch": 0, "v_over_limit_users": 0, "v_duplicate_confirmed_seats": 0, "double_sold_seats": 0,
             "multi_active_seats": 0, "held_no_active": kw.get("held_no_active_end", 0), "active_not_held": 0, "active_on_reserved_seats": 0,
             "expired_hold_rows": 5 if method == "B" else 0, "v_held_without_hold": kw.get("held_without_hold", 0), "confirmed": 25 + 87,
@@ -421,6 +427,113 @@ def run(tmp):
     r5_conn_rules(tmp)
     r5_prevus_rules()
     r5_lead_rules()
+    r5_pc_rules(tmp)
+
+
+GIB_KB = 1024 * 1024
+
+
+def fake_pc(tmp, name, containers=(), load1=0.5, mem_gib=30.0, docker_rc=0):
+    """가짜 PC(docker · /proc/loadavg · /proc/meminfo) → env. containers = [(이름, compose 프로젝트)] — 실행 중인 것만."""
+    d = tmp / f"pc-{name}"
+    (d / "bin").mkdir(parents=True, exist_ok=True)
+    lines = "\n".join(f"{n}\t{p}" for n, p in containers)
+    (d / "bin" / "docker").write_text(f"#!/bin/sh\n[ \"$1\" = ps ] || exit 9\n[ {docker_rc} = 0 ] || {{ echo 'Cannot connect to the Docker daemon' >&2; exit {docker_rc}; }}\n"
+                                      f"printf '%s' '{lines}'\n[ -n '{lines}' ] && echo\nexit 0\n")
+    (d / "bin" / "docker").chmod(0o755)
+    (d / "loadavg").write_text(f"{load1} 1.00 1.00 2/900 12345\n")
+    (d / "meminfo").write_text(f"MemTotal:       38682556 kB\nMemFree:         1000000 kB\nMemAvailable:   {int(mem_gib * GIB_KB)} kB\n")
+    return {**os.environ, "PATH": f"{d / 'bin'}:{os.environ['PATH']}", "PC_LOADAVG_FILE": str(d / "loadavg"), "PC_MEMINFO_FILE": str(d / "meminfo")}
+
+
+def client_rows(t0, t1, mem_gib=20.0, dip=None, gap=None, drop_mem=None, every=5):
+    """timeline-client.jsonl(lib14 start_pollers14 — 5초) 가짜 줄. dip = (상대초 a, b, GiB) · gap = (a, b) 표본 없음 · drop_mem = 그 상대초 줄에서 mem_avail_kb를 뺀다."""
+    out = []
+    for t in range(int(t0), int(t1), every):
+        rel = t - T0
+        if gap and gap[0] <= rel < gap[1]:
+            continue
+        m = dip[2] if dip and dip[0] <= rel < dip[1] else mem_gib
+        row = {"t": iso(t), "k6_pcpu": 500.0, "k6_rss_kb": 4000000, "load": "8.0 7.0 6.0", "mem_avail_kb": int(m * GIB_KB)}
+        if drop_mem is not None and drop_mem <= rel < drop_mem + every:
+            del row["mem_avail_kb"]
+        out.append(json.dumps(row))
+    return "\n".join(out) + "\n"
+
+
+def r5_pc_rules(tmp):
+    pc = HERE / "pccheck14.sh"
+    # ① 시작 조건 PC 점검(pccheck14.sh — 문턱: seatlab 밖 컨테이너 0 · 1분 load ≤ 4.0 · MemAvailable ≥ 16GiB · 판정 불가는 막음)
+    cases = [("clean", {}, True), ("seatlab-only", {"containers": [("seatlab-app-1", "seatlab")]}, True),
+             ("other-ctr", {"containers": [("ccle-postgres-1", "ccle")]}, False), ("plain-ctr", {"containers": [("check-c2-tbuild", "")]}, False),
+             ("load", {"load1": 4.5}, False), ("load-edge", {"load1": 4.0}, True), ("mem", {"mem_gib": 12.0}, False), ("docker-down", {"docker_rc": 1}, False)]
+    bad = []
+    for name, kw, want in cases:
+        env = fake_pc(tmp, name, **kw)
+        r = subprocess.run(["bash", str(pc)], capture_output=True, text=True, env=env)
+        try:
+            j = json.loads(r.stdout)
+        except ValueError:
+            j = None
+        if not (j and j.get("ok") is want and (r.returncode == 0) == want and (isinstance(j.get("mem_avail_kb"), int) or not want)):
+            bad.append(f"{name}: rc={r.returncode} {r.stdout[:200]} {r.stderr[:120]}")
+    check("R5 ② pccheck14: 깨끗 · seatlab만 → 통과 · 다른 컨테이너(프로젝트 없음 포함) · load > 4 · MemAvailable < 16GiB · docker 못 읽음 → 막음", not bad, "; ".join(bad))
+    env = fake_pc(tmp, "nomem")
+    Path(env["PC_MEMINFO_FILE"]).write_text("MemTotal: 1 kB\n")
+    r = subprocess.run(["bash", str(pc)], capture_output=True, text=True, env=env)
+    check("R5 ② pccheck14: MemAvailable 못 읽음 → 막음(판정 불가 = 시작하지 않음)", r.returncode != 0 and '"ok": false' in r.stdout.replace('"ok":false', '"ok": false'), r.stdout[:200])
+    # ② campaign.sh 시작 조건 ④에 PC 점검이 들어간다(dry-run 줄 — 서버 접속 없음)
+    sc = tmp / "start.json"
+    sc.write_text(json.dumps({"smoke": {"done": True}, "campaign_smoke": {"done": True}, "pc_check": {"done": True}, "impl_verify": {"done": True},
+                              "concurrency_green": {"done": True, "sha": "x"}}))
+    outs = {}
+    for name, kw in (("clean", {}), ("busy", {"containers": [("ccle-postgres-1", "ccle")], "load1": 20.0})):
+        env = fake_pc(tmp, f"camp-{name}", **kw)
+        p = subprocess.run(["bash", str(HERE / "campaign.sh"), "--sha", "HEAD", "--dry-run", "--worktree", "--start-conditions", str(sc)], cwd=REPO,
+                           capture_output=True, text=True, env=env, timeout=300)
+        outs[name] = next((l for l in p.stdout.splitlines() if l.startswith("④")), "")
+    check("R5 ② campaign.sh 시작 조건 ④: PC 깨끗 → 통과 · 다른 컨테이너 · load 20 → 막음(PC 다른 부하)",
+          outs["clean"].endswith("통과") and "PC" in outs["clean"] and outs["busy"].endswith("막음") and "ccle-postgres-1" in outs["busy"], str(outs))
+    # ③ 회차 중 MemAvailable(timeline-client.jsonl mem_avail_kb — 판정 창): 최소 < 4GiB → pc-mem-low(환경) · 표본 결측 → pc-mem-missing(하네스)
+    s = rep(make_rep(tmp / "pcm-ok"))
+    check("R5 ③ 회차 중 MemAvailable 20GiB → ok · 지표에 최소값", s["status"] == "ok" and s["metrics"].get("pc_mem", {}).get("min_kb") == 20 * GIB_KB, s["status"] + str(s["metrics"].get("pc_mem")))
+    s = rep(make_rep(tmp / "pcm-low", client_dip=(100, 120, 1.98)))
+    check("R5 ③ 판정 창 안 MemAvailable 1.98GiB(확인 스모크 최저) → invalid:pc-mem-low · 분류 환경", s["status"] == "invalid:pc-mem-low" and S._kind(s["status"]) == "env", s["status"])
+    s = rep(make_rep(tmp / "pcm-low-drop", client_dip=(100, 120, 2.0), dropped=True))
+    check("R5 ③ pc-mem-low + dropped-iterations → 그래도 환경(메모리 부족의 결과 — pc-link-down과 같은 규칙)", "pc-mem-low" in s["reasons"] and S._kind(s["status"]) == "env", s["status"])
+    s = rep(make_rep(tmp / "pcm-edge", client_dip=(100, 120, 4.0)))
+    check("R5 ③ MemAvailable 정확히 4GiB → 무효 아님(문턱 미만만)", s["status"] == "ok", s["status"])
+    s = rep(make_rep(tmp / "pcm-outside", client_dip=(-60, -10, 1.0)))
+    check("R5 ③ 판정 창 밖(t0 앞) MemAvailable 부족 → 무효 아님(창 안만 본다)", s["status"] == "ok", s["status"])
+    s = rep(make_rep(tmp / "pcm-none", no_client=True))
+    check("R5 ③ timeline-client.jsonl 없음 → pc-mem-missing(하네스 — 무효 · 부족 없음으로 넘기지 않는다)", s["status"] == "invalid:pc-mem-missing" and S._kind(s["status"]) == "harness", s["status"])
+    s = rep(make_rep(tmp / "pcm-gap", client_gap=(100, 160)))
+    check("R5 ③ 표본 공백 60초 > 30초 → pc-mem-missing", "pc-mem-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "pcm-col", client_drop_mem=100))
+    check("R5 ③ 창 안 한 줄에 mem_avail_kb 없음 → pc-mem-missing", "pc-mem-missing" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "pcm-cost", cell="S4c4200", method="D", rej_rows=False, client_dip=(100, 110, 1.0)))
+    check("R5 ③ 비용 셀도 pc-mem-low", s["status"] == "invalid:pc-mem-low", s["status"])
+    # ④ campaign.sh kind_of = summarize._kind(pc-mem-low 포함)
+    sts = ["invalid:pc-mem-low", "invalid:dropped-iterations,pc-mem-low", "invalid:pc-mem-low,probe-incomplete", "invalid:pc-mem-missing",
+           "invalid:env-stall,pc-mem-low", "invalid:pc-link-down,pc-mem-low", "ok"]
+    fn = next(l for l in (HERE / "campaign.sh").read_text().splitlines() if l.startswith("kind_of()"))
+    got = subprocess.run(["bash", "-c", fn + "\nfor s in \"$@\"; do kind_of \"$s\"; done", "x", *sts], capture_output=True, text=True).stdout.split()
+    want = ["env", "env", "env", "harness", "env", "env", "valid"]
+    check("R5 ③ campaign.sh kind_of = summarize._kind = 기대(pc-mem-low는 다른 사유와 함께여도 환경)", got == want and [S._kind(x) for x in sts] == want,
+          f"{list(zip(sts, got, [S._kind(x) for x in sts]))}")
+    # ⑤ 회차 기록 줄(lib14.sh client_line14): k6 pcpu · rss · load · MemAvailable — ps가 비어도(프로세스 끝) JSON이 깨지지 않는다
+    env = fake_pc(tmp, "line", load1=2.5, mem_gib=21.0)
+    lines = {}
+    for name, pid in (("self", str(os.getpid())), ("gone", "999999999")):
+        r = subprocess.run(["bash", "-c", f"LIB9_DIR={REPO}/k6/ADR-009/scripts; source {HERE}/lib14.sh; client_line14 {pid}"], capture_output=True, text=True, env=env)
+        try:
+            lines[name] = json.loads(r.stdout)
+        except ValueError:
+            lines[name] = r.stdout + r.stderr[-200:]
+    a, b = lines["self"], lines["gone"]
+    check("R5 ⑤ client_line14: mem_avail_kb · load(가짜 /proc) · pcpu · rss 숫자 · 없는 pid는 null(깨진 JSON 아님)",
+          isinstance(a, dict) and a.get("mem_avail_kb") == 21 * GIB_KB and a.get("load", "").startswith("2.5") and isinstance(a.get("k6_rss_kb"), int)
+          and isinstance(b, dict) and b.get("k6_pcpu") is None and b.get("mem_avail_kb") == 21 * GIB_KB, str(lines))
 
 
 # k6 실행 → 첫 요청(setup_data.startedAt) 실측(k6/ADR-014/results — pre-k6.json k6_launch_epoch · k6-summary.json): (미리 만든 VU 합, 초, 출처)
@@ -798,7 +911,7 @@ REP_INPUTS = [
     ("seed-check.json", "seat_map_index", "seat-map-index-missing"), ("seed-check.json", "flyway_v11", "seat-map-index-missing"),
     ("probe-check.json", "ok", "probe-missing"), ("logs-status.txt", None, "container-log-missing"), ("gc.log.gz", None, "gc-log-missing"),
     ("k6-requests.csv.gz", None, "k6-csv-missing"), ("timeline-server.jsonl", None, "db-cpu-missing"), ("timeline-seatstate.jsonl", None, "state-sampler-gap"),
-    ("timeline-waits.jsonl", None, "waits-gap"),
+    ("timeline-waits.jsonl", None, "waits-gap"), ("timeline-client.jsonl", None, "pc-mem-missing"),
     ("pc-link.json", None, "pc-link-missing"), *[("pc-link.json", k, "pc-link-missing") for k in ("readable", "down", "since_epoch", "until_epoch")],
     *[("consistency.json", k, "end-check-failed") for k in S.CONS_COLS], ("consistency.json", "expiry_mode", "expiry-mode-mismatch"),
     ("drift-db.json", "drift_log_total", "drift-db-failed"),

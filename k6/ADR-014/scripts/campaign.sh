@@ -16,6 +16,8 @@
 #   ② 캠페인 스모크(두 자리 이상 — 루프 stdin 교훈 · ADR-013 §6.1)                              — JSON campaign_smoke.done = true
 #   ③ dry-run(60자리 · 탐침 마지막 요청 ≤ t0 + D_arr − 5초)                                     — plan14.py --dry-run 직접 계산(exit 0이어야 통과)
 #   ④ k6 PC 점검(측정과 무관한 컨테이너·재시작 루프 없음 — docker ps 기록)                         — JSON pc_check.done = true
+#      + PC 다른 부하 없음(명세 R5 ② — 측정 전 재해석 2026-10-30): scripts/pccheck14.sh 자동(seatlab 밖 실행 중 컨테이너 0 · 1분 load ≤ 4 · MemAvailable ≥ 16GiB —
+#        문턱은 plan14 PC_*) · 시작 · 이어서 실행 때마다 · 어기거나 못 읽으면 시작하지 않는다(다른 부하를 멈추는 것은 사용자 몫)
 #   ⑤ [구현 검증] #15~#25 결과 · 표본 비용(Δc · R₀ · 적용 결과) · 환경 정지 빈도 · 흐름별 VU 최대   — JSON impl_verify.done = true(+ 값은 기록용)
 #   ⑥ 시작 전 1번만 바꾸는 값(D_arr′ · 지도 속도 · maxVUs · 표본 방식) = --knobs(plan.json에 고정 — 이어서 실행 때 다르면 멈춘다)
 #   ⑦ 동시성 테스트 green(§설계-9 N2 · §설계-10 #12) 측정 SHA에서                                 — JSON concurrency_green.done = true · sha = --sha
@@ -109,7 +111,12 @@ cond_lines() {   # 시작 조건 줄(측정-9) — 판정 결과는 마지막 �
   jflag .campaign_smoke.done && echo "② 캠페인 스모크(두 자리 이상 · 루프 stdin) → 통과" || { echo "② 캠페인 스모크 — campaign_smoke.done 아님 → 막음"; ok=0; }
   if (( DRY_RC == 0 )); then echo "③ dry-run $(jq -r .n <<< "$DRYJ")자리 · 예상 $(jq -r .est_hours <<< "$DRYJ")시간 · 탐침 마지막 요청 < D_arr − 5초 → 통과"
   else echo "③ dry-run 문제 $(jq -c .problems <<< "$DRYJ" 2>/dev/null) → 막음"; ok=0; fi
-  jflag .pc_check.done && echo "④ k6 PC 점검(docker ps 기록) → 통과" || { echo "④ k6 PC 점검 — pc_check.done 아님 → 막음"; ok=0; }
+  # ④ k6 PC 점검: 사람 기록(pc_check.done — 재시작 루프 프로세스 없음) + PC 다른 부하 없음 자동 점검(명세 R5 ② — pccheck14.sh: seatlab 밖 컨테이너 0 · load · MemAvailable)
+  local pcj; pcj="$(bash "$SRC/pccheck14.sh" 2>/dev/null)"; local pcrc=$?
+  if ! jflag .pc_check.done; then echo "④ k6 PC 점검 — pc_check.done 아님 → 막음"; ok=0
+  elif (( pcrc == 0 )) && [[ "$(jq -r .ok <<< "$pcj" 2>/dev/null)" == true ]]; then
+    echo "④ k6 PC 점검(docker ps 기록) · PC 다른 부하 없음 $(jq -c '{load1, mem_avail_gib: ((.mem_avail_kb / 1048576 * 10 | floor) / 10), containers_other, limits}' <<< "$pcj") → 통과"
+  else echo "④ k6 PC 점검 — PC 다른 부하(명세 R5 ②): $(jq -r '.why | join(" · ")' <<< "$pcj" 2>/dev/null || echo "pccheck14 출력 못 읽음") → 막음"; ok=0; fi
   jflag .impl_verify.done && echo "⑤ [구현 검증] #15~#25 · 표본 비용 · 환경 정지 빈도 · VU 최대 → 통과" || { echo "⑤ [구현 검증] — impl_verify.done 아님 → 막음"; ok=0; }
   echo "⑥ 시작 전 고정값(knobs) $( [[ -n "$KNOBS" ]] && jq -c . "$KNOBS" 2>/dev/null || echo '{} — 기본값') → 기록"
   if jflag .concurrency_green.done && [[ "$(jq -r '.concurrency_green.sha // ""' "$START" | cut -c1-8)" == "$SHA" ]]; then echo "⑦ 동시성 테스트 green(N2 · #12) @ $SHA → 통과"
@@ -146,8 +153,9 @@ LOG="$ROOT/CAMPAIGN.log"
 RUN_KNOBS=(); [[ -s "$ROOT/knobs.json" ]] && RUN_KNOBS=(--knobs "$ROOT/knobs.json")
 RUN_MODE=(); (( SIMU )) && RUN_MODE=(--simulate) && (( C14_WT )) && RUN_MODE+=(--worktree)
 PROBE_ARG=(); [[ -n "$PROBE_K6_BIN" ]] && PROBE_ARG=(--probe-k6-bin "$PROBE_K6_BIN")
-# 환경 = env-stall만 · 또는 pc-link-down이 든 무효(사용자 결정 ② 2026-10-29 — 끊긴 회차의 다른 사유는 끊김의 결과) — summarize.py _kind와 같은 규칙. status 없는 시도(도중 끊김)는 하네스로 센다
-kind_of() { case "$1" in invalid:env-stall|invalid:pc-link-down|invalid:pc-link-down,*|invalid:*,pc-link-down|invalid:*,pc-link-down,*) echo env ;; invalid:*) echo harness ;; "") echo harness ;; *) echo valid ;; esac; }
+# 환경 = env-stall만 · 또는 pc-link-down(사용자 결정 ② 2026-10-29) · pc-mem-low(명세 R5 ② 2026-10-30)가 든 무효(그 회차의 다른 사유는 끊김·메모리 부족의 결과) —
+#   summarize.py _kind와 같은 규칙. status 없는 시도(도중 끊김)는 하네스로 센다
+kind_of() { case "$1" in invalid:env-stall|invalid:pc-link-down|invalid:pc-link-down,*|invalid:*,pc-link-down|invalid:*,pc-link-down,*|invalid:pc-mem-low|invalid:pc-mem-low,*|invalid:*,pc-mem-low|invalid:*,pc-mem-low,*) echo env ;; invalid:*) echo harness ;; "") echo harness ;; *) echo valid ;; esac; }
 attempts_of() {   # 인자: rep cell method → 시도 status를 차례대로(앞 시도 rep<k>.attempt<n> · 마지막 rep<k>) 한 줄씩(없으면 빈 줄)
   local d="$ROOT/$2/$3/rep$1" n
   for n in $(ls -d "$d".attempt* 2>/dev/null | sed 's/.*\.attempt//' | sort -n); do cat "$d.attempt$n/status" 2>/dev/null || echo; done

@@ -75,8 +75,9 @@ INPUT_REASON = {
     "k6_window": "k6-window-missing",   # k6 rc(k6-exit-N) — 없으면 rc를 모른다
     "harness_reasons": "harness-reasons-missing",   # run.sh가 회차 시작에 빈 파일로 만든다 — 없으면 하네스 사유를 모른다
     "pc_link": "pc-link-missing",       # PC 커널 로그(pclink14.sh)를 못 읽음 — 링크 끊김을 '없음'으로 넘기지 않는다(사용자 결정 ② 2026-10-29)
+    "client": "pc-mem-missing",         # k6 PC MemAvailable 표본(timeline-client.jsonl)이 판정 창을 덮지 못함 — 메모리 부족을 '없음'으로 넘기지 않는다(명세 R5 ② 2026-10-30)
 }
-# 환경 사유(측정-9 — 재측정은 환경 상한: 자리마다 2번 · 하네스 상한과 따로) = `_kind`: env-stall은 그것만일 때 환경(원문) · pc-link-down은 다른 사유와 함께여도 환경
+# 환경 사유(측정-9 — 재측정은 환경 상한: 자리마다 2번 · 하네스 상한과 따로) = `_kind`: env-stall은 그것만일 때 환경(원문) · pc-link-down · pc-mem-low(명세 R5 ②)는 다른 사유와 함께여도 환경
 # (사용자 결정 ② 2026-10-29 — PC 링크가 끊긴 회차의 다른 사유는 끊김의 결과로 본다). campaign.sh kind_of와 같은 규칙(selftest가 둘을 대조한다)
 # P12 고정 항목(측정-6 P12 · 측정-7) — 회차 요약 violations.p12_checked에 '계산했다'를 남긴다. 캠페인은 적용되는 항목이 checked에도 unknown에도 없으면
 # 판정 불가로 본다(키가 없다 = 0이 아니다 — 판정 입력 전수 점검). 5xx_or_0:<요청 이름>은 CSV 집계(행 없음 = 0건)라 이 목록 밖이다
@@ -814,6 +815,40 @@ def rep_summary(d):
         M["pc_link"] = {"down": pl["down"], "iface": pl.get("iface"), "lines": (pl.get("lines") or [])[:10]}
         if pl["down"] > 0:
             reasons.add("pc-link-down")
+    # k6 PC MemAvailable(명세 R5 ② · 측정-9 재해석 2026-10-30): 판정 창 안 5초 표본(timeline-client.jsonl mem_avail_kb) 최소 < plan14.PC_MEM_RUN_MIN_KB → pc-mem-low(환경 —
+    # 무효 → 재측정). 파일 없음 · 깨진 줄 · 창 안 줄의 값 결측·숫자 아님 · 표본 공백(창 양끝 포함) > 30초 → pc-mem-missing(판정 입력 결측 — 출처 표 규칙)
+    if w0 is not None:
+        cl = jsonl(d / "timeline-client.jsonl")
+        if cl is None:
+            inp.miss("client", "timeline-client.jsonl 없음")
+        elif cl.broken:
+            inp.miss("client", f"timeline-client.jsonl 깨진 줄 {cl.broken}")
+        else:
+            rows, bad = [], 0
+            for r in cl:
+                try:
+                    t = ts(r["t"])
+                except (KeyError, ValueError, TypeError):
+                    bad += 1
+                    continue
+                if w0 <= t < w1:
+                    if num(r.get("mem_avail_kb")):
+                        rows.append((t, r["mem_avail_kb"]))
+                    else:
+                        bad += 1
+            ts_ = [w0] + [t for t, _ in rows] + [w1]
+            gap = max(b - a for a, b in zip(ts_, ts_[1:]))
+            if bad or not rows or gap > plan14.PC_MEM_GAP_MAX_S:
+                inp.miss("client", f"MemAvailable 표본 — 못 읽는 줄 {bad} · 창 안 {len(rows)}개 · 최대 공백 {gap:.0f}초(> {plan14.PC_MEM_GAP_MAX_S:.0f}초면 결측)")
+            else:
+                mn = min(m for _, m in rows)
+                M["pc_mem"] = {"min_kb": mn, "n": len(rows), "gap_max_s": gap, "floor_kb": plan14.PC_MEM_RUN_MIN_KB}
+                if mn < plan14.PC_MEM_RUN_MIN_KB:
+                    reasons.add("pc-mem-low")
+    # 회차 앞 PC 점검(run.sh pccheck14 → pc-check.json): 이름표만(판정은 위 MemAvailable 하한 — 시작 조건 ④는 campaign.sh가 막는다)
+    pcc = load(d / "pc-check.json")
+    if not (isinstance(pcc, dict) and pcc.get("ok") is True):
+        flags.append(f"pc-busy-before({(pcc or {}).get('why') if isinstance(pcc, dict) else 'pc-check.json 없음·깨짐'})")
     pc = inp.json("probe_check", "probe-check.json", need=("ok",))
     if pc is not None and pc["ok"] is not True:
         reasons.add("probe-missing")
@@ -1678,10 +1713,10 @@ def campaign(root):
 
 
 def _kind(st):
-    """회차 status → valid · env(환경 상한) · harness. 환경 = 사유가 env-stall 하나뿐 · 또는 pc-link-down이 들었다(INPUT_REASON 아래 머리말 — campaign.sh kind_of와 같은 규칙)."""
+    """회차 status → valid · env(환경 상한) · harness. 환경 = 사유가 env-stall 하나뿐 · 또는 pc-link-down · pc-mem-low가 들었다(INPUT_REASON 아래 머리말 — campaign.sh kind_of와 같은 규칙)."""
     if st and st.startswith("invalid:"):
         rs = set(st[len("invalid:"):].split(","))
-        if rs == {"env-stall"} or "pc-link-down" in rs:
+        if rs == {"env-stall"} or "pc-link-down" in rs or "pc-mem-low" in rs:
             return "env"
         return "harness"
     if not st:

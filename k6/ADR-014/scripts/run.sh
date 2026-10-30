@@ -216,6 +216,8 @@ db_state > "$DIR/db-state-seed.json" 2>>"$DIR/errors.log" < /dev/null
 app_config14 "$DIR" 2>>"$DIR/errors.log" < /dev/null || hreason app-config-failed
 limit_key_check seatlab-app-1 > "$DIR/limit-key.json" 2>>"$DIR/errors.log" < /dev/null || hreason limit-key-check-failed
 pg_settings > "$DIR/pg-settings.json" 2>>"$DIR/errors.log" < /dev/null
+# k6 PC 다른 부하(명세 R5 ② — 이 PC만 읽는다): 회차마다 기록 · 판정은 회차 중 MemAvailable 하한(요약기 pc-mem-low) · 어겨도 여기서 멈추지 않는다(이름표 pc-busy-before)
+bash "$S14/pccheck14.sh" > "$DIR/pc-check.json" 2>>"$DIR/errors.log" < /dev/null || echo "$(date -Is) pc-check: PC 다른 부하 — $(jq -c .why "$DIR/pc-check.json" 2>/dev/null)" >> "$DIR/errors.log"
 
 # ---- 표본기 -------------------------------------------------------------------------------------------------------------------------
 TAG14="$(echo "$CID" | tr '/' '_')-$CELL-$METHOD-rep$REP-$(date +%Y%m%d%H%M%S)-$RANDOM"

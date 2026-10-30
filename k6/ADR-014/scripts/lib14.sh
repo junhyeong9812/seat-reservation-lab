@@ -119,6 +119,16 @@ recover_copy() {   # 인자: 회차폴더 사본 로컬파일이름
   rm -f "$tmp"
 }
 
+# k6 PC 5초 표본 한 줄(timeline-client.jsonl): 인자 pid → JSON 한 줄. ps가 비면(프로세스가 막 끝남) 그 값은 null — 줄이 깨지지 않게(요약기는 깨진 줄을 결측으로 센다).
+# 시험용: PC_LOADAVG_FILE · PC_MEMINFO_FILE(pccheck14.sh와 같다)
+client_line14() {
+  local p="$1" cpu rss mem
+  cpu=$(ps -o pcpu= -p "$p" 2>/dev/null | tr -d ' '); [[ "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]] || cpu=null
+  rss=$(ps -o rss= -p "$p" 2>/dev/null | tr -d ' '); [[ "$rss" =~ ^[0-9]+$ ]] || rss=null
+  mem=$(awk '/^MemAvailable:/ { print $2 }' "${PC_MEMINFO_FILE:-/proc/meminfo}" 2>/dev/null); [[ "$mem" =~ ^[0-9]+$ ]] || mem=null
+  echo "{\"t\":\"$(date -Is)\",\"k6_pcpu\":$cpu,\"k6_rss_kb\":$rss,\"load\":\"$(cut -d' ' -f1-3 "${PC_LOADAVG_FILE:-/proc/loadavg}" 2>/dev/null)\",\"mem_avail_kb\":$mem}"
+}
+
 # ---- 수집기(ADR-009 run.sh start_pollers의 서버·PC·대기·Hikari 표본 + ADR-014 상태·H4 표본) -------------------------------------------
 # 받는 쪽은 bash read 루프(ADR-007 리뷰 A11 — mawk 입력 버퍼링 재발 금지) · 끝나면 1초 뒤 다시 연다(errors.log 한 줄 — 무음 공백 금지)
 start_pollers14() {   # 인자: 회차폴더 kind(main|cost) 만료행틱 → 백그라운드 PID들을 출력
@@ -127,9 +137,9 @@ start_pollers14() {   # 인자: 회차폴더 kind(main|cost) 만료행틱 → �
       remote "echo \"{\\\"t\\\":\\\"\$(date -Is)\\\",\\\"load\\\":\\\"\$(cut -d' ' -f1-3 /proc/loadavg)\\\"}\"; docker stats --no-stream --format '{{json .}}'" >> "$dir/timeline-server.jsonl" 2>>"$dir/.stats.err"
       sleep 10
     done ) > /dev/null 2>&1 < /dev/null & echo $!
-  ( while :; do   # k6 PC(5초 — 주 k6 프로세스 CPU · 측정기 k6 제외)
+  ( while :; do   # k6 PC(5초 — 주 k6 프로세스 CPU · RSS · PC load · MemAvailable(명세 R5 ② — 요약기 pc-mem-low · pc-mem-missing) · 측정기 k6 제외)
       if [[ -s "$dir/probe-pc.pid" ]]; then p=$(pgrep -x "$K6_COMM" | grep -vxF -f "$dir/probe-pc.pid" | head -1); else p=$(pgrep -x "$K6_COMM" | head -1); fi
-      [[ -n "$p" ]] && echo "{\"t\":\"$(date -Is)\",\"k6_pcpu\":$(ps -o pcpu= -p "$p" | tr -d ' '),\"k6_rss_kb\":$(ps -o rss= -p "$p" | tr -d ' '),\"load\":\"$(cut -d' ' -f1-3 /proc/loadavg)\"}" >> "$dir/timeline-client.jsonl"
+      [[ -n "$p" ]] && client_line14 "$p" >> "$dir/timeline-client.jsonl"
       sleep 5
     done ) > /dev/null 2>&1 < /dev/null & echo $!
   ( while :; do   # 락·대기 이벤트(0.5초 — lib.sh db_sampler · env-stall ① 업무 세션 Lock 대기)
