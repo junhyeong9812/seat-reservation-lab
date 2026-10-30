@@ -43,6 +43,10 @@ import summarize as S  # noqa: E402
 
 T0, OFF = 1_800_000_000.0, 0.4
 FAILS = []
+# 명세 §10 R5 ①(2026-10-30 확인 스모크): 측정 compose만 Tomcat max-connections 20,000 · 앱 컨테이너 nofile = 20,000 연결 + 여유(오버레이 ulimits)
+R5_MAX_CONN, R5_NOFILE = 20000, 65536
+REPO = HERE.parent.parent.parent
+CONFIRM14 = REPO / "k6/ADR-014/results/confirm14-20261030"
 HEAD = "metric_name,timestamp,metric_value,check,error,error_code,expected_response,group,method,name,proto,scenario,service,status,subproto,tls_version,url,extra_tags,metadata"
 
 
@@ -90,9 +94,14 @@ def make_rep(root, method="A", cell="a20-t30", rep=1, **kw):
             "strategy": "PESSIMISTIC_NOWAIT", "limitStrategy": "COUNTER_UPSERT_PRECHECK", "maxPerUser": 2, "criticalSectionDelay": "PT0S",
             "counterDrift": {"expiryRepair": True, "reconcile": {"enabled": False, "detectShape": "SPLIT", "incremental": {"method": "TRIGGER", "enabled": True, "interval": "PT1S"},
                                                                "safetyNet": {"enabled": True}}, "cleanup": {"mode": "SCHEDULE"}}}
-    wj(d / "app-config.json", {"configprops": [{"prefix": "seat.hold", "properties": hold},
-                                               {"prefix": "spring.flyway", "properties": {"locations": kw.get("cfg_flyway", plan14.FLYWAY)}}],
-                               "hikaricp.connections.max": [10]})
+    tomcat = {"maxConnections": kw.get("cfg_maxconn", R5_MAX_CONN), "acceptCount": 100, "threads": {"max": 200, "minSpare": 10}}
+    cfg = {"configprops": [{"prefix": "seat.hold", "properties": hold},
+                           {"prefix": "spring.flyway", "properties": {"locations": kw.get("cfg_flyway", plan14.FLYWAY)}},
+                           {"prefix": "server", "properties": {"tomcat": tomcat}}],
+           "hikaricp.connections.max": [10], "app_nofile": {"soft": kw.get("cfg_nofile", R5_NOFILE), "hard": kw.get("cfg_nofile", R5_NOFILE)}}
+    if kw.get("cfg_no_nofile"):
+        del cfg["app_nofile"]
+    wj(d / "app-config.json", cfg)
     wj(d / "limit-key.json", {"env": 0, "cmd": 0, "drift": 0, "drift_cmd": 0, "present": False})
     ss, sn = plan["seed"]["schedules"], plan["seed"]["seats"]
     wj(d / "seed-check.json", {"schedules": ss, "seats": ss * sn, "available": ss * sn, "holds": 0, "reservations": 0, "quota_rows": 0,
@@ -409,6 +418,60 @@ def run(tmp):
     round3_followup(tmp)
     rej_tolerance(tmp)
     pc_link_rules(tmp)
+    r5_conn_rules(tmp)
+
+
+# ---- 명세 §10 R5(2026-10-30 확인 스모크) — 측정 조건 ① 연결 상한 ---------------------------------------------------------------------
+def compose_app(app_env):
+    """측정 compose(ADR-009 compose.yml + tmpfs + compose.expiry.yml — lib14.sh compose14와 같은 -f 묶음)를 로컬에서 렌더해 app 서비스를 낸다(서버 접속 없음)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("SPRING", "APP_", "TOMCAT"))}
+    env.update(app_env)
+    p = subprocess.run(["docker", "compose", "-p", "seatlab", "-f", "k6/ADR-009/compose.yml", "-f", "k6/ADR-009/compose.tmpfs.yml", "-f", "k6/ADR-014/compose.expiry.yml",
+                        "config", "--format", "json"], cwd=REPO, capture_output=True, text=True, env=env)
+    if p.returncode != 0:
+        return None, p.stderr[-300:]
+    return json.loads(p.stdout)["services"]["app"], ""
+
+
+def r5_conn_rules(tmp):
+    # ① 렌더: 네 방식 × 모든 셀(주 · 비용)에서 앱 JSON server.tomcat.max-connections = 20,000 · ulimits nofile · 다른 Tomcat 키 없음
+    bad = []
+    for m in plan14.ABCD:
+        for c in plan14.GROUPS:
+            app, err = compose_app(plan14.render(m, c, 1)["app_env"])
+            if app is None:
+                bad.append(f"{m} {c} 렌더 실패 {err}")
+                continue
+            sj = json.loads(app["environment"]["SPRING_APPLICATION_JSON"])
+            tc = (sj.get("server") or {}).get("tomcat") or {}
+            nf = (app.get("ulimits") or {}).get("nofile") or {}
+            if tc != {"max-connections": R5_MAX_CONN} or nf != {"soft": R5_NOFILE, "hard": R5_NOFILE}:
+                bad.append(f"{m} {c} tomcat={tc} nofile={nf}")
+    check("R5 ① compose 렌더: 네 방식 × 5셀 모두 max-connections 20000(다른 Tomcat 키 없음) · nofile 65536", not bad, "; ".join(bad[:3]))
+    app, err = compose_app({})
+    sj = json.loads(app["environment"]["SPRING_APPLICATION_JSON"]) if app else {}
+    check("R5 ① compose 렌더(변수 없음 — 서버 측정기 기동 경로): 기본값도 20000 · 65536", app is not None and sj.get("server", {}).get("tomcat") == {"max-connections": R5_MAX_CONN}
+          and app.get("ulimits", {}).get("nofile") == {"soft": R5_NOFILE, "hard": R5_NOFILE}, err or str(sj.get("server")))
+    # ② 적용값 대조(configprops · 앱 컨테이너 nofile) — 다르면 cond-config-mismatch(하네스 무효)
+    s = rep(make_rep(tmp / "r5-ok"))
+    check("R5 ② 적용값 20000 · nofile 65536 → ok", s["status"] == "ok", s["status"])
+    s = rep(make_rep(tmp / "r5-8192", cfg_maxconn=8192))
+    check("R5 ② maxConnections 8192(앱 기본값 — 오버레이 미적용) → cond-config-mismatch", "cond-config-mismatch" in s["reasons"] and s["status"] != "ok", s["status"])
+    s = rep(make_rep(tmp / "r5-nofile", cfg_nofile=8192))
+    check("R5 ② 앱 nofile 8192 < 필요 → cond-config-mismatch", "cond-config-mismatch" in s["reasons"], s["status"])
+    s = rep(make_rep(tmp / "r5-nofile-none", cfg_no_nofile=True))
+    check("R5 ② app_nofile 수집 없음 → cond-config-mismatch(무음 통과 아님)", "cond-config-mismatch" in s["reasons"], s["status"])
+    d = make_rep(tmp / "r5-noserver")
+    x = json.loads((d / "app-config.json").read_text())
+    x["configprops"] = [b for b in x["configprops"] if b["prefix"] != "server"]
+    (d / "app-config.json").write_text(json.dumps(x))
+    s = rep(d)
+    check("R5 ② configprops server 묶음 없음 → cond-config-mismatch", "cond-config-mismatch" in s["reasons"], s["status"])
+    real = CONFIRM14 / "a50-t300/D/rep1/app-config.json"
+    if real.exists():
+        res = plan14.config_check("D", "a50-t300", json.loads(real.read_text()))
+        check("R5 ② 확인 스모크 실제 app-config.json(maxConnections 8192)을 대조 → cond-config-mismatch · maxConnections 상세",
+              res is not None and "cond-config-mismatch" in res[0] and any("maxConnections" in x for x in res[1]), str(res))
 
 
 # ---- 코드 리뷰 루프 2(CR14-8 ~ CR14-20) — 회차 판정의 새 분기 ---------------------------------------------------------------------
@@ -682,6 +745,7 @@ REP_INPUTS = [
     ("k6-summary.json", "setup_data.startedAt", "k6-summary-missing"), ("k6-window.json", "exit", "k6-window-missing"),
     ("clock-offset.json", "before.offset_s", "clock-offset-bad"), ("clock-offset.json", "after.rtt_s", "clock-offset-bad"),
     ("pre-k6.json", "seed_done_epoch", "pre-k6-mismatch"), ("app-config.json", "configprops", "cond-config-missing"),
+    ("app-config.json", "app_nofile.soft", "cond-config-mismatch"), ("app-config.json", ("configprops", 2, "properties", "tomcat", "maxConnections"), "cond-config-mismatch"),
     ("warmup-status.json", "rc", "warmup-failed"),
     *[("limit-key.json", k, "limit-key-missing") for k in ("env", "cmd", "drift", "drift_cmd")], ("limit-key.json", "present", "limit-key-present"),
     *[("seed-check.json", k, "seed-mismatch") for k in ("schedules", "want_schedules", "seats", "want_seats", "available", "holds", "reservations", "quota_rows")],

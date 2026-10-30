@@ -37,6 +37,11 @@ EXPIRY_INTERVAL = "10s"                                                # 측정-
 FLYWAY = ["classpath:db/migration", "classpath:db/migration-updated-at-trigger", "classpath:db/migration-incremental",
           "classpath:db/migration-seat-map"]                            # 측정-1: 업무 앱 기본 위치(application.yml:16) + V11 위치(모든 셀 같게)
 POOL = 10
+TOMCAT_MAX_CONNECTIONS = 20000                                         # 명세 §10 R5 ①(2026-10-30 확인 스모크): 측정 compose에서만 · 네 방식 · 모든 셀 같게(앱 기본 8,192 —
+                                                                       # 동시 VU 최대 9,254가 VU마다 keep-alive 연결을 쥐어 넘었다 · compose.expiry.yml 머리말)
+APP_NOFILE = 65536                                                     # 앱 컨테이너 nofile(soft = hard — 오버레이 ulimits): 연결 20,000 + DB 풀 · Redis · jar · 로그 여유
+NOFILE_MARGIN = 1000                                                   # 대조 하한 = 연결 상한 + 이 여유(APP_NOFILE이 이보다 작으면 모듈 적재에서 멈춘다)
+assert APP_NOFILE >= TOMCAT_MAX_CONNECTIONS + NOFILE_MARGIN
 SEATS = 10000
 BLIND_RATE, MAP_RATE, RETRIES = 300, 10, 3                              # 측정-3.1 · 측정-4
 HOT_RATIO, HOT_SHARE = 0.2, 0.7
@@ -139,6 +144,11 @@ def flyway_str():
     return ",".join(FLYWAY)
 
 
+def conn_env():
+    """연결 상한 · nofile(명세 R5 ① — 모든 셀 · 네 방식 같게) → compose.expiry.yml 변수."""
+    return {"TOMCAT_MAX_CONNECTIONS": str(TOMCAT_MAX_CONNECTIONS), "APP_NOFILE": str(APP_NOFILE)}
+
+
 def render(method, cell, rep, knobs=None):
     knobs = knobs or {}
     if method not in METHODS or rep not in range(1, REPS + 1):
@@ -151,7 +161,8 @@ def render(method, cell, rep, knobs=None):
         k6_s = c["ramp_s"] + c["steps"] * c["step_s"]
         return {**common, "kind": "cost", "ttl_s": c["ttl_s"], "converge_s": 0,
                 "seed": {"schedules": c["seed_schedules"], "seats": SEATS},
-                "app_env": {"EXPIRY_MODE": mode, "HOLD_TTL": "60m", "EXPIRY_INTERVAL": EXPIRY_INTERVAL, "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL)},
+                "app_env": {"EXPIRY_MODE": mode, "HOLD_TTL": "60m", "EXPIRY_INTERVAL": EXPIRY_INTERVAL, "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL),
+                            **conn_env()},
                 "k6": {"script": "k6/ADR-009/scenarios/s4-throughput.js", "duration_s": k6_s,
                        "env": {"START_RATE": str(c["rate"]), "FACTOR": "1", "STEPS": str(c["steps"]), "STEP_S": str(c["step_s"]),
                                "STOP_ON_ERROR": "0", "RAMP_S": str(c["ramp_s"]), "RAMP_FROM": str(c["ramp_from"])}},
@@ -186,7 +197,7 @@ def render(method, cell, rep, knobs=None):
             "revisit_max_s": REVISIT_MAX_S, "max_vus": mv, "seats": SEATS, "hot": [HOT_RATIO, HOT_SHARE], "users": USERS,
             "seed": {"schedules": 2, "seats": SEATS},
             "app_env": {"EXPIRY_MODE": mode, "HOLD_TTL": f"{ttl}s" if ttl < 60 else f"{ttl // 60}m", "EXPIRY_INTERVAL": EXPIRY_INTERVAL,
-                        "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL)},
+                        "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL), **conn_env()},
             "k6": {"script": "k6/ADR-014/scenarios/s14-flow.js", "duration_s": d_arr + max(GRACE_STOP[ttl], ttl + 60), "env": env},
             "window": {"kind": "arrival", "from_s": 0, "len_s": d_arr},
             "samplers": {"state": True, "h4": True, "state_expired_every_s": knobs.get("state_expired_every_s", 1)},
@@ -271,6 +282,15 @@ def config_check(method, cell, app_config):
     pool = app_config.get("hikaricp.connections.max")
     if not (isinstance(pool, list) and pool and pool[0] == POOL):
         bad("cond-config-mismatch", f"hikaricp.connections.max {pool!r} ≠ [{POOL}]")
+    # 명세 R5 ①: Tomcat 연결 상한(configprops server 묶음) · 앱 컨테이너 nofile(/proc/1/limits — app_config14 app_nofile). 없음·숫자 아님도 불일치(무음 통과 금지)
+    srv = next((b.get("properties") or {} for b in props if b.get("prefix") == "server"), None)
+    mc = ((srv or {}).get("tomcat") or {}).get("maxConnections")
+    if mc != TOMCAT_MAX_CONNECTIONS or isinstance(mc, bool):
+        bad("cond-config-mismatch", f"server.tomcat.maxConnections {mc!r} ≠ {TOMCAT_MAX_CONNECTIONS}(명세 R5 ①)")
+    nf = app_config.get("app_nofile") or {}
+    need = TOMCAT_MAX_CONNECTIONS + NOFILE_MARGIN
+    if not all(isinstance(nf.get(k), int) and not isinstance(nf.get(k), bool) and nf[k] >= need for k in ("soft", "hard")):
+        bad("cond-config-mismatch", f"앱 nofile {nf!r} — soft·hard ≥ {need}(연결 상한 + {NOFILE_MARGIN}) 아님(명세 R5 ①)")
     return sorted(reasons), detail
 
 

@@ -46,7 +46,7 @@ reset_with_retry() {  # 인자: 회차폴더 schedules seats
 
 # 적용된 설정(ADR-009 run.sh app_config와 같은 모양 — 비밀 제외) → app-config.json. 판정은 plan14.py --config-check(요약기 · cond-config-mismatch · expiry-mode-mismatch · ttl-mismatch)
 app_config14() {   # 인자: 회차폴더
-  local dir="$1" props cpu pool containers idx
+  local dir="$1" props cpu pool containers idx nofile
   props=$(actuator configprops | jq -c '[.contexts[].beans[] | select(.prefix | test("^(seat\\.hold(\\..+)?|spring\\.datasource\\.hikari|spring\\.flyway|server)$"))
       | {prefix, properties: (.properties | with_entries(select(.key | test("password|secret"; "i") | not)))}]') || return 1
   cpu=$(actuator metrics/system.cpu.count | jq -c '[.measurements[].value]') || return 1
@@ -54,8 +54,11 @@ app_config14() {   # 인자: 회차폴더
   containers=$(remote "docker inspect seatlab-app-1 seatlab-db-1 seatlab-redis-1 --format '{{json .Name}} {{json .HostConfig}} {{json .Image}}'" \
     | jq -Rsc 'split("\n") | map(select(length>0) | split(" ") as $p | {name: ($p[0]|fromjson), cpu: ($p[1:-1]|join(" ")|fromjson|.NanoCpus), mem: ($p[1:-1]|join(" ")|fromjson|.Memory), image: ($p[-1]|fromjson)})') || return 1
   idx=$(db_indexes) || return 1
-  jq -n --argjson p "$props" --argjson c "$cpu" --argjson h "$pool" --argjson k "$containers" --argjson i "$idx" \
-    '{configprops:$p, "system.cpu.count":$c, "hikaricp.connections.max":$h, containers:$k, db_indexes:$i}' > "$dir/app-config.json"
+  # 앱 JVM(PID 1)의 실제 nofile 한도(명세 R5 ① — 오버레이 ulimits가 먹었는지 · JVM이 soft를 hard까지 올린 뒤 값) → {soft, hard}. 못 읽으면 null(대조가 불일치로 본다)
+  nofile=$(remote "docker exec seatlab-app-1 cat /proc/1/limits" 2>/dev/null | awk '/^Max open files/ { printf "{\"soft\":%s,\"hard\":%s}", $4, $5 }')
+  jq -e 'type == "object"' <<< "${nofile:-null}" > /dev/null 2>&1 || nofile=null
+  jq -n --argjson p "$props" --argjson c "$cpu" --argjson h "$pool" --argjson k "$containers" --argjson i "$idx" --argjson nf "$nofile" \
+    '{configprops:$p, "system.cpu.count":$c, "hikaricp.connections.max":$h, containers:$k, db_indexes:$i, app_nofile:$nf}' > "$dir/app-config.json"
 }
 
 # 시드 확인(record-level — 측정-9 seed-mismatch · seat-map-index-missing): 회차 수 · 좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 행 0 · V11 인덱스 · Flyway 이력의 V11
