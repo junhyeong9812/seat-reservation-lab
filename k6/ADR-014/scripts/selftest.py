@@ -419,6 +419,23 @@ def run(tmp):
     rej_tolerance(tmp)
     pc_link_rules(tmp)
     r5_conn_rules(tmp)
+    r5_prevus_rules()
+
+
+def r5_prevus_rules():
+    # 측정-9 시작 조건 ⑤ 처방(재해석 2026-10-29): 미리 만든 VU · maxVUs = max(14,000, ⌈VU 최대 × 1.5⌉) — 확인 스모크 a50-t300 D 흐름별 VU 최대(맹목 9,254 · 지도 583)
+    vu = {"blind": 9254, "map": 583}
+    need = {f: -(-v * 3 // 2) for f, v in vu.items()}   # ⌈v × 1.5⌉ = 13,881 · 875
+    bad = []
+    for c in ("a20-t300", "a50-t300"):
+        e = plan14.render("A", c, 1)["k6"]["env"]
+        for f, key in (("blind", "BLIND"), ("map", "MAP")):
+            pre, mx = int(e[f"PRE_VUS_{key}"]), int(e[f"MAX_VUS_{key}"])
+            if pre < need[f] or mx != max(14000, need[f]) or pre > mx:
+                bad.append(f"{c} {f} pre={pre} max={mx} need={need[f]}")
+    check("R5 PRE_VUS: TTL 5분 칸 미리 만든 VU ≥ ⌈VU 최대 × 1.5⌉(맹목 13,881 · 지도 875) · maxVUs = max(14,000, ⌈×1.5⌉) ≥ 미리 만든 VU", not bad, "; ".join(bad))
+    e = plan14.render("A", "a50-t30", 1)["k6"]["env"]
+    check("R5 PRE_VUS: TTL 30초 칸은 그대로(4,000 · 400)", (e["PRE_VUS_BLIND"], e["PRE_VUS_MAP"]) == ("4000", "400"), str(e["PRE_VUS_BLIND"]))
 
 
 # ---- 명세 §10 R5(2026-10-30 확인 스모크) — 측정 조건 ① 연결 상한 ---------------------------------------------------------------------
