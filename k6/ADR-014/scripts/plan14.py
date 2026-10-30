@@ -69,6 +69,19 @@ PRE_VUS_T300 = {"blind": 14000, "map": 1000, "probe": 100}            # TTL 5분
 MAX_VUS_MIN = 14000                                                    # 측정-4 MR-11(S3 선례)
 PRE_VUS = {"blind": 4000, "map": 400, "probe": 100}                    # 미리 만든 VU(TTL 30초 칸) — 모자라면 k6가 실행 중에 VU를 늦게 만들어 그 사이 반복을 버린다(dropped_iterations).
                                                                        # 스모크 a50-t30(10-29 · 1Gbps) blind 동시 반복 약 2,244 > 2,000 → t0 + 17~20초 blind 7건 버림(maxVUs 14,000은 안 닿음) · ×1.5 넘게 올림
+COST_PRE_VUS = 500                                                     # 비용 셀 미리 만든 VU = s4-throughput.js:46 기본값(plan env가 PRE_VUS를 넘기지 않는다)
+# k6 실행 → 첫 요청(setup_data.startedAt = t0) lead(명세 R5 — 시작 대기 '시드 끝 → 첫 요청 87 ± 5초'는 그대로): k6는 미리 만든 VU를 모두 초기화한 뒤 setup을 돈다.
+# 옛 고정값 1.2초는 VU 2,500~4,700 스모크 값이었다 — 확인 스모크 a50-t300 D(VU 13,300)는 6.61초가 걸려 시드 → 첫 요청 93.2초(pre-k6-mismatch)였다.
+# 식 = 0.15초 + VU × 0.37ms. 근거(results 11회 — selftest K6_LEAD_SEEN): PC가 한가할 때 500 VU 0.27초 · 2,500 VU 0.89~1.14초 · 4,700 VU 1.42~1.71초(≈ 0.30ms/VU) ·
+# PC 다른 부하(load 14~36) 아래 4,700 VU 2.66~3.12초 · 13,300 VU 6.61초(≈ 0.43ms/VU). 캠페인은 PC 다른 부하 없음(R5 ②)이 조건이지만 두 갈래의 가운데 기울기로 잡아
+# 어느 쪽이든 실측과 2.5초 안(15,300 VU 계획 5.81초 — 한가함 외삽 약 4.8초 · 부하 외삽 약 7.5초 → 시드 → 첫 요청 약 86~89초)이다. 판정은 실측 t0로 한다(요약기 pre-k6-mismatch).
+K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37
+
+
+def k6_lead_s(pre_vus_total):
+    return round(K6_LEAD_BASE_S + pre_vus_total * K6_LEAD_PER_VU_MS / 1000, 2)
+
+
 STATE_EVERY = (1, 10)
 CONVERGE_EXTRA_S = 22                                                  # 수렴 대기 = TTL + 20 + 2(ADR-009 run.sh:861)
 OTHER_S = 181                                                          # 측정-2 회차 시간 추정의 '그 밖'(기동~수집 — 추정)
@@ -166,7 +179,7 @@ def render(method, cell, rep, knobs=None):
                 "seed": {"schedules": c["seed_schedules"], "seats": SEATS},
                 "app_env": {"EXPIRY_MODE": mode, "HOLD_TTL": "60m", "EXPIRY_INTERVAL": EXPIRY_INTERVAL, "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL),
                             **conn_env()},
-                "k6": {"script": "k6/ADR-009/scenarios/s4-throughput.js", "duration_s": k6_s,
+                "k6": {"script": "k6/ADR-009/scenarios/s4-throughput.js", "duration_s": k6_s, "pre_vus_total": COST_PRE_VUS, "lead_s": k6_lead_s(COST_PRE_VUS),
                        "env": {"START_RATE": str(c["rate"]), "FACTOR": "1", "STEPS": str(c["steps"]), "STEP_S": str(c["step_s"]),
                                "STOP_ON_ERROR": "0", "RAMP_S": str(c["ramp_s"]), "RAMP_FROM": str(c["ramp_from"])}},
                 # 비용 셀 판정 창 = 정상 구간(램프 60초 뒤 — ADR-007 고정 셀 정의) · 상태 표본기 없음(리뷰 MR-1)
@@ -183,6 +196,7 @@ def render(method, cell, rep, knobs=None):
     tmin, tmax = THINK[ttl]
     pp = probe_plan(ttl, d_arr)
     pv = PRE_VUS_T300 if ttl >= 300 else PRE_VUS
+    pre_total = pv["blind"] + pv["map"] + pv["probe"] * len(PROBE_RATE[ttl])   # s14-flow.js 시나리오 blind · map · pr1~3(탐침마다 PRE_VUS_PROBE)
     env = {"REP": str(rep), "D_ARR_S": str(d_arr), "TTL_S": str(ttl), "ABANDON": str(ab), "THINK_MIN_S": str(tmin), "THINK_MAX_S": str(tmax),
            "GRACE_STOP_S": str(GRACE_STOP[ttl]), "BLIND_RATE": str(BLIND_RATE), "MAP_RATE": str(map_rate), "RETRIES": str(RETRIES),
            "SEATS": str(SEATS), "HOT_RATIO": str(HOT_RATIO), "HOT_SHARE": str(HOT_SHARE), "RHO": str(RHO), "REVISIT_MAX_S": str(REVISIT_MAX_S),
@@ -201,7 +215,8 @@ def render(method, cell, rep, knobs=None):
             "seed": {"schedules": 2, "seats": SEATS},
             "app_env": {"EXPIRY_MODE": mode, "HOLD_TTL": f"{ttl}s" if ttl < 60 else f"{ttl // 60}m", "EXPIRY_INTERVAL": EXPIRY_INTERVAL,
                         "FLYWAY_LOCATIONS": flyway_str(), "POOL_SIZE": str(POOL), **conn_env()},
-            "k6": {"script": "k6/ADR-014/scenarios/s14-flow.js", "duration_s": d_arr + max(GRACE_STOP[ttl], ttl + 60), "env": env},
+            "k6": {"script": "k6/ADR-014/scenarios/s14-flow.js", "duration_s": d_arr + max(GRACE_STOP[ttl], ttl + 60), "env": env,
+                   "pre_vus_total": pre_total, "lead_s": k6_lead_s(pre_total)},
             "window": {"kind": "arrival", "from_s": 0, "len_s": d_arr},
             "samplers": {"state": True, "h4": True, "state_expired_every_s": knobs.get("state_expired_every_s", 1)},
             "probes": pp, "t_x": T_X,

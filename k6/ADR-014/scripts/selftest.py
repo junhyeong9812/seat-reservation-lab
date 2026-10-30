@@ -420,6 +420,35 @@ def run(tmp):
     pc_link_rules(tmp)
     r5_conn_rules(tmp)
     r5_prevus_rules()
+    r5_lead_rules()
+
+
+# k6 실행 → 첫 요청(setup_data.startedAt) 실측(k6/ADR-014/results — pre-k6.json k6_launch_epoch · k6-summary.json): (미리 만든 VU 합, 초, 출처)
+K6_LEAD_SEEN = [(500, 0.266, "smoke14-20261029 S4c4200 A"), (500, 0.276, "smoke14-20261029 S4c4200 D"), (2500, 0.891, "smoke14-20261028 a50-t30 A"),
+                (2500, 1.137, "smoke14-20261029 A attempt1"), (2500, 0.930, "smoke14net-20261028 B"), (4700, 1.509, "smoke14-20261029 A"),
+                (4700, 1.420, "smoke14-20261029 C"), (4700, 1.712, "smoke14-20261029 D"), (4700, 3.115, "confirm14 A(PC load 14~36)"),
+                (4700, 2.661, "confirm14 B(PC load)"), (13300, 6.610, "confirm14 a50-t300 D(PC load)")]
+
+
+def r5_lead_rules():
+    # 시작 대기(시드 끝 → 첫 요청 87 ± 5초 — 판정 기준 그대로): k6 실행 → 첫 요청 lead를 미리 만든 VU 수로 잡아야 VU를 많이 미리 만드는 칸에서도 87초에 맞는다
+    leads = {}
+    for c in plan14.GROUPS:
+        k6 = plan14.render("A", c, 1)["k6"]
+        leads[c] = (k6.get("pre_vus_total"), k6.get("lead_s"))
+    check("R5 lead: 모든 셀 계획에 미리 만든 VU 합 · lead_s(초) · TTL 5분 칸 lead > TTL 30초 칸 > 비용 셀",
+          all(isinstance(v, int) and isinstance(l, float) for v, l in leads.values()) and leads["a50-t300"][1] > leads["a50-t30"][1] > leads["S4c4200"][1], str(leads))
+    if not all(isinstance(l, float) for _, l in leads.values()):
+        return
+    check("R5 lead: 미리 만든 VU 합 = 계획 env 합(맹목 + 지도 + 탐침 × 3) — a50-t300 15,300 · a50-t30 4,700 · 비용 500(s4-throughput 기본값)",
+          (leads["a50-t300"][0], leads["a50-t30"][0], leads["S4c4200"][0]) == (15300, 4700, 500), str(leads))
+    bad = [f"{src} V={v} 실측 {s} 계획 {plan14.k6_lead_s(v):.2f}" for v, s, src in K6_LEAD_SEEN if abs(plan14.k6_lead_s(v) - s) > 2.5]
+    check("R5 lead: 식이 실측 11회(PC 한가함 · 부하 둘 다 — 13,300 VU 6.61초 포함)와 2.5초 안(시드 → 첫 요청이 87 ± 5초 안에 남는 여유)", not bad, "; ".join(bad))
+    old = [f"{src} {87 - 1.2 + s:.1f}" for v, s, src in K6_LEAD_SEEN if abs(s - 1.2) > 5]
+    check("R5 lead: (대조) 옛 고정 lead 1.2초 기준이면 11회 중 13,300 VU만 87 ± 5 밖(92.4초 — 그 회차 실측 시드 → 첫 요청 93.2초 pre-k6-mismatch)", old == ["confirm14 a50-t300 D(PC load) 92.4"], str(old))
+    p = subprocess.run(["bash", str(HERE / "run.sh"), "--dry-run", "--sha", "HEAD", "--method", "D", "--cell", "a50-t300", "--rep", "1", "--id", "x"],
+                       capture_output=True, text=True, cwd=REPO)
+    check("R5 lead: run.sh가 계획의 lead_s로 시작 대기를 맞춘다(dry-run 시각 줄)", f"k6 lead {leads['a50-t300'][1]}초" in p.stdout, p.stdout[-400:] + p.stderr[-200:])
 
 
 def r5_prevus_rules():

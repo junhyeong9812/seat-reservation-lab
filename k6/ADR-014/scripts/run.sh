@@ -36,7 +36,8 @@ set +e
 SHA="" IMAGES="" METHOD="" CELL="" REP="" CID="" ATTEMPT=1 KNOBS="" WORKTREE=0 K6_BIN=k6 PREPARE=0 IMG_OUT="" RESULTS_ROOT=""
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6"   # ADR-011 측정기 k6(주 k6와 다른 바이너리 — ADR-009 run.sh 기본값과 같다)
 PROBE_IMAGE="${PROBE_IMAGE:-grafana/k6:2.2.0}" PROBE_RATE=50
-PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-1.2}"   # ADR-009 시작 대기(측정-3.6 재사용)
+PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-}"   # ADR-009 시작 대기(측정-3.6 재사용)
+# PRE_K6_LEAD_S(k6 실행 → 첫 요청) 기본값 = 계획 k6.lead_s(plan14 k6_lead_s — 미리 만든 VU 수에 비례 · 명세 R5: 옛 고정 1.2초로는 VU 13,300 칸이 93.2초였다)
 IDLE_AFTER_K6_S=11   # P6 '직후' 스냅숏 = k6 마지막 응답 뒤 업무 요청이 10초 넘게 쉰 뒤(리뷰 MR-12)
 WEND_LAG_S=3         # 판정 창 끝 앱 지표 스냅숏 = k6 실행 + 창 끝 + 3초(t0는 k6 실행 뒤 약 PRE_K6_LEAD_S초 — 요약기가 시작 시각이 창 끝 뒤 [0, 10]초인지 본다 · 코드 리뷰 CR14-13)
 while (( $# )); do
@@ -94,6 +95,7 @@ KNOBS_ARG=(); [[ -n "$KNOBS" ]] && KNOBS_ARG=(--knobs "$KNOBS")
 PLAN_JSON="$(python3 -I "$S14/plan14.py" --render "$METHOD" "$CELL" "$REP" "${KNOBS_ARG[@]}")" || exit 2
 P() { jq -r "$1" <<< "$PLAN_JSON"; }
 KIND=$(P .kind)
+PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-$(P .k6.lead_s)}"; [[ "$PRE_K6_LEAD_S" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "k6 lead($PRE_K6_LEAD_S) 숫자 아님 — plan14 k6.lead_s" >&2; exit 2; }
 mapfile -t HPATHS < <(bash "$S14/hhash.sh" --paths)
 HARNESS="sha:$SHA" DEPLOY_ID="$SHA"
 if (( WORKTREE )); then
@@ -124,7 +126,7 @@ if (( DRY )); then
   echo "k6: env $K6_ENV CLOCK_OFFSET_MS=<k6 직전 시계 차> BASE_URL=http://$SERVER_HOST:8101 OUT_DIR=$DIR $K6_BIN run --quiet --out csv=$DIR/k6-requests.csv.gz <k6 트리>/$K6_SCRIPT"
   echo "측정기: PC $PROBE_K6_BIN probe-ping.js 50/s · 서버 $PROBE_IMAGE(compose.probe.yml)"
   echo "PC 링크: 회차 끝에 pclink14.sh <회차 시작> <끝> → pc-link.json(journalctl -k '${PC_IFACE:-eno1}: Link is Down' — 지금 읽기: $(bash "$S14/pclink14.sh" "$(( $(date +%s) - 60 ))" "$(date +%s)" | jq -r '"readable \(.readable) \(.why)"'))"
-  echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초 · k6 $(P .k6.duration_s)초 · 창 끝 스냅숏 k6 실행 + $(P '.window.from_s + .window.len_s') + ${WEND_LAG_S}초 · 직후 스냅숏 k6 끝 + ${IDLE_AFTER_K6_S}초 · 수렴 $(P .converge_s)초 · 판정 창 $(P '.window | "\(.kind) [\(.from_s), \(.from_s + .len_s))초"')"
+  echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(k6 lead ${PRE_K6_LEAD_S}초 — 미리 만든 VU $(P .k6.pre_vus_total)) · k6 $(P .k6.duration_s)초 · 창 끝 스냅숏 k6 실행 + $(P '.window.from_s + .window.len_s') + ${WEND_LAG_S}초 · 직후 스냅숏 k6 끝 + ${IDLE_AFTER_K6_S}초 · 수렴 $(P .converge_s)초 · 판정 창 $(P '.window | "\(.kind) [\(.from_s), \(.from_s + .len_s))초"')"
   [[ "$KIND" == main ]] && P '.probes | "탐침: 칸 [\(.start_s), \(.end_s))초 · 수 \(.count) · 마지막 요청 \(.last_request_s) < D_arr − 5"'
   exit 0
 fi
@@ -250,7 +252,9 @@ K6_STARTED=$(date -Is); K6_T0=$(now)
   python3 -I "$S14/actsnap14.py" "$BASE_URL" > "$DIR/act14-window-end.json" 2>>"$DIR/errors.log" ) < /dev/null &
 WEND_PID=$!
 jq -n --argjson seed "$SEED_T" --argjson k6 "$K6_T0" --argjson hold "$PRE_K6_HOLD_S" --argjson target "$PRE_K6_TARGET_S" --argjson tol "$PRE_K6_TOL_S" --argjson topup "$topup" \
-  '{seed_done_epoch: $seed, k6_launch_epoch: $k6, seed_to_launch_s: (($k6 - $seed) * 1000 | round / 1000), hold_s: $hold, target_s: $target, tol_s: $tol, topup_s: $topup}' > "$DIR/pre-k6.json"
+      --argjson lead "$PRE_K6_LEAD_S" --argjson pvus "$(P .k6.pre_vus_total)" \
+  '{seed_done_epoch: $seed, k6_launch_epoch: $k6, seed_to_launch_s: (($k6 - $seed) * 1000 | round / 1000), hold_s: $hold, target_s: $target, tol_s: $tol, topup_s: $topup,
+    lead_s: $lead, pre_vus_total: $pvus}' > "$DIR/pre-k6.json"
 env $K6_ENV CLOCK_OFFSET_MS="$OFF_MS" BASE_URL="$BASE_URL" OUT_DIR="$DIR" "$K6_BIN" run --quiet --out "csv=$DIR/k6-requests.csv.gz" "$K6_TREE/$K6_SCRIPT" > "$DIR/k6-stdout.log" 2>&1 < /dev/null
 K6_EXIT=$?; K6_END=$(now)
 (( K6_EXIT == 0 )) || kill "$WEND_PID" 2>/dev/null   # k6가 실패로 일찍 끝났으면 창 끝까지 기다리지 않는다(k6-exit-N · app-metric-missing으로 무효)
