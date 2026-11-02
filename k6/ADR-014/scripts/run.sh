@@ -39,7 +39,8 @@ PROBE_IMAGE="${PROBE_IMAGE:-grafana/k6:2.2.0}" PROBE_RATE=50
 PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-}"   # ADR-009 시작 대기(측정-3.6 재사용)
 # PRE_K6_LEAD_S(k6 실행 → 첫 요청) 기본값 = 계획 k6.lead_s(plan14 k6_lead_s — 미리 만든 VU 수에 비례 · 명세 R5: 옛 고정 1.2초로는 VU 13,300 칸이 93.2초였다)
 IDLE_AFTER_K6_S=11   # P6 '직후' 스냅숏 = k6 마지막 응답 뒤 업무 요청이 10초 넘게 쉰 뒤(리뷰 MR-12)
-WEND_LAG_S=3         # 판정 창 끝 앱 지표 스냅숏 = k6 실행 + 창 끝 + 3초(t0는 k6 실행 뒤 약 PRE_K6_LEAD_S초 — 요약기가 시작 시각이 창 끝 뒤 [0, 10]초인지 본다 · 코드 리뷰 CR14-13)
+WEND_LAG_S=3         # 판정 창 끝 앱 지표 스냅숏 = k6 실행 + k6 lead(PRE_K6_LEAD_S) + 창 끝 + 3초(t0 = k6 실행 뒤 약 lead초 — 요약기가 시작 시각이 창 끝 뒤 [0, 10]초인지 본다 · 코드 리뷰 CR14-13 ·
+                     # lead를 더하지 않으면 미리 만든 VU 15,300 칸(lead 5.81초 · 실측 4.29초)에서 창 끝 1.07초 앞에 찍혔다 — confirm14-20261103 a50-t300 D)
 while (( $# )); do
   case "$1" in
     --sha) SHA="$2"; shift 2 ;;
@@ -126,7 +127,7 @@ if (( DRY )); then
   echo "k6: env $K6_ENV CLOCK_OFFSET_MS=<k6 직전 시계 차> BASE_URL=http://$SERVER_HOST:8101 OUT_DIR=$DIR $K6_BIN run --quiet --out csv=$DIR/k6-requests.csv.gz <k6 트리>/$K6_SCRIPT"
   echo "측정기: PC $PROBE_K6_BIN probe-ping.js 50/s · 서버 $PROBE_IMAGE(compose.probe.yml)"
   echo "PC 링크: 회차 끝에 pclink14.sh <회차 시작> <끝> → pc-link.json(journalctl -k '${PC_IFACE:-eno1}: Link is Down' — 지금 읽기: $(bash "$S14/pclink14.sh" "$(( $(date +%s) - 60 ))" "$(date +%s)" | jq -r '"readable \(.readable) \(.why)"'))"
-  echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(k6 lead ${PRE_K6_LEAD_S}초 — 미리 만든 VU $(P .k6.pre_vus_total)) · k6 $(P .k6.duration_s)초 · 창 끝 스냅숏 k6 실행 + $(P '.window.from_s + .window.len_s') + ${WEND_LAG_S}초 · 직후 스냅숏 k6 끝 + ${IDLE_AFTER_K6_S}초 · 수렴 $(P .converge_s)초 · 판정 창 $(P '.window | "\(.kind) [\(.from_s), \(.from_s + .len_s))초"')"
+  echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(k6 lead ${PRE_K6_LEAD_S}초 — 미리 만든 VU $(P .k6.pre_vus_total)) · k6 $(P .k6.duration_s)초 · 창 끝 스냅숏 k6 실행 + lead ${PRE_K6_LEAD_S} + $(P '.window.from_s + .window.len_s') + ${WEND_LAG_S}초 · 직후 스냅숏 k6 끝 + ${IDLE_AFTER_K6_S}초 · 수렴 $(P .converge_s)초 · 판정 창 $(P '.window | "\(.kind) [\(.from_s), \(.from_s + .len_s))초"')"
   [[ "$KIND" == main ]] && P '.probes | "탐침: 칸 [\(.start_s), \(.end_s))초 · 수 \(.count) · 마지막 요청 \(.last_request_s) < D_arr − 5"'
   exit 0
 fi
@@ -250,7 +251,7 @@ CLK_BEFORE=$(clock_offset 2>>"$DIR/errors.log" < /dev/null)
 OFF_MS=$(jq -r '(.offset_s // 0) * 1000 | round' <<< "${CLK_BEFORE:-null}" 2>/dev/null); [[ "$OFF_MS" =~ ^-?[0-9]+$ ]] || OFF_MS=0
 K6_STARTED=$(date -Is); K6_T0=$(now)
 # 판정 창 끝 앱 지표 스냅숏(코드 리뷰 CR14-13 — P12의 틱 실패 · :missingIds 롤백을 창 안 증분으로 센다 · 측정-5 M11 MR-9). k6와 함께 돌고 k6 뒤 wait로 거둔다
-( sleep "$(awk -v k="$K6_T0" -v w="$(P '.window.from_s + .window.len_s')" -v l="$WEND_LAG_S" -v n="$(now)" 'BEGIN { d = k + w + l - n; printf "%.3f", (d > 0 ? d : 0) }')"
+( sleep "$(awk -v k="$K6_T0" -v w="$(P '.window.from_s + .window.len_s')" -v l="$WEND_LAG_S" -v lead="$PRE_K6_LEAD_S" -v n="$(now)" 'BEGIN { d = k + lead + w + l - n; printf "%.3f", (d > 0 ? d : 0) }')"
   python3 -I "$S14/actsnap14.py" "$BASE_URL" > "$DIR/act14-window-end.json" 2>>"$DIR/errors.log" ) < /dev/null &
 WEND_PID=$!
 jq -n --argjson seed "$SEED_T" --argjson k6 "$K6_T0" --argjson hold "$PRE_K6_HOLD_S" --argjson target "$PRE_K6_TARGET_S" --argjson tol "$PRE_K6_TOL_S" --argjson topup "$topup" \
