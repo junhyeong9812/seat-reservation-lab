@@ -53,6 +53,7 @@
 | 11-03 08:38 | 사용자 'ccle 멈췄어 · D 한번 더 돌리고 캠페인까지 진행' → 순서: ⑦ 동시성 테스트(HEAD) → HEAD 이미지 고정(앱 코드는 0bf4c827과 같음 — 하네스 고정용) → a50-t300 D 재확인 1회(5a2ad147 실회차 확인) → ⑥·② → 시작 조건 JSON → 캠페인 · 점검: 다른 컨테이너 0 · load 1.3 | 재확인 → 캠페인 |
 | 11-03 09:39 | ⑦ 동시성·만료 테스트 green @2bb7355f(expiry.* 232건 · 실패 0 · 건너뜀 20 = 방식별 assumeTrue) · 이미지 고정 images-2bb7355f.json(seatlab-app:2bb7355f sha256:e12fa782…) · D 재확인(confirm14-20261103b · 고정 하네스) **ok** — wend_lag 3.96s(5a2ad147 실회차 확인) · 코드 0 = 0 · 이중 판매·카운터 불일치 0 · T95 1314.8s(⑥ 연장 없음) · Link Down 0 · MemAvailable 최저 13.7GiB · 이름표 pc-busy-before(회차 앞 다른 컨테이너 check-d2-…-jbuild · load 5.98) · 끝 뒤 09:38 점검: **ccle-agent 컨테이너 check-d2-god-alt-…-jcontract2 4개가 1분 전 새로 기동** → pccheck14 막음 · 캠페인 스모크·캠페인 미시작 · 사용자 보고 | 보류 |
 | 11-03 10:15 | 사용자 'ccle 실험은 계속해야 함 · 부하를 만들기만 하는데 문제가 있냐' → 재합의 R6(명세 §10): 다른 컨테이너·load는 막지 않고 기록만 · 메모리 하한·dropped·탐침 오차 무효 규칙 유지 · 끝에 깨끗한 회차 대조 → 3f2b3399(pccheck14 busy[] · summarize 이름표 · campaign ④ · selftest 3건 갱신 + 1건 추가 — `selftest.py --campaign` 모두 통과 · 실PC pccheck ok + busy 기록) | 캠페인 준비 |
+| 11-03 10:32 | ⑦ green @fd494aea(expiry.* 232 · 실패 0 · 건너뜀 20) · 이미지 images-fd494aea.json(seatlab-app:fd494aea sha256:45eb627f…) · 시작 조건 JSON results/start-conditions-fd494aea.json(smoke 8폴더 · R₀ .4382 · Δc .061%p → 표본 방식 그대로 · env-stall 0/6 · VU 최대) · dry-run 시작 가능(④ busy: check-d2 컨테이너 · load 9.6 — R6 기록만) · ② 캠페인 스모크 campaign14smoke-20261103: rep1 a20-t30 B ok(10:16–10:23) · C ok(10:23–10:31) · 루프가 3번째 자리(D)로 넘어감 확인 뒤 중지(남은 프로세스 0 — 다음 회차 compose_down14가 정리) → 본 캠페인 시작 | 캠페인 |
 
 ## 리뷰 ledger
 
