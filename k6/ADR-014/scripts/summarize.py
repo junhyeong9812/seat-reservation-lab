@@ -847,8 +847,8 @@ def rep_summary(d):
                     reasons.add("pc-mem-low")
     # 회차 앞 PC 점검(run.sh pccheck14 → pc-check.json): 이름표만(판정은 위 MemAvailable 하한 — 시작 조건 ④는 campaign.sh가 막는다)
     pcc = load(d / "pc-check.json")
-    if not (isinstance(pcc, dict) and pcc.get("ok") is True):
-        flags.append(f"pc-busy-before({(pcc or {}).get('why') if isinstance(pcc, dict) else 'pc-check.json 없음·깨짐'})")
+    if not (isinstance(pcc, dict) and pcc.get("ok") is True and not pcc.get("busy")):   # R6(2026-11-03): busy[](다른 컨테이너 · load)도 이름표
+        flags.append(f"pc-busy-before({((pcc.get('why') or []) + (pcc.get('busy') or [])) if isinstance(pcc, dict) else 'pc-check.json 없음·깨짐'})")
     pc = inp.json("probe_check", "probe-check.json", need=("ok",))
     if pc is not None and pc["ok"] is not True:
         reasons.add("probe-missing")

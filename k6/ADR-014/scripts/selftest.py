@@ -465,8 +465,8 @@ def r5_pc_rules(tmp):
     pc = HERE / "pccheck14.sh"
     # ① 시작 조건 PC 점검(pccheck14.sh — 문턱: seatlab 밖 컨테이너 0 · 1분 load ≤ 4.0 · MemAvailable ≥ 16GiB · 판정 불가는 막음)
     cases = [("clean", {}, True), ("seatlab-only", {"containers": [("seatlab-app-1", "seatlab")]}, True),
-             ("other-ctr", {"containers": [("ccle-postgres-1", "ccle")]}, False), ("plain-ctr", {"containers": [("check-c2-tbuild", "")]}, False),
-             ("load", {"load1": 4.5}, False), ("load-edge", {"load1": 4.0}, True), ("mem", {"mem_gib": 12.0}, False), ("docker-down", {"docker_rc": 1}, False)]
+             ("other-ctr", {"containers": [("ccle-postgres-1", "ccle")]}, True), ("plain-ctr", {"containers": [("check-c2-tbuild", "")]}, True),
+             ("load", {"load1": 4.5}, True), ("load-edge", {"load1": 4.0}, True), ("mem", {"mem_gib": 12.0}, False), ("docker-down", {"docker_rc": 1}, False)]
     bad = []
     for name, kw, want in cases:
         env = fake_pc(tmp, name, **kw)
@@ -475,9 +475,11 @@ def r5_pc_rules(tmp):
             j = json.loads(r.stdout)
         except ValueError:
             j = None
-        if not (j and j.get("ok") is want and (r.returncode == 0) == want and (isinstance(j.get("mem_avail_kb"), int) or not want)):
+        busy_want = name in ("other-ctr", "plain-ctr", "load")   # R6: 막지 않고 busy[]에 기록
+        if not (j and j.get("ok") is want and (r.returncode == 0) == want and (isinstance(j.get("mem_avail_kb"), int) or not want)
+                and bool(j.get("busy")) == busy_want):
             bad.append(f"{name}: rc={r.returncode} {r.stdout[:200]} {r.stderr[:120]}")
-    check("R5 ② pccheck14: 깨끗 · seatlab만 → 통과 · 다른 컨테이너(프로젝트 없음 포함) · load > 4 · MemAvailable < 16GiB · docker 못 읽음 → 막음", not bad, "; ".join(bad))
+    check("R5 ② · R6 pccheck14: 깨끗 · seatlab만 → 통과 · 다른 컨테이너(프로젝트 없음 포함) · load > 4 → 통과 + busy 기록 · MemAvailable < 16GiB · docker 못 읽음 → 막음", not bad, "; ".join(bad))
     env = fake_pc(tmp, "nomem")
     Path(env["PC_MEMINFO_FILE"]).write_text("MemTotal: 1 kB\n")
     r = subprocess.run(["bash", str(pc)], capture_output=True, text=True, env=env)
@@ -492,11 +494,15 @@ def r5_pc_rules(tmp):
         p = subprocess.run(["bash", str(HERE / "campaign.sh"), "--sha", "HEAD", "--dry-run", "--worktree", "--start-conditions", str(sc)], cwd=REPO,
                            capture_output=True, text=True, env=env, timeout=300)
         outs[name] = next((l for l in p.stdout.splitlines() if l.startswith("④")), "")
-    check("R5 ② campaign.sh 시작 조건 ④: PC 깨끗 → 통과 · 다른 컨테이너 · load 20 → 막음(PC 다른 부하)",
-          outs["clean"].endswith("통과") and "PC" in outs["clean"] and outs["busy"].endswith("막음") and "ccle-postgres-1" in outs["busy"], str(outs))
+    check("R6 campaign.sh 시작 조건 ④: PC 깨끗 → 통과 · 다른 컨테이너 · load 20 → 통과 + busy 기록(막지 않음)",
+          outs["clean"].endswith("통과") and "PC" in outs["clean"] and outs["busy"].endswith("통과") and "ccle-postgres-1" in outs["busy"], str(outs))
     # ③ 회차 중 MemAvailable(timeline-client.jsonl mem_avail_kb — 판정 창): 최소 < 4GiB → pc-mem-low(환경) · 표본 결측 → pc-mem-missing(하네스)
     s = rep(make_rep(tmp / "pcm-ok"))
     check("R5 ③ 회차 중 MemAvailable 20GiB → ok · 지표에 최소값", s["status"] == "ok" and s["metrics"].get("pc_mem", {}).get("min_kb") == 20 * GIB_KB, s["status"] + str(s["metrics"].get("pc_mem")))
+    d_busy = make_rep(tmp / "pcm-busy")
+    wj(d_busy / "pc-check.json", {"ok": True, "why": [], "busy": ["1분 load 6.0 > 4.0"], "containers_other": ["x"], "load1": 6.0, "mem_avail_kb": 30 * 1024 * 1024})
+    s = rep(d_busy)
+    check("R6 회차 앞 PC 점검 ok + busy 있음 → status ok · 이름표 pc-busy-before(판정 무관)", s["status"] == "ok" and any(f.startswith("pc-busy-before") and "load 6.0" in f for f in s["flags"]), s["status"] + str(s["flags"]))
     s = rep(make_rep(tmp / "pcm-low", client_dip=(100, 120, 1.98)))
     check("R5 ③ 판정 창 안 MemAvailable 1.98GiB(확인 스모크 최저) → invalid:pc-mem-low · 분류 환경", s["status"] == "invalid:pc-mem-low" and S._kind(s["status"]) == "env", s["status"])
     s = rep(make_rep(tmp / "pcm-low-drop", client_dip=(100, 120, 2.0), dropped=True))
