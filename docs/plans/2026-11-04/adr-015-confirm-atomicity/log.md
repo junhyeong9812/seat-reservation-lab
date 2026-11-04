@@ -31,6 +31,7 @@
 | 11-05 05:20 | 루프 1 수정 회수(기준 b07f1c1f · 원시각 04:28~05:15:17): 새 테스트 adr015fix 6/0 · test-local EXIT 0(ok 45) · 전체 `./gradlew test --continue` EXIT 0 · 메인 교차 확인 XML **1085/0/0/20** · blind · V1~V14 · k6 results diff 0 · 컨테이너 잔여 0 | 코드 커밋 b9ee9c65(24파일) · R15-1~3 · 5~10 fixed · 계획 밖 파일: main-app/build.gradle.kts(postgresql implementation — R15-8) · ADR-013 하네스는 target 대신 V12 SHA 거부(대안 — 슬롯별 target NEXT) · ADR §설계-11 신설(구현 정정 반영) · 다음: 루프 2(누적 diff 재리뷰) |
 | 11-05 05:30 | 루프 2 착수: packet 재생성(base e5556bcc · 58파일 +4049/−117 · loop-fix-diff = b07f1c1f 대비 · 미러 log.md 0) · 보안 스캔 키류 0 · 수정분의 `password` 류 1건 = 하네스 로컬 테스트 값(공개 repo) · codex ∥ Opus 병렬 | `$OUT` = scratchpad/rv15b.reEL · mirror = scratchpad/rv15bmir.4e0r · 루프 1 미러 삭제 |
 | 11-05 05:55 | 루프 2 회수: codex(EXIT 0 · F1 V13 열 관문 미검사 · F2 측정 없음) · Opus(F1 정리 ① 켠 교착 짝 미실행 · F2 ADR-013 §4.4 표 미반영 · F3 bootTestRun test 프로필 + OQ 4) → 메인 종합(신규 채택 3 · 범위 밖 1 · OQ 5) → codex 감사(EXIT 0 · OQ15-9 '받아들인 한계' 종결 불가 — history-diff 실패 뒤 남은 행의 확인 · 재개 절차 없음 → R15-15 채택) · 사본 `…/reviews/rv15-impl-loop2/` | **신규 채택 4 → 종료 조건 미충족** · 수정 워커(R15-11 · 12 · 15) · 문서(R15-13 · OQ15-5) 메인 |
+| 11-05 06:10 | 사용자 질문 'ADR문서를 왜 바꾸지?' → 설명(ADR-015 = 이번 작업의 열린 정본 · ADR-013 = PR #12로 닫힌 결정 기록 — 3af36761에서 §4.4에 단락을 끼운 것은 잘못된 판단) → 사용자 "응 ADR-013은 되돌리고 그렇게 진행해줘" | 1e8e2d33: ADR-013을 3af36761^로 복원(e5556bcc 대비 diff 0) · 같은 내용을 ADR-015 §설계-11 글머리로 · 수정 워커에 README 첫 기동 단계 포함 지시 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -75,7 +76,17 @@
 | OQ15-2 | 1 | Opus OQ2 | checkConfirmSchema가 웹 서버 열린 뒤 | 받아들인 한계(기존 패턴) — 감사 1의 스키마 변경 갈래는 R15-2로 | — | |
 | OQ15-3 | 1 | Opus OQ3 | 운영 test 프로필로 T1 우회 | 받아들인 한계(운영자 설정) | — | |
 | OQ15-4 | 1 | Opus OQ5 | seat.hold.expiry.deleted 태그 키 집합 차이 | open question → NEXT | user-deferred 후보 | |
-- 주: Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
+| R15-11 | 2 | codex F1 | HoldStrategyStartupCheck.kt:58-65 · :143-150 — V13 열 존재를 migrate 뒤에만 확인(거부 기동이 V14 트리거를 만들 수 있음) | 채택 → 관문에서 열 확인 | open | |
+| R15-12 | 2 | Opus F1 | Adr015 레이스 컨텍스트 전부 PIN_CLEANUP_OFF · 교착 칸 = 확정 ↔ A′ 하나 — spec ⑤ '교착 × current · ①~④' · ADR §설계-7 #9 | 채택 → 정리 ① 켠 컨텍스트 교착 짝 칸(fix verification test) | open | |
+| R15-13 | 2 | Opus F2 | docs/adr/ADR-013-counter-config-cutover.md:107-108 — §4.4 표에 앱 첫 기동 out-of-order 1회 없음 | 채택(문서 — 메인) → 3af36761에서 ADR-013에 넣었다가 **사용자 결정(11-05)으로 되돌림** → ADR-015 §설계-11 + ops/online-v9/README.md | fixed | 2(1e8e2d33) |
+| R15-14 | 2 | codex F2 | k6/ADR-015 · 결과 미측정 | 범위 밖(R15-4와 같음) | — | |
+| R15-15 | 2 | 감사(OQ15-9 재검토) | ops/online-v9/apply.sh:271 · test-local.sh:255 · ADR-015:522 — history-diff 실패 뒤 남은 이력 행의 확인 · 재개 절차 없음 | 채택 → runbook 절차 | open | |
+| OQ15-5 | 2 | Opus F3 | test/resources/config/application.properties — bootTestRun에도 test 프로필 | 받아들인 한계(로컬만) → ADR T1 아래 기록 | fixed | 2(3af36761) |
+| OQ15-6 | 2 | Opus OQ1 | 수정한 기존 테스트 목록 | 해소(log 11-05 01:50 행) | — | |
+| OQ15-7 | 2 | Opus OQ2 | 모드 혼합 금지 절차의 자리 | 15-09 측정 절차에 | — | |
+| OQ15-8 | 2 | Opus OQ3 | ADR-013 하네스 V12 SHA 거부 → 재실행 불가 | NEXT(슬롯별 target) | user-deferred 후보 | |
+
+- 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
 ## 생략한 검증
 
