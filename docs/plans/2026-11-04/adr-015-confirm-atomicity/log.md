@@ -35,6 +35,7 @@
 | 11-05 06:25 | 루프 2 수정 회수(기준 648a20a0 · 원시각 05:28:31~06:22:07): R15-11 관문 V13 열 검사(+ 관문 끈 red 확인) · R15-12 정리 ① 켠 교착 짝 22칸 green — **40P01 0**(고리 없음) · R15-15 README + 06 복구 틀 · test-local EXIT 0(ok 50) · 전체 EXIT 0 · 메인 교차 확인 XML **1108/0/0/20** · blind · V1~V14 · k6 results · ADR-013 diff 0 | 코드 커밋 6f5dfaf4 · 새 파일 06-history-diff-recover.sql(브리핑 밖 — test-local이 실행하려고) · ADR §설계-11에 R15-11 · 12 · 15 반영 · 다음: 루프 3 |
 | 11-05 06:55 | 루프 3(packet base e5556bcc · 61파일 +4579/−117 · loop-fix-diff = 648a20a0 대비 · `$OUT` scratchpad/rv15c.MaHq · mirror rv15cmir.Tslo): codex(EXIT 0 · N1~N11 위반 없음 · F1 V12 운영 크기 미측정 · F2 측정 없음 — 둘 다 범위 밖) · Opus(H · M 0 · F1 L A′ · payment-start 지표 커밋 전 증가 + OQ 6) → 종합(신규 채택 1 = R15-16) → codex 감사 '이상 없음' | **루프 3에 신규 채택 1 → 종료 조건 미충족 · 최대 3루프 → `review unresolved`** — 사용자 결정 필요(R15-16 처리 · OQ15-12 마감 회차 연장 정책 · OQ15-13 재합의 여부) |
 | 11-05 07:00 | `review unresolved` 보고 → 사용자 답(AskUserQuestion): R15-16 = '지금 고치고 재확인'(루프 상한 초과 예외 — **user override**: 고친 hunk만 codex 타깃 재점검 1회) · OQ15-12 마감 회차 연장 = '받아들이고 ADR에 기록' · OQ15-13 = '구체화로 처리'(재합의 아님) | 명세 §11 · ADR §설계-11 글머리 추가 · R15-16 수정 워커 착수 · OQ15-10 · 14 → NEXT · OQ15-15 → 15-09 측정 기록 |
+| 11-05 07:30 | R15-16 수정 회수(원시각 06:35:42~07:23:34 · 새 테스트 2칸 수정 전 red → 수정 후 green · 관련 179/0 · 전체 EXIT 0) · 메인 교차 확인 XML **1110/0/0/20** · 코드 커밋 8bd5f387 → codex post-fix 타깃 재점검(fix.diff + 인접 호출부 + 새 테스트만 · EXIT 0): PF15-1 1건 → 기각(도달 경로 없음 — HoldExpiryScheduler.kt:15-17이 유일 호출자 · 기존 패턴) → **신규 채택 0** | **15-08 리뷰 종료** — 루프 3 + user override(R15-16 상한 초과 수정 · 타깃 재점검 1회). 남은 것: 범위 밖 R15-4/14/17/18(15-09 · 15-10) · NEXT 이월 OQ15-4/8/10/14 · 워커 관찰(A′ missing 지표 · C 배치 C6 revert가 트랜잭션 안 — C·D 경로는 이번 범위 밖 → NEXT) · 다음: 15-09 측정 설계 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -88,7 +89,7 @@
 | OQ15-6 | 2 | Opus OQ1 | 수정한 기존 테스트 목록 | 해소(log 11-05 01:50 행) | — | |
 | OQ15-7 | 2 | Opus OQ2 | 모드 혼합 금지 절차의 자리 | 15-09 측정 절차에 | — | |
 | OQ15-8 | 2 | Opus OQ3 | ADR-013 하네스 V12 SHA 거부 → 재실행 불가 | NEXT(슬롯별 target) | user-deferred 후보 | |
-| R15-16 | 3 | Opus F1 | SweepConditionalBatch.kt:85-95 · :113-123 · PaymentStartService.kt:49 — A′ deleted/revert/extension_lost · extend{extended} 커밋 전 증가 | 채택(L) | unresolved | |
+| R15-16 | 3 | Opus F1 | SweepConditionalBatch.kt:85-95 · :113-123 · PaymentStartService.kt:49 — A′ deleted/revert/extension_lost · extend{extended} 커밋 전 증가 | 채택(L) | fixed | 3+(8bd5f387 · user override) |
 | R15-17 | 3 | codex F1 | V12:4-6 · ops/confirm-unique-v12/README.md:18 — 운영 크기 V12 생성 시간 미측정 | 범위 밖([구현 검증] #5 — 15-09 · 15-10) | — | |
 | R15-18 | 3 | codex F2 | k6/ADR-015 · 결과 미측정 | 범위 밖(R15-4와 같음) | — | |
 | OQ15-10 | 3 | Opus OQ1 | HoldStrategyStartupCheck.kt:210 · 생성자 — confirm 기본값 | open question | user-deferred(NEXT) | |
@@ -96,6 +97,7 @@
 | OQ15-13 | 3 | Opus OQ4 | 명세 승인 뒤 설계 변경(T1 · T2 · §설계-11) 재합의 대상 여부 | open question(사용자 보고) | fixed | 3(사용자 결정 · 명세 §11) |
 | OQ15-14 | 3 | Opus OQ5 | reaches() 특수 target(current/next) 메시지 | open question | user-deferred(NEXT) | |
 | OQ15-15 | 3 | Opus OQ6 | A′ B2b 쌍마다 SELECT | 15-09 측정 기록 항목 | — | |
+| PF15-1 | post-fix | codex(타깃 재점검) | ExpireHoldsService.kt:46 — tx.execute가 바깥 트랜잭션에 합류하면 A′ 지표 · tick{ok}가 커밋 전 | 기각 — 도달 경로 없음: 유일한 호출자 HoldExpiryScheduler.kt:15-17(@Scheduled · 트랜잭션 없음) · 같은 자리의 tick{ok} · counters.afterCommit은 ADR-009부터 있던 패턴(이번 diff가 도입한 것 아님) | — | |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
