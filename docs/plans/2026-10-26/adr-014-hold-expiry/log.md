@@ -68,6 +68,11 @@
 | 11-04 16:40 | ADR-015 설계 선검증 회수(packet scratchpad/ds15res.H8ul · 미러 ds15mir.Op8V(k6 results 제외) · spec = ADR-015 인터뷰 절 · base e862322d^): codex H3·M1 / Opus H1·M4·L4·OQ1 → 메인 종합(ADR-015 작업 폴더 생성 때 ledger DS15-1~ 로 옮김): 채택 — ④ 재호출이 멱등 아님(codex H1 · Opus M2) · ④ 연장 성공 뒤 A 배치가 낡은 후보로 지움(codex H2 — #1 참이어도 성립) · FM3·N5는 배치의 우연한 가드에 기댐 · 대조군 그린 위장(Opus H1) · 새 모드가 V12 없이 기동(codex H3 · Opus L3) · FM2 기대값 V12 유무로 갈림(codex M) · FM3 래치 자리(Opus M1) · 복구 R1 델타 오류 → 재계산(M3) · V12 기본 위치 × 옛 방식 DB·ADR-013 전환 runbook Flyway 순서(M4) · N6 B·C·D 한정(L1) · V13 기동 거부 시점(L2) · CONCURRENTLY 실패 repair(L4) / 사용자 결정 필요: ④ 멱등 정의 · A 배치 최소 수정 범위 포함 여부(Q10 재합의) · V12 × 옛 방식 DB · :now 시각 의미(OQ1) | 사용자 결정 대기 |
 | 11-04 16:55 | 사용자 답 4건(A 배치 최소 수정 포함 · 첫 연장만 반영 · outOfOrder 1회 · 요청 시작 시각 유지+따로 셈) → ADR-015 인터뷰 절 기록 · 설계 수정 워커 15-01b(채택 finding + 사용자 답 반영) | ADR-015 설계 수정 |
 | 11-04 17:30 | 15-01b 회수(Opus — 설계 개정 375→496줄 · 지적 11건 + 사용자 답 4건 반영 · 새 열린 질문 Q15~Q17 권장안) → 61226b03 · post-fix 재점검(codex · 수정분만): H1 · M1 — 'V12 없음' 재현 판을 target=11로 두면 V13 extended_at 없음(A′ 배치 B3 실패) · ③ V14 없어 기동 거부 → 채택 · 메인 수정: 'V12 없음' 판 = 전 마이그레이션 적용 뒤 테스트 준비가 V12 인덱스만 DROP + 테스트 키 · current 기준선 재현만 target=11 · 규칙 7·N11 예외 조건 같은 뜻으로 | ADR-015 설계 |
+| 11-04 20:56 | 재측정 R7 끝(`20261104-adr014-r7-4d0117de` · 12:29:59~20:56:42 · 시작 전 테스트 green 232) → 12/12 ok · 재측정 0 · 코드 0·5xx 0건(요약기 M11 + k6 CSV 12개 전수 대조 BAD 0) · GC 정지 최대 0.94ms · Link Down 0 · MemAvailable 최저 7.37GiB · pc-busy-before 12/12 | 통과 |
+| 11-04 21:20 | 합친 집계(스크래치패드 사본 r7merge = fd494aea 전체 복사 → a20-t300·a50-t300의 A·D 네 폴더를 재측정본으로 교체 → summarize.py rc 0 · 산출물 `k6/ADR-014/results/20261104-adr014-r7-merged/` RESULT.md·result.json·SOURCES.txt — results는 git 밖 로컬) → **'A 유지 ③'** · G4 성립 · D 성공 · G3 걸림 a50-t300 DB CPU D 29.67 [28.51–29.98] 대 문턱 A 24.95×1.10 = 27.45(1.19× · 회차 3개 모두 위) · B·C는 앞 캠페인 P12 실패 그대로(성공으로 쳐도 G3 — B 1.27× · C 1.12× 범위 비겹침) · 앱 소스 fd494aea = 4d0117de(docs 밖 변경 lib14.js·s14-flow.js뿐 · 이미지 다시 빌드) | 판정 |
+| 11-04 21:50 | ADR-014 결과 문서 수정 fc96a456(상태 줄 · superseded 표기 · 결과-9 신설 · 결정-1~5 근거 ①→③ · RR14-1~8 반영) → post-fix 재점검(codex · packet scratchpad/rr14pf.dUJM · 미러 rr14pfmir.JaN2 — ADR-014 · spec · summarize.py · 두 캠페인 rep-summary 74개 · 합친 집계 · 06a busy_rows/idle · base 637a8bae..fc96a456) 착수 | 진행 |
+| 11-04 22:05 | post-fix 재점검 회수(codex · H0·M1·L2) — M: 결과-4가 '결과-9에서 다시 대입'이라면서 앞 캠페인 값(P3 t300 · P12 D) → 결과-4를 superseded로 · 합친 집계 가설 대입을 결과-9에 신설 · L: 결과-5 지도 배수 일반화 문장 셀 특정 · L: 결정-3 지도 배수를 합친 집계 값(1.42·1.14·1.11×)으로 → 89e70ce4b · 결론·G3 수치·탐침 수·판정 자료는 원자료와 일치 확인(codex) · 中 변형 종료(재점검 1회 — 추가 루프 없음) | 마감 |
+| 11-04 22:40 | 사이클 마감: NEXT.md 갱신(N00 ADR-015 · N0e ADR-014 후속 · N1c 결정 표기) · 아카이브 c3bc8ffb(study-note sn-wt — performance-measurement-validity 비교 14 부분 재측정 범위 · keep-alive-idle-close-race 재측정 확인) · 완료 요약(Opus 워커 초안 — 기준 origin/main 882fa2ea..89e70ce4 · 메인 교차 확인: merge-base·커밋 수 133·스니펫 ⑤ 원문) · 측정로그 1행 | 마감 |
 
 ## 리뷰 ledger
 
@@ -149,14 +154,14 @@
 
 | id | source | 근거 | 내용 | disposition | status |
 |---|---|---|---|---|---|
-| RR14-1 | opus(H)·codex(M) | ADR-014:852 · :799 · 결과-6/7 · 결정-4-1 | 원인=하네스면 측정-9 superseded 갈래 미기재 · 반사실을 결론 방어에 씀(D 최소 회차 26.62 < 26.99) · codex: '확인' 단정 과함 | 채택 | open(사용자 결정 대기) |
-| RR14-2 | opus(M) | 측정-9 :838 · S4c4200/B/rep*/flags | 판정 자료(expect-mismatch 3 · 1초 p99 최대 1,484.9ms · 느린 초 최대 81 · probe-timing-dropped 0 · h4-marker-unseen 35) 누락 | 채택 | open |
-| RR14-3 | opus(M) | 결과-5 · P11 · 결정-4-4 | 지도 비용을 a50-t300으로 일반화 · TTL 30초 칸(D a20-t30 지도 p99 중앙 402ms · DB CPU 1.71×) 누락 | 채택 | open |
-| RR14-4 | codex(L)·opus(L) | 결과-1 G4 | 'A 20칸' → 5칸 · 계획 대 실행 일치 근거 누락 | 채택 | open |
-| RR14-5 | opus(L) | 결과-6 | 재현 빈도 비교 분모(2/480 → 2/971 · 같은 자릿수로) | 채택 | open |
-| RR14-6 | codex(L)·opus(L) | 결과-4 P3 · by_delta | P3 설명 부분 판정 누락(자료 있음 — 성립) | 채택 | open |
-| RR14-7 | opus(L) | 결정-3 | 조건을 '≫ 아님 + P12 해소'로(1.10배 단독 아님) | 채택 | open |
-| RR14-8 | opus(OQ) | busy_rows · 비용 셀 D | D 비용 셀 DB CPU와 PC load 역상관 — 도착률 영향 여부 미확인 | open question | 결과 문서에 한계로 기록 |
+| RR14-1 | opus(H)·codex(M) | ADR-014:852 · :799 · 결과-6/7 · 결정-4-1 | 원인=하네스면 측정-9 superseded 갈래 미기재 · 반사실을 결론 방어에 씀(D 최소 회차 26.62 < 26.99) · codex: '확인' 단정 과함 | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-2 | opus(M) | 측정-9 :838 · S4c4200/B/rep*/flags | 판정 자료(expect-mismatch 3 · 1초 p99 최대 1,484.9ms · 느린 초 최대 81 · probe-timing-dropped 0 · h4-marker-unseen 35) 누락 | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-3 | opus(M) | 결과-5 · P11 · 결정-4-4 | 지도 비용을 a50-t300으로 일반화 · TTL 30초 칸(D a20-t30 지도 p99 중앙 402ms · DB CPU 1.71×) 누락 | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-4 | codex(L)·opus(L) | 결과-1 G4 | 'A 20칸' → 5칸 · 계획 대 실행 일치 근거 누락 | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-5 | opus(L) | 결과-6 | 재현 빈도 비교 분모(2/480 → 2/971 · 같은 자릿수로) | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-6 | codex(L)·opus(L) | 결과-4 P3 · by_delta | P3 설명 부분 판정 누락(자료 있음 — 성립) | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-7 | opus(L) | 결정-3 | 조건을 '≫ 아님 + P12 해소'로(1.10배 단독 아님) | 채택 | fixed(fc96a456 · 재점검 clean on RR14 — 새 지적 3건은 89e70ce4b) |
+| RR14-8 | opus(OQ) | busy_rows · 비용 셀 D | D 비용 셀 DB CPU와 PC load 역상관 — 도착률 영향 여부 미확인 | open question | fixed(fc96a456 — 결과-8-8 · 결정-4-6 한계로 기록) |
 
 
 ## 생략한 검증
@@ -164,3 +169,147 @@
 없음.
 
 ## 완료 요약
+
+> 초안 — 기준 89e70ce4b(feat/adr-014-hold-expiry) · 비교 기준 882fa2eaf(= origin/main · #12 병합 커밋 · 실제 merge-base). 로컬 `main`(93dd610a)은 origin보다 뒤처져 있어 `93dd610a..` 범위에는 #11·#12 병합 커밋 2개가 더 들어간다 — 아래 수치는 `882fa2eaf..89e70ce4b` 기준.
+
+### 1. 무엇을 했나 (명세 §1 목표 · R1~R7 대조)
+
+- **목표 달성**: 홀드 만료 방식 A(sweep)·B(lazy)·C(lazy-sweep)·D(derived)를 설정 손잡이 `seat.hold.expiry-mode`로 구현하고, 측정 전 고정 규칙(측정-0~12)으로 .164에서 비교해 ADR-014 §실험 결과(결과-1~9)·§결정(결정-1~5)을 채웠다. 결론 = **기본값 A 유지**(합친 집계 'A 유지 ③ — G2(판매 효과 관문)를 넘은 후보가 모두 G3(비용 관문)에서 걸린다' · D a50-t300 DB CPU 29.67 대 문턱 27.45 · 1.19×) · DB 전환 없음 · B·C·D 코드는 손잡이로 남김.
+- **R1**(A는 앱 Clock 유지): sweep 경로는 선점·확정 서비스 맨 앞 분기로 그대로 둠 · DB `now()` 단일 규칙(`ExpiryRule`)은 B·C·D에만. **R2**(대조 정의 유지): `reconcile-core` 변경 0줄.
+- **R3**(B·C·D 확정 가드): `LazyConfirmProcess`(좌석 잠금 뒤 DB `now()` 판정). **R4**(좌석 맵 API · 멈추고 바꾸기 전환만): `GET /api/schedules/{id}/seats`(`SeatMapController`·`SeatMapQuery`) · V11 선택 위치 인덱스 · `ops/expiry-mode-cutover/`(정리 T1·T2 SQL + README).
+- **R5**(측정 compose만 Tomcat 연결 상한 20,000 · nofile 65,536): `k6/ADR-014/compose.expiry.yml`. **R6**(PC 다른 부하 병행 · 기록만): `pccheck14.sh` busy[] · 이름표 `pc-busy-before`.
+- **R7**(재측정 12회): 하네스 keep-alive EOF 결함(eb4d073e로 고침) 뒤 A·D × TTL 5분 두 셀 × 3회 = 12/12 ok · 48자리(앞 캠페인)와 합친 집계로 정식 판정.
+- 범위 밖으로 남김: 확정 원자성·외부 결제(ADR-015·016 — ADR-015는 설계 문서만 이 브랜치에) · 좌석 맵 캐시(ADR-018).
+
+### 2. 핵심 diff (before/after — `git show`/`git diff 882fa2eaf..89e70ce4b`에서 복사)
+
+**① 만료 방식 손잡이 — 설정·enum** (`main-app/src/main/resources/application.yml` · d0dea201 + 4ea07c99 / `service/ExpiryMode.kt` 새 파일 · d0dea201)
+
+```diff
+     ttl: 5m
+     max-per-user: 2
+     expiry-interval: 10s
++    # 홀드 만료 방식(ADR-014). 기본 = sweep(A — 지금 코드 그대로). lazy(B)·lazy-sweep(C)·derived(D)는 기본 조합(pessimistic-nowait + counter-upsert-precheck)에서만 — 기동 검사가 거부한다.
++    #   방식 사이 전환은 멈추고 바꾸기만(§설계-7). 좌석 맵 인덱스(V11)는 선택 위치 classpath:db/migration-seat-map — 기본 위치 목록에 넣지 않는다(DS14-OQ1)
++    expiry-mode: sweep
++    # C·D 만료 배치 청크(C = 후보 좌석 · D = 후보 쌍). 배치 주기는 expiry-interval을 A·C·D가 같이 쓴다
++    expiry-batch-size: 500
++    # C·D 만료 배치의 틱당 청크 상한 — 닿으면 남은 후보는 다음 틱이 커서를 이어받아 본다(지표 seat.hold.expiry.chunk_cap_reached)
++    expiry-max-chunks-per-tick: 100
+```
+
+```kotlin
+enum class ExpiryMode {
+    /** A — `HELD` 저장 + 주기 배치(기준선 · 앱 Clock). 비어 있음 = `status = AVAILABLE` */
+    SWEEP,
+    /** B — `HELD` 저장(힌트) + 선점·확정·조회 때 판정 · 주기 배치 없음(회수는 선점에서만 · 마감 회차는 정리 ①) */
+    LAZY,
+    /** C — B + 주기 배치(홀드 행 · 카운터 · 좌석 상태) */
+    LAZY_SWEEP,
+    /** D — 좌석에는 `RESERVED`만 쓰고 홀드는 행에서 유도한다 · 배치는 홀드 행 · 카운터만 */
+    DERIVED,
+    ;
+```
+
+**② 서비스 분기 — sweep이면 지금 경로 그대로(R1)** (`service/impl/HoldSeatService.kt` · 0e5608f9 / `service/impl/ConfirmReservationService.kt` · 0e5608f9)
+
+```diff
+     private val strategy: HoldStrategy = strategies.single { it.type == properties.strategy }
++    private val lazy = properties.expiryMode != ExpiryMode.SWEEP
+ 
+     override fun hold(command: HoldSeatCommand): HoldSeatResult {
++        if (lazy) return checkNotNull(lazyHold) { "만료 방식 B·C·D인데 선점 경로(LazyHoldProcess)가 없다" }.hold(command)
+         val limit = userLimit.strategy
+```
+
+```diff
+     @Transactional
+     override fun confirm(command: ConfirmReservationCommand): ConfirmReservationResult {
++        if (properties.expiryMode != ExpiryMode.SWEEP) return lazyConfirm.confirm(command)
+         // ADR-009 L2-4: counter-trigger만 트리거 기준 시각(앱 Clock)을 이 트랜잭션에 넣는다 — 다른 매수 방식은 아무 문장도 보내지 않는다
+```
+
+**③ D 유도 조회 — 만료 판정 단일 규칙 + 좌석 맵** (`service/impl/expiry/ExpiryRule.kt` 새 파일 · 0e5608f9 / `service/impl/expiry/SeatMapQuery.kt` 새 파일 · 66fb3be5)
+
+```kotlin
+    /** 좌석 `st`에 활성 홀드가 있는가(별칭 `st` = product_seat) */
+    const val ACTIVE_ON_SEAT = "EXISTS (SELECT 1 FROM seat_hold h WHERE h.seat_id = st.id AND h.expires_at > now())"
+```
+
+```kotlin
+        val DERIVED_SQL = """
+            SELECT st.id, st.section, st.row_no, st.seat_no,
+                   CASE WHEN st.status = 'RESERVED' THEN 'RESERVED'
+                        WHEN ${ExpiryRule.ACTIVE_ON_SEAT} THEN 'HELD'
+                        ELSE 'AVAILABLE' END
+            FROM product_seat st WHERE st.schedule_id = ? ORDER BY st.id
+        """.trimIndent()
+```
+
+**④ 마이그레이션 V11 — 선택 위치 · 추가형** (`main-app/src/main/resources/db/migration-seat-map/V11__seat_map_index.sql` 새 파일 · 66fb3be5)
+
+```sql
+-- 기본 위치 목록(application.yml)에는 넣지 않는다(선검증 DS14-OQ1 — 기본 sweep 배포에 스키마 변경을 붙이지 않는다). 측정 때 모든 방식 셀에 같게 더하고,
+-- 기본 위치 편입은 기본값(expiry-mode)을 교체할 때 함께 한다. 이 인덱스가 없어도 좌석 맵은 같은 답을 내고 좌석 표를 훑을 뿐이다.
+-- 트랜잭션 안 CREATE INDEX는 SHARE 락으로 끝날 때까지 product_seat 쓰기를 막는다 — 시드 크기 사본에서 시간을 먼저 잰다(§설계-7 · [구현 검증] #5).
+CREATE INDEX idx_product_seat_schedule_id ON product_seat (schedule_id);
+```
+
+**⑤ 하네스 수정 — keep-alive EOF 경합 · closeBeforeLongThink** (`k6/ADR-014/scenarios/lib14.js` · `s14-flow.js` · eb4d073e)
+
+```diff
++export const KEEPALIVE_SAFE_MS = 50000;
++export function closeBeforeLongThink(req, thinkMs) {
++  return thinkMs >= KEEPALIVE_SAFE_MS ? closeConn(req) : req;
++}
+```
+
+```diff
+-      const res = send(holdReq(MAIN_SCHEDULE, seat, user));
++      const res = send(a.abandon ? holdReq(MAIN_SCHEDULE, seat, user) : closeBeforeLongThink(holdReq(MAIN_SCHEDULE, seat, user), a.think_ms));   // 이탈 세션은 확정이 없다
+```
+
+**⑥ PC 다른 부하는 기록만(R6) — busy 이름표** (`k6/ADR-014/scripts/pccheck14.sh` · 3f2b3399)
+
+```diff
+-  n=$(jq length <<< "$others"); (( n == 0 )) || why+=("seatlab 밖 실행 중 컨테이너 $n개: $(jq -r 'join(" ")' <<< "$others")")
++  n=$(jq length <<< "$others"); (( n == 0 )) || busy+=("seatlab 밖 실행 중 컨테이너 $n개: $(jq -r 'join(" ")' <<< "$others")")
+ ...
+-[[ "$load1" != null ]] && awk -v a="$load1" -v b="$lmax" 'BEGIN { exit !(a > b) }' && why+=("1분 load $load1 > $lmax")
++[[ "$load1" != null ]] && awk -v a="$load1" -v b="$lmax" 'BEGIN { exit !(a > b) }' && busy+=("1분 load $load1 > $lmax")
+```
+
+(MemAvailable 하한·판정 불가는 그대로 `why`(막음) — 다른 컨테이너·load만 `busy`(기록)로 옮겼다.)
+
+### 3. 검증 요약
+
+- **테스트**: blind 계약 테스트 91개(구현 전 6 통과 · 85 실패 → 구현 뒤 통과) · 코드 리뷰 루프 3 수정 뒤 ADR-014 테스트(expiry.*) 232 · 전체 926+6 실패 0 · 건너뜀 20(방식별 assumeTrue) · 요약기 selftest 184 ok · 캠페인·재측정 시작 전 ⑦ 테스트 green 232(@2bb7355f · @fd494aea · @4d0117de) · post-fix CR14-31 뒤는 ADR-014 테스트 232만(앱 코드 무변경 — 전체 미실행).
+- **캠페인** `20261103-adr014-fd494aea`: 시도 62 · 유효 60/60(재측정 2 — crn-mismatch) · 앞 캠페인 단독 결론 'A 유지 ①'(P12 — B·D 확정 EOF 각 1 · C GC 정지 19.78ms) → 하네스 결함으로 superseded.
+- **재측정 R7** `20261104-adr014-r7-4d0117de`: **12/12 ok** · 재측정 0 · 코드 0·5xx 0건(요약기 M11 + k6 CSV 12개 전수 대조) · GC 정지 최대 0.94ms · Link Down 0 · MemAvailable 최저 7.37GiB · pc-busy-before 12/12 → 합친 집계 `20261104-adr014-r7-merged`(results는 git 밖 로컬) 'A 유지 ③'.
+- **record-level**: 끝 판정기 정합 위반(이중 판매 · RESERVED↔확정 짝 · active_on_reserved_seats 등) A·B·C·D 0(결과-9 G1 · P4~P9 성립).
+- **리뷰 ledger(log.md 표 행 수)** — 합계 67행:
+  - 설계 선검증(듀얼 1패스 + post-fix 재점검): 11행(DS14-1~9 · OQ1·OQ2) — 채택 7 · 기각 2 · 메인 결정 1 · [구현 검증] 1.
+  - 측정 전 고정 규칙(듀얼 1패스 + 재점검): 17행(MR-1~13 1패스 · MR-14~17 post-fix) — 전부 채택.
+  - 코드 리뷰(높음 · 루프 3 + post-fix): 31행(CR14-1~31) — first_seen 루프1 7 · 루프2 18 · 루프3 5 · post-fix 1 · open 0.
+  - 결과 문서(듀얼 1패스 + 재점검): 8행(RR14-1~8 — 전부 fixed fc96a456) + post-fix 재점검 새 지적 3건(M1·L2 — 89e70ce4b · 타임라인 11-04 22:05 행에만 기록, ledger 행 아님).
+
+### 4. 남은 것 · 한계 (결정-4)
+
+- 정식 결론은 두 날 자료를 합친 집계(R7)이고, 재측정 범위 중 B·C 제외는 결과를 보고 골랐다 — B·C를 성공으로 쳐도 G3에 걸려 결론은 같지만 B·C의 비교 대상 A는 다른 날 값이다.
+- C의 safepoint 재개 지연(19.73ms) 원인 미확인 · crn ±1(blind 세션 기록 1건 모자람) 원인 미조사.
+- PC 부하 병행(R6)으로 클라이언트 쪽 p99의 PC 몫을 가를 수 없음 · 비용 셀 D의 DB CPU와 PC load 역상관 미분리(RR14-8).
+- 앱 기본 설정의 Tomcat 연결 상한 8,192는 측정하지 않음(R5 — 측정 compose만 20,000).
+- P11 반증(a50-t300에서 D 지도가 B·C보다 쌈 · TTL 30초 a20에서는 D가 가장 비쌈) — 지도 비용 순서는 셀에 따라 갈림 · 측정-10 한계(앱 1대 · 흉내 부하 등) 그대로.
+
+### 5. 커밋
+
+- `882fa2eaf..89e70ce4b` = **133커밋**(feat 10 · fix 47 · test 6 · docs 70 — docs 중 ADR-015 설계 문서 커밋 8개 포함) · 61파일 +11,263/−17.
+- 주요 커밋:
+  - d0dea2015 feat — 만료 방식 손잡이 · 기동 검사
+  - 0e5608f9d feat — B·C·D 선점(회수 포함) · 확정 가드
+  - 1df0f7b38 feat — C·D 만료 배치 · B 정리 ①
+  - 66fb3be5c feat — 좌석 맵 API · V11 좌석 맵 인덱스(선택 위치)
+  - 9ea834d23 feat — 측정 하네스 계획·시나리오(이어서 aecb1cf3 · 1449c7a1 · eb50140a)
+  - 161e47583 fix — 방식 전환 정리 — T1이 읽는 product_schedule도 잠근다(CR14-31)
+  - 3f2b33994 fix — 하네스 PC 다른 컨테이너·load는 기록만(R6)
+  - eb4d073ee fix — 하네스 생각 시간 ≥ 50초면 앞 선점 Connection: close(keep-alive EOF 경합)
