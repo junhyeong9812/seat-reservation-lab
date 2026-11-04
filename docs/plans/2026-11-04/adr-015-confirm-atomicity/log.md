@@ -30,6 +30,7 @@
 | 11-05 04:45 | 루프 1 회수: codex(EXIT 0 · F1~F4) · Opus(F1~F5 + OQ 5) → 메인 종합(채택 8 · 범위 밖 1 · OQ 4) → codex 종합 감사(EXIT 0 · 재검토 3: OQ-2 판정 성급 — V12 이력 있고 인덱스 없음 + V13 미적용이면 관문 통과 뒤 거부 = 스키마 변경 → R15-2로 확장 채택 · 같은 이름 비유니크 인덱스 → R15-10 채택 · 지연 최대값 수집 불가(ADR:142) → R15-9 채택) · 결과 사본 `k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-loop1/`(codex 원문 · 감사 · 종합표 · Opus 원문은 워커 회수 본문 — 아래 ledger) | 수정 워커 착수 |
 | 11-05 05:20 | 루프 1 수정 회수(기준 b07f1c1f · 원시각 04:28~05:15:17): 새 테스트 adr015fix 6/0 · test-local EXIT 0(ok 45) · 전체 `./gradlew test --continue` EXIT 0 · 메인 교차 확인 XML **1085/0/0/20** · blind · V1~V14 · k6 results diff 0 · 컨테이너 잔여 0 | 코드 커밋 b9ee9c65(24파일) · R15-1~3 · 5~10 fixed · 계획 밖 파일: main-app/build.gradle.kts(postgresql implementation — R15-8) · ADR-013 하네스는 target 대신 V12 SHA 거부(대안 — 슬롯별 target NEXT) · ADR §설계-11 신설(구현 정정 반영) · 다음: 루프 2(누적 diff 재리뷰) |
 | 11-05 05:30 | 루프 2 착수: packet 재생성(base e5556bcc · 58파일 +4049/−117 · loop-fix-diff = b07f1c1f 대비 · 미러 log.md 0) · 보안 스캔 키류 0 · 수정분의 `password` 류 1건 = 하네스 로컬 테스트 값(공개 repo) · codex ∥ Opus 병렬 | `$OUT` = scratchpad/rv15b.reEL · mirror = scratchpad/rv15bmir.4e0r · 루프 1 미러 삭제 |
+| 11-05 05:55 | 루프 2 회수: codex(EXIT 0 · F1 V13 열 관문 미검사 · F2 측정 없음) · Opus(F1 정리 ① 켠 교착 짝 미실행 · F2 ADR-013 §4.4 표 미반영 · F3 bootTestRun test 프로필 + OQ 4) → 메인 종합(신규 채택 3 · 범위 밖 1 · OQ 5) → codex 감사(EXIT 0 · OQ15-9 '받아들인 한계' 종결 불가 — history-diff 실패 뒤 남은 행의 확인 · 재개 절차 없음 → R15-15 채택) · 사본 `…/reviews/rv15-impl-loop2/` | **신규 채택 4 → 종료 조건 미충족** · 수정 워커(R15-11 · 12 · 15) · 문서(R15-13 · OQ15-5) 메인 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
