@@ -1,11 +1,14 @@
 package com.jun.labs.seatreservation.service.impl
 
 import com.jun.labs.seatreservation.domain.repository.ProductSeatRepository
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ExpireHoldsUseCase
 import com.jun.labs.seatreservation.service.ExpiryMode
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
 import com.jun.labs.seatreservation.service.impl.expiry.LazyExpiryBatch
+import com.jun.labs.seatreservation.service.impl.expiry.SweepConditionalBatch
 import com.jun.labs.seatreservation.service.impl.limit.ActiveUserLimit
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.stereotype.Service
@@ -17,6 +20,8 @@ import java.time.Clock
  * 틱 하나 = 트랜잭션 하나(지금과 같다). ADR-009: 틱 결과를 지표 `seat.hold.expiry.tick{outcome=ok|failed}`로 남기고,
  * 롤백되면 후보 A가 이 틱에 복구를 시도한 쌍을 독립 트랜잭션으로 skipped 기록한다(예외는 그대로 올린다).
  * ADR-014: 만료 방식이 sweep(A)이 아니면 [LazyExpiryBatch](C·D 청크 배치 · B는 할 일 없음)로 간다 — sweep이면 아래 경로 그대로다.
+ * ADR-015(Q15): 확정 손잡이 `seat.confirm.mode`가 배치도 고른다 — current면 아래 JPA 배치 그대로 · 그 밖이면 트랜잭션 몸통만 A′([SweepConditionalBatch] — 조건부 DELETE · 지운 만큼 감소)로.
+ * 틱 경계 · 지표 · skipped 기록은 공용이다.
  */
 @Service
 class ExpireHoldsService(
@@ -28,6 +33,8 @@ class ExpireHoldsService(
     private val meters: MeterRegistry,
     private val properties: SeatHoldProperties,
     private val lazyBatch: LazyExpiryBatch,
+    private val confirmProperties: SeatConfirmProperties,
+    private val conditionalBatch: SweepConditionalBatch,
 ) : ExpireHoldsUseCase {
 
     override fun expire(): Int {
@@ -37,6 +44,7 @@ class ExpireHoldsService(
             val count = try {
                 tx.execute {
                     val now = clock.instant()
+                    if (confirmProperties.mode != ConfirmMode.CURRENT) return@execute conditionalBatch.expireInTx(now)
                     val expired = productSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual(now)
                         .flatMap { it.expireHolds(now) }
                     // 매수 카운터(ADR-005 counter 계열)만 실제로 지운 홀드만큼 내린다(B는 트리거가 내리고 앱은 쿼터 행만 먼저 잠근다) — 다른 매수 방식에서는 아무것도 하지 않는다

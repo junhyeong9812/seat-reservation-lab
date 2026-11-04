@@ -35,7 +35,7 @@ import java.time.Clock
  * ADR-015(§설계-3 공통 규칙 · §설계-4): A 확정 `current`(손잡이 기본값)의 SQL · 판정 순서는 그대로 두고 두 가지만 더한다 —
  * ① 예약 INSERT가 V12 인덱스에 걸리면(23505 · 인덱스 이름 일치) 409 SEAT_NOT_HELD + ERROR 로그 + 지표 `seat.confirm.unique_violation`(다른 무결성 오류는 그대로)
  * ② 관측 지표 `seat.confirm.converted_after_expiry{clock=app}` — 커밋 뒤 앱 Clock이 그 홀드의 expires_at 뒤인 성공(판정은 바꾸지 않는다 · SQL 없음).
- * 새 모드(①~④ — `seat.confirm.mode ≠ current`)의 확정은 아직 없다(task 15-05) — 조용히 current로 돌지 않게 거부한다.
+ * 새 모드(①~④ — `seat.confirm.mode ≠ current`)는 [AtomicConfirmProcess](JDBC 문장 · 영향 행 수로 판정 — §설계-3.1~3.4)로 간다. current 경로는 손대지 않는다.
  */
 @Service
 class ConfirmReservationService(
@@ -48,15 +48,14 @@ class ConfirmReservationService(
     private val lazyConfirm: LazyConfirmProcess,
     private val confirmProperties: SeatConfirmProperties,
     private val meters: MeterRegistry,
+    private val atomicConfirm: AtomicConfirmProcess,
 ) : ConfirmReservationUseCase {
 
     @Transactional
     override fun confirm(command: ConfirmReservationCommand): ConfirmReservationResult {
         if (properties.expiryMode != ExpiryMode.SWEEP) return lazyConfirm.confirm(command)
-        // ADR-015 새 모드는 15-05에서 — 그 전까지 조용히 current로 확정하지 않는다(5xx로 드러남)
-        check(confirmProperties.mode == ConfirmMode.CURRENT) {
-            "seat.confirm.mode=${confirmProperties.mode} 확정은 아직 구현되지 않았다(ADR-015 task 15-05) — seat.confirm.mode=current로 띄워라"
-        }
+        // ADR-015 새 모드(①~④) — 같은 트랜잭션에서 JDBC 문장으로(기동 검사 규칙 2가 기본 조합을 보장하므로 beforeConfirm은 부르지 않는다 — §설계-3 공통 규칙)
+        if (confirmProperties.mode != ConfirmMode.CURRENT) return atomicConfirm.confirm(confirmProperties.mode, command)
         // ADR-009 L2-4: counter-trigger만 트리거 기준 시각(앱 Clock)을 이 트랜잭션에 넣는다 — 다른 매수 방식은 아무 문장도 보내지 않는다
         userLimit.strategy.beforeConfirm()
         val now = clock.instant()
@@ -79,17 +78,8 @@ class ConfirmReservationService(
                 ),
             )
         } catch (e: DataIntegrityViolationException) {
-            // IDENTITY라 save 자리에서 INSERT가 나간다 — V12(같은 좌석 CONFIRMED ≤ 1) 위반만 409로. 그 밖의 무결성 오류는 그대로 올린다(무음 변환 금지)
-            val cause = e.mostSpecificCause
-            if (cause is SQLException && cause.sqlState == UNIQUE_VIOLATION && cause.message.orEmpty().contains(HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX)) {
-                meters.counter(UNIQUE_VIOLATION_METRIC).increment()
-                log.error(
-                    "확정 예약 INSERT가 {}(V12)에 걸렸다 — 같은 좌석의 CONFIRMED가 이미 있다(앱 가드가 뚫림 · 409 SEAT_NOT_HELD로 거부) hold={} seat={} user={}",
-                    HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX, command.holdId, seat.id, command.userId, e,
-                )
-                throw SeatReservationException(ErrorCode.SEAT_NOT_HELD)
-            }
-            throw e
+            // IDENTITY라 save 자리에서 INSERT가 나간다
+            throw uniqueViolationOrRethrow(meters, e, command, seat.id)
         }
         if (expiresAt != null) {
             TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
@@ -114,5 +104,20 @@ class ConfirmReservationService(
         const val UNIQUE_VIOLATION_METRIC = "seat.confirm.unique_violation"
         /** ADR-015 §설계-3 — 만료 뒤 전환된 성공(관측만 · 기대값 없음) */
         const val CONVERTED_AFTER_EXPIRY_METRIC = "seat.confirm.converted_after_expiry"
+
+        /**
+         * A 확정 공용(current · 새 모드 넷 — §설계-4 N6): 예약 INSERT의 V12(같은 좌석 CONFIRMED ≤ 1) 위반(23505 · 인덱스 이름 일치)만 409 SEAT_NOT_HELD + ERROR 로그 + 지표로 바꾼다.
+         * 그 밖의 무결성 오류는 [e] 그대로 돌려준다(무음 변환 금지). 호출자가 돌려받은 예외를 던진다.
+         */
+        internal fun uniqueViolationOrRethrow(meters: MeterRegistry, e: DataIntegrityViolationException, command: ConfirmReservationCommand, seatId: Long?): RuntimeException {
+            val cause = e.mostSpecificCause
+            if (!(cause is SQLException && cause.sqlState == UNIQUE_VIOLATION && cause.message.orEmpty().contains(HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX))) return e
+            meters.counter(UNIQUE_VIOLATION_METRIC).increment()
+            log.error(
+                "확정 예약 INSERT가 {}(V12)에 걸렸다 — 같은 좌석의 CONFIRMED가 이미 있다(앱 가드가 뚫림 · 409 SEAT_NOT_HELD로 거부) hold={} seat={} user={}",
+                HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX, command.holdId, seatId, command.userId, e,
+            )
+            return SeatReservationException(ErrorCode.SEAT_NOT_HELD)
+        }
     }
 }
