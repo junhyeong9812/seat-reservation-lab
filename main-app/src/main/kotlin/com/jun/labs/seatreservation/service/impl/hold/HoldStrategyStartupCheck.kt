@@ -59,6 +59,11 @@ class HoldStrategyMigrationGate {
         val v14Predicted = HoldStrategyStartupCheck.confirmVersionTriggerExists(JdbcTemplate(config.dataSource)) ||
             (config.locations.any { it.path == HoldStrategyStartupCheck.LOCATION_V14 } && reaches("14"))
         HoldStrategyStartupCheck.checkConfirmMigrationPlan(properties, confirm, reachesV13 = reaches("13"), v14Trigger = v14Predicted)
+        // ADR-015 R15-2: 이번 migrate가 V12를 만들지 않으면(이미 이력에 있음 · target · 위치 밖) 지금 DB의 V12 인덱스가 곧 마이그레이션 뒤 사실이다 —
+        // INVALID · 모양 다름 · (새 모드) 없음은 run이 아니라 여기서 거부한다(거부된 기동이 V13 등 다른 버전을 적용하지 않게). V12가 이번에 만들어지면 run이 본다
+        if (flyway.info().pending().none { it.version?.version == HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX_VERSION }) {
+            HoldStrategyStartupCheck.checkConfirmedSeatIndex(confirm, HoldStrategyStartupCheck.confirmedSeatIndexState(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
+        }
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
         val flywayRejects = config.isValidateOnMigrate && flyway.validateWithResult().invalidMigrations.orEmpty().any { it.errorDetails?.errorCode !in PENDING }
@@ -123,31 +128,17 @@ class HoldStrategyStartupCheck(
 
     /**
      * ADR-015 §설계-5 DB 상태 검사(마이그레이션 뒤 — Flyway가 꺼진 구성에서도 빠지지 않게): V12 인덱스 · V13 열 · V14 트리거를 DB 사실로 본다.
-     * - V12 INVALID → 모든 모드 거부. 없음 → current는 WARN(기준선 재현 target=V12 앞 마지막 버전(기본 위치만 = 7 · T12)) · 새 모드는 unique-index-optional=true가 아니면 거부(N11)
+     * - V12 INVALID · 모양 다름(R15-10) → 모든 모드 거부. 없음 → current는 WARN(기준선 재현 target=V12 앞 마지막 버전(기본 위치만 = 7 · T12)) · 새 모드는 unique-index-optional=true가 아니면 거부(N11)
      * - V13 열 없음 + 새 모드 → 거부(T2 — 모든 새 모드)
      * - V14 트리거: 있으면 낙관락 선점 금지 · optimistic이면 있어야 한다(규칙 6과 같은 뜻)
      */
     private fun checkConfirmSchema() {
         val mode = confirm.mode
-        val valid = jdbc.queryForList(
-            "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass(?)", Boolean::class.java, CONFIRMED_SEAT_INDEX,
-        ).singleOrNull()
-        check(valid != false) {
-            "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12)가 INVALID다(seat.confirm.mode=${mode.key()}) — 같은 좌석 CONFIRMED ≤ 1을 DB가 강제하지 못한다. " +
-                "INVALID 인덱스를 지우고(DROP INDEX CONCURRENTLY) 사전 검사(R0) 뒤 다시 만들어라(ADR-015 §설계-4)"
-        }
-        if (valid == null) {
-            if (mode == ConfirmMode.CURRENT) {
-                log.warn(
-                    "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12)가 없다 — seat.confirm.mode=current라 기동한다(기준선 재현 spring.flyway.target=V12 앞 마지막 버전(기본 위치만 = 7 · T12) · ADR-015 §설계-5). " +
-                        "운영이면 V12를 적용하라",
-                )
-            } else {
-                check(confirm.uniqueIndexOptional) {
-                    "seat.confirm.mode=${mode.key()}는 확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12 — 유효)가 있어야 한다 — 없다(N11). " +
-                        "기본 위치 classpath:db/migration의 V12를 적용하라(재현 테스트의 'V12 없음' 판만 test·loadtest 프로필에서 seat.confirm.unique-index-optional=true)"
-                }
-            }
+        if (checkConfirmedSeatIndex(confirm, confirmedSeatIndexState(jdbc), "DB")) {
+            log.warn(
+                "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12)가 없다 — seat.confirm.mode=current라 기동한다(기준선 재현 spring.flyway.target=V12 앞 마지막 버전(기본 위치만 = 7 · T12) · ADR-015 §설계-5). " +
+                    "운영이면 V12를 적용하라",
+            )
         }
         if (mode != ConfirmMode.CURRENT) {
             val v13 = jdbc.queryForObject(
@@ -336,6 +327,61 @@ class HoldStrategyStartupCheck(
             }
         }
 
+        /**
+         * ADR-015 V12 인덱스의 DB 사실(R15-10 — 관문 · run 공용 단일 판정). [present] = 그 이름의 인덱스가 있다 · [problem] = 있는데 강제력이 없거나 모양이 V12와 다르다
+         * (INVALID · 유니크 아님 · 대상 표 ≠ reservation · 열 ≠ (seat_id) · 부분 조건 ≠ status = 'CONFIRMED') — 사유 문구. 없으면 null.
+         */
+        class ConfirmedSeatIndexState(val present: Boolean, val problem: String?)
+
+        /** 읽기만 — 빈 DB에서도 돈다(to_regclass가 null → 없음) */
+        fun confirmedSeatIndexState(jdbc: JdbcTemplate): ConfirmedSeatIndexState {
+            val row = jdbc.queryForList(
+                """
+                SELECT i.indisvalid AS valid, i.indisunique AS uniq, t.relname AS tbl, i.indnatts AS natts, i.indexprs IS NULL AS no_exprs,
+                       (SELECT a.attname FROM pg_attribute a WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[0]) AS col,
+                       pg_get_expr(i.indpred, i.indrelid) AS pred
+                FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+                WHERE i.indexrelid = to_regclass(?)
+                """.trimIndent(),
+                CONFIRMED_SEAT_INDEX,
+            ).singleOrNull() ?: return ConfirmedSeatIndexState(present = false, problem = null)
+            val problems = buildList {
+                if (row["valid"] != true) add("INVALID(indisvalid=false)")
+                if (row["uniq"] != true) add("유니크가 아니다(indisunique=false)")
+                if (row["tbl"] != "reservation") add("대상 표가 reservation이 아니다(${row["tbl"]})")
+                if ((row["natts"] as Number).toInt() != 1 || row["no_exprs"] != true || row["col"] != "seat_id") add("열이 (seat_id)가 아니다(열 수 ${row["natts"]} · 첫 열 ${row["col"]} · 식 열 ${row["no_exprs"] != true})")
+                val pred = row["pred"] as String?
+                if (pred == null || normalizePredicate(pred) != CONFIRMED_SEAT_PREDICATE) add("부분 조건이 status = 'CONFIRMED'가 아니다($pred)")
+            }
+            return ConfirmedSeatIndexState(present = true, problem = problems.takeIf { it.isNotEmpty() }?.joinToString(" · "))
+        }
+
+        /** pg_get_expr 출력(예: `((status)::text = 'CONFIRMED'::text)`)에서 괄호 · 공백 · 문자열 캐스트를 지운다 — 열 타입(varchar · text)에 따른 표기 차이만 흡수 */
+        private fun normalizePredicate(pred: String): String =
+            pred.replace("::character varying", "").replace("::text", "").replace("(", "").replace(")", "").replace(" ", "")
+
+        private const val CONFIRMED_SEAT_PREDICATE = "status='CONFIRMED'"
+
+        /**
+         * V12 인덱스 판정(관문 · run 공용 — ADR-015 §설계-5 'DB 상태 검사' · N11 · R15-2 · R15-10): 문제 있음 → 모든 모드 거부(사유 포함) ·
+         * 없음 + 새 모드 → unique-index-optional=true가 아니면 거부. 돌려주는 값 = '없음 + current'(호출자가 WARN을 남긴다 — run만).
+         */
+        fun checkConfirmedSeatIndex(confirm: SeatConfirmProperties, state: ConfirmedSeatIndexState, where: String): Boolean {
+            val mode = confirm.mode
+            check(state.problem == null) {
+                "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12 · $where)가 강제력이 없거나 V12와 모양이 다르다: ${state.problem} (seat.confirm.mode=${mode.key()}) — " +
+                    "같은 좌석 CONFIRMED ≤ 1을 DB가 강제하지 못한다. 그 인덱스를 지우고(DROP INDEX CONCURRENTLY) 사전 검사(R0) 뒤 V12 정의 그대로 다시 만들어라" +
+                    "(실패한 V12 이력이 남았으면 flyway repair 뒤 다시 적용 — ADR-015 §설계-4 재시도 절차)"
+            }
+            if (state.present) return false
+            if (mode == ConfirmMode.CURRENT) return true
+            check(confirm.uniqueIndexOptional) {
+                "seat.confirm.mode=${mode.key()}는 확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12 — 유효)가 있어야 한다 — $where 에 없다(N11). " +
+                    "기본 위치 classpath:db/migration의 V12를 적용하라(재현 테스트의 'V12 없음' 판만 test·loadtest 프로필에서 seat.confirm.unique-index-optional=true)"
+            }
+            return false
+        }
+
         /** V14 트리거가 이 DB에 있는가(읽기만 — 빈 DB에서도 돈다) */
         fun confirmVersionTriggerExists(jdbc: JdbcTemplate): Boolean = jdbc.queryForObject(
             "SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal", Int::class.java, CONFIRM_VERSION_TRIGGER,
@@ -471,6 +517,8 @@ class HoldStrategyStartupCheck(
         const val TEST_PROFILE = "test"
         /** ADR-015 V12 — 확정 예약 부분 유니크 인덱스(기본 위치) */
         const val CONFIRMED_SEAT_INDEX = "uq_reservation_confirmed_seat"
+        /** 그 인덱스를 만드는 Flyway 버전(V12__reservation_confirmed_seat_unique.sql) */
+        const val CONFIRMED_SEAT_INDEX_VERSION = "12"
         /** ADR-015 V14 — 좌석 상태 변경 버전 트리거(선택 위치) */
         const val CONFIRM_VERSION_TRIGGER = "product_seat_status_version"
         const val LOCATION_V14 = "db/migration-confirm-version"

@@ -79,7 +79,7 @@ fi
 SUMMARIZE="$(dirname "$0")/summarize.py"   # 동결 사본
 
 # k6 시나리오도 측정 SHA에서 꺼낸다 — 작업트리가 바뀌어도 기록된 SHA로 재현된다
-FLYWAY_TARGET=$([[ "$INDEX" == on ]] && echo latest || echo 1)   # off = V1까지만(ADR-001 기준선 스키마)
+FLYWAY_TARGET=$([[ "$INDEX" == on ]] && echo 7 || echo 1)   # off = V1까지만(ADR-001 기준선 스키마) · on = V12 앞 마지막 버전 7(ADR-015 R15-5 — latest면 V12 유니크 인덱스 · V13까지 적용돼 기준선이 가려진다)
 EXPECTED_INDEXES=$([[ "$INDEX" == on ]] && echo "idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id" || echo "")
 
 K6_TREE="$(mktemp -d)"

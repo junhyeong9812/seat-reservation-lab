@@ -374,6 +374,12 @@ if (( HAS_INC )); then
   esac
   FLYWAY_LOCATIONS="$FLYWAY_LOCATIONS,classpath:db/migration-incremental"
 fi
+# ADR-015(R15-5): 이 SHA부터 기본 위치에 V12 · V13이 있다 — 기준선을 지키려고 target = 위치 집합의 V12 앞 마지막 버전(기본 7 · V4는 7보다 낮다 · V8 · V9 · V10은 그 위치가 있을 때만).
+#   그 버전은 그 위치에 실제로 있다(failOnMissingTarget — ADR-015 T12). compose(app · reconciler)가 FLYWAY_TARGET으로 받는다 · meta app_env에 남는다
+FLYWAY_TARGET=7
+[[ "$FLYWAY_LOCATIONS" == *classpath:db/migration-trigger* ]] && FLYWAY_TARGET=8
+[[ "$FLYWAY_LOCATIONS" == *classpath:db/migration-updated-at* ]] && FLYWAY_TARGET=9
+[[ "$FLYWAY_LOCATIONS" == *classpath:db/migration-incremental* ]] && FLYWAY_TARGET=10
 EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id"
 [[ "$STRATEGY" == unique ]] && EXPECTED_INDEXES="idx_reservation_schedule_user,idx_reservation_seat_id,idx_seat_hold_expires_at,idx_seat_hold_seat_id,idx_seat_hold_user_id,uq_seat_hold_seat_id"
 # ADR-009 F: 별도 대조 컨테이너 오버레이 — compose_up이 이 변수를 쓰고, compose_down은 늘 이 오버레이까지 지정한다(lib.sh)
@@ -476,7 +482,7 @@ config_env() {   # + ADR-003 조건(전략·풀)은 모든 그룹에 공통으�
   # ADR-008: SEAT_HOLD_LIMIT_STRATEGY를 넘기지 않는다 — compose가 읽지도 않지만 meta app_env에 거짓 값을 남기지 않게
   # ADR-009: 조건 키(cond_env)도 모든 그룹에 붙는다 — meta.json app_env에 그대로 남는다(값에 비밀 없음)
   # ADR-010: 앱 JVM 축(APP_MEM = compose mem_limit · APP_JVM_OPTS = JAVA_TOOL_OPTIONS 앞에 붙음 — auto면 넘기지 않는다)
-  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac) APP_JVM_OPTS2=$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational") APP_JVM_OPTS3=$( ((APP_PRETOUCH)) && echo "-XX:+AlwaysPreTouch") APP_JVM_OPTS4=$( ((APP_XMS_FULL)) && echo "-XX:InitialRAMPercentage=75")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게) · ADR-011 APP_JVM_OPTS3(--app-pretouch)도 같다
+  local cond="HOLD_STRATEGY=$STRATEGY FLYWAY_LOCATIONS=$FLYWAY_LOCATIONS FLYWAY_TARGET=$FLYWAY_TARGET POOL_SIZE=$POOL CRITICAL_SECTION_DELAY=${DELAY_MS}ms $(preset_env "$PG_PRESET") $(cond_env) APP_MEM=$APP_MEM APP_JVM_OPTS=$(case "$APP_GC" in g1) echo "-XX:+UseG1GC" ;; zgc) echo "-XX:+UseZGC" ;; esac) APP_JVM_OPTS2=$([[ "$APP_GC" == zgc ]] && echo "-XX:+ZGenerational") APP_JVM_OPTS3=$( ((APP_PRETOUCH)) && echo "-XX:+AlwaysPreTouch") APP_JVM_OPTS4=$( ((APP_XMS_FULL)) && echo "-XX:InitialRAMPercentage=75")"   # 리뷰: auto도 빈 값으로 명시(원격 환경에 남은 값이 섞이지 않게) · ADR-011 APP_JVM_OPTS3(--app-pretouch)도 같다
   case "$1" in
     base)   echo "HOLD_TTL=5m EXPIRY_INTERVAL=10s $cond" ;;
     scaled) echo "HOLD_TTL=30s EXPIRY_INTERVAL=1s $cond" ;;

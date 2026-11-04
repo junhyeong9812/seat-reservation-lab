@@ -105,6 +105,11 @@ if [[ "${CAMPAIGN13:-0}" == 1 ]] && (( ! STMT_GIVEN )); then echo "캠페인 회
 (( ${STMT_TIMEOUT%s} >= 600 )) || { echo "--stmt-timeout ${STMT_TIMEOUT} < 600s(§4.4 DS-8 최소)" >&2; exit 2; }
 SHA="$(short "${SHA:-HEAD}")" || exit 2; SHA_OLD8="$(short "$SHA_OLD")"; SHA_NEW8="$(short "${SHA_NEW:-$SHA}")"
 [[ -n "$SHA" && -n "$SHA_OLD8" && -n "$SHA_NEW8" ]] || { echo "SHA 해석 실패" >&2; exit 2; }
+# ADR-015(R15-5): 새 SHA의 기본 위치에 V12(확정 유니크 인덱스 — ADR-015)가 있으면 새 앱(이미지 기본값 K1 — Flyway 설정을 넣지 않는다)이 V12 · V13을 함께 적용해
+#   ADR-013 전환(V9 · V10)의 기준선이 가려진다(V12는 reservation에 SHARE 락 · 기록 ① outOfOrder 갈래). 이 하네스는 슬롯별 flyway target을 주지 않으므로 계획 단계에서 거부한다
+if git -C "$REPO_ROOT" cat-file -e "$SHA_NEW8:main-app/src/main/resources/db/migration/V12__reservation_confirmed_seat_unique.sql" 2>/dev/null; then
+  echo "새 SHA $SHA_NEW8의 기본 위치에 V12(ADR-015)가 있다 — ADR-013 전환 기준선이 가려진다(슬롯별 flyway target 미지원) · ADR-015 앞 SHA를 --sha-new로 주라" >&2; exit 2
+fi
 mapfile -t HPATHS < <(bash "$S13/hhash.sh" --paths)   # 하네스 경로 단일 출처(CR13-21)
 HARNESS="sha:$SHA" DEPLOY_ID="$SHA"
 if (( WORKTREE )); then

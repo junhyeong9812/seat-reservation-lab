@@ -20,6 +20,8 @@
 #     ⓐ exit 0 · state0.max_applied = 13 · knobs.out_of_order_cli = true · (cli) 기록 ① 인자에 -outOfOrder=true
 #     ⓑ 이어서 전체 위치 Flyway를 outOfOrder 없이 → 검증 실패 · V10 객체 없음 · 이력 무변경(스키마 무변경)
 #     ⓒ outOfOrder 1회 → V10 한 개만 적용 ⓓ 그다음 outOfOrder 없이 다시 → 검증 통과(순서 밖 V9 · V10 이력을 받아들인다) · 적용 0
+#     ADR-015 R15-6 실패 주입 둘(cli): ① 위치에 V4를 잘못 넣음 → 단계 0 거부(9 이하 미적용 = {4, 9}) · 이력 무변경 ② 위치 내용이 이 저장소와 어긋남(V9 폴더에 V4 사본)
+#       → 사전 확인 통과 · 기록 ① 뒤 이력 차이 [4, 9] → history-diff 실패(쓴 행은 남는다)
 #     ⓑ~ⓓ와 cli 판은 Flyway 라이브러리(java 경로)에서만 — SQL 대체 경로면 SKIP을 출력하고 exit 3(무음 스킵 금지 · green 아님 · 아래 SKIPS)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"; MIG="$REPO/main-app/src/main/resources/db"
@@ -236,9 +238,35 @@ ooo_case() {   # 인자: direct|cli
   check "[$mode] ⓓ outOfOrder 없이 다시 → 검증 통과 · 적용 0(순서 밖 V9 · V10 이력을 받아들인다 — [구현 검증] #6)" "$r" "APPLIED"
   check "[$mode] ⓓ 이력 = … V13 · V9 · V10 · 모두 success" "$(hist_str "$db")" "1:true 2:true 3:true 5:true 6:true 7:true 12:true 13:true 9:true 10:true"
 }
+# ADR-015 R15-6: outOfOrder 기록 ①은 9 이하의 **다른** 미적용도 실행 없이 적는다 — 사전 확인(9 이하 미적용 = {9}) · 사후 확인(이력 차이 = V9 한 행)
+ooo_reject_cases() {
+  local db=seat_ooo_v4 h0 rc
+  # ① 사전 확인: V4 위치를 잘못 넣음 → 9 이하 미적용 = {4, 9} → 단계 0에서 멈춤 · 이력 · 객체 무변경 · 기록 ①을 부르지 않음
+  seed_old "$db" 100 "" || { FAILS=$((FAILS + 1)); return; }
+  h0=$(hist_str "$db")
+  FLYWAY_PASSWORD="$PW" apply_to "$db" "$W/ooo-v4.json" --record cli --flyway "java -cp $CP $W/FlywayCli.java" \
+    --flyway-url "jdbc:postgresql://127.0.0.1:$PORT/$db?ApplicationName=seatlab-online-v9" \
+    --locations "filesystem:$MIG/migration,filesystem:$MIG/migration-unique,filesystem:$MIG/migration-updated-at-trigger"; rc=$?
+  echo "--- apply.sh(R15-6 ① V4 위치 잘못) 출력 끝:"; tail -2 "$W/$db-apply.log"; jq -c '{result, fail_step, reason, pending_le9: .state0.pending_le9, record}' "$W/ooo-v4.json"
+  check "[R15-6 ①] exit 1 · fail_step 0 · 9 이하 미적용 [4, 9]" "$rc $(jq -r .fail_step "$W/ooo-v4.json") $(jq -c .state0.pending_le9 "$W/ooo-v4.json")" '1 0 ["4","9"]'
+  check "[R15-6 ①] 이력 무변경 · V9 열 없음 · 기록 ① 부르지 않음(record.cli 없음 · 실패 뒤 V9 이력 [])" \
+    "$(hist_str "$db") $(q "$db" <<< "SELECT count(*) FROM pg_attribute WHERE attrelid = 'user_hold_quota'::regclass AND attname = 'updated_at';") $(jq -c '[.record.cli, .record.history_after_fail]' "$W/ooo-v4.json")" "$h0 0 [null,[]]"
+  # ② 사후 확인: 위치 이름은 V9 폴더와 같지만 V4 사본이 더 든 폴더 → 사전 확인은 통과(이 저장소의 같은 이름 폴더 = {9}) · Flyway가 V4 · V9를 적는다
+  #    → 이력 차이 [4, 9] ≠ [9] → exit 1 · class history-diff · 쓴 행은 남는다(트랜잭션 밖 — 사람이 확인)
+  db=seat_ooo_diff; local fake="$W/fake/migration-updated-at-trigger"
+  mkdir -p "$fake"; cp "$MIG/migration-updated-at-trigger/"V9__*.sql "$MIG/migration-unique/"V4__*.sql "$fake/"
+  seed_old "$db" 100 "" || { FAILS=$((FAILS + 1)); return; }
+  FLYWAY_PASSWORD="$PW" apply_to "$db" "$W/ooo-diff.json" --record cli --flyway "java -cp $CP $W/FlywayCli.java" \
+    --flyway-url "jdbc:postgresql://127.0.0.1:$PORT/$db?ApplicationName=seatlab-online-v9" --locations "filesystem:$MIG/migration,filesystem:$fake"; rc=$?
+  echo "--- apply.sh(R15-6 ② 위치 내용 어긋남) 출력 끝:"; tail -2 "$W/$db-apply.log"; jq -c '{result, fail_step, reason, pending_le9: .state0.pending_le9, cli: .record.cli | {rc, class, history_diff}}' "$W/ooo-diff.json"
+  check "[R15-6 ②] 사전 확인 통과([9]) · exit 1 · fail_step 4 · class history-diff · 차이 [4, 9]" \
+    "$(jq -c .state0.pending_le9 "$W/ooo-diff.json") $rc $(jq -r '"\(.fail_step) \(.record.cli.class)"' "$W/ooo-diff.json") $(jq -c '[.record.cli.history_diff[].version]' "$W/ooo-diff.json")" '["9"] 1 4 history-diff ["4","9"]'
+  check "[R15-6 ②] 기록 ①이 쓴 행은 남는다(V4 · V9 — 지우지 않는다)" "$(hist_str "$db")" "1:true 2:true 3:true 5:true 6:true 7:true 12:true 13:true 4:true 9:true"
+}
 if [[ "$FW_MODE" == java ]]; then
   ooo_case direct
   ooo_case cli
+  ooo_reject_cases
 else
   echo "SKIP ADR-015 'V12 · V13 × 옛 방식 DB' 경우 전부(direct · cli · ⓑ~ⓓ) — Flyway 라이브러리 없음(대체 SQL 경로는 outOfOrder 검증을 흉내 내지 못한다)"; SKIPS=$((SKIPS + 1))
 fi
