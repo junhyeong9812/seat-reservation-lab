@@ -27,15 +27,18 @@ class SweepConditionalBatch(
     private val counters: ExpiryCounters,
     private val meters: MeterRegistry,
 ) {
-    /** 바깥(틱) 트랜잭션 안에서 부른다 — 지운 홀드 행 수 */
-    fun expireInTx(now: Instant): Int {
+    /**
+     * 바깥(틱) 트랜잭션 안에서 부른다 — 지운 홀드 행 수 + 지표 기록. 지표(deleted · revert · extension_lost)는 호출자가 틱 커밋 뒤에
+     * [Outcome.recordAfterCommit]으로 센다(R15-16 — 롤백된 틱은 세지 않는다 · C·D 배치가 청크 커밋 뒤에 세는 것과 같다).
+     */
+    fun expireInTx(now: Instant): Outcome {
         val ts = Timestamp.from(now)
         // B1 후보 쌍(잠금 없음 · idx_seat_hold_expires_at)
         val pairs = jdbc.query(
             "SELECT DISTINCT schedule_id, user_id FROM seat_hold WHERE expires_at <= ? ORDER BY schedule_id, user_id",
             { rs, _ -> rs.getLong(1) to rs.getLong(2) }, ts,
         )
-        if (pairs.isEmpty()) return 0
+        if (pairs.isEmpty()) return Outcome.NONE
         // B2 쌍 잠금(정렬 · 기다림) — 잠근 쌍 P
         val lockedPairs = lockQuotaPairs(jdbc, pairs)
         // B2b MISSING(후보 − P): 지울 id를 읽어 지우기 앞에서 복구(D3과 같다 · 시각만 :now) — expiry-repair=false면 check로 틱 실패(옛 경로와 같은 뜻)
@@ -81,25 +84,34 @@ class SweepConditionalBatch(
         byPair.keys.sortedWith(compareBy({ it.first }, { it.second })).forEach { key ->
             counters.decrementDeleted(DriftSource.EXPIRY_REPAIR, key.first, key.second, byPair.getValue(key))
         }
-        if (deleted.isEmpty()) return 0
-        revertSeats(deleted.map { it.seatId }.distinct(), ts)
+        if (deleted.isEmpty()) return Outcome.NONE
+        val revert = revertSeats(deleted.map { it.seatId }.distinct(), ts)
         val extended = deleted.count { it.extended }
-        if (extended > 0) meters.counter(DELETED_METRIC, "path", PATH_SWEEP, "extended", "true").increment(extended.toDouble())
-        if (deleted.size > extended) meters.counter(DELETED_METRIC, "path", PATH_SWEEP, "extended", "false").increment((deleted.size - extended).toDouble())
-        // A′의 WHERE가 expires_at <= :now라 lost는 구조적으로 0 — 0이 아니면 창이 열린 것이다(무음 아님)
+        val total = deleted.size
+        // A′의 WHERE가 expires_at <= :now라 lost는 구조적으로 0 — 0이 아니면 창이 열린 것이다(무음 아님). 로그는 사건 기록이라 그 자리에서 남긴다(지표만 커밋 뒤)
         val lost = deleted.count { it.lost }
-        if (lost > 0) {
-            meters.counter(EXTENSION_LOST_METRIC).increment(lost.toDouble())
-            log.error("A′ 배치가 아직 만료 전인 홀드 {}개를 지웠다(설계상 0 — extension_lost)", lost)
+        if (lost > 0) log.error("A′ 배치가 아직 만료 전인 홀드 {}개를 지웠다(설계상 0 — extension_lost · 이 틱이 롤백되면 삭제도 되돌려지고 지표는 세지 않는다)", lost)
+        return Outcome(total) {
+            if (extended > 0) meters.counter(DELETED_METRIC, "path", PATH_SWEEP, "extended", "true").increment(extended.toDouble())
+            if (total > extended) meters.counter(DELETED_METRIC, "path", PATH_SWEEP, "extended", "false").increment((total - extended).toDouble())
+            revert.forEach { (result, n) -> meters.counter(REVERT_METRIC, "path", PATH_SWEEP, "result", result).increment(n.toDouble()) }
+            if (lost > 0) meters.counter(EXTENSION_LOST_METRIC).increment(lost.toDouble())
         }
-        return deleted.size
+    }
+
+    /** 틱 몸통 결과 — [deleted] = 지운 홀드 행 수 · [recordAfterCommit] = 틱 커밋 뒤에 호출자가 부르는 지표 기록(롤백이면 부르지 않는다) */
+    class Outcome(val deleted: Int, val recordAfterCommit: () -> Unit) {
+        companion object {
+            val NONE = Outcome(0) {}
+        }
     }
 
     /**
      * B5 좌석 되돌림 — 실제로 지운 홀드의 좌석만 · HELD일 때만 · 다른 활성 홀드가 없을 때만. 돌려받지 못한 좌석은 잠금 없는 진단 한 문장으로 갈래만 고른다
      * (not_held · kept_active — 둘 다 A 불변식 ② 아래 설계상 0 · 0이 아니면 WARN + 지표 · 틱은 커밋).
+     * 돌려주는 값 = 갈래별 좌석 수(`seat.hold.expiry.revert{result}` — 세는 것은 호출자가 커밋 뒤에 · reverted는 0이어도 센다).
      */
-    private fun revertSeats(seats: List<Long>, ts: Timestamp) {
+    private fun revertSeats(seats: List<Long>, ts: Timestamp): Map<String, Int> {
         val ids = seats.toTypedArray()
         val reverted = jdbc.queryForList(
             """
@@ -110,18 +122,19 @@ class SweepConditionalBatch(
             """.trimIndent(),
             Long::class.java, ids, ts,
         ).toSet()
-        meters.counter(REVERT_METRIC, "path", PATH_SWEEP, "result", "reverted").increment(reverted.size.toDouble())
+        val counts = linkedMapOf("reverted" to reverted.size)
         val rest = seats.filterNot { it in reverted }
-        if (rest.isEmpty()) return
+        if (rest.isEmpty()) return counts
         val statuses = jdbc.query(
             "SELECT id, status FROM product_seat WHERE id = ANY(?::bigint[])",
             { rs, _ -> rs.getLong(1) to rs.getString(2) }, rest.toTypedArray(),
         ).toMap()
         val notHeld = rest.filter { statuses[it] != "HELD" }
         val keptActive = rest - notHeld.toSet()
-        if (notHeld.isNotEmpty()) meters.counter(REVERT_METRIC, "path", PATH_SWEEP, "result", "not_held").increment(notHeld.size.toDouble())
-        if (keptActive.isNotEmpty()) meters.counter(REVERT_METRIC, "path", PATH_SWEEP, "result", "kept_active").increment(keptActive.size.toDouble())
+        if (notHeld.isNotEmpty()) counts["not_held"] = notHeld.size
+        if (keptActive.isNotEmpty()) counts["kept_active"] = keptActive.size
         log.warn("A′ 배치가 지운 홀드의 좌석 중 되돌리지 않은 좌석이 있다(A 불변식 ② 아래 설계상 0) — not_held={} kept_active={}", notHeld, keptActive)
+        return counts
     }
 
     private class Deleted(val seatId: Long, val scheduleId: Long, val userId: Long, val extended: Boolean, val lost: Boolean)

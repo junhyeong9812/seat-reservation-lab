@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.sql.Timestamp
 import java.time.Clock
 import java.time.Instant
@@ -17,6 +19,8 @@ import java.time.Instant
  * - 홀드 행 하나만 쓴다(좌석 · 쿼터 무관). 한 홀드는 많아야 한 번 연장된다(V13 `extended_at` 표지 — E1의 `extended_at IS NULL`).
  * - 판정은 E1 영향 행 수가 하고, 0행일 때만 잠금 없는 진단(E1d)이 응답을 고른다(§설계-3 공통 규칙). 만료 비교는 `:now`(앱 Clock · 요청 시작).
  * - 지표 `seat.confirm.extend{result=extended|already|not_needed|too_late}`(§설계-8.2). 404 · 403 · 만료 409(진단 ①~③)는 태그가 정해져 있지 않아 세지 않는다.
+ *   200 갈래(extended · already · not_needed)는 커밋 뒤에만 센다(R15-16 — 롤백 · 커밋 실패면 응답도 200이 아니다). too_late는 409로 거부하며 트랜잭션이
+ *   늘 롤백되는 갈래(쓴 것 없음 — 진단 읽기뿐)라 그 자리에서 센다.
  */
 @Service
 class PaymentStartService(
@@ -46,7 +50,7 @@ class PaymentStartService(
             Timestamp.from(now.plus(minRemaining)), Timestamp.from(now.plus(window)),
         ).singleOrNull()
         if (extended != null) {
-            count(RESULT_EXTENDED)
+            countAfterCommit(RESULT_EXTENDED)
             return PaymentStartResult(holdId, extended)
         }
         return PaymentStartResult(holdId, diagnose(holdId, userId, now))
@@ -65,15 +69,15 @@ class PaymentStartService(
         if (owner != userId) throw SeatReservationException(ErrorCode.HOLD_NOT_OWNED)
         if (!expiresAt.isAfter(now)) throw SeatReservationException(ErrorCode.HOLD_EXPIRED)
         if (extendedAt != null) {
-            count(RESULT_ALREADY)
+            countAfterCommit(RESULT_ALREADY)
             return expiresAt
         }
         if (!expiresAt.isAfter(now.plus(confirmProperties.extendMinRemaining))) {
-            count(RESULT_TOO_LATE)
+            count(RESULT_TOO_LATE) // 거부 갈래 — 예외로 롤백되므로 커밋 뒤가 오지 않는다(위 머리말)
             throw SeatReservationException(ErrorCode.HOLD_EXPIRED)
         }
         if (!expiresAt.isBefore(now.plus(confirmProperties.paymentWindow))) {
-            count(RESULT_NOT_NEEDED)
+            countAfterCommit(RESULT_NOT_NEEDED)
             return expiresAt
         }
         meters.counter(AtomicConfirmProcess.UNEXPECTED_METRIC).increment()
@@ -82,6 +86,14 @@ class PaymentStartService(
     }
 
     private fun count(result: String) = meters.counter(EXTEND_METRIC, "result", result).increment()
+
+    /** 이 트랜잭션이 커밋된 뒤에만 센다(동기화가 없으면 — 트랜잭션 밖 호출 — 바로 센다) */
+    private fun countAfterCommit(result: String) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return count(result)
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCommit() = count(result)
+        })
+    }
 
     companion object {
         private val log = LoggerFactory.getLogger(PaymentStartService::class.java)

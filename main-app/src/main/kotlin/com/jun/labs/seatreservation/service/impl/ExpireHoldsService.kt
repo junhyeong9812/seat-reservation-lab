@@ -41,10 +41,13 @@ class ExpireHoldsService(
         if (properties.expiryMode != ExpiryMode.SWEEP) return lazyBatch.expire()
         counters.beginTick()
         try {
+            var sweepMetrics: () -> Unit = {} // A′ 지표 — 틱 커밋 뒤에만 센다(R15-16 · current는 아무것도 안 함)
             val count = try {
                 tx.execute {
                     val now = clock.instant()
-                    if (confirmProperties.mode != ConfirmMode.CURRENT) return@execute conditionalBatch.expireInTx(now)
+                    if (confirmProperties.mode != ConfirmMode.CURRENT) {
+                        return@execute conditionalBatch.expireInTx(now).also { sweepMetrics = it.recordAfterCommit }.deleted
+                    }
                     val expired = productSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual(now)
                         .flatMap { it.expireHolds(now) }
                     // 매수 카운터(ADR-005 counter 계열)만 실제로 지운 홀드만큼 내린다(B는 트리거가 내리고 앱은 쿼터 행만 먼저 잠근다) — 다른 매수 방식에서는 아무것도 하지 않는다
@@ -59,6 +62,7 @@ class ExpireHoldsService(
             }
             meters.counter(TICK_METRIC, "outcome", "ok").increment()
             counters.afterCommit()
+            sweepMetrics()
             return count
         } finally {
             counters.endTick()
