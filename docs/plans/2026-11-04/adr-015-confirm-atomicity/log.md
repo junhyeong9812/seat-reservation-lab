@@ -12,6 +12,8 @@
 | 11-04 23:40 | 워커 15-02(Opus · general-purpose — 재현 스모크 #1 · main 무변경 · 테스트 소스만) 착수 | 백그라운드 |
 | 11-04 23:47 | 15-02 회수(packet 원시각 23:42:18 착수 · 23:47:24~27 테스트 · 기준 7e84a4f6): `./gradlew :main-app:test --tests …Adr015ReproSmokeTest` EXIT=0 · 4/4 green(FM1-svc · FM1-http · FM3 · EPQ) · Hibernate 6.6.26 · 메인 교차 확인: PG 서버 로그 순서 `update product_seat` → `delete from seat_hold`(sysout 265-267행) · StaleObjectStateException 3회 · **가정 1 부분 성립**(결과 = 예외 → 롤백 → 500 · 이중 결과 0 · FM3 틱 롤백 — 맞음 / flush 순서 = 좌석 UPDATE → 홀드 DELETE — ADR 추정과 반대) · **가정 2 성립**(EPQ: 연장 커밋 뒤 조건부 DELETE 0행 · 대조 held_at만 바꾸면 1행) · 부수: `PESSIMISTIC_WRITE` = `FOR NO KEY UPDATE`(#4) · L-C 래치 = Hibernate StatementInspector(main 훅 불필요) | 범위 무변경(명세 §2 — 결과가 추정과 같으므로 §문제 유지) · ADR 잠금 순서 정정(JPA 경로 = 좌석 → 홀드 · ② 대조판 짝 = A′) · 테스트 커밋 c419972f |
 | 11-04 23:55 | 미완료(15-02): FM3 'X 커밋 전 배치 flush' 변형(기다림 있는 순서 — 확정 flush~커밋 사이 래치 없음) · ROLLBACK 뒤 추가 select 출처 미확인 · FM2 · #13은 15-03 범위 | 15-03 blind 테스트로 넘김 |
+| 11-04 23:51 | 워커 15-03(Opus — blind 계약 테스트 · 명세 + ADR만 · main 무변경) 착수 | 백그라운드 |
+| 11-05 00:20 | 15-03 회수(packet 원시각 23:51:01 착수 · 00:08:10~00:13:40 전체 실행 · 기준 e2c92e19): 테스트 146(adr015 패키지 5파일 · 래치 = DataSource 탭 · 대조 확정/배치 JDBC · 'V12 없음' 판 = AFTER_MIGRATE 콜백 DROP) · EXIT=1 · 66 red · 메인 교차 확인: test-results XML 합계 146 / failures 66 / errors 0 · **그린 위장 점검 통과**: current 'V12 없음' + 대조 4칸(FM1 · FM2 · FM3 · FM5) green = 하네스가 이중 결과 · 잃음을 실제로 만든다 · 새 모드 칸 red(모드별 FM1 · FM2 · FM3 · N8 · 교착 · API · 기동) · 새 모드 클래스의 green 7칸 = 보존 칸(에러 순서 4 · 성공 · 확정 직후 선점 · API 없음) · current FM2(V12) red = V12 부재(15-04 뒤 green 예정) | 테스트 커밋 · 모호점 12곳 메인 결정 → ADR §설계-10(T1~T12) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 

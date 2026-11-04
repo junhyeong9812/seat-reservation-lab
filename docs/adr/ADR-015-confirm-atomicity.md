@@ -488,6 +488,27 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 - **다시 읽은 파일(15-01b · 줄 번호 근거)**: ExpireHoldsService.kt(1-63) · ProductSeat.kt(1-87) · ExpiryCounters.kt(1-211) · ConfirmReservationService.kt(1-67) · LazyConfirmProcess.kt(1-76) · LazyExpiryBatch.kt(104-241) · LazyHoldProcess.kt(183-199 revertSeats) · ExpiryRule.kt(10-13) · AppPathInjectHook.kt(1-13) · QuotaCleanup.kt(110-140) · HoldStrategyStartupCheck.kt(1-200 · 349-363) · ApiExceptionHandler.kt(1-67) · SeatHold.kt(16-24) · application.yml(1-68) · ops/online-v9/apply.sh(1-39 · 96-113 · 225-240 · 248-259) · ops/online-v9/test-local.sh(1-30) · k6/ADR-014/compose.expiry.yml(1-36) · db/migration*/ 목록 · V1__init.sql(15-41) · V6__backfill_user_hold_quota.sql(1-31).
 
+### 설계-10 blind 테스트가 드러낸 해석 — 메인 결정(15-03 · 2026-11-05)
+
+> blind 테스트 워커(구현 미열람)가 문서만으로 기대값을 정하지 못한 12곳. 아래가 구현 · 테스트의 기준이다(설계 §5 · §8.1보다 이 절이 우선).
+
+| # | 모호점 | 결정 |
+|---|---|---|
+| T1 | 규칙 7 · N11 — '키만 있고 `target` 없음 → 거부'가 §8.1 정정('인덱스 없음 + 테스트 키')과 충돌 | **키 `unique-index-optional=true`는 test · loadtest 프로필에서만 받는다(그 밖은 기동 거부)**. 인덱스가 있으면 키는 아무 일도 하지 않는다(기동). 인덱스가 없을 때 새 모드를 띄우는 길은 이 키 하나 · `target` 값으로 판정하지 않는다 |
+| T2 | N11 '`target=11` + 키 → 기동' | **새 모드는 V13 열이 있어야 한다**(A′ B3 `RETURNING extended_at` — 모든 새 모드) → 규칙 7을 '`mode ≠ current`이면 `spring.flyway.target`이 주어졌을 때 13 이상'으로, `run` 검사의 V13 없음 거부를 ④만이 아니라 **새 모드 전부**로 넓힌다. `target=11`은 `current` 기준선 재현 전용 |
+| T3 | 거부 메시지 | `IllegalStateException` · 메시지에 위반한 키 이름(`seat.confirm.*` · `seat.hold.*`)을 넣는다 — 테스트는 원인 사슬의 ISE + 'confirm' 포함으로 본다 |
+| T4 | 기대 0 지표의 '등록 안 됨' | 없는 지표 = 0으로 읽는 것을 허용(늘어나야 하는 칸은 없으면 실패). `unique_violation`은 태그 없이 하나 |
+| T5 | ② L-C 자리 | **P1(`… FOR UPDATE`) 앞**으로 옮긴다(P2 뒤면 배치가 홀드 행에서 기다려 FM1을 만들 수 없다). '잠금을 쥔 채' 칸은 교착 점검 래치(L-S)가 맡는다. 부하 지연 주입 자리(§8.2 ② = P2 뒤 P3 앞)는 그대로 — 측정의 뜻(잠금 보유 비용)이 다르다 |
+| T6 | `payment-window` · `extend-min-remaining` 기본값 | 테스트는 2m · 5s 명시. 앱 기본값은 측정 task가 고정 — 그 전까지 ④ 모드는 두 키를 명시해야 기동(규칙 4가 `payment-window > 0`을 요구 · 기본 0) |
+| T7 | `payment-start` 200 본문 | `{holdId, expiresAt}` · `expiresAt` = ISO-8601(지금 홀드 응답과 같은 Jackson 기본) |
+| T8 | 규칙 3 범위 | 모드 무관(`current` + delay도 loadtest 프로필이 아니면 거부) |
+| T9 | FM5의 ①②③ · 'current + 연장' 셀 | 재현 테스트에서 제외(API가 ④에만 있다) — 측정 task 판단으로 남긴다 |
+| T10 | 판정기 제외 항목 | `v_stale_held_seats` · `held_no_active` · `expired_hold_rows`는 시간 · 유예에 따라 기대값이 갈려 재현 판정에서 뺀다(부하 끝 판정에서는 기존 규칙대로) |
+| T11 | 확정 직후 선점 응답 | 409 SEAT_NOT_AVAILABLE(지금 계약 — ApiExceptionHandler.kt:49) |
+| T12 | (관찰) 지금 코드에서 '기본 위치 + target=11/12' 기동이 entityManagerFactory 생성에서 실패 | 15-04가 원인 확인 — `current` + `target=11`(기준선 재현)은 반드시 떠야 한다(IndexMigrationTest 정정의 전제). 원인이 테스트 구성이면 테스트를, 앱이면 보고 |
+
+- 기존 테스트 충돌(15-04 몫 · 15-03 목록): LoadtestEndpointsTest.kt:108-114 · IndexMigrationTest.kt:15-18 · :21- · Adr014ImplStartupTest.kt:173(최대 버전 11 → 13) · Adr009DefaultsTest.kt:254 · StartupCheckOrderTest.kt:93 · 계단식 4곳(§설계-4).
+
 ## 실험 결과
 
 미측정.
