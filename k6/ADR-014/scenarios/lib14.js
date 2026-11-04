@@ -109,6 +109,16 @@ export function closeConn(req) {
   req.params.headers.Connection = 'close';
   return req;
 }
+// 생각 시간 앞 선점도 연결을 닫는다(ADR-014 §결정 · 2026-11-04 — 캠페인 20261103-adr014-fd494aea의 확정 EOF 2건 · 원인 조사 06c):
+//   서버(Tomcat 10.1.44 · Boot 3.5.5 기본)는 유휴 60초(검사 약 1초 간격 → 60~61초)에 keep-alive 연결을 닫고, k6(Go Transport)는 클라이언트 유휴 한도가 없으며
+//   재사용 연결에 이미 쓴 POST는 다시 보내지 않는다 → 선점 응답 뒤 생각 시간이 60초 언저리면 확정이 코드 0(EOF)으로 끝난다(재현: 유휴 U[60,61)초 2,000회 중 8건).
+//   생각 시간이 KEEPALIVE_SAFE_MS 이상이면 그 앞 선점을 Connection: close로 보내 확정이 늘 새 연결로 가게 한다(이 머리가 붙는 확정 = TTL 5분 칸 U[30,240]초 중 약 90% · TTL 30초 칸 0).
+//   61초 넘게 쉬는 확정은 지금도 서버가 닫은 뒤라 새 연결이었다 — 연결 조건이 실제로 바뀌는 것은 [50, 61)초 구간(약 5%)뿐. 문턱 50초 = 서버 60초보다 10초 짧게(검사 간격 · 송신 지연 여유).
+//   대가: 그 세션의 선점 409 뒤 재시도 선점도 새 연결(LAN 연결 수립 1회 — 약 0.5ms)이 된다 · 20261103 캠페인 이후 측정부터 적용(그 캠페인 결과는 이 머리 없이 쟀다).
+export const KEEPALIVE_SAFE_MS = 50000;
+export function closeBeforeLongThink(req, thinkMs) {
+  return thinkMs >= KEEPALIVE_SAFE_MS ? closeConn(req) : req;
+}
 export function send(req) {
   return http.request(req.method, req.url, req.body, req.params);
 }

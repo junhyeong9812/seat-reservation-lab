@@ -18,7 +18,7 @@ import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 import { TREND_STATS, writeSummary } from '../../ADR-009/scenarios/lib/common.js';
 import {
-  closeConn, codeOf, confirmReq, flushTally, holdBody, holdReq, mulberry32, newTally, recordSession, rej, rejectCause, send, sessionAttrs, sleepUntilSrv, BASE_URL,
+  closeBeforeLongThink, closeConn, codeOf, confirmReq, flushTally, holdBody, holdReq, mulberry32, newTally, recordSession, rej, rejectCause, send, sessionAttrs, sleepUntilSrv, BASE_URL,
 } from './lib14.js';
 
 const E = (k) => {
@@ -99,7 +99,7 @@ function afterHold(res, seat, user, a, tally, kind) {
     if (!a.revisit || !Number.isFinite(b.expMs)) return;
     sleepUntilSrv(b.expMs + a.delta_ms);
     const sent = Date.now();
-    const r2 = send(holdReq(MAIN_SCHEDULE, seat, user));
+    const r2 = send(closeBeforeLongThink(holdReq(MAIN_SCHEDULE, seat, user), a.think_ms));   // 201이면 생각 시간 뒤 확정(lib14 closeBeforeLongThink)
     let cause = '';
     if (r2.status === 409) { cause = rejectCause(r2); tally[cause] += 1; }
     revisitRec.add(1, { seat: String(seat), e: b.exp, u: String(user), sent: String(sent), st: String(r2.status), code: codeOf(r2), rej: cause });
@@ -126,7 +126,7 @@ export function blind() {
       let seat = hotSeat(r);
       while (tried.has(seat)) seat = hotSeat(r);
       tried.add(seat);
-      const res = send(holdReq(MAIN_SCHEDULE, seat, user));
+      const res = send(a.abandon ? holdReq(MAIN_SCHEDULE, seat, user) : closeBeforeLongThink(holdReq(MAIN_SCHEDULE, seat, user), a.think_ms));   // 이탈 세션은 확정이 없다
       if (res.status === 409) { tally[rejectCause(res)] += 1; flushTally(tally); continue; }   // 409만 다른 좌석으로(S3 그대로) · 다음 요청 전에 낸다(lib14 flushTally 머리말)
       if (res.status !== 201) return;                                          // 5xx·코드 0 — 세션 중단(S3 그대로 · 요약기 M11)
       afterHold(res, seat, user, a, tally, 'first');
@@ -164,7 +164,7 @@ export function mapFlow() {
       if (pool.length === 0) { mapSoldout.add(1); return; }
       const seat = pool[Math.floor(r() * pool.length)];
       prev = seat;
-      const res = send(holdReq(MAIN_SCHEDULE, seat, user));
+      const res = send(a.abandon ? holdReq(MAIN_SCHEDULE, seat, user) : closeBeforeLongThink(holdReq(MAIN_SCHEDULE, seat, user), a.think_ms));   // 이탈 세션은 확정이 없다
       if (res.status === 409) { tally[rejectCause(res)] += 1; flushTally(tally); continue; }   // 다음 좌석 맵 요청 전에 낸다(lib14 flushTally 머리말)
       if (res.status !== 201) return;
       afterHold(res, seat, user, a, tally, 'first');
