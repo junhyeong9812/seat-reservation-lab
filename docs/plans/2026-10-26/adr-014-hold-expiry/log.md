@@ -59,6 +59,7 @@
 | 11-04 10:40 | 사용자 'A 유지로 결과 문서 · 연결 끊긴 이유는 별도로' · 'A로 확정' → 정식 결론 = 고정 규칙 'A 유지 ①'(기본값 A 그대로 · DB 전환 없음) · 반사실·잡음 분석은 설명으로 · 워커 06b(Opus — ADR-014 §실험 결과·§결정 초안 · 커밋 없음) ∥ 06c(Opus — EOF 근본 원인: Tomcat·k6(Go) keep-alive 기본값 출처 확인 · PC 안 소규모 재현 · 수정안 제안만) | 결과 문서 ∥ 원인 조사 |
 | 11-04 11:30 | 06b 회수(Opus — ADR-014 §실험 결과 결과-1~8 · §결정 결정-1~5 · +145줄 · 다른 절 무변경 · 숫자 출처 표 · 어긋남 8건 보고: 배수 반올림 · 'EOF t0 무렵'은 B만(D는 t0+1,048초) 등) · 메인: 상태 줄 '결정(2026-11-04) — A 유지' · 06c 회수(Opus · 메인 교차 확인: lib14.js confirmReq에 Idempotency-Key 없음 · closeConn 주석 · 재현 로그 EOF 수): 근본 원인 확인 = Tomcat 10.1.44 keep-alive 60초(Boot 3.5.5 기본 미설정) × k6 Go Transport IdleConnTimeout 0 · 재사용 연결 POST 재시도 없음 · 재현 U[60,61)초 2,000회 EOF 8(0.40%) · 대조·Connection: close·Idempotency-Key 0건 · 실패 POST 서버 미도달 → ADR 결과-6·결정-3·한계 갱신(하네스 인공물로 확인 · 정식 판정은 고정 규칙대로) · 다음: 결과 문서 듀얼 1패스 + 재점검 | 결과 문서 리뷰 |
 | 11-04 11:45 | 결과 문서 듀얼 1패스 착수(설계 문서형 — 中 변형 상한) · base 30a29e71 · packet/결과 OUT = scratchpad/rv14res.5uY4 · 미러 = scratchpad/rv14mir.ZQgY(tracked + 캠페인 요약 자료 + _evidence-06a·06c) · 보안 스캔: 키 패턴 0 · password 1건 = 테스트 고정값(HiddenSessionTest.kt:30 'app' — 오탐) · Opus 워커 ∥ codex(medium) | 리뷰 |
+| 11-04 12:20 | 사용자 '수정 방안으로 고치고 문서화 · 스터디 노트 전부 기록 · 다음 ADR-015' → 하네스 수정 eb4d073e(lib14 closeBeforeLongThink — 생각 시간 ≥ 50초면 앞 선점 Connection: close · k6 단위 점검 PASS · 실제 회차 env로 s14-flow 해석 rc 0) · 결과 문서 리뷰 회수: codex H0·M1·L2 / Opus H1·M2·L4·OQ1 → 메인 종합(아래 ledger RR14-1~8) · **RR14-1(H) 채택 — 메인 교차 확인**: 원인이 하네스로 서면 측정-9 '캠페인 시작 뒤 하네스 결함 → 60회 전체를 새 id로(사용자 확인 뒤) · 앞 결과 superseded'(ADR-014:852) · 측정-8 A 유지 ⑤(:799) 갈래가 열림 · 반사실의 G3 여유는 회차 흔들림 안(D a50-t300 DB CPU 28.31·26.62·29.32 — 최소 26.62 < 문턱 24.54×1.10 = 26.99) → '반사실로도 A 유지'는 과장 · 재측정하면 D가 이길 수 있음 → **사용자 결정 필요(재측정 vs ⑤로 마감)** · 앞서 사용자에게 '두 방식으로 읽어도 A 유지'라고 한 보고를 정정 | 사용자 결정 대기 |
 
 ## 리뷰 ledger
 
@@ -135,6 +136,20 @@
 | CR14-29 | 3 | opus OQ1 | 01-cleanup.sql:16-19 | 채택 | fixed(3) | 권한 없는 롤에서 정지 검사 무음 통과 가능 · 검사 뒤 LOCK |
 | CR14-30 | 3 | opus OQ2 | summarize.py:1452-1461 | 메인 결정 | fixed(3) | A 판정 불가일 때 X = 판정 불가(보수 · 측정-7 재해석 행) |
 | CR14-31 | post-fix(3) | codex | 01-cleanup.sql:37·43 · Adr014ImplSweepTest.kt:223 | 채택 | fixed(post) | 잠금에서 product_schedule이 빠져 검사 뒤 세션과 교착 가능 → 함께 잠금 |
+
+## 리뷰 ledger — 결과 문서(base 30a29e71 · 1패스)
+
+| id | source | 근거 | 내용 | disposition | status |
+|---|---|---|---|---|---|
+| RR14-1 | opus(H)·codex(M) | ADR-014:852 · :799 · 결과-6/7 · 결정-4-1 | 원인=하네스면 측정-9 superseded 갈래 미기재 · 반사실을 결론 방어에 씀(D 최소 회차 26.62 < 26.99) · codex: '확인' 단정 과함 | 채택 | open(사용자 결정 대기) |
+| RR14-2 | opus(M) | 측정-9 :838 · S4c4200/B/rep*/flags | 판정 자료(expect-mismatch 3 · 1초 p99 최대 1,484.9ms · 느린 초 최대 81 · probe-timing-dropped 0 · h4-marker-unseen 35) 누락 | 채택 | open |
+| RR14-3 | opus(M) | 결과-5 · P11 · 결정-4-4 | 지도 비용을 a50-t300으로 일반화 · TTL 30초 칸(D a20-t30 지도 p99 중앙 402ms · DB CPU 1.71×) 누락 | 채택 | open |
+| RR14-4 | codex(L)·opus(L) | 결과-1 G4 | 'A 20칸' → 5칸 · 계획 대 실행 일치 근거 누락 | 채택 | open |
+| RR14-5 | opus(L) | 결과-6 | 재현 빈도 비교 분모(2/480 → 2/971 · 같은 자릿수로) | 채택 | open |
+| RR14-6 | codex(L)·opus(L) | 결과-4 P3 · by_delta | P3 설명 부분 판정 누락(자료 있음 — 성립) | 채택 | open |
+| RR14-7 | opus(L) | 결정-3 | 조건을 '≫ 아님 + P12 해소'로(1.10배 단독 아님) | 채택 | open |
+| RR14-8 | opus(OQ) | busy_rows · 비용 셀 D | D 비용 셀 DB CPU와 PC load 역상관 — 도착률 영향 여부 미확인 | open question | 결과 문서에 한계로 기록 |
+
 
 ## 생략한 검증
 
