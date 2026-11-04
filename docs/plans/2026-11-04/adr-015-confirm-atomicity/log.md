@@ -21,6 +21,9 @@
 | 11-05 02:00 | 워커 15-05(Opus — ①②③ 확정 · A′ 배치 · 지표 · ④ 확정 문장 = ① · T1 MockEnvironment 단위 테스트 · 기준 18d2c7a5 · blind 무수정) 착수 | 백그라운드 |
 | 11-05 02:38 | 15-05 회수(기준 18d2c7a5 · 원시각 02:01:38~02:04:03 대상 클래스 · 02:04:30~02:37:38 전체): `./gradlew test --continue` EXIT=1 · main-app 1077 / 10 fail / 20 skip · reconciler-app 6/6 · 메인 교차 확인: XML 합계 1077/10/0/20 · 실패 = PaymentStartContract 8 + Extend(NoV12) FM5 2(L-E 래치 = payment-start E1 필요 — 15-06 몫) · 새 모드 6클래스 전부 green(교착 대조판 포함) · blind diff 0 | 코드 커밋 327ccdcb |
 | 11-05 02:40 | 15-05 설계 편차 · 열린 점: ③ O3 0행 = 좌석 재조회 → 409 SEAT_NOT_HELD(O2가 이미 홀드를 지워 C1d 무의미) · ② P4 ≠ 1행 = ERROR + unexpected + ISE 롤백 · `seat.hold.expiry.deleted` 태그 키 집합이 A′ `{path,extended}` vs B·C·D `{path}`(Prometheus 붙이면 충돌 가능 — 15-08 리뷰 대상) · **`seat.confirm.loadtest.delay` 미배선 = 조용한 무동작**(15-09 측정 설계에서 결정 — 그 전 기동 거부 여부도 15-08에서 판단) · 확정 ① 잠금 순서 홀드 → 좌석 vs A′ 배치 순서 교착 여부 = 15-08 리뷰 렌즈 | 15-06 착수 |
+| 11-05 02:40 | 워커 15-06(Opus — ④ payment-start · 기준 1d559529) 착수 | 백그라운드 |
+| 11-05 03:15 | 15-06 회수(원시각 02:40:58~02:41:56 대상 3클래스 EXIT=0 · 02:42:05~03:14:43 전체 EXIT=0): 메인 교차 확인 XML 합계 main-app **1077 / 0 fail / 0 err / 20 skip** · reconciler-app 6/6 · 새 파일 2개만(PaymentStartService · PaymentStartController — 기존 파일 diff 0) · blind 무수정 | 코드 커밋 ee84cc5c · 편차: 진단 404/403/만료 409는 `seat.confirm.extend` 태그 없음(ADR 값 4개만 — 15-08에서 판단) · 등록 조건 = Binder로 enum 바인딩(ConditionalOnProperty 문자열 비교의 무음 누락 방지) · UseCase 인터페이스 없음 |
+| 11-05 03:17 | 워커 15-07(Opus — apply.sh outOfOrder 1회 · test-local.sh ⓐ~ⓓ · 앱 쪽 계약 테스트 · ops/confirm-unique-v12 runbook R0/R1/R2 · 기준 ee84cc5c) 착수 | 백그라운드 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
