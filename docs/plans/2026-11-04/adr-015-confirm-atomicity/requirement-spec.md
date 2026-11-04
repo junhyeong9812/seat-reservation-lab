@@ -59,7 +59,7 @@
 
 - **스모크 #1(착수 직후 · load-bearing 실증)**: 지금 `current` 확정에서 FM1 · FM3 순서를 래치로 만들고 → 고아 DELETE 0행의 예외 종류 · 롤백 · 응답 코드(500 추정)를 실측(§설계-7 #1 · #2 SQL 로그).
 - **blind 테스트(별도 Opus 워커 — 구현 diff 미열람 · 이 명세 + ADR §설계-6·8.1에서 출발)**: FM1 · FM2(V12 있음 · '없음' 판 — 전 마이그레이션 뒤 인덱스만 DROP + 테스트 키) · FM3 · FM5 · 확정 직후 선점(409) · 교착(② 좌석→홀드 대조판 40P01 · 권장판 0) × `current` · ①~④ + 대조 확정 · 대조 배치. **대조군 이중 결과 · 잃음이 0이면 테스트 실패**(그린 위장 점검). ④ API(첫 호출 · 재호출 · 동시 두 첫 호출 · not_needed · too_late) · 기동 조합표(규칙 1~7 · 거부 뒤 `flyway_schema_history` 무변경).
-- **기존 테스트**: 전체 green(지금 926 기준) — V12와 정면 충돌하는 2건(LoadtestEndpointsTest:108-114 · IndexMigrationTest:21-)은 `target=11`로 정정 · 계단식 4곳은 첫 단계 `target` 고정. 수정한 테스트는 목록 · 이유를 log에 남긴다.
+- **기존 테스트**: 전체 green(지금 926 기준) — V12와 정면 충돌하는 2건(LoadtestEndpointsTest:108-114 · IndexMigrationTest:21-)은 `target=11`로 정정(15-04 실측 — 기본 위치에 V11이 없어 `target=7`로 · ADR T12) · 계단식 4곳은 첫 단계 `target` 고정. 수정한 테스트는 목록 · 이유를 log에 남긴다.
 - **운영 절차**: `ops/online-v9/test-local.sh` 새 경우(ⓐ~ⓓ — §설계-4) green · V12 R0 사전 검사 SQL · R1 복구 틀을 runbook 문서로.
 - **부하 측정(.164)**: 측정 task가 셀 · 반복 · 길이 · 관문 G · '이기면 교체' 조건을 **측정 전에** ADR에 고정(커밋) → 실행 → 끝 판정기 이중 결과 0 · 5xx · 40P01 · `unique_violation`(새 모드 0) · `converted_after_expiry` 분포.
 - **리뷰**: stakes 높음 → 구현 diff 듀얼 리뷰 루프(≤3 · codex ∥ Opus) · 결과 문서 듀얼 1패스 + 재점검 · 머지 전 안전선 ①~⑥.
