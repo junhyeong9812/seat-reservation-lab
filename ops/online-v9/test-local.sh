@@ -22,6 +22,7 @@
 #     ⓒ outOfOrder 1회 → V10 한 개만 적용 ⓓ 그다음 outOfOrder 없이 다시 → 검증 통과(순서 밖 V9 · V10 이력을 받아들인다) · 적용 0
 #     ADR-015 R15-6 실패 주입 둘(cli): ① 위치에 V4를 잘못 넣음 → 단계 0 거부(9 이하 미적용 = {4, 9}) · 이력 무변경 ② 위치 내용이 이 저장소와 어긋남(V9 폴더에 V4 사본)
 #       → 사전 확인 통과 · 기록 ① 뒤 이력 차이 [4, 9] → history-diff 실패(쓴 행은 남는다)
+#       → R15-15 복구(README 재개 방법 A): 06-history-diff-recover.sql 미리보기(무변경) · 입력 확인 거부 둘 · COMMIT(이력 = 실행 전) · 고친 위치로 apply.sh 다시(실행 전 + V9)
 #     ⓑ~ⓓ와 cli 판은 Flyway 라이브러리(java 경로)에서만 — SQL 대체 경로면 SKIP을 출력하고 exit 3(무음 스킵 금지 · green 아님 · 아래 SKIPS)
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"; MIG="$REPO/main-app/src/main/resources/db"
@@ -256,12 +257,32 @@ ooo_reject_cases() {
   db=seat_ooo_diff; local fake="$W/fake/migration-updated-at-trigger"
   mkdir -p "$fake"; cp "$MIG/migration-updated-at-trigger/"V9__*.sql "$MIG/migration-unique/"V4__*.sql "$fake/"
   seed_old "$db" 100 "" || { FAILS=$((FAILS + 1)); return; }
+  local hpre; hpre=$(hist_str "$db")   # 기록 ① 실행 전 이력(R15-15 복구 뒤 비교)
   FLYWAY_PASSWORD="$PW" apply_to "$db" "$W/ooo-diff.json" --record cli --flyway "java -cp $CP $W/FlywayCli.java" \
     --flyway-url "jdbc:postgresql://127.0.0.1:$PORT/$db?ApplicationName=seatlab-online-v9" --locations "filesystem:$MIG/migration,filesystem:$fake"; rc=$?
   echo "--- apply.sh(R15-6 ② 위치 내용 어긋남) 출력 끝:"; tail -2 "$W/$db-apply.log"; jq -c '{result, fail_step, reason, pending_le9: .state0.pending_le9, cli: .record.cli | {rc, class, history_diff}}' "$W/ooo-diff.json"
   check "[R15-6 ②] 사전 확인 통과([9]) · exit 1 · fail_step 4 · class history-diff · 차이 [4, 9]" \
     "$(jq -c .state0.pending_le9 "$W/ooo-diff.json") $rc $(jq -r '"\(.fail_step) \(.record.cli.class)"' "$W/ooo-diff.json") $(jq -c '[.record.cli.history_diff[].version]' "$W/ooo-diff.json")" '["9"] 1 4 history-diff ["4","9"]'
   check "[R15-6 ②] 기록 ①이 쓴 행은 남는다(V4 · V9 — 지우지 않는다)" "$(hist_str "$db")" "1:true 2:true 3:true 5:true 6:true 7:true 12:true 13:true 4:true 9:true"
+  # ADR-015 R15-15: README '기록 ① 뒤 history-diff 실패' 재개 방법 A — 06-history-diff-recover.sql(미리보기 기본 · 입력 확인) → COMMIT → 고친 --locations로 apply.sh 다시
+  local hdiff out; hdiff=$(hist_str "$db")
+  recover() { docker exec -i "$NAME" psql -X -q -U seat -d "$db" -v ON_ERROR_STOP=1 -tA "$@" < "$HERE/06-history-diff-recover.sql" 2>&1; }
+  out=$(recover -v versions='{4,9}'); rc=$?
+  check "[R15-15] 미리보기 — exit 0 · RECOVER 미리보기 · 남을 이력 = 실행 전 · 이력 무변경" \
+    "$rc $(grep -c '^RECOVER 미리보기' <<< "$out") $(grep '^HISTORY ' <<< "$out" | sed 's/^HISTORY //') | $(hist_str "$db")" "0 1 $hpre | $hdiff"
+  out=$(recover -v versions='{13}' -v commit=1); rc=$?
+  check "[R15-15] 입력 확인 — V13(이력 맨 끝이 아님) 거부 · exit 3 · 이력 무변경" "$rc $(hist_str "$db")" "3 $hdiff"
+  out=$(recover -v versions='{4}' -v commit=1); rc=$?
+  check "[R15-15] 입력 확인 — V4만(뒤에 V9 — 맨 끝 연속 아님) 거부 · exit 3 · 이력 무변경" "$rc $(hist_str "$db")" "3 $hdiff"
+  out=$(recover -v versions='{4,9}' -v commit=1); rc=$?
+  check "[R15-15] COMMIT — exit 0 · RECOVER COMMIT · 이력 = 기록 ① 실행 전 · V9 열은 그대로" \
+    "$rc $(grep -c '^RECOVER COMMIT' <<< "$out") $(hist_str "$db") $(q "$db" <<< "SELECT count(*) FROM pg_attribute WHERE attrelid = 'user_hold_quota'::regclass AND attname = 'updated_at';")" "0 1 $hpre 1"
+  FLYWAY_PASSWORD="$PW" apply_to "$db" "$W/ooo-resume.json" --record cli --flyway "java -cp $CP $W/FlywayCli.java" \
+    --flyway-url "jdbc:postgresql://127.0.0.1:$PORT/$db?ApplicationName=seatlab-online-v9" --locations "filesystem:$MIG/migration,filesystem:$MIG/migration-updated-at-trigger"; rc=$?
+  echo "--- apply.sh(R15-15 재개 — 고친 위치) 출력 끝:"; tail -2 "$W/$db-apply.log"; jq -c '{result, fail_step, reason, steps: (.steps | map_values(.tries // .skipped)), cli: .record.cli | {class, history_diff}}' "$W/ooo-resume.json"
+  check "[R15-15] 재개 — apply.sh exit 0 · 단계 1~3 건너뜀 · 이력 차이 [9] · 이력 = 실행 전 + V9 · V4 객체 없음" \
+    "$rc $(jq -c '[.steps["1"].skipped, .steps["2"].skipped, .steps["3"].skipped, [.record.cli.history_diff[].version]]' "$W/ooo-resume.json") $(hist_str "$db") $(q "$db" <<< "SELECT to_regclass('uq_seat_hold_seat_id') IS NULL;")" \
+    "0 [\"exists\",\"exists\",\"valid-exists\",[\"9\"]] $hpre 9:true t"
 }
 if [[ "$FW_MODE" == java ]]; then
   ooo_case direct

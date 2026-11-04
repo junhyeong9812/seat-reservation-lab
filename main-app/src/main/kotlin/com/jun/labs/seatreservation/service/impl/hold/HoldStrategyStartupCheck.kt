@@ -61,8 +61,14 @@ class HoldStrategyMigrationGate {
         HoldStrategyStartupCheck.checkConfirmMigrationPlan(properties, confirm, reachesV13 = reaches("13"), v14Trigger = v14Predicted)
         // ADR-015 R15-2: 이번 migrate가 V12를 만들지 않으면(이미 이력에 있음 · target · 위치 밖) 지금 DB의 V12 인덱스가 곧 마이그레이션 뒤 사실이다 —
         // INVALID · 모양 다름 · (새 모드) 없음은 run이 아니라 여기서 거부한다(거부된 기동이 V13 등 다른 버전을 적용하지 않게). V12가 이번에 만들어지면 run이 본다
-        if (flyway.info().pending().none { it.version?.version == HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX_VERSION }) {
+        val pending = flyway.info().pending().mapNotNull { it.version?.version }.toSet()
+        if (HoldStrategyStartupCheck.CONFIRMED_SEAT_INDEX_VERSION !in pending) {
             HoldStrategyStartupCheck.checkConfirmedSeatIndex(confirm, HoldStrategyStartupCheck.confirmedSeatIndexState(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
+        }
+        // ADR-015 R15-11: 같은 원칙의 V13 — 이번 migrate가 V13을 적용하지 않으면(이미 이력에 있음 · target · 위치 밖) 지금 DB의 extended_at 열이 곧 마이그레이션 뒤 사실이다 —
+        // 새 모드 + 열 없음은 run이 아니라 여기서 거부한다(거부된 기동이 V14 등 다른 버전을 적용하지 않게). V13이 이번에 적용되면 run이 본다
+        if (HoldStrategyStartupCheck.EXTENDED_AT_VERSION !in pending) {
+            HoldStrategyStartupCheck.checkExtendedAtColumn(confirm, HoldStrategyStartupCheck.extendedAtColumnExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
         }
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
@@ -140,15 +146,7 @@ class HoldStrategyStartupCheck(
                     "운영이면 V12를 적용하라",
             )
         }
-        if (mode != ConfirmMode.CURRENT) {
-            val v13 = jdbc.queryForObject(
-                "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'seat_hold' AND column_name = 'extended_at'",
-                Int::class.java,
-            )!! > 0
-            check(v13) {
-                "seat.confirm.mode=${mode.key()}는 seat_hold.extended_at 열(V13 — 기본 위치)이 있어야 한다 — 없다(spring.flyway.target이 13 미만?) · ADR-015 §설계-10 T2"
-            }
-        }
+        checkExtendedAtColumn(confirm, extendedAtColumnExists(jdbc), "DB")
         checkConfirmVersionTrigger(properties, confirm, confirmVersionTriggerExists(jdbc), "DB")
     }
 
@@ -382,6 +380,21 @@ class HoldStrategyStartupCheck(
             return false
         }
 
+        /** V13 seat_hold.extended_at 열이 이 DB에 있는가(읽기만 — 빈 DB에서도 돈다 · 관문 · run 공용 단일 판정 — R15-11) */
+        fun extendedAtColumnExists(jdbc: JdbcTemplate): Boolean = jdbc.queryForObject(
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'seat_hold' AND column_name = 'extended_at'",
+            Int::class.java,
+        )!! > 0
+
+        /** V13 열 판정(관문 · run 공용 — ADR-015 §설계-10 T2 · R15-11): 새 모드인데 열이 없으면 거부. current는 열을 쓰지 않는다 */
+        fun checkExtendedAtColumn(confirm: SeatConfirmProperties, exists: Boolean, where: String) {
+            val mode = confirm.mode
+            check(mode == ConfirmMode.CURRENT || exists) {
+                "seat.confirm.mode=${mode.key()}는 seat_hold.extended_at 열(V13 — 기본 위치)이 있어야 한다 — $where 에 없다(spring.flyway.target이 13 미만? · V13 이력은 있는데 열이 지워졌으면 " +
+                    "열을 V13 정의대로 되돌리거나 flyway repair로 V13 이력을 지운 뒤 다시 적용하라) · ADR-015 §설계-10 T2"
+            }
+        }
+
         /** V14 트리거가 이 DB에 있는가(읽기만 — 빈 DB에서도 돈다) */
         fun confirmVersionTriggerExists(jdbc: JdbcTemplate): Boolean = jdbc.queryForObject(
             "SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal", Int::class.java, CONFIRM_VERSION_TRIGGER,
@@ -519,6 +532,8 @@ class HoldStrategyStartupCheck(
         const val CONFIRMED_SEAT_INDEX = "uq_reservation_confirmed_seat"
         /** 그 인덱스를 만드는 Flyway 버전(V12__reservation_confirmed_seat_unique.sql) */
         const val CONFIRMED_SEAT_INDEX_VERSION = "12"
+        /** seat_hold.extended_at 열을 만드는 Flyway 버전(V13 — 기본 위치) */
+        const val EXTENDED_AT_VERSION = "13"
         /** ADR-015 V14 — 좌석 상태 변경 버전 트리거(선택 위치) */
         const val CONFIRM_VERSION_TRIGGER = "product_seat_status_version"
         const val LOCATION_V14 = "db/migration-confirm-version"

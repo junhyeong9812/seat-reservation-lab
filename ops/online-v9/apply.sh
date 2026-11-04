@@ -30,6 +30,7 @@
 #     기록 ① Flyway CLI: migrate -target=9 -skipExecutingMigrations=true -locations=<전체 위치 중 V10 뺀 것> (+ max_applied > 9이면 -outOfOrder=true — knobs.out_of_order_cli · record.cli.args).
 #       ADR-015 R15-6: outOfOrder 판은 단계 0에서 '9 이하 미적용 = {9}'(위치 이름 → 이 저장소의 같은 폴더 · state0.pending_le9)를 먼저 본다 — 아니면 멈춘다(fail_step 0 · 아무것도 쓰지 않음).
 #       모든 기록 ①은 전후 이력 차이가 정확히 V9 한 행인지 다시 본다(record.cli.history_diff) — 아니면 class history-diff로 실패(쓴 행은 남는다 — 사람이 확인).
+#       그 뒤 확인 · 재개 절차(남은 행 · 객체 유무 · 06-history-diff-recover.sql) = ops/online-v9/README.md '기록 ① 뒤 history-diff 실패' · 앱 첫 기동 out-of-order 1회도 같은 README.
 #       실패 원인 분류: 검증 오류(Validate failed · checksum mismatch · 해석 못 한 적용 버전) = 위치·파일이 틀림 → 멈춘다(②로 가지 않는다 — ②도 같은 이력에서 실패한다) ·
 #       판 제한(유료판 기능 요구 — Flyway 11.7.2 고정 문구·예외 이름으로만: FlywayEditionUpgradeRequiredException '<판> upgrade required: <기능> is not supported by <판>' ·
 #       FlywayRedgateEditionRequiredException 'Redgate Edition Required: <기능> is not supported by OSS Edition' · 옛 FlywayTeamsUpgradeRequiredException) → ② ·
@@ -314,7 +315,7 @@ SELECT 'VERIFY_FAIL ' || :v9_n;
 }
 cli_diff_note() {   # history-diff면 쓴 행을 사유에 붙인다(지우지 않는다 — 사람이 확인)
   [[ "$(jq -r '.cli.class // ""' <<< "$REC")" == history-diff ]] || return 0
-  echo " — 이력 차이 $(jq -c '[.cli.history_diff[]? | .version]' <<< "$REC") ≠ [\"9\"] · 기록 ①(트랜잭션 밖)이 쓴 행은 남아 있다(record.cli.history_diff · 사람이 확인)"
+  echo " — 이력 차이 $(jq -c '[.cli.history_diff[]? | .version]' <<< "$REC") ≠ [\"9\"] · 기록 ①(트랜잭션 밖)이 쓴 행은 남아 있다(record.cli.history_diff · 확인 · 복구 = ops/online-v9/README.md '기록 ① 뒤 history-diff 실패')"
 }
 method=""
 case "$RECORD" in

@@ -1,10 +1,14 @@
 package com.jun.labs.seatreservation.adr015fix
 
+import com.jun.labs.seatreservation.adr015.LOC_BASE_ONLY
+import com.jun.labs.seatreservation.adr015.LOC_CONFIRM_VERSION
 import com.jun.labs.seatreservation.adr015.MODE_KEY
 import com.jun.labs.seatreservation.adr015.V12_INDEX
 import com.jun.labs.seatreservation.incremental.BootTestBase
 import com.jun.labs.seatreservation.incremental.assertStartupFailure
 import com.jun.labs.seatreservation.incremental.columnExists
+import com.jun.labs.seatreservation.incremental.triggerExists
+import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import com.jun.labs.seatreservation.support.causesOf
 import org.junit.jupiter.api.Test
 import org.springframework.jdbc.core.JdbcTemplate
@@ -18,6 +22,7 @@ import kotlin.test.assertTrue
  * - R15-2: V12 이력은 있는데 인덱스가 없음/INVALID + V13 미적용인 DB → 새 모드(없음) · 모든 모드(INVALID)가 마이그레이션 앞에서 거부 → V13(extended_at)이 생기지 않는다(스키마 · 이력 무변경).
  * - R15-10: 같은 이름이지만 모양이 다른 인덱스(비유니크 · 부분 조건 없음)는 INVALID와 같은 취급 — 모든 모드 거부 · 메시지에 사유.
  * 대조: 모양이 V12 그대로인 손으로 만든 인덱스는 통과(정규화가 표기 차이를 흡수).
+ * - R15-11: 같은 원칙의 V13 — V13 이력은 있는데 extended_at 열이 지워진 DB에서 새 모드는 마이그레이션 앞에서 거부(V14 트리거 · 이력 무변경). current는 뜬다.
  */
 class Adr015IndexGateTest : BootTestBase() {
 
@@ -95,5 +100,24 @@ class Adr015IndexGateTest : BootTestBase() {
         db.execute("DROP INDEX IF EXISTS $V12_INDEX")
         db.execute("CREATE UNIQUE INDEX $V12_INDEX ON reservation (seat_id) WHERE status = 'CONFIRMED'")
         assertNull(bootFailure(url, conditional), "V12와 같은 모양은 뜬다")
+    }
+
+    @Test
+    fun `R15-11 — V13 이력 있고 extended_at 열 DROP한 DB에서 optimistic + V14 위치는 마이그레이션 앞에서 거부(V14 트리거 없음 · 이력 무변경) · current는 뜬다`() {
+        val url = freshDbUrl()
+        boot(url, current).close()   // V1~V7 · V12 · V13(이력 success) · V14 없음
+        val db = jdbcFor(url)
+        assertTrue(db.history().any { it["version"] == "13" && it["success"] == true }, "준비: V13 이력 success")
+        db.execute("ALTER TABLE seat_hold DROP COLUMN extended_at")
+        val before = db.history()
+        val optimistic = mapOf<String, String?>(MODE_KEY to "optimistic", "spring.flyway.locations" to "$LOC_BASE_ONLY,$LOC_CONFIRM_VERSION")
+        val err = bootFailure(url, optimistic)
+        assertStartupFailure(err, "optimistic + V14 위치 · V13 이력 있음 · 열 없음", listOf("extended_at"))
+        assertTrue(reasonOf(err).contains("마이그레이션 앞 DB"), "관문(마이그레이션 앞)에서 거부해야 한다: ${reasonOf(err)}")
+        assertFalse(db.triggerExists(HoldStrategyStartupCheck.CONFIRM_VERSION_TRIGGER), "거부된 기동이 V14 트리거를 만들었다(스키마 변경)")
+        assertEquals(before, db.history(), "거부된 기동이 이력을 바꿨다")
+        assertFalse(db.columnExists("seat_hold", "extended_at"))
+        // 대조: current는 extended_at을 쓰지 않는다 — 같은 DB에서 뜬다(ADR §설계-10 T2는 새 모드만)
+        assertNull(bootFailure(url, current), "current는 extended_at 없이도 뜬다")
     }
 }
