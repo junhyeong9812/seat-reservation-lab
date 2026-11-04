@@ -509,6 +509,8 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | T11 | 확정 직후 선점 응답 | 409 SEAT_NOT_AVAILABLE(지금 계약 — ApiExceptionHandler.kt:49) |
 | T12 | (관찰) 지금 코드에서 '기본 위치 + target=11/12' 기동이 entityManagerFactory 생성에서 실패 | **원인(15-04 실측)**: Flyway `failOnMissingTarget`(기본 참) — `No migration with a target version 11 could be found`. V11은 선택 위치(seat-map)에만 있어 기본 위치 구성에서 `target=11`은 앱과 무관하게 항상 실패한다. **결정(메인 · 11-05)**: 기준선 재현 = `spring.flyway.target` = **그 구성에서 V12 앞 마지막 버전**(기본 위치만 = `7` — 스키마는 V11까지와 같다). `failOnMissingTarget=false`는 쓰지 않는다(오타 target이 조용히 통과 — 무음 실패). 이 문서의 다른 곳에 남은 '기준선 재현 `target=11`'은 모두 이 뜻으로 읽는다 |
 
+- **T1의 받아들인 한계(15-08 OQ15-5)**: 테스트 클래스패스 `config/application.properties`의 `spring.profiles.include=test`는 `bootTestRun`(로컬 실행)에도 붙는다 — 로컬에서는 `unique-index-optional=true` + 인덱스 없는 DB로 새 모드가 뜰 수 있다. 운영 jar에는 이 파일이 없다(영향 없음). 운영에서 `test` 프로필을 켜면 T1이 우회되는 것도 같은 한계(운영자 설정).
+
 - 기존 테스트 충돌(15-04 몫 · 15-03 목록): LoadtestEndpointsTest.kt:108-114 · IndexMigrationTest.kt:15-18 · :21- · Adr014ImplStartupTest.kt:173(최대 버전 11 → 13) · Adr009DefaultsTest.kt:254 · StartupCheckOrderTest.kt:93 · 계단식 4곳(§설계-4).
 
 ### 설계-11 구현 리뷰(15-08 루프 1)가 바꾼 것 — 위 절보다 우선
