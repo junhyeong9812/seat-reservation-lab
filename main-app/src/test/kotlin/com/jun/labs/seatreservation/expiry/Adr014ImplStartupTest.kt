@@ -170,7 +170,9 @@ class Adr014ImplStartupTest : BootTestBase() {
         val withV11 = freshDbUrl()
         boot(withV11, mapOf("seat.hold.expiry-mode" to "derived", "spring.flyway.locations" to "classpath:db/migration,classpath:db/migration-seat-map")).close()
         assertEquals(1, jdbcFor(withV11).queryForObject("SELECT count(*) FROM pg_indexes WHERE indexname = 'idx_product_seat_schedule_id'", Int::class.java))
-        assertEquals("11", jdbcFor(withV11).queryForObject("SELECT max(version::int)::text FROM flyway_schema_history", String::class.java))
+        // ADR-015: 기본 위치에 V12 · V13이 더해져 최대 버전은 13 — V11 적용은 이력 행으로 본다
+        assertEquals("13", jdbcFor(withV11).queryForObject("SELECT max(version::int)::text FROM flyway_schema_history", String::class.java))
+        assertEquals(1, jdbcFor(withV11).queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version = '11' AND success", Int::class.java))
 
         val defaults = freshDbUrl()
         boot(defaults, OLD_DEFAULTS_OFF).close() // 업무 앱 기본값(application.yml 위치 목록)

@@ -55,6 +55,9 @@ class ProductSeat(
         return hold
     }
 
+    /** ADR-015 관측(converted_after_expiry)용 — 그 홀드의 만료 시각, 없으면 null. 읽기만(판정은 [confirm]) */
+    fun holdExpiresAt(holdId: Long): Instant? = holds.find { it.id == holdId }?.expiresAt
+
     /** 결제 성공 후 확정. 2중 확인: 내 홀드이고 만료 전인가 → 좌석이 HELD인가. */
     fun confirm(holdId: Long, userId: Long, now: Instant) {
         val hold = holds.find { it.id == holdId }

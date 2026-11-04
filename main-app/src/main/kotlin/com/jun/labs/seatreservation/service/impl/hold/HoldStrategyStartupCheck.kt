@@ -1,7 +1,9 @@
 package com.jun.labs.seatreservation.service.impl.hold
 
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
@@ -43,12 +45,20 @@ import org.springframework.stereotype.Component
 @Configuration(proxyBeanMethods = false)
 class HoldStrategyMigrationGate {
     @Bean
-    fun holdStrategyFlywayMigrationStrategy(properties: SeatHoldProperties, environment: Environment) = FlywayMigrationStrategy { flyway ->
-        HoldStrategyStartupCheck.checkConfig(properties, environment)
+    fun holdStrategyFlywayMigrationStrategy(
+        properties: SeatHoldProperties,
+        confirm: SeatConfirmProperties,
+        environment: Environment,
+    ) = FlywayMigrationStrategy { flyway ->
+        HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
         val config = flyway.configuration
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')
         fun reaches(version: String) = target == null || target == MigrationVersion.LATEST || (target.version != null && target.isAtLeast(version))
+        // ADR-015 §설계-5 규칙 6(③ V14 짝 — 내다본 스키마: 이미 적용된 트리거 + 위치가 더할 트리거) · 규칙 7(T2 — 새 모드는 V13까지 닿아야 한다). Flyway 검증·migrate 앞
+        val v14Predicted = HoldStrategyStartupCheck.confirmVersionTriggerExists(JdbcTemplate(config.dataSource)) ||
+            (config.locations.any { it.path == HoldStrategyStartupCheck.LOCATION_V14 } && reaches("14"))
+        HoldStrategyStartupCheck.checkConfirmMigrationPlan(properties, confirm, reachesV13 = reaches("13"), v14Trigger = v14Predicted)
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
         val flywayRejects = config.isValidateOnMigrate && flyway.validateWithResult().invalidMigrations.orEmpty().any { it.errorDetails?.errorCode !in PENDING }
@@ -87,11 +97,13 @@ class HoldStrategyStartupCheck(
     private val redis: StringRedisTemplate,
     /** 프로필·만료 스케줄러 키 확인용. 직접 생성(테스트)할 때 없으면 그 두 확인은 기본값(프로필 없음·스케줄러 켬)으로 본다 */
     private val environment: Environment? = null,
+    /** ADR-015 확정 손잡이. 직접 생성(테스트)할 때 없으면 기본값(current) */
+    private val confirm: SeatConfirmProperties = SeatConfirmProperties(),
 ) : ApplicationRunner {
 
     /** 설정 검사([checkConfig] — Flyway 앞에서 이미 돌았어도 다시: Flyway가 꺼진 구성·직접 생성 테스트에서 빠지지 않게) → DB 상태가 필요한 검사 */
     override fun run(args: ApplicationArguments) {
-        checkConfig(properties, environment)
+        checkConfig(properties, environment, confirm)
         expirySchedulerOffWarning(properties, environment)?.let { log.warn(it) }
         val strategy = properties.strategy
         val uniqueIndex = jdbc.queryForObject(
@@ -106,6 +118,47 @@ class HoldStrategyStartupCheck(
             redis.connectionFactory!!.connection.use { check(it.ping() == "PONG") { "Redis 응답 없음" } }
         }
         checkCounterDriftSchema()
+        checkConfirmSchema()
+    }
+
+    /**
+     * ADR-015 §설계-5 DB 상태 검사(마이그레이션 뒤 — Flyway가 꺼진 구성에서도 빠지지 않게): V12 인덱스 · V13 열 · V14 트리거를 DB 사실로 본다.
+     * - V12 INVALID → 모든 모드 거부. 없음 → current는 WARN(기준선 재현 target=V12 앞 마지막 버전(기본 위치만 = 7 · T12)) · 새 모드는 unique-index-optional=true가 아니면 거부(N11)
+     * - V13 열 없음 + 새 모드 → 거부(T2 — 모든 새 모드)
+     * - V14 트리거: 있으면 낙관락 선점 금지 · optimistic이면 있어야 한다(규칙 6과 같은 뜻)
+     */
+    private fun checkConfirmSchema() {
+        val mode = confirm.mode
+        val valid = jdbc.queryForList(
+            "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass(?)", Boolean::class.java, CONFIRMED_SEAT_INDEX,
+        ).singleOrNull()
+        check(valid != false) {
+            "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12)가 INVALID다(seat.confirm.mode=${mode.key()}) — 같은 좌석 CONFIRMED ≤ 1을 DB가 강제하지 못한다. " +
+                "INVALID 인덱스를 지우고(DROP INDEX CONCURRENTLY) 사전 검사(R0) 뒤 다시 만들어라(ADR-015 §설계-4)"
+        }
+        if (valid == null) {
+            if (mode == ConfirmMode.CURRENT) {
+                log.warn(
+                    "확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12)가 없다 — seat.confirm.mode=current라 기동한다(기준선 재현 spring.flyway.target=V12 앞 마지막 버전(기본 위치만 = 7 · T12) · ADR-015 §설계-5). " +
+                        "운영이면 V12를 적용하라",
+                )
+            } else {
+                check(confirm.uniqueIndexOptional) {
+                    "seat.confirm.mode=${mode.key()}는 확정 유니크 인덱스 $CONFIRMED_SEAT_INDEX(V12 — 유효)가 있어야 한다 — 없다(N11). " +
+                        "기본 위치 classpath:db/migration의 V12를 적용하라(재현 테스트의 'V12 없음' 판만 test·loadtest 프로필에서 seat.confirm.unique-index-optional=true)"
+                }
+            }
+        }
+        if (mode != ConfirmMode.CURRENT) {
+            val v13 = jdbc.queryForObject(
+                "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'seat_hold' AND column_name = 'extended_at'",
+                Int::class.java,
+            )!! > 0
+            check(v13) {
+                "seat.confirm.mode=${mode.key()}는 seat_hold.extended_at 열(V13 — 기본 위치)이 있어야 한다 — 없다(spring.flyway.target이 13 미만?) · ADR-015 §설계-10 T2"
+            }
+        }
+        checkConfirmVersionTrigger(properties, confirm, confirmVersionTriggerExists(jdbc), "DB")
     }
 
     private fun exists(table: String): Boolean =
@@ -165,7 +218,9 @@ class HoldStrategyStartupCheck(
          * [run] 첫머리에서 부른다(같은 검사 · 결정적이라 두 번 불러도 결과가 같다).
          * @param environment 프로필·만료 스케줄러 키 확인용 — null이면 프로필 없음·스케줄러 켬으로 본다(직접 생성 테스트)
          */
-        fun checkConfig(properties: SeatHoldProperties, environment: Environment?) {
+        fun checkConfig(properties: SeatHoldProperties, environment: Environment?, confirm: SeatConfirmProperties = SeatConfirmProperties()) {
+            // ADR-015 확정 손잡이 규칙이 먼저 — 새 모드의 조합 위반은 다른 검사 문구보다 앞서 seat.confirm.* 키로 알린다(T3)
+            checkConfirmConfig(properties, environment, confirm)
             val strategy = properties.strategy
             check(properties.limitStrategy == UserLimitStrategyType.NONE || strategy == HoldStrategyType.PESSIMISTIC_NOWAIT) {
                 "매수 방식 ${properties.limitStrategy}는 좌석 전략 PESSIMISTIC_NOWAIT에서만 쓴다(현재 $strategy) — 락 순서·격리 수준 설정이 이 조합을 전제한다"
@@ -207,6 +262,86 @@ class HoldStrategyStartupCheck(
                     "seat.hold.counter-drift.cleanup.mode=schedule로 두거나 seat.hold.expiry-mode=lazy-sweep·derived·sweep으로 띄워라(ADR-014 §설계-3.4 · 코드 리뷰 CR14-1)"
             }
         }
+
+        /**
+         * ADR-015 §설계-5 규칙 1~5 + §설계-10 T1 · T8 — 설정(바인딩 값 · 프로필)만으로 판정. 손잡이를 주지 않으면(current · 지연 0 · 키 false) 통과한다.
+         * 거부는 [IllegalStateException] · 메시지에 위반한 키 이름(T3).
+         */
+        private fun checkConfirmConfig(properties: SeatHoldProperties, environment: Environment?, confirm: SeatConfirmProperties) {
+            val mode = confirm.mode
+            val profiles = environment?.activeProfiles.orEmpty().toSet()
+            val loadtest = LOADTEST_PROFILE in profiles
+            // 규칙 3(T8 — 모드 무관): 확정 지연 주입은 측정 장치
+            val delay = confirm.loadtest.delay
+            check(!delay.isNegative) { "seat.confirm.loadtest.delay는 0 이상이어야 한다(현재 $delay)" }
+            check(delay.isZero || loadtest) {
+                "seat.confirm.loadtest.delay=$delay(확정 지연 주입)는 $LOADTEST_PROFILE 프로필에서만 쓴다 — 측정 장치다(ADR-015 §설계-5 규칙 3)"
+            }
+            // T1: V12 없이 새 모드를 띄우는 키는 테스트 · 측정 프로필에서만(일반 배포에서 인덱스 없음을 가리는 데 쓸 수 없다)
+            check(!confirm.uniqueIndexOptional || loadtest || TEST_PROFILE in profiles) {
+                "seat.confirm.unique-index-optional=true는 $TEST_PROFILE · $LOADTEST_PROFILE 프로필에서만 받는다(재현 테스트의 'V12 없음' 판 — ADR-015 §설계-10 T1) — " +
+                    "현재 프로필 $profiles"
+            }
+            if (mode == ConfirmMode.CURRENT) return
+            val key = "seat.confirm.mode=${mode.key()}"
+            // 규칙 1: B·C·D는 확정 첫머리에서 LazyConfirmProcess로 가므로 손잡이가 조용히 무시된다
+            check(properties.expiryMode == ExpiryMode.SWEEP) {
+                "$key 는 seat.hold.expiry-mode=sweep(A)에서만 쓴다 — 현재 ${properties.expiryMode}(B·C·D 확정은 ADR-014 최소 가드 그대로). " +
+                    "seat.hold.expiry-mode=sweep으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 1)"
+            }
+            // 규칙 2: 새 모드의 정합 논리는 좌석 3b(선점 NOWAIT) · 매수 counter-upsert-precheck(쿼터 행 → 홀드 → 좌석 잠금 순서) 위에 선다
+            check(properties.strategy == HoldStrategyType.PESSIMISTIC_NOWAIT && properties.limitStrategy == COUNTER_UPSERT_PRECHECK) {
+                "$key 는 seat.hold.strategy=pessimistic-nowait + seat.hold.limit-strategy=counter-upsert-precheck(기본 조합)에서만 쓴다 " +
+                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. 기본 조합으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 2)"
+            }
+            // 규칙 4: ④ 연장 창
+            if (mode == ConfirmMode.CONDITIONAL_EXTEND) {
+                val window = confirm.paymentWindow
+                val min = confirm.extendMinRemaining
+                check(window > java.time.Duration.ZERO && !min.isNegative && min < window) {
+                    "$key 는 seat.confirm.payment-window > 0 · 0 ≤ seat.confirm.extend-min-remaining < payment-window여야 한다 " +
+                        "— 현재 payment-window=$window · extend-min-remaining=$min(두 키를 명시하라 — ADR-015 §설계-5 규칙 4 · §설계-10 T6)"
+                }
+            }
+            // 규칙 5: 주입 이음새(afterExpiryDecrement)는 JPA 배치의 가드 감소에만 있다 — A′와 함께 켜면 주입이 조용히 빠진다
+            check(!properties.loadtest.injectApp.enabled) {
+                "$key 와 측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 함께 쓰지 않는다 — 주입 expiry 경로는 JPA 배치(current)의 감소 안에만 있다. " +
+                    "inject-app.enabled=false로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 5)"
+            }
+        }
+
+        /**
+         * ADR-015 §설계-5 규칙 6 · 7(T2) — Flyway가 쓸 설정(target · 위치)과 이미 적용된 V14 트리거로 내다본 스키마에서 판정한다([HoldStrategyMigrationGate] — migrate 앞).
+         * @param reachesV13 target이 13에 닿는가(target을 주지 않으면 참) · @param v14Trigger 마이그레이션 뒤 V14 트리거가 있을 것인가
+         */
+        fun checkConfirmMigrationPlan(properties: SeatHoldProperties, confirm: SeatConfirmProperties, reachesV13: Boolean, v14Trigger: Boolean) {
+            val mode = confirm.mode
+            check(mode == ConfirmMode.CURRENT || reachesV13) {
+                "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 13 이상이어야 한다(V12 유니크 인덱스 · V13 extended_at 열) — target 12 이하는 current 기준선 재현 전용이다" +
+                    "(ADR-015 §설계-5 규칙 7 · §설계-10 T2)"
+            }
+            checkConfirmVersionTrigger(properties, confirm, v14Trigger, "내다본 스키마")
+        }
+
+        /** 규칙 6 · run 검사 공용: V14 트리거가 있으면 낙관락 선점 금지 · optimistic이면 트리거가 있어야 한다 */
+        private fun checkConfirmVersionTrigger(properties: SeatHoldProperties, confirm: SeatConfirmProperties, trigger: Boolean, where: String) {
+            check(!(trigger && properties.strategy == HoldStrategyType.OPTIMISTIC)) {
+                "좌석 버전 트리거(V14 — $CONFIRM_VERSION_TRIGGER · $where)가 있으면 낙관락 선점(seat.hold.strategy=optimistic)을 쓰지 않는다 — 트리거가 먼저 version을 올려 " +
+                    "선점이 늘 진다(ADR-015 §3.3 (가)). spring.flyway.locations에서 classpath:$LOCATION_V14 를 빼거나(아직 적용 전일 때만) 다른 좌석 전략으로 띄워라 " +
+                    "(seat.confirm.mode=${confirm.mode.key()})"
+            }
+            check(confirm.mode != ConfirmMode.OPTIMISTIC || trigger) {
+                "seat.confirm.mode=optimistic은 좌석 버전 트리거(V14 — $CONFIRM_VERSION_TRIGGER)가 있어야 한다 — $where 에 없다. " +
+                    "spring.flyway.locations에 classpath:$LOCATION_V14 를 더하라(목록 전체를 덮어쓴다 — 기본 위치 포함 · ADR-015 §설계-5 규칙 6)"
+            }
+        }
+
+        /** V14 트리거가 이 DB에 있는가(읽기만 — 빈 DB에서도 돈다) */
+        fun confirmVersionTriggerExists(jdbc: JdbcTemplate): Boolean = jdbc.queryForObject(
+            "SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal", Int::class.java, CONFIRM_VERSION_TRIGGER,
+        )!! > 0
+
+        private fun ConfirmMode.key() = name.lowercase().replace('_', '-')
 
         private fun checkCounterDriftConfig(properties: SeatHoldProperties, environment: Environment?) {
             val limit = properties.limitStrategy
@@ -332,6 +467,13 @@ class HoldStrategyStartupCheck(
         }
 
         const val LOADTEST_PROFILE = "loadtest"
+        /** 테스트 실행 프로필(main-app 테스트 클래스패스 config/application.properties가 spring.profiles.include로 더한다) — ADR-015 T1 */
+        const val TEST_PROFILE = "test"
+        /** ADR-015 V12 — 확정 예약 부분 유니크 인덱스(기본 위치) */
+        const val CONFIRMED_SEAT_INDEX = "uq_reservation_confirmed_seat"
+        /** ADR-015 V14 — 좌석 상태 변경 버전 트리거(선택 위치) */
+        const val CONFIRM_VERSION_TRIGGER = "product_seat_status_version"
+        const val LOCATION_V14 = "db/migration-confirm-version"
         /** 쿼터 테이블(user_hold_quota)을 읽거나 쓰는 매수 방식 */
         val QUOTA_TABLE_STRATEGIES = setOf(COUNTER, COUNTER_UPSERT, COUNTER_UPSERT_PRECHECK, COUNTER_TRIGGER, QUOTA_LOCK, QUOTA_NOWAIT, QUOTA_NOWAIT_EARLY)
         /** cnt를 유지하는 매수 방식(카운터 계열) — 단일 출처는 [UserLimitStrategyType.COUNTER_FAMILY] */

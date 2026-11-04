@@ -33,8 +33,12 @@ class FirstWindowPageTest : BootTestBase() {
         }
     }
 
-    private fun migrate(url: String, vararg locations: String) {
-        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(*locations).load().migrate()
+    /**
+     * 계단식 준비(옛 앱 DB → V9 추가 → 앱이 V10): 각 단계는 [target]에서 멈춘다 — ADR-015 기본 위치 V12 · V13이 앞 단계에서 먼저 적용되면
+     * 뒤 단계의 V9 · V10이 '적용된 버전보다 낮은 미적용'이 되어 Flyway 검증이 거부한다(outOfOrder 기본 false · ADR-015 §설계-4 순서 함정).
+     */
+    private fun migrate(url: String, target: String, vararg locations: String) {
+        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(*locations).target(target).load().migrate()
     }
 
     private fun raw(url: String) = DriverManager.getConnection(url, dbUser, dbPassword).apply { autoCommit = false }
@@ -48,12 +52,12 @@ class FirstWindowPageTest : BootTestBase() {
 
     /** V1~V7 + 쿼터 행(맞는 쌍 [ok]개 · 어긋난 쌍 [bad]개 — cnt 2 · 홀드 1) + V9 트리거판. 반환 = (회차, 맞는 사용자, 어긋난 사용자) */
     private fun seedThenV9(url: String, ok: Int, bad: Int): Triple<Long, List<Long>, List<Long>> {
-        migrate(url, LOC_BASE)
+        migrate(url, "7", LOC_BASE)
         val db = jdbcFor(url)
         val s = db.seedSchedule()
         val oks = (1..ok).map { 5_000L + it }.onEach { u -> db.quota(s, u, 1); db.hold(s, u) }
         val bads = (1..bad).map { 6_000L + it }.onEach { u -> db.quota(s, u, 2); db.hold(s, u) }
-        migrate(url, LOC_BASE, LOC_V9_TRG)
+        migrate(url, "9", LOC_BASE, LOC_V9_TRG)
         return Triple(s, oks, bads)
     }
 
@@ -84,7 +88,7 @@ class FirstWindowPageTest : BootTestBase() {
     fun `나 — V9보다 먼저 시작해 V9 뒤에 쿼터 행을 고친 트랜잭션(표시 lt m)은 첫 틱 후보에 든다`() {
         val url = freshDbUrl()
         val db = jdbcFor(url)
-        migrate(url, LOC_BASE)
+        migrate(url, "7", LOC_BASE)
         val s = db.seedSchedule()
         val others = (1..4).map { 7_000L + it }.onEach { u -> db.quota(s, u, 1); db.hold(s, u) }
         val x = 7_100L
@@ -92,7 +96,7 @@ class FirstWindowPageTest : BootTestBase() {
         raw(url).use { early ->
             early.exec("SELECT 1")                                      // V9 트랜잭션보다 먼저 시작(쿼터 테이블 락 없음)
             val start = early.txNow()
-            migrate(url, LOC_BASE, LOC_V9_TRG)
+            migrate(url, "9", LOC_BASE, LOC_V9_TRG)
             early.exec("UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ?", s, x)   // 트리거 값 = 시작 시각 < m
             early.commit()
             val m = db.queryForObject(
@@ -194,7 +198,7 @@ class FirstWindowPageTest : BootTestBase() {
     fun `N8 — V9 기록 + V10 미적용 + INVALID 인덱스 → 마이그레이션 전 거부 · 스키마 무변경 · 지우고 다시 만들면 V10만 적용해 뜬다`() {
         val url = freshDbUrl()
         val db = jdbcFor(url)
-        migrate(url, LOC_BASE, LOC_V9_TRG)                                    // V1~V7 + V9(이력 success) · V10 없음
+        migrate(url, "9", LOC_BASE, LOC_V9_TRG)                                    // V1~V7 + V9(이력 success) · V10 없음
         db.update("UPDATE pg_index SET indisvalid = false WHERE indexrelid = '${IncrementalSchemaCheck.UPDATED_AT_INDEX}'::regclass")
         fun catalog() = db.queryForList(
             "SELECT c.relname, c.relkind::text, i.indisvalid, i.indisready FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
@@ -214,7 +218,8 @@ class FirstWindowPageTest : BootTestBase() {
         db.execute("CREATE INDEX ${IncrementalSchemaCheck.UPDATED_AT_INDEX} ON user_hold_quota (updated_at)")
         boot(url, incrementalProps("trigger", LOCS_TRG)).use { _ ->
             V10_TABLES.forEach { t -> assertTrue(db.tableExists(t), "V10($t)") }
-            assertEquals(listOf("10"), db.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank > (SELECT max(installed_rank) FROM flyway_schema_history WHERE version = '9')", String::class.java))
+            // V9는 다시 돌지 않는다 — 뒤에 붙는 것은 V10과 ADR-015 기본 위치 V12 · V13(준비 단계가 target 9에서 멈췄으므로)
+            assertEquals(listOf("10", "12", "13"), db.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank > (SELECT max(installed_rank) FROM flyway_schema_history WHERE version = '9') ORDER BY installed_rank", String::class.java))
         }
     }
 
