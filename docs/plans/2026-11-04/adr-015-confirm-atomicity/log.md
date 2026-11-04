@@ -19,6 +19,8 @@
 | 11-05 01:55 | T12 원인 = Flyway `failOnMissingTarget`(V11은 seat-map 선택 위치에만) → **메인 결정 (a)**: 기준선 재현 = V12 앞 마지막 버전(기본 위치 = 7) · `failOnMissingTarget=false` 기각(무음 통과) · ADR T12 행 · 명세 · V12/기동 검사 주석 정정 · 재실행(StartupContract 12 · IndexMigration 3) EXIT=0 | T1 구현 = 테스트 클래스패스 `config/application.properties`의 `spring.profiles.include=test`(시스템 속성 방식은 Adr012DefaultsContractTest:93 전제와 충돌해 기각) — **한계**: '키 + 프로필 없음 → 거부'를 Boot 기동으로 재는 테스트 없음 → 15-05에서 `checkConfig` + MockEnvironment 단위 테스트 추가 |
 | 11-05 01:58 | 15-04 코드 커밋 9ee082f4(17파일 +383/−52 · docs 미포함) | 설계와 다른 곳: 새 모드 확정 ISE 거부(15-05에서 제거) · ExpireHoldsService A′ 분기 미착수(15-05) · 규칙 3에 delay<0 거부 추가 · V14 트리거 판정 = 이름 · 미완료: CONCURRENTLY 판 V12(#5 뒤) · 15-07 runbook |
 | 11-05 02:00 | 워커 15-05(Opus — ①②③ 확정 · A′ 배치 · 지표 · ④ 확정 문장 = ① · T1 MockEnvironment 단위 테스트 · 기준 18d2c7a5 · blind 무수정) 착수 | 백그라운드 |
+| 11-05 02:38 | 15-05 회수(기준 18d2c7a5 · 원시각 02:01:38~02:04:03 대상 클래스 · 02:04:30~02:37:38 전체): `./gradlew test --continue` EXIT=1 · main-app 1077 / 10 fail / 20 skip · reconciler-app 6/6 · 메인 교차 확인: XML 합계 1077/10/0/20 · 실패 = PaymentStartContract 8 + Extend(NoV12) FM5 2(L-E 래치 = payment-start E1 필요 — 15-06 몫) · 새 모드 6클래스 전부 green(교착 대조판 포함) · blind diff 0 | 코드 커밋 327ccdcb |
+| 11-05 02:40 | 15-05 설계 편차 · 열린 점: ③ O3 0행 = 좌석 재조회 → 409 SEAT_NOT_HELD(O2가 이미 홀드를 지워 C1d 무의미) · ② P4 ≠ 1행 = ERROR + unexpected + ISE 롤백 · `seat.hold.expiry.deleted` 태그 키 집합이 A′ `{path,extended}` vs B·C·D `{path}`(Prometheus 붙이면 충돌 가능 — 15-08 리뷰 대상) · **`seat.confirm.loadtest.delay` 미배선 = 조용한 무동작**(15-09 측정 설계에서 결정 — 그 전 기동 거부 여부도 15-08에서 판단) · 확정 ① 잠금 순서 홀드 → 좌석 vs A′ 배치 순서 교착 여부 = 15-08 리뷰 렌즈 | 15-06 착수 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
