@@ -89,14 +89,14 @@
 | A7 | 커밋 flush: `UPDATE product_seat SET …, status = 'RESERVED' WHERE id = ?` — **상태 조건 없음 · 버전 없음**(V3 `version` 열은 엔티티에 매핑하지 않는다 — V3__add_seat_version.sql:1-2) | 좌석 행(`FOR NO KEY UPDATE` 급) | ProductSeat.kt:36-37 |
 | A8 | `changes.changed(회차, 사용자)`(ADR-012 ⓐ 메모리 집합 등록 — method ≠ memory면 아무것도 안 함) · 쿼터 행은 건드리지 않는다(확정 = 홀드 −1 · 예약 +1 → cnt 그대로) | — | ConfirmReservationService.kt:59-60 · UserLimitStrategies.kt:224 주석 |
 
-- A6·A7의 순서는 Hibernate flush 규칙(고아 삭제가 UPDATE보다 먼저) (추정 `[구현 검증]` #2). 만료 배치도 같은 JPA 경로라 같은 순서다(아래).
+- ~~A6·A7의 순서는 Hibernate flush 규칙(고아 삭제가 UPDATE보다 먼저)~~ **정정(15-02 실측 — Hibernate 6.6.26 · PG 서버 실행 로그 · Adr015ReproSmokeTest)**: flush는 **좌석 UPDATE(A7) → 고아 DELETE(A6)** 순이다. 만료 배치도 같다(가드 감소 JDBC → 좌석 UPDATE → 홀드 DELETE). 그래서 0행 DELETE 예외는 좌석 UPDATE가 이미 실행된 뒤에 나고, 롤백이 그 UPDATE를 되돌린다 — 지금 정합은 롤백 하나가 지킨다. 결과(FM1 · FM3 이중 결과 0 · 진 확정 HTTP 500 · 예외 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` · FM3 틱 전체 롤백)는 §설계-1 추정과 같다. JPA 경로의 잠금 순서는 확정 = FK 검사 → 좌석 → 홀드 · 배치 = 쿼터 → 좌석 → 홀드(둘이 같은 방향이라 `current` 짝에 고리는 없다). Hibernate `PESSIMISTIC_WRITE` = `FOR NO KEY UPDATE`(#4 답).
 - **경합 창**: W1 = A2·A3(잠금 없는 읽기) ~ A5·A6·A7(쓰기). W2 = A1의 `:now`(트랜잭션 시작에 고정) ~ 커밋. 만료 직전에 시작해 만료 뒤에 커밋하는 확정은 지금도 허용된다(판정 시각 = 트랜잭션 시작 — ADR-014 §설계-2.2와 같은 규칙).
 
 **W1에 끼어들 수 있는 경로**(기본 조합 · 앱 1대):
 
 | 경로 | 문장 순서 | 잠금 순서 | 근거 |
 |---|---|---|---|
-| 만료 배치(A) | 틱 = 트랜잭션 1 · `findDistinctByHoldsExpiresAtLessThanEqual(앱 now)`(잠금 없음) → `expireHolds` = 만료 홀드 제거 + `HELD`면 `AVAILABLE` → 쿼터 가드 감소(JDBC — 즉시) → 커밋 flush(홀드 DELETE → 좌석 UPDATE) | 쿼터 행(정렬) → 홀드 행 → 좌석 행 (추정 — JDBC 문장은 JPA flush를 일으키지 않는다) | ExpireHoldsService.kt:38-45 · ProductSeatRepository.kt:18 · ProductSeat.kt:76-86 · ExpiryCounters.kt:49-63 |
+| 만료 배치(A) | 틱 = 트랜잭션 1 · `findDistinctByHoldsExpiresAtLessThanEqual(앱 now)`(잠금 없음) → `expireHolds` = 만료 홀드 제거 + `HELD`면 `AVAILABLE` → 쿼터 가드 감소(JDBC — 즉시) → 커밋 flush(좌석 UPDATE → 홀드 DELETE — 15-02 실측) | 쿼터 행(정렬) → 좌석 행 → 홀드 행 (15-02 실측 — 감소 JDBC는 flush 앞에서 즉시) | ExpireHoldsService.kt:38-45 · ProductSeatRepository.kt:18 · ProductSeat.kt:76-86 · ExpiryCounters.kt:49-63 |
 | 선점(다른 사용자 Y) | 회차 `FOR SHARE` → 좌석 선조회(`AVAILABLE` 아니면 409) → 쿼터 upsert → 좌석 `FOR UPDATE NOWAIT` → `assertHoldable`(잠근 뒤 `AVAILABLE` 확인) → 홀드 INSERT + 좌석 `HELD` | 회차(공유) → 쿼터 행 → 좌석 행(NOWAIT — 기다리지 않음) | SalesCloseGate.kt:50-52 · UserLimitStrategies.kt:320-341 · DbLockHoldStrategies.kt:53-60 · ProductSeatRepository.kt:31-34 · HoldSeatProcess.kt:70-89 |
 | 같은 홀드의 두 번째 확정(재시도 · 두 탭) | A0~A8 그대로 | 위와 같음 | — |
 | 정리 ①(마감 회차) | 회차 `FOR UPDATE` → 홀드 있으면 아무것도 안 지움 · 없으면 쿼터 행 삭제 | 회차 행(배타) | QuotaCleanup.kt:117-136 |
@@ -121,6 +121,7 @@
 | FM4 응답 계약 | FM1~FM3의 진 쪽 | 5xx(계약 밖 · ADR-016이 '확정 실패'를 404·409로 가를 수 없다) — 단 V12가 있으면 FM2의 진 쪽은 409(매핑) | 진 쪽이 없다(이중 결과) |
 | FM5 연장을 잃음(④) | ① 배치가 내 홀드를 만료 후보로 읽음(배치 `:now ≥` 원래 `te`) ② 내 `payment-start`가 연장 커밋(`expires_at` → `:now′ + window` · `extended_at` 기록) ③ 배치가 그 홀드를 지움 | 지금 JPA 배치(id로만 지움): 연장된 홀드가 지워진다 → 좌석 `AVAILABLE` → 내 확정 404(정합은 지키지만 연장이 무효) | 대조 배치도 같다(지워짐 · 잃음 1) |
 
+- **15-02 실측(`current` — Adr015ReproSmokeTest)**: FM1 = X 확정 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` → 롤백(예약 INSERT · 좌석 UPDATE 함께 사라짐) → **HTTP 500**(Spring 기본 오류 JSON — `ApiExceptionHandler` 밖) · 끝 상태 좌석 HELD · Y 홀드 1 · 예약 0 · 판정기 전부 0. FM3 = 배치가 같은 예외로 **틱 전체 롤백**(가드 감소도 사라짐 · `seat.hold.expiry.tick{outcome=failed}` +1) · X 확정 성공 · 판정기 전부 0. 정정: FM3의 '배치 DELETE가 X를 기다린 뒤 0행'은 이번 순서(X가 L-B 대기 중 커밋)에선 기다림 없이 0행이었고, flush가 좌석 UPDATE를 먼저 보내므로 X 커밋 전이면 배치가 기다리는 곳은 좌석 행이다(추정 — 미실측). 진 배치는 낡은 `AVAILABLE` 좌석 UPDATE를 **실제로 실행한 뒤** 롤백된다 — '가드가 없으면' 칸의 덮어쓰기 모양과 같다.
 - **새 모드(①~④ + A′ 배치)의 기대**: FM1 → 404(C1 · P1 · O2가 0행) · FM2 → 404(뒤 쪽이 홀드 행에서 기다린 뒤 0행 — 예약 INSERT 앞이라 V12 유무와 무관) · FM3 → 확정 성공 · A′ 배치는 그 홀드를 0행으로 지나가고(감소 0 · 좌석 되돌림 0행) **틱은 커밋**(다른 좌석 만료는 그대로 진행) · FM5 → A′ 배치의 조건부 DELETE가 EPQ로 연장된 `expires_at`을 다시 보고 지우지 않는다(잃음 0).
 - 정리 ①과 확정은 기다림만 있다(정리 ①이 회차 행 `FOR UPDATE`를 쥐는 동안 A5의 FK 검사가 기다린다 — QuotaCleanup.kt:120-123 주석) — 이중 결과 모양이 아니므로 재현 대상에서 뺀다(교착 점검은 §설계-3.5).
 - 선점 쪽이 '예약된 좌석 위에 홀드'(§함께 검증할 경합 첫 항목)를 만드는 길은 기본 조합 A에 없다(추정): 선점은 좌석을 `FOR UPDATE NOWAIT`로 잠근 **뒤** `AVAILABLE`을 다시 보고(DbLockHoldStrategies.kt:54 → HoldSeatProcess.kt:74-77), 확정은 좌석을 `AVAILABLE`로 만들지 않으며 홀드 삭제와 좌석 `RESERVED`를 한 트랜잭션에서 한다. 그래서 초안 후보 '선점 시 좌석 행 `FOR SHARE`'는 지금 잠금(`FOR UPDATE NOWAIT`)보다 약한 것으로 바꾸는 셈이라 **넣지 않는다**(재현 테스트에 '확정 커밋 직후 선점' 칸만 둔다 — 기대 409).
@@ -139,7 +140,7 @@
   - `clock=db`: 홀드를 지우는 전환 문장이 `RETURNING …, clock_timestamp() > expires_at AS late`로 같이 돌려준다(① C1 · ④ C1 · ③ O2 · ② P4 — `clock_timestamp()` = 그 문장을 실행한 DB 시각 · 트랜잭션 시작 시각인 `now()`가 아니다). 새 모드만.
   - `clock=app`: 커밋 뒤(`TransactionSynchronization.afterCommit`) 앱 `clock.instant() > expires_at`. 모든 A 모드(`current` 포함 — `current`는 `ProductSeat.confirm` 앞에 찾은 홀드의 `expiresAt`(SeatHold.kt:20)을 들고 있다가 커밋 뒤 비교 · SQL은 바꾸지 않는다).
   - 기대: 0이 아닐 수 있다(만료 직전 시작 · 지연 주입 — 설계상 허용되는 성공). 이것은 '이중 결과'가 아니라 **`:now` 규칙이 허용한 창의 크기**다 — 측정에서 모드별 분포(건수 · `전환 시각 − expires_at` 최대)를 남긴다. 두 시계 차는 `[구현 검증]` #12.
-- **잠금 순서(A 전체)**: 기다리는 잠금은 **쿼터 행 → 홀드 행 → 좌석 행** 순(배치가 이 순서 — 설계-1). 확정은 쿼터 행을 잡지 않으므로 **홀드 행 → 좌석 행 → (예약 INSERT FK 검사: 회차 · 좌석 `FOR KEY SHARE`)**. 선점의 좌석 잠금은 NOWAIT라 기다리지 않는다. 초안 §함께 검증할 경합의 '사용자(advisory) → 좌석 → 홀드'는 기본 조합(쿼터 행 — advisory 아님)과 A 배치 flush 순서(홀드 → 좌석)에 맞지 않는다 — 확정이 좌석을 먼저 잡으면 배치와 교착한다(§3.2 · 열린 질문 Q2).
+- **잠금 순서(A 전체)**: 기다리는 잠금은 **쿼터 행 → 홀드 행 → 좌석 행** 순(새 모드의 배치 A′가 이 순서 — §3.6. 정정 15-02: `current`의 JPA 배치는 쿼터 → 좌석 → 홀드지만 Q15로 새 확정 모드와 짝지어지지 않는다). 확정은 쿼터 행을 잡지 않으므로 **홀드 행 → 좌석 행 → (예약 INSERT FK 검사: 회차 · 좌석 `FOR KEY SHARE`)**. 선점의 좌석 잠금은 NOWAIT라 기다리지 않는다. 초안 §함께 검증할 경합의 '사용자(advisory) → 좌석 → 홀드'는 기본 조합(쿼터 행 — advisory 아님)과 A′ 배치 순서(홀드 → 좌석)에 맞지 않는다 — 새 모드 확정이 좌석을 먼저 잡으면 A′ 배치와 교착한다(§3.2 · 열린 질문 Q2).
 
 #### 3.1 ① 조건부 문장 — 전환 문장의 WHERE가 곧 확인 (`seat.confirm.mode=conditional`)
 
@@ -182,7 +183,7 @@ DELETE FROM seat_hold WHERE id = :hold RETURNING clock_timestamp() > expires_at 
 INSERT INTO reservation (…) VALUES (…) RETURNING id;     -- C3과 같다
 ```
 
-- **잠금 순서 = 홀드 → 좌석**(초안 '좌석 → 홀드'를 바꾼다 — Q2). 좌석을 먼저 잡으면: ① ②가 좌석 S를 잠금 ② 배치 flush가 내 홀드 h를 DELETE(행 잠금 획득) 뒤 좌석 S UPDATE에서 ②를 기다림 ③ ②의 P1이 h에서 배치를 기다림 → **고리(40P01 — 교착 탐지로 한쪽 롤백)**. 배치가 홀드 → 좌석 순서로 쓰기 때문이다(설계-1 — 추정 `[구현 검증]` #2·#3). ADR-014 B·C·D 확정(`LazyConfirmProcess` — 좌석 K2 → 홀드 K3)은 좌석 → 홀드지만, 그쪽 배치는 좌석을 `SKIP LOCKED`로 먼저 잡거나(C) 좌석을 쓰지 않아(D) 고리가 없다(ADR-014 §3.2) — A 배치는 그렇지 않다. 재현 테스트에 '좌석 → 홀드' 대조판을 넣어 40P01이 나는 것을 한 번 보인다(§설계-7 #9).
+- **잠금 순서 = 홀드 → 좌석**(초안 '좌석 → 홀드'를 바꾼다 — Q2). 좌석을 먼저 잡으면: ① ②가 좌석 S를 잠금 ② A′ 배치 B3이 내 홀드 h를 DELETE(행 잠금 획득) 뒤 B5 좌석 S UPDATE에서 ②를 기다림 ③ ②의 P1이 h에서 배치를 기다림 → **고리(40P01 — 교착 탐지로 한쪽 롤백)**. A′가 홀드 → 좌석 순서로 쓰기 때문이다(§3.6 · `[구현 검증]` #3). 정정 15-02: JPA 배치(`current`)는 좌석 → 홀드 순이라 '좌석 → 홀드' 판과 고리가 닫히지 않는다 — 대조판은 A′ 배치와 짝지어 보인다. ADR-014 B·C·D 확정(`LazyConfirmProcess` — 좌석 K2 → 홀드 K3)은 좌석 → 홀드지만, 그쪽 배치는 좌석을 `SKIP LOCKED`로 먼저 잡거나(C) 좌석을 쓰지 않아(D) 고리가 없다(ADR-014 §3.2) — A 배치는 그렇지 않다. 재현 테스트에 '좌석 → 홀드' 대조판을 넣어 40P01이 나는 것을 한 번 보인다(§설계-7 #9).
 - ①과의 차이: 확인을 문장 조건이 아니라 잠근 뒤 메모리에서 한다. 잠금 읽기 2문장이 늘고(성공 6), 좌석 잠금을 P2부터 커밋까지 쥔다 — 그동안 같은 좌석 선점은 NOWAIT로 진다(어차피 `HELD`라 선조회 409가 먼저다 — UserLimitStrategies.kt:340).
 - 배치와(A′): P1이 먼저면 A′ DELETE가 기다린 뒤 0행 → 그 쌍만 건너뛰고 틱 커밋(①과 같다). 배치가 먼저면 P1 행 없음 → 404.
 - 되돌리기: 손잡이.
@@ -268,10 +269,10 @@ RETURNING expires_at;
 | 경로 | 기다리는 잠금(순서) | 기다리지 않는 잠금 |
 |---|---|---|
 | 선점 | 회차(공유) → 자기 쿼터 행 | 좌석 NOWAIT · 새 홀드 행(자기 INSERT) |
-| 만료 배치(JPA — `current`) | 쿼터 행(정렬) → 홀드 행 → 좌석 행 (추정 #2) | — |
+| 만료 배치(JPA — `current`) | 쿼터 행(정렬) → 좌석 행 → 홀드 행 (15-02 실측) | — |
 | 만료 배치(A′ — 새 모드) | 쿼터 행(정렬 · B2 `FOR UPDATE OF q`) → 홀드 행(B3 DELETE) → 좌석 행(B5 UPDATE) | — (회차 · FK 잠금 없음: 홀드 DELETE는 참조하는 쪽이고 B5는 FK 열을 바꾸지 않는다) |
 | 정리 ① | 회차(배타) → (홀드가 있으면 멈춤 · 없으면 쿼터 행 삭제) | — |
-| 확정 current | FK 검사(회차 · 좌석 KEY SHARE) → 홀드 행 → 좌석 행 (추정 #2) | — |
+| 확정 current | FK 검사(회차 · 좌석 KEY SHARE) → 좌석 행 → 홀드 행 (15-02 실측) | — |
 | ① · ③ · ④ 확정 | 홀드 행 → 좌석 행 → FK 검사 | — |
 | ② 확정 | 홀드 행 → 좌석 행 → FK 검사 | — |
 | ④ 연장 | 홀드 행 | — |
@@ -418,7 +419,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 1. **Hibernate 6.6 고아 DELETE의 행 수 검사**(A6) — 0행이면 어떤 예외(`StaleObjectStateException` → `ObjectOptimisticLockingFailureException` 추정)로 롤백되고 응답이 500인가. **착수 직후 스모크 1순위** — 결과가 §설계-1 · §설계-2의 '가드가 있으면' 칸과 문제 문장(Q1)을 정한다.
 2. 지금 A 확정 · A 배치의 실제 문장 순서(SQL 로그): A2 · A3 분리 · A5 IDENTITY 즉시 INSERT · flush의 '고아 삭제 → 좌석 UPDATE' 순서.
-3. 배치 flush 순서가 홀드 → 좌석이라 ② '좌석 → 홀드' 판이 40P01을 내는지(대조 테스트).
+3. ② '좌석 → 홀드' 판이 **A′ 배치**(홀드 → 좌석)와 40P01을 내는지(대조 테스트). 정정 15-02: JPA 배치는 좌석 → 홀드(실측)라 이 대조의 짝이 아니다.
 4. Hibernate `PESSIMISTIC_WRITE`가 PostgreSQL에서 `FOR UPDATE`인지 `FOR NO KEY UPDATE`인지 — 확정 중 같은 좌석 선점 NOWAIT 패배 여부(§3.5 마지막 행).
 5. V12 생성 시간 · `reservation` 쓰기 차단 길이(운영 크기 사본 · .164 시드의 예약 행 수) → 트랜잭션 안 그대로 대 `CONCURRENTLY`. `CONCURRENTLY` 판이면: Flyway 11.7.2가 PostgreSQL의 비트랜잭션 실패를 이력에 실패 행으로 남기는지 · `flyway repair`가 그 행만 지우는지 · 재시도 절차(§설계-4) 끝에서 `indisvalid`.
 6. Flyway 순서 함정: §설계-4의 계단식 테스트 4곳 · 선택 위치를 V12 · V13 뒤에 더한 DB의 거부 시점(관문 `PENDING`과 같은 오류 코드인지 · 스키마 무변경인지) · ADR-013 전환의 outOfOrder 1회(apply.sh 기록 ① `-outOfOrder=true` · 앱 첫 기동 `spring.flyway.out-of-order=true`) 뒤 **플래그 없이** 다시 기동해도 검증이 순서 밖 적용 이력을 받아들이는가(test-local.sh 새 경우 ⓓ).
@@ -475,7 +476,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 | # | 질문 | 권장안 | 누가 |
 |---|---|---|---|
-| Q2 | ②의 잠금 순서 | **홀드 행 → 좌석 행**(초안 '좌석 → 홀드' 대신 — A 배치(JPA · A′ 모두) 순서와 같게) · '좌석 → 홀드'는 대조 테스트로만 | 사용자(§인터뷰: 권장안으로 둠) |
+| Q2 | ②의 잠금 순서 | **홀드 행 → 좌석 행**(초안 '좌석 → 홀드' 대신 — 새 모드의 짝인 A′ 배치 순서와 같게 · 정정 15-02: JPA 배치는 좌석 → 홀드지만 Q15로 새 모드와 짝지어지지 않는다) · '좌석 → 홀드'는 대조 테스트로만 | 사용자(§인터뷰: 권장안으로 둠) |
 | Q3 | ③의 버전 올리기 | **(나) 상태 변경 트리거 — 번호 V14 · 선택 위치 `db/migration-confirm-version`**(③ 셀만 · 짝 검사는 마이그레이션 앞 — §설계-5 규칙 6) — `@Version` 매핑은 기각 | 사용자(권장안으로 둠) |
 | Q9 | 손잡이 이름 · 값 | **`seat.confirm.mode` = current · conditional · pessimistic · optimistic · conditional-extend**(기본 current — 배치도 함께 고른다) · `payment-window` · `extend-min-remaining` · `loadtest.delay` · `unique-index-optional` | 메인 |
 | Q11 | 같은 홀드 이중 확정의 두 번째 응답 | **404 HOLD_NOT_FOUND 그대로**(새 모드) — `current` + V12는 409 SEAT_NOT_HELD(매핑)로 갈린다는 점을 기록만. 같은 `paymentUid` 재시도의 멱등 응답은 ADR-016 · NEXT 몫 | 사용자(권장안으로 둠) |
