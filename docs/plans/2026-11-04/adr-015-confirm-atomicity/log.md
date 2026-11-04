@@ -24,6 +24,8 @@
 | 11-05 02:40 | 워커 15-06(Opus — ④ payment-start · 기준 1d559529) 착수 | 백그라운드 |
 | 11-05 03:15 | 15-06 회수(원시각 02:40:58~02:41:56 대상 3클래스 EXIT=0 · 02:42:05~03:14:43 전체 EXIT=0): 메인 교차 확인 XML 합계 main-app **1077 / 0 fail / 0 err / 20 skip** · reconciler-app 6/6 · 새 파일 2개만(PaymentStartService · PaymentStartController — 기존 파일 diff 0) · blind 무수정 | 코드 커밋 ee84cc5c · 편차: 진단 404/403/만료 409는 `seat.confirm.extend` 태그 없음(ADR 값 4개만 — 15-08에서 판단) · 등록 조건 = Binder로 enum 바인딩(ConditionalOnProperty 문자열 비교의 무음 누락 방지) · UseCase 인터페이스 없음 |
 | 11-05 03:17 | 워커 15-07(Opus — apply.sh outOfOrder 1회 · test-local.sh ⓐ~ⓓ · 앱 쪽 계약 테스트 · ops/confirm-unique-v12 runbook R0/R1/R2 · 기준 ee84cc5c) 착수 | 백그라운드 |
+| 11-05 04:08 | 15-07 회수(기준 ee84cc5c · 원시각 03:17:09 기준 test-local EXIT=1 FAIL 3 — 15-04의 V12 · V13 기본 위치가 기존 경우를 깸(ref 버전 목록 · seed_old target 없음) · 03:35:50~03:37:30 최종 test-local EXIT=0 ok 41 · 0 스킵 · jar 숨김 대체 경로 EXIT=3 SKIP 출력(무음 스킵 아님) · 03:35:29~04:07:13 전체 gradle EXIT=0): 메인 교차 확인 XML 합계 main-app **1079 / 0 / 0 / 20**(+2 Adr015OutOfOrderContractTest) · 컨테이너 seatlab* 잔여 0 · 비밀번호는 `$PW` 변수 + apply.sh 출력 args 가림(값 미출력 확인) | 코드 커밋 77e272d7 · [구현 검증] #6 실측 답 ADR 반영 · 편차: R1에 입력 확인 ⓟ · 좌석 확인 ④ · 미리보기(ROLLBACK) 기본 · R2 마감 기준 DB now()(판정기는 앱 Clock — #12) · `next.app_first_boot_out_of_order` 출력 추가 · cli 판 = 같은 Flyway 11.7.2 라이브러리 실행기(공식 CLI 아님 — 한계) · 기존 test-local.sh SQL 대체 경로 V6 LOCK TABLE 버그 수정(`psql -1`) · 미완료: CONCURRENTLY 재시도 실행(V12 CONCURRENTLY 판 없음 — #5) |
+| 11-05 04:10 | 15-02~15-07 구현 완료 — 15-08 듀얼 리뷰 루프 1 착수(base e5556bcc = 브랜치 분기점) | — |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
