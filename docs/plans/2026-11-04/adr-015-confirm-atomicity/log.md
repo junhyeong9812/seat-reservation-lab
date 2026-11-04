@@ -26,11 +26,13 @@
 | 11-05 03:17 | 워커 15-07(Opus — apply.sh outOfOrder 1회 · test-local.sh ⓐ~ⓓ · 앱 쪽 계약 테스트 · ops/confirm-unique-v12 runbook R0/R1/R2 · 기준 ee84cc5c) 착수 | 백그라운드 |
 | 11-05 04:08 | 15-07 회수(기준 ee84cc5c · 원시각 03:17:09 기준 test-local EXIT=1 FAIL 3 — 15-04의 V12 · V13 기본 위치가 기존 경우를 깸(ref 버전 목록 · seed_old target 없음) · 03:35:50~03:37:30 최종 test-local EXIT=0 ok 41 · 0 스킵 · jar 숨김 대체 경로 EXIT=3 SKIP 출력(무음 스킵 아님) · 03:35:29~04:07:13 전체 gradle EXIT=0): 메인 교차 확인 XML 합계 main-app **1079 / 0 / 0 / 20**(+2 Adr015OutOfOrderContractTest) · 컨테이너 seatlab* 잔여 0 · 비밀번호는 `$PW` 변수 + apply.sh 출력 args 가림(값 미출력 확인) | 코드 커밋 77e272d7 · [구현 검증] #6 실측 답 ADR 반영 · 편차: R1에 입력 확인 ⓟ · 좌석 확인 ④ · 미리보기(ROLLBACK) 기본 · R2 마감 기준 DB now()(판정기는 앱 Clock — #12) · `next.app_first_boot_out_of_order` 출력 추가 · cli 판 = 같은 Flyway 11.7.2 라이브러리 실행기(공식 CLI 아님 — 한계) · 기존 test-local.sh SQL 대체 경로 V6 LOCK TABLE 버그 수정(`psql -1`) · 미완료: CONCURRENTLY 재시도 실행(V12 CONCURRENTLY 판 없음 — #5) |
 | 11-05 04:10 | 15-02~15-07 구현 완료 — 15-08 듀얼 리뷰 루프 1 착수(base e5556bcc = 브랜치 분기점) | — |
+| 11-05 04:20 | 15-08 루프 1: review packet 생성(base e5556bcc · 39파일 +3511/−99 · untracked 0 · ledger/NEXT/measurement-log · k6 results · .claude 제외 · 미러 내 log.md 0 확인) · 보안 스캔: sk-/ghp_/AKIA/PRIVATE KEY 0 · `password=` 류 매칭 = 추적 파일의 로컬 일회용 컨테이너 테스트 값(compose.yml · BootSupport 등 — repo PUBLIC으로 이미 공개된 내용) · 내부 IP 매칭 = 기존 문서/스크립트(공개 repo) → 오탐/기공개로 판정 · 양쪽 같은 입력 · Opus 워커 ∥ codex(medium · read-only · cwd=미러) 병렬 착수 | 백그라운드 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
 - review packet(설계 선검증 · 루프 1): base e862322d^ · `$OUT` = scratchpad/ds15res.H8ul(정리됨 — codex 결과 사본 `k6/ADR-014/results/_evidence-20261104/reviews/ds15-design/` · Opus 결과는 워커 회수 본문 — ADR-014 log 11-04 16:40 행 요약) · mirror scratchpad/ds15mir.Op8V(삭제됨)
 - review packet(수정분 재점검 · 루프 1 post-fix): base 61226b03 · 결과 사본 같은 폴더 `codex-postfix.md`
+- **review packet(15-08 구현 리뷰 · 루프 1)**: base e5556bcc · `$OUT` = scratchpad/rv15.O1tc · mirror = scratchpad/rv15mir.iE2M · 생성 스크립트 scratchpad/mkpkt.sh
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
