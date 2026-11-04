@@ -28,6 +28,7 @@
 | 11-05 04:10 | 15-02~15-07 구현 완료 — 15-08 듀얼 리뷰 루프 1 착수(base e5556bcc = 브랜치 분기점) | — |
 | 11-05 04:20 | 15-08 루프 1: review packet 생성(base e5556bcc · 39파일 +3511/−99 · untracked 0 · ledger/NEXT/measurement-log · k6 results · .claude 제외 · 미러 내 log.md 0 확인) · 보안 스캔: sk-/ghp_/AKIA/PRIVATE KEY 0 · `password=` 류 매칭 = 추적 파일의 로컬 일회용 컨테이너 테스트 값(compose.yml · BootSupport 등 — repo PUBLIC으로 이미 공개된 내용) · 내부 IP 매칭 = 기존 문서/스크립트(공개 repo) → 오탐/기공개로 판정 · 양쪽 같은 입력 · Opus 워커 ∥ codex(medium · read-only · cwd=미러) 병렬 착수 | 백그라운드 |
 | 11-05 04:45 | 루프 1 회수: codex(EXIT 0 · F1~F4) · Opus(F1~F5 + OQ 5) → 메인 종합(채택 8 · 범위 밖 1 · OQ 4) → codex 종합 감사(EXIT 0 · 재검토 3: OQ-2 판정 성급 — V12 이력 있고 인덱스 없음 + V13 미적용이면 관문 통과 뒤 거부 = 스키마 변경 → R15-2로 확장 채택 · 같은 이름 비유니크 인덱스 → R15-10 채택 · 지연 최대값 수집 불가(ADR:142) → R15-9 채택) · 결과 사본 `k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-loop1/`(codex 원문 · 감사 · 종합표 · Opus 원문은 워커 회수 본문 — 아래 ledger) | 수정 워커 착수 |
+| 11-05 05:20 | 루프 1 수정 회수(기준 b07f1c1f · 원시각 04:28~05:15:17): 새 테스트 adr015fix 6/0 · test-local EXIT 0(ok 45) · 전체 `./gradlew test --continue` EXIT 0 · 메인 교차 확인 XML **1085/0/0/20** · blind · V1~V14 · k6 results diff 0 · 컨테이너 잔여 0 | 코드 커밋 b9ee9c65(24파일) · R15-1~3 · 5~10 fixed · 계획 밖 파일: main-app/build.gradle.kts(postgresql implementation — R15-8) · ADR-013 하네스는 target 대신 V12 SHA 거부(대안 — 슬롯별 target NEXT) · ADR §설계-11 신설(구현 정정 반영) · 다음: 루프 2(누적 diff 재리뷰) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -58,17 +59,17 @@
 
 | id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
 |----|-----------------|--------|-----------------|-------------|--------|---------------|
-| R15-1 | 1 | codex F1 · Opus F1 | SeatConfirmProperties.kt:28 · HoldStrategyStartupCheck.kt:275-279 — loadtest.delay 무동작(무음) | 채택 → ADR §설계-8.2 자리에 주입 | open | |
-| R15-2 | 1 | codex F2 · 감사 1 | HoldStrategyStartupCheck.kt:59-70 · :130-149 — V12 INVALID/없음 검사가 migrate 뒤 → 거부된 기동이 V13을 적용할 수 있음 | 채택 → 관문(migrate 앞)에서 V12 이력 있음 + 인덱스 없음/INVALID 판정 | open | |
-| R15-3 | 1 | codex F3 · Opus F4 | AtomicConfirmProcess.kt:45 — converted_after_expiry{clock=db} 커밋 전 증가 | 채택 → afterCommit | open | |
+| R15-1 | 1 | codex F1 · Opus F1 | SeatConfirmProperties.kt:28 · HoldStrategyStartupCheck.kt:275-279 — loadtest.delay 무동작(무음) | 채택 → ADR §설계-8.2 자리에 주입 | fixed | 1(b9ee9c65) |
+| R15-2 | 1 | codex F2 · 감사 1 | HoldStrategyStartupCheck.kt:59-70 · :130-149 — V12 INVALID/없음 검사가 migrate 뒤 → 거부된 기동이 V13을 적용할 수 있음 | 채택 → 관문(migrate 앞)에서 V12 이력 있음 + 인덱스 없음/INVALID 판정 | fixed | 1(b9ee9c65) |
+| R15-3 | 1 | codex F3 · Opus F4 | AtomicConfirmProcess.kt:45 — converted_after_expiry{clock=db} 커밋 전 증가 | 채택 → afterCommit | fixed | 1(b9ee9c65) |
 | R15-4 | 1 | codex F4 | k6/ADR-015 하네스 · 결과 미측정 | 범위 밖(15-09 · 15-10) | — | |
-| R15-5 | 1 | Opus F2 | k6/ADR-001/compose.yml:44 · k6/ADR-002/compose.yml:44 · run.sh:82 — 기존 하네스가 V12 · V13 적용 → 기준선 가려짐 | 채택 → ADR-015 이전 하네스 target 명시 | open | |
-| R15-6 | 1 | Opus F3 | ops/online-v9/apply.sh:122 · :238-240 · :236 — outOfOrder가 9 이하 다른 미적용도 무실행 기록 | 채택 → 이력 차이 = {9} 확인 | open | |
-| R15-7 | 1 | Opus F5 | Adr015RaceScenarios.kt FM5 — B3 잠금 대기 뒤 EPQ 갈래 미검사 | 채택(fix verification test) | open | |
-| R15-8 | 1 | Opus OQ4 | ConfirmReservationService.kt:112- — message.contains 판정 | 채택(L) → constraint 이름 일치 | open | |
-| R15-9 | 1 | 감사 3 | AtomicConfirmProcess.kt:45 · :63-69 · ADR-015:142 — `전환 시각 − expires_at` 최대 수집 불가 | 채택 → 지연량 분포 기록 | open | |
-| R15-10 | 1 | 감사 2 | HoldStrategyStartupCheck.kt:132-149 · V12:6 — 이름 · indisvalid만 봄(같은 이름 비유니크 인덱스 통과) | 채택(L) → indisunique · 대상 표 · 부분 조건 확인 | open | |
-| OQ15-1 | 1 | Opus OQ1 | 여러 대 혼재 중 모드 혼합 | 받아들인 한계 → ADR에 '전 인스턴스 정지 후 전환' 명시(메인 문서) | open | |
+| R15-5 | 1 | Opus F2 | k6/ADR-001/compose.yml:44 · k6/ADR-002/compose.yml:44 · run.sh:82 — 기존 하네스가 V12 · V13 적용 → 기준선 가려짐 | 채택 → ADR-015 이전 하네스 target 명시 | fixed | 1(b9ee9c65) |
+| R15-6 | 1 | Opus F3 | ops/online-v9/apply.sh:122 · :238-240 · :236 — outOfOrder가 9 이하 다른 미적용도 무실행 기록 | 채택 → 이력 차이 = {9} 확인 | fixed | 1(b9ee9c65) |
+| R15-7 | 1 | Opus F5 | Adr015RaceScenarios.kt FM5 — B3 잠금 대기 뒤 EPQ 갈래 미검사 | 채택(fix verification test) | fixed | 1(b9ee9c65) |
+| R15-8 | 1 | Opus OQ4 | ConfirmReservationService.kt:112- — message.contains 판정 | 채택(L) → constraint 이름 일치 | fixed | 1(b9ee9c65) |
+| R15-9 | 1 | 감사 3 | AtomicConfirmProcess.kt:45 · :63-69 · ADR-015:142 — `전환 시각 − expires_at` 최대 수집 불가 | 채택 → 지연량 분포 기록 | fixed | 1(b9ee9c65) |
+| R15-10 | 1 | 감사 2 | HoldStrategyStartupCheck.kt:132-149 · V12:6 — 이름 · indisvalid만 봄(같은 이름 비유니크 인덱스 통과) | 채택(L) → indisunique · 대상 표 · 부분 조건 확인 | fixed | 1(b9ee9c65) |
+| OQ15-1 | 1 | Opus OQ1 | 여러 대 혼재 중 모드 혼합 | 받아들인 한계 → ADR에 '전 인스턴스 정지 후 전환' 명시(메인 문서) | fixed | 1(2330b3bd) |
 | OQ15-2 | 1 | Opus OQ2 | checkConfirmSchema가 웹 서버 열린 뒤 | 받아들인 한계(기존 패턴) — 감사 1의 스키마 변경 갈래는 R15-2로 | — | |
 | OQ15-3 | 1 | Opus OQ3 | 운영 test 프로필로 T1 우회 | 받아들인 한계(운영자 설정) | — | |
 | OQ15-4 | 1 | Opus OQ5 | seat.hold.expiry.deleted 태그 키 집합 차이 | open question → NEXT | user-deferred 후보 | |

@@ -511,6 +511,18 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 - 기존 테스트 충돌(15-04 몫 · 15-03 목록): LoadtestEndpointsTest.kt:108-114 · IndexMigrationTest.kt:15-18 · :21- · Adr014ImplStartupTest.kt:173(최대 버전 11 → 13) · Adr009DefaultsTest.kt:254 · StartupCheckOrderTest.kt:93 · 계단식 4곳(§설계-4).
 
+### 설계-11 구현 리뷰(15-08 루프 1)가 바꾼 것 — 위 절보다 우선
+
+> 출처: 작업 폴더 log 리뷰 ledger R15-1~10 · 코드 커밋 b9ee9c65. 위 절의 해당 문장은 이 절로 읽는다.
+
+- **지연 주입(§설계-8.2)**: `seat.confirm.loadtest.delay`는 이제 실제로 잔다 — current = `seat.confirm` 뒤 · 예약 save 앞 / ①④ = `:now` 뒤 · C1 앞 / ② = P2 뒤 · P3 앞 / ③ = O1 뒤 · O2 앞. 0(기본)이면 호출이 없다(current 문장 · 순서 무변경). loadtest 프로필 전용(규칙 3).
+- **만료 뒤 전환 지표(§설계-3)**: 전환 문장 RETURNING은 `clock_timestamp() > expires_at AS late` 대신 `(EXTRACT(EPOCH FROM clock_timestamp() - expires_at) * 1000000)::bigint AS late_us`(지연량 µs · `late` = `late_us > 0`). `converted_after_expiry{clock=db|app}`는 **둘 다 커밋 뒤**(afterCommit) 기록한다 · 새 지표 **`seat.confirm.converted_after_expiry.lateness{clock}`**(Timer — 건수 · max — §설계-3의 '전환 시각 − expires_at 최대'). current는 `clock=app`만.
+- **V12 판정(§설계-5)**: DB 상태 검사의 V12 판정은 `run`만이 아니라 **마이그레이션 앞 관문**에서도 돈다(이번 기동이 V12를 만들지 않을 때 — 이력에 이미 있거나 target · 위치 밖). 판정 = `indisvalid` + `indisunique` + 표 `reservation` + 열 `seat_id` 하나 + 부분 조건 `status='CONFIRMED'`. 모양이 다르면 INVALID와 같이 **모든 모드 거부**(사유를 메시지에) · 없으면 새 모드는 `unique-index-optional` 없이 거부 · current는 WARN. 관문과 run이 같은 판정 함수를 쓴다.
+- **유니크 위반 매핑(§설계-4 · N6)**: '인덱스 이름 일치' = PostgreSQL 서버 오류의 `constraint` 필드가 `uq_reservation_confirmed_seat`(SQLSTATE 23505와 함께). 빌드: postgresql 드라이버 `runtimeOnly` → `implementation`(산출 jar 동일).
+- **ADR-013 전환 outOfOrder(§설계-4)**: apply.sh 단계 0이 outOfOrder 기록 ①을 부를 판이면 위치의 '9 이하 미적용'(`state0.pending_le9`)이 정확히 {9}인지 먼저 본다(아니면 fail_step 0 · 아무것도 쓰지 않음). 기록 ① 뒤 이력 차이(`record.cli.history_diff`)가 V9 한 행인지 다시 본다(아니면 class `history-diff` · exit 1 · 쓴 행은 사람이 확인). test-local.sh 실패 주입 2건(V4 위치 오입력 · V9 폴더에 V4 사본).
+- **기존 하네스(§설계-4 '기본 위치에 두어서 생기는 일')**: ADR-015 이전 k6 하네스는 flyway target을 'V12 앞 마지막 버전'으로 고정했다 — ADR-001 · 002(on) · 003 · 005 · 006 · 007 · 008 = 7 · ADR-009 = run.sh가 위치 집합으로 계산(7 · 8 · 9 · 10) · ADR-014 = 11(plan14 위치 — seat-map 포함). ADR-013 하네스는 슬롯마다 옛/새 SHA가 섞여 공통 target을 둘 수 없어 **`--sha-new`에 V12가 있으면 거부**(exit 2)로 대신했다(슬롯별 target은 NEXT). 결과 파일은 바꾸지 않았다.
+- **모드 혼합 금지**: §3.5 표 아래 글머리(전 인스턴스 정지 후 전환).
+
 ## 실험 결과
 
 미측정.
