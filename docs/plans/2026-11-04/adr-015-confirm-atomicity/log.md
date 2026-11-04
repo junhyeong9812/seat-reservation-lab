@@ -38,6 +38,7 @@
 | 11-05 07:30 | R15-16 수정 회수(원시각 06:35:42~07:23:34 · 새 테스트 2칸 수정 전 red → 수정 후 green · 관련 179/0 · 전체 EXIT 0) · 메인 교차 확인 XML **1110/0/0/20** · 코드 커밋 8bd5f387 → codex post-fix 타깃 재점검(fix.diff + 인접 호출부 + 새 테스트만 · EXIT 0): PF15-1 1건 → 기각(도달 경로 없음 — HoldExpiryScheduler.kt:15-17이 유일 호출자 · 기존 패턴) → **신규 채택 0** | **15-08 리뷰 종료** — 루프 3 + user override(R15-16 상한 초과 수정 · 타깃 재점검 1회). 남은 것: 범위 밖 R15-4/14/17/18(15-09 · 15-10) · NEXT 이월 OQ15-4/8/10/14 · 워커 관찰(A′ missing 지표 · C 배치 C6 revert가 트랜잭션 안 — C·D 경로는 이번 범위 밖 → NEXT) · 다음: 15-09 측정 설계 |
 | 11-05 07:40 | 워커 15-09(Opus — k6/ADR-015 confirm-contention 하네스(ADR-014 하네스 재사용 · keep-alive 수정 포함 · 로컬 단위 점검만) + 측정 전 고정 규칙 초안(scratchpad/adr015-measure-draft.md — ADR 반영은 메인 리뷰 뒤) · .164 접속 금지) 착수 | 백그라운드 · 초안은 설계 문서 → 듀얼 1패스 + 재점검 뒤 ADR 커밋 → 사용자 확인 → 15-10 |
 | 11-05 08:20 | 15-09 회수(기준 b104fc4a · 원시각 07:27:18~08:07:24): k6/ADR-015 하네스 13파일(미추적 · ADR-014 동결 사본 source · import 재사용 · keep-alive `closeBeforeLongThink`) · 초안 scratchpad/adr015-measure-draft.md(측정-0~15 · 10셀 × 3회 · 약 8시간 · G-H/G-E/G-F · G1~G4 · 메인/사용자 결정 D-1~D-11) · 로컬 점검 전부 EXIT 0(selftest 62 · k6 inspect 5 · compose config 3 · dry-run · 로컬 스모크 7회 — current 배치 1초에서 경합 창 확정 500 4건 / conditional 5xx 0 · 404 4 · converted_after_expiry{db} 29 · 판정기 0) · 스모크로 하네스 결함 2건 자체 수정 | 혼합 산출물(설계 문서 + 실행 하네스) → 실행물 규칙: 듀얼 리뷰 루프(≤3) 착수 · packet base b104fc4a · `$OUT` scratchpad/rv15m.4wHJ · mirror rv15mmir.JzMr · 보안 스캔 키류 0 · 내부 IP 0 |
+| 11-05 08:45 | 측정 설계 리뷰 루프 1 회수: codex(EXIT 0 · F1~F7 — H 4) · Opus(F1~F12 — H 2) → 종합(16건 채택) → codex 감사(EXIT 0 · 2건 정정: M15-16 기각 — prepare_db 호출부가 `prepare_db \|\| …`로 실패 처리(diff :2030-2037 · :2057-2058) · M15-3 병합 오류 → M15-3a(current 양성 대조 = 무관 5xx · 1050) / M15-3b(새 모드 양성 대조 = 성공 수)로 분리) · 사본 `…/reviews/rv15-measure-loop1/` | 채택 16(M15-1~15 · 3a/3b) · 기각 1 · 수정 워커 착수 · D-1~D-11 사용자 질문 병행 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -100,6 +101,28 @@
 | OQ15-14 | 3 | Opus OQ5 | reaches() 특수 target(current/next) 메시지 | open question | user-deferred(NEXT) | |
 | OQ15-15 | 3 | Opus OQ6 | A′ B2b 쌍마다 SELECT | 15-09 측정 기록 항목 | — | |
 | PF15-1 | post-fix | codex(타깃 재점검) | ExpireHoldsService.kt:46 — tx.execute가 바깥 트랜잭션에 합류하면 A′ 지표 · tick{ok}가 커밋 전 | 기각 — 도달 경로 없음: 유일한 호출자 HoldExpiryScheduler.kt:15-17(@Scheduled · 트랜잭션 없음) · 같은 자리의 tick{ok} · counters.afterCommit은 ADR-009부터 있던 패턴(이번 diff가 도입한 것 아님) | — | |
+
+측정 설계 리뷰(15-09 · base b104fc4a · 초안 scratchpad/adr015-measure-draft.md + k6/ADR-015):
+
+| id | first_seen_loop | source | 근거(file:line) | disposition | status | fixed_in_loop |
+|----|-----------------|--------|-----------------|-------------|--------|---------------|
+| M15-1 | 1 | codex F1 | 초안 :149 · :176 · summarize.py(판정) — 유효 3회 부족 = 후보 실패로 오결론 | 채택 → 판정 불가 | open | |
+| M15-2 | 1 | codex F2 · Opus F4 | 초안 :175 · summarize.py:431-446 — 앞 순위 G3 판정 불가인데 뒤 후보 교체 | 채택 | open | |
+| M15-3a | 1 | codex F3 · 감사 | 초안 :172 · summarize(diff :1483-1490) — current 양성 대조가 무관 5xx · 1050으로 성립 | 채택 → win 묶음 · FM 결과에 묶음 · 1050 분리 | open | |
+| M15-3b | 1 | Opus F3 · 감사 | 초안 :20 · :149 · summarize.py:331-335 — 새 모드 양성 대조 = 성공 수(실충돌 아님) | 채택 → 모드별 충돌 표지 | open | |
+| M15-4 | 1 | codex F4 · Opus F7 | confirm-contention.js:85-91 · summarize.py:264 — ④ payment-start 200 · 연장 하한 없음 · 비200 무음 | 채택 | open | |
+| M15-5 | 1 | Opus F1 | 초안 :149 · confirm-contention.js:85-91 · AtomicConfirmProcess.kt:73-74 — ④가 연장으로 경계를 구조적으로 못 엶 | 채택 → ④ 전용 경계 흐름 | open | |
+| M15-6 | 1 | Opus F2 | plan15.py:31 · :40 · confirm-contention.js:119-120 — 재선점이 경합 창 뒤라 FM1 불가 | 채택 → 재선점 시각 · FM1 양성 대조 또는 한계 명시 | open | |
+| M15-7 | 1 | codex F5 | v12-build.sh 시드 · summarize — 시드 실패 · 행 수 미검증 | 채택 | open | |
+| M15-8 | 1 | codex F6 | summarize(V12) — 계획 크기 · 반복 완전성 미대조 | 채택 | open | |
+| M15-9 | 1 | codex F7 | 초안 :213-215 · actsnap/pgss — #15 틱당 문장 수 · 시간 미계산 | 채택 | open | |
+| M15-10 | 1 | Opus F5 | summarize.py:252-260 — 계약 밖 코드를 창 안만 | 채택 | open | |
+| M15-11 | 1 | Opus F6 | campaign.sh:137-140 · summarize.py:471-480 — 조기 확인 invalid → exit 4 영구 정지 | 채택 | open | |
+| M15-12 | 1 | Opus F8 | summarize.py:115-119 · :242-244 — 선점 5xx · 1050이 hold-fail(G-H)로 숨음 | 채택 | open | |
+| M15-13 | 1 | Opus F9 | summarize.py:378 — G2(a)에 40P01 누락 | 채택 | open | |
+| M15-14 | 1 | Opus F10 | summarize.py:405 · :447 — undet 미사용 | 채택 | open | |
+| M15-15 | 1 | Opus F11 | summarize.py:284 · run.sh:262 — lateness 감쇠 최대 | 채택(L) | open | |
+| M15-16 | 1 | Opus F12 | v12-build.sh:73 — docker stop rc | 기각(감사 — 호출부 `prepare_db \|\| …`) | — | |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
