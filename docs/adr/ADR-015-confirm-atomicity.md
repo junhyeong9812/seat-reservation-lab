@@ -524,6 +524,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 - **ADR-013 전환 outOfOrder(§설계-4)**: apply.sh 단계 0이 outOfOrder 기록 ①을 부를 판이면 위치의 '9 이하 미적용'(`state0.pending_le9`)이 정확히 {9}인지 먼저 본다(아니면 fail_step 0 · 아무것도 쓰지 않음). 기록 ① 뒤 이력 차이(`record.cli.history_diff`)가 V9 한 행인지 다시 본다(아니면 class `history-diff` · exit 1 · 쓴 행은 사람이 확인). test-local.sh 실패 주입 2건(V4 위치 오입력 · V9 폴더에 V4 사본).
 - **기존 하네스(§설계-4 '기본 위치에 두어서 생기는 일')**: ADR-015 이전 k6 하네스는 flyway target을 'V12 앞 마지막 버전'으로 고정했다 — ADR-001 · 002(on) · 003 · 005 · 006 · 007 · 008 = 7 · ADR-009 = run.sh가 위치 집합으로 계산(7 · 8 · 9 · 10) · ADR-014 = 11(plan14 위치 — seat-map 포함). ADR-013 하네스는 슬롯마다 옛/새 SHA가 섞여 공통 target을 둘 수 없어 **`--sha-new`에 V12가 있으면 거부**(exit 2)로 대신했다(슬롯별 target은 NEXT). 결과 파일은 바꾸지 않았다.
 - **모드 혼합 금지**: §3.5 표 아래 글머리(전 인스턴스 정지 후 전환).
+- **ADR-013 §4.4 절차와의 관계(15-08 R15-13)**: 닫힌 ADR-013은 고치지 않고 여기와 `ops/online-v9/README.md`에 둔다. 옛 방식 DB에 V12 · V13이 이미 있으면(`apply.sh` 단계 0 `state0.max_applied > 9`) 적용판 기록 ①이 `-outOfOrder=true`를 한 번 붙인다(자동). 이어지는 ADR-013 ④ · ⑤의 T1 새 앱(또는 그림자 앱) **첫 기동은 `apply.sh` 출력 `next.app_first_boot_out_of_order`가 참일 때(`max_applied > 10`) 그 한 번만 `SPRING_FLYWAY_OUT_OF_ORDER=true`** 로 띄우고, V10 이력(success) 확인 뒤 다음 기동부터 뺀다. 플래그 없이 띄우면 FlywayValidateException으로 기동이 멈춘다(스키마 무변경 — [구현 검증] #6). ①~③(앱이 V9 · V10을 적용)도 `max_applied > 10`이면 같은 1회 플래그가 필요하다.
 
 ## 실험 결과
 
