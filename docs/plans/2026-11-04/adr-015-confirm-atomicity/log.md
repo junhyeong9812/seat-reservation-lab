@@ -33,6 +33,7 @@
 | 11-05 05:55 | 루프 2 회수: codex(EXIT 0 · F1 V13 열 관문 미검사 · F2 측정 없음) · Opus(F1 정리 ① 켠 교착 짝 미실행 · F2 ADR-013 §4.4 표 미반영 · F3 bootTestRun test 프로필 + OQ 4) → 메인 종합(신규 채택 3 · 범위 밖 1 · OQ 5) → codex 감사(EXIT 0 · OQ15-9 '받아들인 한계' 종결 불가 — history-diff 실패 뒤 남은 행의 확인 · 재개 절차 없음 → R15-15 채택) · 사본 `…/reviews/rv15-impl-loop2/` | **신규 채택 4 → 종료 조건 미충족** · 수정 워커(R15-11 · 12 · 15) · 문서(R15-13 · OQ15-5) 메인 |
 | 11-05 06:10 | 사용자 질문 'ADR문서를 왜 바꾸지?' → 설명(ADR-015 = 이번 작업의 열린 정본 · ADR-013 = PR #12로 닫힌 결정 기록 — 3af36761에서 §4.4에 단락을 끼운 것은 잘못된 판단) → 사용자 "응 ADR-013은 되돌리고 그렇게 진행해줘" | 1e8e2d33: ADR-013을 3af36761^로 복원(e5556bcc 대비 diff 0) · 같은 내용을 ADR-015 §설계-11 글머리로 · 수정 워커에 README 첫 기동 단계 포함 지시 |
 | 11-05 06:25 | 루프 2 수정 회수(기준 648a20a0 · 원시각 05:28:31~06:22:07): R15-11 관문 V13 열 검사(+ 관문 끈 red 확인) · R15-12 정리 ① 켠 교착 짝 22칸 green — **40P01 0**(고리 없음) · R15-15 README + 06 복구 틀 · test-local EXIT 0(ok 50) · 전체 EXIT 0 · 메인 교차 확인 XML **1108/0/0/20** · blind · V1~V14 · k6 results · ADR-013 diff 0 | 코드 커밋 6f5dfaf4 · 새 파일 06-history-diff-recover.sql(브리핑 밖 — test-local이 실행하려고) · ADR §설계-11에 R15-11 · 12 · 15 반영 · 다음: 루프 3 |
+| 11-05 06:55 | 루프 3(packet base e5556bcc · 61파일 +4579/−117 · loop-fix-diff = 648a20a0 대비 · `$OUT` scratchpad/rv15c.MaHq · mirror rv15cmir.Tslo): codex(EXIT 0 · N1~N11 위반 없음 · F1 V12 운영 크기 미측정 · F2 측정 없음 — 둘 다 범위 밖) · Opus(H · M 0 · F1 L A′ · payment-start 지표 커밋 전 증가 + OQ 6) → 종합(신규 채택 1 = R15-16) → codex 감사 '이상 없음' | **루프 3에 신규 채택 1 → 종료 조건 미충족 · 최대 3루프 → `review unresolved`** — 사용자 결정 필요(R15-16 처리 · OQ15-12 마감 회차 연장 정책 · OQ15-13 재합의 여부) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -86,6 +87,14 @@
 | OQ15-6 | 2 | Opus OQ1 | 수정한 기존 테스트 목록 | 해소(log 11-05 01:50 행) | — | |
 | OQ15-7 | 2 | Opus OQ2 | 모드 혼합 금지 절차의 자리 | 15-09 측정 절차에 | — | |
 | OQ15-8 | 2 | Opus OQ3 | ADR-013 하네스 V12 SHA 거부 → 재실행 불가 | NEXT(슬롯별 target) | user-deferred 후보 | |
+| R15-16 | 3 | Opus F1 | SweepConditionalBatch.kt:85-95 · :113-123 · PaymentStartService.kt:49 — A′ deleted/revert/extension_lost · extend{extended} 커밋 전 증가 | 채택(L) | unresolved | |
+| R15-17 | 3 | codex F1 | V12:4-6 · ops/confirm-unique-v12/README.md:18 — 운영 크기 V12 생성 시간 미측정 | 범위 밖([구현 검증] #5 — 15-09 · 15-10) | — | |
+| R15-18 | 3 | codex F2 | k6/ADR-015 · 결과 미측정 | 범위 밖(R15-4와 같음) | — | |
+| OQ15-10 | 3 | Opus OQ1 | HoldStrategyStartupCheck.kt:210 · 생성자 — confirm 기본값 | open question | open | |
+| OQ15-12 | 3 | Opus OQ3 | PaymentStartService E1 — 마감 회차 홀드도 연장(ADR §3.4에 없음) | open question(사용자 정책) | open | |
+| OQ15-13 | 3 | Opus OQ4 | 명세 승인 뒤 설계 변경(T1 · T2 · §설계-11) 재합의 대상 여부 | open question(사용자 보고) | open | |
+| OQ15-14 | 3 | Opus OQ5 | reaches() 특수 target(current/next) 메시지 | open question | open | |
+| OQ15-15 | 3 | Opus OQ6 | A′ B2b 쌍마다 SELECT | 15-09 측정 기록 항목 | — | |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
