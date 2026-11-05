@@ -94,7 +94,7 @@ PG_CHECKPOINT_TIMEOUT=5min PG_MAX_WAL_SIZE=1GB PG_SHARED_BUFFERS=128MB PG_TMPFS_
 K6_ENV="$(P '.k6.env | to_entries | map("\(.key)=\(.value)") | join(" ")')"
 K6_SCRIPT="$(P .k6.script)"
 OUT_ROOT="${RESULTS_ROOT:-$ADR15_DIR/results}/$CID"; DIR="$OUT_ROOT/$CELL/$MODE/rep$REP"
-SEED_S=$(P .seed.schedules) SEED_N=$(P .seed.seats) PGSS=$(P .pgss)
+SEED_S=$(P .seed.schedules) SEED_N=$(P .seed.seats) PGSS=$(P .pgss) B3W_MS=$(P '.b3wait_ms // 0')
 if (( DRY )); then
   echo "# dry-run — 모드 $MODE · 셀 $CELL · 회차 $REP · 시도 $ATTEMPT · 하네스 $HARNESS · 배포 $DEPLOY_ID"
   echo "결과 폴더: $DIR"
@@ -102,7 +102,7 @@ if (( DRY )); then
   echo "env: $(env14)"
   echo "모드 전환: compose down -v(seatlab 컨테이너 0 · DB 볼륨 없음 확인) → up(앱 1대 · CONFIRM_MODE=$MODE) → configprops seat.confirm.mode 대조"
   echo "시드: 예열 앞 /internal/reset?schedules=2&seatsPerSchedule=10000 → warmup15.js(PAY_START=$(P .k6.env.PAY_START)) → /internal/reset?schedules=$SEED_S&seatsPerSchedule=$SEED_N"
-  echo "표본기: 서버·docker stats 10s · 대기 0.5s · Hikari 1s · pg_stat_statements $([[ $PGSS == 1 ]] && echo 켬 || echo 끔)"
+  echo "표본기: 서버·docker stats 10s · 대기 0.5s · Hikari 1s · pg_stat_statements $([[ $PGSS == 1 ]] && echo 켬 || echo 끔) · B3 대기(② 양성 대조) $([[ $B3W_MS -gt 0 ]] && echo "${B3W_MS}ms" || echo 끔)"
   echo "k6: env $K6_ENV CLOCK_OFFSET_MS=<k6 직전 시계 차> BASE_URL=http://$SERVER_HOST:8101 OUT_DIR=$DIR $K6_BIN run --quiet --out csv=$DIR/k6-requests.csv.gz <k6 트리>/$K6_SCRIPT"
   echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(k6 lead ${PRE_K6_LEAD_S}초) · k6 $(P .k6.duration_s)초 · 창 [0, $(P .window.len_s))초 · 수렴 $(P .converge_s)초 · 회차 추정 $(P .est_s)초"
   exit 0
@@ -209,8 +209,15 @@ if [[ "$PGSS" == 1 ]]; then pgss_prepare > "$DIR/pgss-prepare.json" 2>>"$DIR/err
 
 # ---- 표본기(상태 · H4 표본 없음 — kind=cost로 넘겨 lib14가 띄우지 않게) ----------------------------------------------------------------
 TAG15="$(echo "$CID" | tr '/' '_')-$CELL-$MODE-rep$REP-$(date +%Y%m%d%H%M%S)-$RANDOM"
-SAMPLER_COPY="$REMOTE_BASE/$DEPLOY_ID/.samples/$TAG15.jsonl"
+SAMPLER_COPY="$REMOTE_BASE/$DEPLOY_ID/.samples/$TAG15.jsonl" B3W_COPY="$REMOTE_BASE/$DEPLOY_ID/.samples/$TAG15-b3wait.jsonl"
 POLL_PIDS=$(start_pollers14 "$DIR" cost 1 | xargs)
+if (( B3W_MS > 0 )); then   # ② 양성 대조 — B3가 지연 중인 ② 확정을 기다리는 표본(race 셀 다섯 모드 같게 · 리뷰 M15-26). 끝나면 1초 뒤 다시 연다(무음 공백 금지 — errors.log 한 줄)
+  B3W_PID=$( ( while :; do
+      b3wait_sampler "$B3W_COPY" "$B3W_MS" seatlab-harness-b3 2>/dev/null < /dev/null | while IFS= read -r line; do printf '%s\n' "$line" >> "$DIR/timeline-b3wait.jsonl"; done
+      echo "$(date -Is) b3wait sampler ended — reopen in 1s" >> "$DIR/errors.log"; sleep 1
+    done ) > /dev/null 2>&1 < /dev/null & echo $! )
+  POLL_PIDS="$POLL_PIDS $B3W_PID"
+fi
 for _ in $(seq 1 30); do [[ -s "$DIR/timeline-locks.jsonl" ]] && break; sleep 0.5; done
 [[ -s "$DIR/timeline-locks.jsonl" ]] || echo "$(date -Is) samples-before-load timeout: timeline-locks.jsonl 15s 동안 비어 있음" >> "$DIR/errors.log"
 hold_left=$(awk -v s="$SEED_T" -v h="$PRE_K6_HOLD_S" -v n="$(now)" 'BEGIN { d = s + h - n; printf "%.3f", (d > 0 ? d : 0) }')
@@ -270,6 +277,7 @@ app_db_clock > "$DIR/app-db-clock-after.json" 2>>"$DIR/errors.log" < /dev/null
 # ---- 수집 · 정리 ------------------------------------------------------------------------------------------------------------------------
 stop_pollers14 $POLL_PIDS; POLL_PIDS=""
 remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1 < /dev/null
+(( B3W_MS > 0 )) && psql_sampler_kill "$B3W_COPY" < /dev/null
 if remote "cat '$SAMPLER_COPY'" > "$DIR/.sampler-remote.jsonl" 2>/dev/null < /dev/null && [[ -s "$DIR/.sampler-remote.jsonl" ]]; then
   nl=$(wc -l < "$DIR/timeline-locks.jsonl" 2>/dev/null || echo 0); nw=$(wc -l < "$DIR/timeline-waits.jsonl" 2>/dev/null || echo 0)
   rl=$(grep -c '"lock_waiting"' "$DIR/.sampler-remote.jsonl"); rw=$(grep -c '"waits"' "$DIR/.sampler-remote.jsonl")
@@ -278,6 +286,7 @@ if remote "cat '$SAMPLER_COPY'" > "$DIR/.sampler-remote.jsonl" 2>/dev/null < /de
   else echo "$(date -Is) waits stream-complete" >> "$DIR/sampler-recovery.txt"; fi
 else echo "$(date -Is) waits server-copy-unavailable" >> "$DIR/sampler-recovery.txt"; fi
 rm -f "$DIR/.sampler-remote.jsonl"; remote "rm -f '$SAMPLER_COPY'" > /dev/null 2>&1 < /dev/null
+(( B3W_MS > 0 )) && recover_copy "$DIR" "$B3W_COPY" timeline-b3wait.jsonl < /dev/null
 for c in app db; do
   remote "docker logs --since '$STARTED' seatlab-$c-1 2>&1" < /dev/null | gzip > "$DIR/$c.log.gz"
   echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$DIR/$c.log.gz" 2>/dev/null | wc -c)" >> "$DIR/logs-status.txt"

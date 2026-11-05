@@ -30,15 +30,21 @@ app_config15() {   # 인자: 회차폴더
 }
 
 # 시드 확인(record-level — seed-mismatch · schema-mismatch): 회차 수 · 좌석 수 · 모두 AVAILABLE · 홀드·예약·쿼터 행 0 ·
-#   V12 인덱스(유효 · 유니크 · 부분 조건 — §설계-11 V12 판정과 같은 모양) · V13 열 · V14 트리거(optimistic만 있어야 한다) · 이력 V12 · V13(· V14)
+#   V12 인덱스 · V13 열 · V14 트리거(optimistic만 있어야 한다) · 이력 V12 · V13(· V14).
+#   V12 모양(리뷰 M15-22) = 앱 기동 관문과 같은 기준(HoldStrategyStartupCheck.confirmedSeatIndexState :335-355 · normalizePredicate :358): 이름으로 찾은 인덱스가 유효 · 유니크 ·
+#   표 reservation · 열 seat_id 하나(식 열 없음) · 부분 조건을 괄호 · 공백 · 문자열 캐스트를 지워 'status='CONFIRMED''와 정확히 같음. v12_def = 정의 문장(기록)
 seed_check15() {   # 인자: 기대회차 기대좌석(회차당) → 한 줄 JSON
   db_json <<SQL
 SELECT json_build_object('schedules', (SELECT count(*) FROM product_schedule), 'seats', (SELECT count(*) FROM product_seat),
   'available', (SELECT count(*) FROM product_seat WHERE status = 'AVAILABLE'), 'holds', (SELECT count(*) FROM seat_hold),
   'reservations', (SELECT count(*) FROM reservation), 'quota_rows', (SELECT count(*) FROM user_hold_quota),
-  'v12_valid', (SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-                 WHERE c.relname = 'uq_reservation_confirmed_seat' AND i.indisvalid AND i.indisunique
-                   AND i.indrelid = 'reservation'::regclass AND pg_get_expr(i.indpred, i.indrelid) LIKE '%CONFIRMED%'),
+  'v12_valid', (SELECT count(*) FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid
+                 WHERE i.indexrelid = to_regclass('uq_reservation_confirmed_seat') AND i.indisvalid AND i.indisunique AND t.relname = 'reservation'
+                   AND i.indnatts = 1 AND i.indexprs IS NULL
+                   AND (SELECT a.attname FROM pg_attribute a WHERE a.attrelid = i.indrelid AND a.attnum = i.indkey[0]) = 'seat_id'
+                   AND replace(replace(replace(replace(replace(pg_get_expr(i.indpred, i.indrelid), '::character varying', ''), '::text', ''), '(', ''), ')', ''), ' ', '')
+                       = 'status=''CONFIRMED'''),
+  'v12_def', (SELECT pg_get_indexdef(to_regclass('uq_reservation_confirmed_seat'))),
   'v13_column', (SELECT count(*) FROM information_schema.columns WHERE table_name = 'seat_hold' AND column_name = 'extended_at'),
   'v14_triggers', (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relname = 'product_seat' AND NOT t.tgisinternal),
   'flyway', (SELECT json_agg(version ORDER BY installed_rank) FROM flyway_schema_history WHERE success AND version IS NOT NULL),
@@ -58,4 +64,10 @@ SELECT json_build_object('t', clock_timestamp(), 'rows', coalesce((SELECT json_a
    FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid WHERE d.datname = 'seat' AND calls > 0
      AND query ~* '(seat_hold|product_seat|reservation|user_hold_quota)'), '[]'::json));
 SQL
+}
+
+# ② 양성 대조 표본기(리뷰 M15-26 — scripts/b3wait-sampler.sh를 서버에서 돌린다 · lib14 psql_sampler와 같은 방식 · ADR-014 psql-sampler.sh는 고치지 않는다).
+#   인자: 서버 사본 경로 주기ms 세션이름 → 표준 출력 = 표본 줄(JSON)
+b3wait_sampler() {
+  remote "bash -s -- '$1' '$2' '$3'" < "$LIB15_DIR/b3wait-sampler.sh"
 }

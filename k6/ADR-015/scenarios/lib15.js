@@ -39,6 +39,18 @@ export function reholdOffsets(d) {
   return out;
 }
 
+// 확정 응답 분류(리뷰 M15-21 — ADR-015 §설계-3 공통 에러 계약 · N4): 200 = OK · 그 밖은 상태와 무관하게 본문 code를 읽는다(없으면 NOCODE).
+//   ADR-009 errorCodeOf(lib14 codeOf)는 409만 본문을 읽어 404 · 403이 'HTTP404' · 'HTTP403'이 된다 — 엉뚱한 404(본문 없음 · 다른 code)도 계약 안으로 세던 것을 막는다.
+//   요약기가 (HTTP 상태, code) 쌍을 허용 목록과 대조한다(st 태그와 짝). ADR-009 · ADR-014 파일은 고치지 않는다
+export function confirmCodeOf(res) {
+  if (res.status === 200) return 'OK';
+  try {
+    const c = res.json('code');
+    if (c) return String(c);
+  } catch (e) { /* 본문이 JSON이 아니다 */ }
+  return 'NOCODE';
+}
+
 // 오프셋 묶음(요약기가 응답 분포를 가르는 이름 — 초안 측정-5 · ④ 경계 흐름은 e′ 기준으로 같은 이름):
 //   pre  = c < −delay(지연을 다 자도 만료 전에 쓴다 — 경합 창 밖)
 //   win  = −delay ≤ c < 0(만료 전 확인 · 만료 뒤 쓰기 — 경합 창 · converted_after_expiry가 생기는 자리)

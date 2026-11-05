@@ -36,7 +36,9 @@ GROUPS = ["race", "cost"]                                                       
 COST_RATES = (100, 300)                                                                   # D-2 후보
 C_MARGIN_MS = 300                                                                         # 확정 송신 오프셋 c ~ U[−(delay + 300ms), +300ms] (서버 만료 시각 e 기준)
 F_DUP = 0.1                                                                               # 같은 홀드 이중 확정 비율(D-3 권장)
-RHO = 0.5                                                                                 # 재선점 VU를 붙이는 세션 비율(D-3 권장)
+# 재선점 VU를 붙이는 세션 비율(D-3 사용자 결정 0.5) — 리뷰 M15-20(루프 2): **cost 셀만 0**. cost 셀은 경합 판정 몫이 없고(race가 맡는다 — 조밀 구간도 끈다)
+#   ④만 연장 때문에 재선점이 13초 동안 409를 거듭 받아(다른 모드는 배치가 풀어 준 좌석에서 201로 이탈) 재선점 요청 수가 구조적으로 많다 → G3 비용이 모드가 아니라 부하 구성을 잰다
+RHO = {"race": 0.5, "cost": 0.0}
 REHOLD_FROM_MS, REHOLD_STEP_MS = 500, 1000                                                # 재선점 성긴 구간: e + 0.5초부터 1초 간격
 REHOLD_UNTIL_S = EXPIRY_INTERVAL_S + 3                                                    # … e + 13초까지(배치 한 주기 + 여유 — 풀린 좌석을 놓치지 않는다)
 # 재선점 조밀 구간(리뷰 M15-6): 경합 창 = 만료 e 직후 ~ 확정 쓰기(≤ e + delay — win 묶음 c ∈ [−delay, 0)) 안에 재선점이 들어가야 FM1 순서
@@ -66,6 +68,15 @@ PGSS_DEFAULT = 1                                                                
 V12_ROWS_DEFAULT = [1_000_000, 5_000_000]                                                 # D-5 후보(ADR-002 규모 축 100만 · S5 상단 500만)
 V12_BLOCK_MAX_MS = 2000                                                                   # #5 판정: 쓰기 차단 ≤ 2초면 트랜잭션 안 판 유지(ADR-013 lock_timeout 2초 선례 — D-5)
 V12_REPS = 3
+# 새 모드 양성 대조(리뷰 M15-26 — 서버 논리 증거): ①③④ 진 쪽 404가 '배치가 지연 중에 홀드를 지웠다'로 읽히려면 서버 :now < e여야 한다.
+#   ①④는 :now 바로 뒤에 지연을 잔다(AtomicConfirmProcess.kt:41 · :69) → :now ≤ 응답 끝 − 지연. 응답 끝(k6 서버 시각 태그 te)을 시계 차 오차로 보정해
+#   te + 오차 − 지연 + 여유 < e 이면 :now < e. 여유 20ms = ADR-014 측정-4 시계 오차 허용(:672 — 초안 측정-4 오프셋 행과 같은 값) · Thread.sleep ms 해상도 · 컨테이너 시계 흔들림 몫
+EVIDENCE_MARGIN_MS = 20
+# ② 양성 대조(리뷰 M15-26): A′ 배치 B3가 ② 확정(P2 뒤 지연 중 — 홀드 · 좌석 잠금 보유)을 기다리는 순간을 pg_stat_activity 표본으로 잡는다(scripts/b3wait-sampler.sh).
+#   B3 대기 길이 w = 틱이 만난 순간 ②의 남은 지연(길이 편향 잔여 — 평균 약 delay/3) → 주기 p ms 표본이 한 대기를 잡을 확률 = E[min(1, w ÷ p)] — p = 20ms면 약 0.90 ·
+#   ADR-009 대기 표본 500ms면 약 0.13(초안 측정-4 fix2 행 — .164 race 회차당 잡힌 에피소드 기대 약 20 대 약 2.9).
+#   race 셀 다섯 모드 모두 같은 주기로 켠다(표본 질의 부하가 ②의 race 비용 지표에만 섞이지 않게) · cost 셀은 끈다(지연 0 — 잠금을 쥔 채 자지 않는다)
+B3WAIT_PERIOD_MS = {"race": 20, "cost": 0}
 
 
 def k6_lead_s(pre_vus_total):
@@ -143,7 +154,8 @@ def render(mode, cell, rep, knobs=None):
     dense = rehold_dense(cell, c["delay_ms"])
     # 미리 만든 VU: ④ 경계 흐름 세션은 약 (창 − 리드)초 더 산다(main · rehold 둘 다)
     longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
-    pre = {f: math.ceil(c["rate"] * (v + longer) * (RHO if f == "rehold" else 1)) for f, v in PRE_VUS_PER_RATE.items()}
+    rho = RHO[cell]
+    pre = {f: math.ceil(c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in PRE_VUS_PER_RATE.items()}
     pre = {f: max(v, 20) for f, v in pre.items()}
     mx = {f: math.ceil(v * MAX_VUS_FACTOR) for f, v in pre.items()}
     d_arr = c["d_arr_s"]
@@ -156,7 +168,7 @@ def render(mode, cell, rep, knobs=None):
     }
     k6env = {
         "REP": str(rep), "RATE": str(c["rate"]), "D_ARR_S": str(d_arr), "GRACE_S": str(grace), "TTL_S": str(TTL_S),
-        "DELAY_MS": str(c["delay_ms"]), "C_MARGIN_MS": str(C_MARGIN_MS), "F_DUP": str(F_DUP), "RHO": str(RHO),
+        "DELAY_MS": str(c["delay_ms"]), "C_MARGIN_MS": str(C_MARGIN_MS), "F_DUP": str(F_DUP), "RHO": str(rho),
         "REHOLD_FROM_MS": str(REHOLD_FROM_MS), "REHOLD_STEP_MS": str(REHOLD_STEP_MS), "REHOLD_UNTIL_S": str(REHOLD_UNTIL_S),
         "REHOLD_DENSE_FROM_MS": str(dense[0]), "REHOLD_DENSE_STEP_MS": str(dense[1]), "REHOLD_DENSE_UNTIL_MS": str(dense[2]),
         "PAY_START": "1" if ext else "0", "PAY_START_BEFORE_E_S": str(PAY_START_BEFORE_E_S), "PAY_WINDOW_S": str(PAYMENT_WINDOW_S),
@@ -171,7 +183,8 @@ def render(mode, cell, rep, knobs=None):
         "ttl_s": TTL_S, "expiry_interval_s": EXPIRY_INTERVAL_S, "delay_ms": c["delay_ms"], "rate": c["rate"], "d_arr_s": d_arr,
         "flyway_locations": flyway(mode), "pool": POOL, "payment_window": PAYMENT_WINDOW if ext else None,
         "extend_min_remaining": EXTEND_MIN_REMAINING if ext else None, "pgss": int(bool(knobs.get("pgss", PGSS_DEFAULT))),
-        "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense),
+        "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense), "rho": rho,
+        "b3wait_ms": B3WAIT_PERIOD_MS[cell] if c["delay_ms"] > 0 else 0, "evidence_margin_ms": EVIDENCE_MARGIN_MS,
         "k6": {"script": "k6/ADR-015/scenarios/confirm-contention.js", "duration_s": d_arr + grace, "pre_vus": pre, "max_vus": mx,
                "pre_vus_total": pre_total, "lead_s": k6_lead_s(pre_total), "env": k6env},
         # 판정 창 = [t0, t0 + D_arr)(ADR-014 측정-0 정의 그대로) — 요청 시각이 창 안인 응답만 센다. 창 끝 뒤 gracefulStop 동안 끝난 세션은 창 밖(설명 지표에만)
@@ -230,6 +243,11 @@ def config_check(mode, cell, cfg_path, knobs=None):
             if not ok:
                 reasons.add("confirm-mode-mismatch" if (prefix, k) == ("seat.confirm", "mode") else "cond-config-mismatch")
                 detail.append(f"{prefix}.{k}: 기대 {want!r} · 실제 {got!r}")
+    # 리뷰 M15-24: Hikari 풀 크기(실측 hikaricp.connections.max)를 계획값과 대조(ADR-014 plan14.py:310 선례) — 없음 · 숫자 아님도 불일치(무음 통과 금지)
+    pool = cfg.get("hikaricp.connections.max")
+    if not (isinstance(pool, list) and pool and isinstance(pool[0], (int, float)) and not isinstance(pool[0], bool) and pool[0] == POOL):
+        reasons.add("cond-config-mismatch")
+        detail.append(f"hikaricp.connections.max {pool!r} ≠ [{POOL}]")
     nf = cfg.get("app_nofile")
     if not (isinstance(nf, dict) and all(isinstance(nf.get(x), int) and nf[x] >= TOMCAT_MAX_CONNECTIONS + 1000 for x in ("soft", "hard"))):
         reasons.add("cond-config-mismatch")
@@ -253,6 +271,8 @@ def dry_run(knobs):
             fr, st, un = p["rehold_dense_ms"]
             if p["delay_ms"] > 0 and not (st > 0 and fr <= 0 and un >= p["delay_ms"]):
                 problems.append(f"{cell}/{mode}: 재선점 조밀 구간이 경합 창 [0, {p['delay_ms']}ms]을 덮지 않는다")
+            if cell == "race" and not p["b3wait_ms"] > 0:
+                problems.append(f"race/{mode}: B3 대기 표본 꺼짐(② 양성 대조를 낼 수 없다 — 리뷰 M15-26)")
             if mode == "conditional-extend" and cell == "race" and not p["ext_boundary_f"] > 0:
                 problems.append("race/conditional-extend: ④ 경계 흐름 없음(④ race 양성 대조가 구조적으로 0)")
     if not cells["race/pessimistic"]["pgss"]:
