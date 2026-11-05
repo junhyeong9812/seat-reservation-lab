@@ -45,6 +45,7 @@
 | 11-05 09:35 | 측정 설계 리뷰 루프 2 회수: codex(F1~F6 — H 2: 새 모드 양성 대조 근사) · Opus(F1 H 'A도 같은 문턱' 누락 · F2~F4 M) → 종합(채택 12 · M15-26 기각 = 받아들인 한계) → codex 감사: **M15-26 기각 부적절**(계획 오프셋 기준 404 · B3 전체 실행 시간 max는 충돌 증명 불가 · 같은 시드 parity는 그 모드 회차의 충돌을 증명 못 함) → **메인 재판정: M15-26 채택(재설계)** — ①③④ = 실측 송신 시각(시계 차 보정) < e − 여유 ∧ 본문 code HOLD_NOT_FOUND(:now < e인데 C1/O2 0행 = 배치가 지움 — 서버 논리로 증명) · ② = 샘플러의 배치 DELETE seat_hold Lock 대기 관측 · 관측 불가면 판정 불가 | 신규 채택 13(M15-17~28 · 26) · 루프 2 수정 워커 · 사본 `…/reviews/rv15-measure-loop2/` · 루프 1 M15-3b의 근사 표지를 서버 논리 증거로 바꾸는 재설계(정지 규칙 — 같은 설계 polish가 아니라 증거 원천 교체) |
 | 11-05 09:20 | .164 통합 시험 회수(하네스 8388e198 · current race rep1 · 09:02:41~09:16:53 · prepare EXIT 0 · run EXIT 0 · 판정 · 시작 조건 미사용): status ok · reasons 0 · k6 rc 0 · 판정기 13열 전부 0 · 40P01 0 · 확정 5xx 28(win 단독 22 · win 이중 4 · post 1 — 우연한 가드 갈래) · 틱 실패 4/71 · unique_violation 723(FM2 짝) · FM1 겹침 10 · 확정 p99 205.8ms · DB CPU 19.8% · 시계 차 0.067s · flyway 1~13(기본 + updated-at + incremental) · 원격 seatlab 컨테이너 3개는 다음 회차 down -v 대상(사용자 컨테이너 무접촉) | **실경로(배포 · 기동 · 수집 · 요약) 동작 확인** · current 양성 대조(서버 쪽 5xx + 틱 실패)가 .164에서도 섬 · `post\|single\|HTTP404` 49 = M15-21(본문 code) 대상 |
 | 11-05 09:45 | 측정 설계 루프 2 수정 회수(원시각 09:21:06~09:34:57): M15-17~28 fixed · selftest 143 EXIT 0(메인 재실행 EXIT 0) · 로컬 스모크 5회 — 새 증거 ① 8 · ② 3 에피소드 · ③ 5 · ④ 2 · current 5 · 잘못된 거부 0 · 계약 밖 쌍 0 · V12 모양 음성 8갈래 0 | 하네스 커밋 5c1b96e5 · 메인 결정: ①③④ 증거식 = 응답 끝 기준(`te + ε − delay + 20ms < e ∧ te − ts ≥ delay` — 송신 기준은 :now 앞 대기 상한이 없어 증명 불가 · AtomicConfirmProcess.kt:41 · :69) 채택 · B3 표본기 20ms = race 셀 다섯 모드 공통(②만 켜면 표본 부하가 ② 비용에만 섞임) 채택 · cost 재선점 0은 사용자에 보고됨 · 미검증: B3 표본기 원격 경로(.164 스모크에서 확인) · 다음: 루프 3 |
+| 11-05 09:55 | 측정 설계 리뷰 루프 3(packet base b104fc4a · 14파일 +2833 · `$OUT` scratchpad/rv15o.Rm1P · mirror rv15omir.fsha): codex(F1 H current 양성 대조 원인 미구분 · F2 · F3 M V12 결측 무음) · Opus(F1 M ④ 기준 흐름 잘못된 거부 기준이 원래 e · F2 M race G3에 ④ 재선점 구조 차이 · F3 L 'current 유지' 사유 갈래 · F4 L 인용 줄 ExpireHoldsService.kt:39 → :47 · OQ 7 — ①④ · ② 증거 논리는 코드로 성립 확인) → 신규 채택 7 → **`review unresolved`(루프 3 상한)** · .164 통합 시험 2(하네스 5c1b96e5 · pessimistic race · 09:38:51~09:52:55 · ok): B3 표본기 원격 경로 동작 — 에피소드 26(추정 ≈20) · 5xx 0 · 틱 실패 0 · 판정기 0 · 40P01 0 · unique_violation 0 · revert not_held/kept_active 0 | 사용자 답(AskUserQuestion): '고치고 재확인 뒤 측정'(**user override** — 상한 초과 수정 + codex 타깃 재점검 1회) · race 셀 비용 지표는 G3 판정에서 제외(설명 열 · 비용은 cost 셀만) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -141,6 +142,13 @@
 | M15-26 | 2 | codex F1 · F2 · 감사 | diff :2124 · :2138 · 초안 :168 — 새 모드 양성 대조가 충돌 증명 못 함 | 기각 → **감사로 채택(재설계)** | fixed | 2(5c1b96e5) |
 | M15-27 | 2 | codex OQ1 | 초안 :288 — D-12~15 표기 | 채택(문서) | fixed | 2(5c1b96e5) |
 | M15-28 | 2 | Opus OQ2 · OQ4 | 초안 :197 · summarize.py:586-599 — 닿지 않는 갈래 · 근거 | 채택(문서) | fixed | 2(5c1b96e5) |
+| M15-29 | 3 | codex F1 | 초안 :24 · :214 · summarize(diff :2477-2496 · :2557-2560) · ExpireHoldsService.kt:45-61 — current 양성 대조(틱 실패 · win 5xx)가 원인 미구분 | 채택(H) → 앱 로그 예외 종류(0행 DELETE — StaleObjectState/ObjectOptimisticLockingFailure)로 원인 귀속 · G2도 원인별 | open | |
+| M15-30 | 3 | codex F2 | diff :611-616 · :2666-2668 · 초안 :239-244 — V12 단계 실패/누락이 최종 결론에 반영 안 됨 | 채택 → 캠페인 완료 관문 · 결론 판정 불가 | open | |
+| M15-31 | 3 | codex F3 | diff :2737-2762 — V12 CONCURRENTLY 시간값 · 탐침 결과 검증 없음 | 채택 | open | |
+| M15-32 | 3 | Opus F1 | confirm-contention.js:103 · :131 · :140 · summarize.py:447 — ④ 기준 흐름 잘못된 거부 기준이 연장 전 e | 채택 → 그 확정 앞 서버가 준 가장 늦은 expiresAt | open | |
+| M15-33 | 3 | Opus F2 | 초안 :202 · :213 · plan15.py:41 · summarize.py:63 — race G3에 ④ 재선점 구조 차이 | 채택 → 사용자 결정: race 비용 지표 G3 제외(설명 열) | open | |
+| M15-34 | 3 | Opus F3 | 초안 :220 · summarize.py:753-758 — 'current 유지' 사유 갈래 부정확 | 채택(L) | open | |
+| M15-35 | 3 | Opus F4 | 초안 :115 — 인용 ExpireHoldsService.kt:39 실재 아님(:47 · SweepConditionalBatch.kt:38 · :61 · :72) | 채택(L) | open | |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
