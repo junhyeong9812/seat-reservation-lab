@@ -150,10 +150,11 @@ check("입력 결측 회차 → invalid(0으로 채우지 않음)", s["status"].
 
 
 def synth_rep(mode, conf_rows=(), rehold_rows=(), pay_rows=(), extra_http=(), act=None, act_w=None, pgss=None, cell="race", clock=True, sess=None, skip=(), body_bad=(),
-              b3w=None, client=None):
+              b3w=None, client=None, applog=None):
     """conf_rows = (t, cb, dup, st, code, seat, fl, ts, te[, e]) · rehold_rows = (seat, t) · pay_rows = (st, code, fl) · act = (before, end) 덮어쓰기 dict ·
     clock = 시계 차 파일(오차 = max(|0 − 0|, |0 − 1|) + 2/2 + 1 = 3ms) · sess = [(fl, n)](None = conf 줄에서 맞춰 만든다) · skip = [(fl, n)] · body_bad = [fl] ·
-    b3w = B3 대기 표본 줄 목록(None = 파일 없음) · client = timeline-client.jsonl 줄 목록(None = 파일 없음)."""
+    b3w = B3 대기 표본 줄 목록(None = 파일 없음) · client = timeline-client.jsonl 줄 목록(None = 파일 없음) ·
+    applog = app.log 본문(None = 파일 없음 — gzip으로 쓴다) · conf 줄 11번째 = el(서버가 준 가장 늦은 만료 — 없으면 e와 같게: k6가 늘 낸다)."""
     d = Path(tempfile.mkdtemp()) / cell / mode / "rep1"
     d.mkdir(parents=True)
     pl = plan15.render(mode, cell, 1)
@@ -166,8 +167,9 @@ def synth_rep(mode, conf_rows=(), rehold_rows=(), pay_rows=(), extra_http=(), ac
     for cr in conf_rows:
         t, cb, dup, st, code, seat, fl, ts_, te_ = cr[:9]
         e_ = cr[9] if len(cr) > 9 else 10 ** 9
+        el_ = cr[10] if len(cr) > 10 else e_
         ln.append(row("http_req_duration", t, 5.0, "confirm", st=st, ec="1050" if st == "0" else ""))
-        ln.append(row("conf", t, 1, extra=f"cb={cb}&dup={dup}&st={st}&code={code}&seat={seat}&fl={fl}&ts={ts_}&te={te_}&e={e_}"))
+        ln.append(row("conf", t, 1, extra=f"cb={cb}&dup={dup}&st={st}&code={code}&seat={seat}&fl={fl}&ts={ts_}&te={te_}&e={e_}" + ("" if el_ is None else f"&el={el_}")))
         auto[fl] = auto.get(fl, 0) + 1
     for fl, n in (sess if sess is not None else list(auto.items())):
         ln.append(row("sess", 100, 1, extra=f"fl={fl}&n={n}"))
@@ -201,19 +203,51 @@ def synth_rep(mode, conf_rows=(), rehold_rows=(), pay_rows=(), extra_http=(), ac
         (d / "timeline-b3wait.jsonl").write_text("".join(json.dumps(x) + "\n" for x in b3w))
     if client is not None:
         (d / "timeline-client.jsonl").write_text("".join(json.dumps(x) + "\n" for x in client))
+    if applog is not None:
+        with gzip.open(d / "app.log.gz", "wt") as g:
+            g.write(applog)
     return S.rep_summary(d)
 
 
-# M15-3a current: win 단독 5xx만 증거(짝 · post 5xx · 시간 초과는 아님) + 틱 실패
+# M15-29 current 경합 증거 = app.log 0행 DELETE 귀속(확정 5xx + 틱 실패). 고정 픽스처 = .164 시험(int164 current race rep1 · 하네스 8388e198) app.log.gz에서
+#   그대로 뽑은 사건 6개(기동 INFO 1 · 확정 5xx OOLFE ← StaleObjectState SeatHold#562 1 · 유니크 위반 409 갈래 3 · 틱 실패 OOLFE SeatHold#4575 1 — 원본 67 · 4478 · 82~85 · 36910행)
+FIX = (HERE / "fixtures" / "applog-164-current.log").read_text()
+FIX_EV = re.split(r"\n(?=\d{4}-\d\d-\d\dT)", FIX.rstrip("\n"))
+C5_EV = next(e for e in FIX_EV if "[dispatcherServlet]" in e.split("\n", 1)[0])
+TK_EV = next(e for e in FIX_EV if "LoggingErrorHandler" in e.split("\n", 1)[0])
+fa = S.applog_attrib(HERE / "fixtures" / "applog-164-current.log", 0)
+check("M15-29 픽스처(.164 실물) → 확정 5xx 0행 DELETE 1 · 틱 실패 0행 DELETE 1 · 유니크 위반 409 갈래는 세지 않음",
+      fa["confirm"]["zero_row"] == 1 and fa["confirm"]["total"] == 1 and fa["tick"]["zero_row"] == 1 and fa["tick"]["total"] == 1 and fa["other_request"]["total"] == 0, json.dumps(fa))
+# 귀속 안 됨(합성 변형 — 실물 사건의 예외 이름을 바꾸고 StaleObjectState 줄을 지움): 다른 DB 예외 5xx · 다른 예외 틱 실패
+OTHER = "org.springframework.dao.DataAccessResourceFailureException"
+strip_sose = lambda e: "\n".join(x for x in e.split("\n") if "StaleObjectStateException" not in x)   # noqa: E731
+C5_OTHER = strip_sose(C5_EV.replace("org.springframework.orm.ObjectOptimisticLockingFailureException", OTHER))
+TK_OTHER = strip_sose(TK_EV.replace("org.springframework.orm.ObjectOptimisticLockingFailureException", OTHER))
+C5_EARLY = re.sub(r"^\d{4}-\d\d-\d\dT[^ ]+", "1970-01-01T00:00:01.000Z", C5_EV)   # k6 첫 요청(합성 t0 = 100초) 앞 → 세지 않음
 rs = synth_rep("current", conf_rows=[(101, "win", "0", "500", "HTTP500", 1, "b", 1, 2), (101, "win", "1", "500", "HTTP500", 2, "b", 1, 2),
                                      (101, "post", "0", "500", "HTTP500", 3, "b", 1, 2), (101, "win", "0", "0", "HTTP0", 4, "b", 1, 2)],
-               act=({"tick": {"ok": 0, "failed": 0}}, {"tick": {"ok": 5, "failed": 2}}))
-m_ = rs["metrics"]
-check("M15-3a current 경합 증거 = win 단독 5xx 1 + 틱 실패 2 = 3(짝 · post 5xx · 시간 초과 제외)", m_["contention_evidence"] == 3 and m_["evidence_parts"] == {"win_single_5xx": 1, "tick_failed": 2},
-      json.dumps(m_.get("evidence_parts")))
-check("M15-3a current M2 = 상태 ≥ 500만 3 · 시간 초과 1은 따로 · G-F timeout 기록", m_["confirm_5xx"] == 3 and m_["confirm_timeout"] == 1 and rs["fail"].get("timeout") == {"confirm": 1},
-      f"{m_['confirm_5xx']} {m_['confirm_timeout']} {rs['fail']}")
-rs = synth_rep("current", conf_rows=[(101, "win", "0", "0", "HTTP0", 4, "b", 1, 2)], act=({}, {}))
+               act=({"tick": {"ok": 0, "failed": 0}}, {"tick": {"ok": 5, "failed": 2}}), applog=FIX + C5_OTHER + "\n" + C5_EARLY + "\n")
+m_, rs0 = rs["metrics"], rs
+check("M15-29 current 경합 증거 = 로그 귀속 확정 5xx 1 + 틱 실패 1 = 2(다른 예외 5xx · k6 첫 요청 앞 사건 제외)",
+      m_["contention_evidence"] == 2 and m_["evidence_parts"] == {"confirm_5xx_zero_row": 1, "tick_failed_zero_row": 1}, json.dumps(m_.get("evidence_parts")))
+check("M15-29 current 귀속 안 된 수 = 확정 5xx k6 3 − 귀속 1 = 2 · 틱 실패 지표 2 − 귀속 1 = 1 · 예외 종류 표(설명)",
+      m_["evidence_desc"]["unattributed"] == {"confirm_5xx": 2, "tick_failed": 1} and m_["evidence_desc"]["log_confirm_by_exc"].get(OTHER) == 1
+      and m_["evidence_desc"]["win_single_5xx_k6"] == 1, json.dumps(m_.get("evidence_desc")))
+check("M15-29 current G2(b)(c) 값 = 귀속 값(확정 5xx 1 · 틱 실패 1 — 전체 3 · 2 아님)", m_["g2"] == {"confirm_5xx": 1, "tick_failed": 1}, json.dumps(m_.get("g2")))
+rs = synth_rep("current", conf_rows=[(101, "win", "0", "500", "HTTP500", 1, "b", 1, 2)], act=({}, {"tick": {"ok": 5, "failed": 1}}), applog=C5_OTHER + "\n" + TK_OTHER + "\n")
+check("M15-29 current 5xx · 틱 실패가 모두 다른 예외 → 경합 증거 0(원인 없는 신호로 양성 대조가 서지 않음)",
+      rs["metrics"]["contention_evidence"] == 0 and rs["metrics"]["evidence_desc"]["log_tick_by_exc"] == {OTHER: 1}, json.dumps(rs["metrics"].get("evidence_desc")))
+rs = synth_rep("current", conf_rows=[(101, "win", "0", "500", "HTTP500", 1, "b", 1, 2)], act=({}, {"tick": {"ok": 5, "failed": 1}}))
+check("M15-29 current app.log 없음 → 경합 증거 None · G2 값 None(판정 불가 — 0으로 채우지 않음)",
+      rs["metrics"]["contention_evidence"] is None and rs["metrics"]["g2"] == {"confirm_5xx": None, "tick_failed": None}, json.dumps(rs["metrics"].get("g2")))
+rs = synth_rep("current", conf_rows=[(101, "win", "0", "500", "HTTP500", 1, "b", 1, 2)], act=({}, {}), applog="머리 줄 없는 깨진 로그\n")
+check("M15-29 current app.log 머리 줄 0(못 읽음) → 경합 증거 None", rs["metrics"]["contention_evidence"] is None and rs["metrics"]["applog"] is None)
+rs = synth_rep("conditional", conf_rows=[(101, "win", "0", "500", "HTTP500", 1, "b", 1, 2)], act=({}, {"tick": {"ok": 5, "failed": 1}}), applog=C5_OTHER + "\n")
+check("M15-29 새 모드 귀속 안 된 5xx도 G-F 그대로 · G2 값 = 전체(5xx 1 · 틱 실패 1)", rs["fail"].get("5xx") == {"confirm": 1} and rs["metrics"]["g2"] == {"confirm_5xx": 1, "tick_failed": 1},
+      json.dumps({"f": rs["fail"], "g2": rs["metrics"].get("g2")}))
+check("M15-3a current M2 = 상태 ≥ 500만 3 · 시간 초과 1은 따로 · G-F timeout 기록", m_["confirm_5xx"] == 3 and m_["confirm_timeout"] == 1 and rs0["fail"].get("timeout") == {"confirm": 1},
+      f"{m_['confirm_5xx']} {m_['confirm_timeout']} {rs0['fail']}")
+rs = synth_rep("current", conf_rows=[(101, "win", "0", "0", "HTTP0", 4, "b", 1, 2)], act=({}, {}), applog=FIX.split("\n", 1)[0] + "\n")
 check("M15-3a current 시간 초과만 → 경합 증거 0(무관 신호로 성립하지 않음)", rs["metrics"]["contention_evidence"] == 0, json.dumps(rs["metrics"].get("evidence_parts")))
 # M15-26 새 모드 ① · ③ 양성 대조 = 서버 논리 증거(404 HOLD_NOT_FOUND ∧ te + 오차(3) − 지연(200) + 여유(20) < e ∧ te − ts ≥ 지연) — 단독 · 기준 흐름만
 NF = ("404", "HOLD_NOT_FOUND")
@@ -293,6 +327,15 @@ for m in ("current", "conditional"):
     rs = synth_rep(m, conf_rows=er)
     check(f"M15-19 {m} 잘못된 거부 = 단독 te + 오차 < e인 404 · 500(짝 · 200 · te + 오차 ≥ e 제외) → G-F early_reject",
           rs["fail"].get("early_reject") == {"404:HOLD_NOT_FOUND": 1, "500:NOCODE": 1} and rs["metrics"]["early_n"] == 3, json.dumps({"f": rs["fail"].get("early_reject"), "n": rs["metrics"].get("early_n")}))
+# M15-32 ④ 기준 흐름의 잘못된 거부 기준 = 그 확정 앞에 서버가 준 가장 늦은 expiresAt(el — payment-start 200의 e′). e(1500) < te(1700) < e′(120000)
+rs = synth_rep("conditional-extend", conf_rows=[(101, "post", "0", *NF, 1, "b", 1600, 1700, 1500, 120000), (101, "post", "0", "200", "OK", 2, "b", 1600, 1700, 1500, 120000),
+                                                (101, "post", "0", *NF, 3, "b", 1600, 1700, 1500, 1500)],
+               pay_rows=[("200", "OK", "b")] * 3, extra_http=[("hold", "201")] * 3, act=({}, {"extend": {"extended": 3, "already": 0, "not_needed": 0, "too_late": 0}}))
+check("M15-32 ④ 연장 뒤(e < te < e′) 404 = 잘못된 거부 1(연장 전 e로 재면 놓치던 건) · el = e인 404는 아님 · 200은 아님",
+      rs["fail"].get("early_reject") == {"404:HOLD_NOT_FOUND": 1} and rs["metrics"]["early_n"] == 2, json.dumps({"f": rs["fail"].get("early_reject"), "n": rs["metrics"].get("early_n")}))
+rs = synth_rep("conditional-extend", conf_rows=[(101, "post", "0", *NF, 1, "b", 1600, 1700, 1500, None)], pay_rows=[("200", "OK", "b")], extra_http=[("hold", "201")],
+               act=({}, {"extend": {"extended": 1, "already": 0, "not_needed": 0, "too_late": 0}}))
+check("M15-32 ④ 확정에 el 태그 없음 → 기준을 모름(k6-csv-missing — 하네스)", "k6-csv-missing" in rs["reasons"], json.dumps(rs["reasons"]))
 rs = synth_rep("conditional", conf_rows=er[:1], clock=False)
 check("M15-19 시계 차 못 세움 → 잘못된 거부 None(G-F에 넣지 않음 — 회차는 clock-offset-bad)", rs["metrics"]["early_reject"] is None and "early_reject" not in rs["fail"])
 # M15-25 PC 메모리 하한(ADR-014 이식)
@@ -325,16 +368,28 @@ check("M15-9 JPA — 확정과 같은 문장(shared)은 틱당 값에서 뺀다"
 # ---- 캠페인 판정 분기 ----
 
 
-def fake_campaign(spec):
-    """spec[(cell, mode)] = 회차 지표 dict(세 회차 같은 값 + 회차별 작은 흔들림) · fail dict · nreps(유효 회차 수 — 기본 3) · none(값을 None으로 둘 지표 이름 — rep2만)."""
+def fake_campaign(spec, v12=None):
+    """spec[(cell, mode)] = 회차 지표 dict(세 회차 같은 값 + 회차별 작은 흔들림) · fail dict · nreps(유효 회차 수 — 기본 3) · none(값을 None으로 둘 지표 이름 — rep2만) ·
+    g2x5 · g2tf(G2 원인 귀속 값 — 없으면 전체 x5 · tf와 같다 · M15-29) · rh(재선점 요청 수 req.rehold).
+    v12 = None(V12 단계 기록 없음) | {"stage": {...} | None, "recs": {(N, k): 기록} | None}(M15-30 — v12-stage.json · v12/ 폴더)."""
     root = Path(tempfile.mkdtemp())
+    if v12 is not None:
+        if v12.get("stage") is not None:
+            (root / "v12-stage.json").write_text(json.dumps(v12["stage"]))
+        if v12.get("recs") is not None:
+            (root / "v12").mkdir()
+            (root / "v12" / "v12-plan.json").write_text(json.dumps({"rows": [1000000, 5000000], "reps": 3, "block_max_ms": 2000}))
+            for (n, k), rec in v12["recs"].items():
+                (root / "v12" / f"v12-{n}-rep{k}.json").write_text(json.dumps(rec))
     for (c, m), v in spec.items():
         for r in range(1, v.get("nreps", 3) + 1):
             d = root / c / m / f"rep{r}"
             d.mkdir(parents=True)
             met = {"mode": m, "cell": c, "rep": r, "p99": {"confirm_200": v.get("p99c", 10) + r * 0.1, "hold_201": v.get("p99h", 5) + r * 0.1},
                    "db_cpu": v.get("cpu", 100) + r, "confirm_5xx": v.get("x5", 0) + (r if v.get("x5") else 0), "tick_failed": v.get("tf", 0),
-                   "contention_evidence": v.get("ev", 5), "fm1_overlap": v.get("fm1", 1)}
+                   "contention_evidence": v.get("ev", 5), "fm1_overlap": v.get("fm1", 1), "req": {"rehold": v.get("rh", 100) + r}}
+            met["g2"] = {"confirm_5xx": v["g2x5"] + r if v.get("g2x5") else met["confirm_5xx"] if "g2x5" not in v else 0,
+                         "tick_failed": v.get("g2tf", met["tick_failed"])}
             if v.get("none") and r == 2:
                 *head, last = v["none"].split(".")
                 tgt = met
@@ -365,7 +420,8 @@ sp = base_spec()
 for m in plan15.NEW_MODES:
     sp[("cost", m)]["cpu"] = 300
 r = S.campaign(fake_campaign(sp), write=False)
-check("모든 후보 G3 걸림 → current 유지 ③", r["decision"]["new_default"] is None and "③" in r["decision"]["verdict"], r["decision"]["verdict"])
+check("M15-34 모든 후보 G3 걸림 → current 유지 ②(성공 후보가 모두 관문에서 확정적으로 걸림 · 후보별 G3 hit)", r["decision"]["new_default"] is None
+      and r["decision"]["verdict"].startswith("current 유지 ②(성공 후보가 모두 관문에서 확정적으로 걸림") and "G3 hit" in r["decision"]["verdict"], r["decision"]["verdict"])
 sp = base_spec()
 sp[("race", "current")]["x5"] = 0
 sp[("race", "current")]["tf"] = 0
@@ -377,7 +433,8 @@ sp[("race", "current")]["x5"] = 0
 sp[("race", "current")]["tf"] = 0
 sp[("race", "current")]["ev"] = 2   # 경합은 있었지만(유니크 위반 등) 5xx · 틱 실패 차이 없음
 r = S.campaign(fake_campaign(sp), write=False)
-check("이긴 후보 없음 → current 유지 ②", r["decision"]["new_default"] is None and "②" in r["decision"]["verdict"], r["decision"]["verdict"])
+check("M15-34 이긴 후보 없음 → current 유지 ②(후보별 G2 False)", r["decision"]["new_default"] is None and r["decision"]["verdict"].startswith("current 유지 ②")
+      and "G2 False" in r["decision"]["verdict"], r["decision"]["verdict"])
 sp = base_spec()
 sp[("race", "conditional")]["fail"] = {"5xx": {"confirm": 1}}
 r = S.campaign(fake_campaign(sp), write=False)
@@ -422,7 +479,7 @@ check("M15-14 ① 3단 지표 None → ① 판정 불가 · M15-2 뒤 후보(pes
       and r["decision"]["provisional"] == "pessimistic" and r["candidates"]["conditional"]["status"] == "undetermined", r["decision"]["verdict"])
 sp = base_spec()
 sp[("cost", "conditional")]["none"] = "p99.confirm_200"
-sp[("race", "conditional")]["cpu"] = 300   # ①은 G3에서 확정적으로 걸린다(race DB CPU ≫ current) → 판정 불가여도 막지 않는다(ADR-014 :802)
+sp[("cost", "conditional")]["cpu"] = 300   # ①은 G3에서 확정적으로 걸린다(cost DB CPU ≫ current) → 판정 불가여도 막지 않는다(ADR-014 :802)
 r = S.campaign(fake_campaign(sp), write=False)
 check("M15-2 판정 불가 후보가 G3에서 확정적으로 걸리면 막지 않는다 → pessimistic 교체", r["decision"]["new_default"] == "pessimistic", r["decision"]["verdict"])
 sp = base_spec()
@@ -472,13 +529,79 @@ r = S.campaign(fake_campaign(sp), write=False)
 check("M15-17 환경 원인 시간 초과가 다섯 모드 모두 → 'current 유지 ①'(오결론)이 아니라 판정 불가", r["decision"]["verdict"].startswith("판정 불가") and "①" not in r["decision"]["verdict"]
       and all(r["candidates"][m]["status"] == "undetermined" for m in plan15.NEW_MODES), r["decision"]["verdict"])
 
+# M15-29 G2(b)(c)는 원인 귀속 값: current race 확정 5xx 20 · 틱 실패 3이 모두 귀속 안 됨(로그 0행 DELETE 0) → 새 모드가 '이기지' 않는다
+sp = base_spec()
+sp[("race", "current")].update({"g2x5": 0, "g2tf": 0, "ev": 2})
+r = S.campaign(fake_campaign(sp), write=False)
+check("M15-29 current 5xx · 틱 실패가 원인 귀속 0 → G2(b)(c) 없음 → current 유지 ②(G2 False)", r["decision"]["new_default"] is None
+      and r["decision"]["verdict"].startswith("current 유지 ②") and r["candidates"]["conditional"]["G2"]["b_5xx"] is False, r["decision"]["verdict"])
+sp = base_spec()
+sp[("race", "current")].update({"tf": 0, "none": "g2.confirm_5xx"})   # (c)로는 못 이기고 (b)만 남은 자리에서 current 귀속 값이 rep2에서 None
+r = S.campaign(fake_campaign(sp), write=False)
+check("M15-29 current 귀속 값 None(로그 못 읽음 — rep2) · (c) 없음 → G2 판정 불가 → 결론 판정 불가(앞 순위)", r["decision"]["verdict"].startswith("판정 불가")
+      and r["candidates"]["conditional"]["G2"]["ok"] is None, r["decision"]["verdict"])
+# M15-33 race 비용 지표는 3단 · G3에서 뺀다(설명 열) — race DB CPU ≫ current여도 교체 · 설명 열에 race p99 · CPU · req.rehold
+sp = base_spec()
+sp[("race", "conditional")]["cpu"] = 300
+sp[("race", "conditional")]["rh"] = 900
+r = S.campaign(fake_campaign(sp), write=False)
+check("M15-33 race DB CPU ≫ current → G3 · 3단에 안 든다 → conditional 교체 · 설명 열(race/conditional/db_cpu · race · cost req.rehold)", r["decision"]["new_default"] == "conditional"
+      and r["desc_ranges"]["race/conditional/db_cpu"] == [301, 303] and r["desc_ranges"]["race/conditional/req.rehold"] == [901, 903] and "cost/current/req.rehold" in r["desc_ranges"]
+      and not any(k.startswith("race/") and ("db_cpu" in k or "p99" in k) for k in r["ranges"]), r["decision"]["verdict"])
+# M15-34 current 유지 ①(G1 성공 후보 없음 — 실패 · 판정 불가였으나 관문 확정 걸림)
+sp = base_spec()
+for m in ("conditional", "pessimistic", "optimistic"):
+    sp[("race", m)]["fail"] = {"5xx": {"confirm": 1}}
+sp[("race", "conditional-extend")]["nreps"] = 2
+sp[("cost", "conditional-extend")]["cpu"] = 300
+r = S.campaign(fake_campaign(sp), write=False)
+check("M15-34 셋 실패 + ④ 판정 불가(유효 2회)지만 G3 확정 걸림 → current 유지 ①(G1 성공 후보 없음 — 실패 셋 · 확정 걸림 ④)",
+      r["decision"]["verdict"].startswith("current 유지 ①(G1 성공 후보 없음") and "conditional-extend(G3 hit" in r["decision"]["verdict"]
+      and "실패: conditional, pessimistic, optimistic" in r["decision"]["verdict"], r["decision"]["verdict"])
+# Opus OQ2 'A도 같은 문턱'의 시간 초과는 요청 이름과 무관하게 묶는다
+r = a_case(xfail={"timeout": {"pay_start": 1}}, cfail={"timeout": {"confirm": 1}}, xm="conditional-extend")
+check("OQ2 ④ pay_start 시간 초과 · current는 같은 셀 confirm 시간 초과 → 판정 불가(요청 이름 무관 묶음)", r["candidates"]["conditional-extend"]["status"] == "undetermined"
+      and "요청 이름 무관" in r["candidates"]["conditional-extend"]["why"], r["candidates"]["conditional-extend"]["why"])
+r = a_case(xfail={"timeout": {"pay_start": 1}}, cfail={"timeout": {"confirm": 1}}, ccell="cost", xm="conditional-extend")
+check("OQ2 current 시간 초과가 다른 셀(cost)뿐 → ④ race pay_start 시간 초과는 실패", r["candidates"]["conditional-extend"]["status"] == "fail", r["candidates"]["conditional-extend"]["why"])
+r = a_case(xfail={"timeout": {"pay_start": 1}}, xm="conditional-extend")
+check("OQ2 current 시간 초과 없음 → ④ pay_start 시간 초과는 실패", r["candidates"]["conditional-extend"]["status"] == "fail")
+# M15-30 · M15-31 V12 단계 = 캠페인 완료 관문
+v12ok = lambda n, k, **kw: {"rows": n, "rep": k, "seed_rc": 0, "seed": {"rows": n, "seats": n + 1000},   # noqa: E731
+                            "tx": {"build_ms": 900, "probe_blocked_ms": 850, "probe_started_inside": True, "valid": True},
+                            "concurrently": {"build_ms": 1500, "probe_ms": 4, "probe_started_inside": True, "valid": True}, **kw}
+RECS = {(n, k): v12ok(n, k) for n in (1000000, 5000000) for k in (1, 2, 3)}
+for name, v12, want_det in (("V12 단계 기록 없음", None, False),
+                            ("--skip-v12", {"stage": {"skipped": True, "rc": None}, "recs": None}, False),
+                            ("V12 단계 rc 1(값은 다 있어도)", {"stage": {"skipped": False, "rc": 1}, "recs": RECS}, False),
+                            ("v12 폴더 없음(rc 0)", {"stage": {"skipped": False, "rc": 0}, "recs": None}, False),
+                            ("CONCURRENTLY build_ms 결측", {"stage": {"skipped": False, "rc": 0},
+                                                        "recs": {**RECS, (5000000, 2): v12ok(5000000, 2, concurrently={"probe_ms": 4, "probe_started_inside": True, "valid": True})}}, False),
+                            ("CONCURRENTLY 탐침 결과 결측", {"stage": {"skipped": False, "rc": 0},
+                                                       "recs": {**RECS, (1000000, 1): v12ok(1000000, 1, concurrently={"build_ms": 1500, "valid": True})}}, False),
+                            ("완전 · rc 0", {"stage": {"skipped": False, "rc": 0}, "recs": RECS}, True)):
+    r = S.campaign(fake_campaign(base_spec(), v12=v12), write=False)
+    vd = r["decision"]["verdict"]
+    if want_det:
+        ok = r["decision"]["v12_determined"] and "#5 V12: 트랜잭션 안 판 유지" in vd and "V12 판정 불가" not in vd and not r["decision"]["v12_required_before_apply"]
+    else:
+        ok = (not r["decision"]["v12_determined"] and "V12 판정 불가" in vd and vd.startswith("교체 — 새 기본값 conditional")
+              and vd.endswith("운영 적용 전 V12 판정 필요") and r["decision"]["v12_required_before_apply"] and r["decision"]["new_default"] == "conditional")
+    check(f"M15-30 · M15-31 {name} → {'V12 판정 · 결론 옆 기록' if want_det else '교체 결론 그대로 + V12 판정 불가 + 운영 적용 전 V12 판정 필요'}", ok, vd)
+sp = base_spec()
+for m in plan15.NEW_MODES:
+    sp[("cost", m)]["cpu"] = 300
+r = S.campaign(fake_campaign(sp), write=False)
+check("M15-30 교체가 아닌 결론에도 'V12 판정 불가'를 옆에 적는다(운영 적용 문구는 교체만)", "V12 판정 불가" in r["decision"]["verdict"] and not r["decision"]["v12_required_before_apply"],
+      r["decision"]["verdict"])
+
 # ---- #5 판정 ----
 vr = Path(tempfile.mkdtemp())
 check("M15-8 #5 v12-plan.json 없음 → 판정 불가", S.v12_summary(vr, write=False)["verdict"].startswith("판정 불가"))
 (vr / "v12-plan.json").write_text(json.dumps({"rows": [1000000, 5000000], "reps": 3, "block_max_ms": 2000}))
 vrec = lambda n, k, blk, **kw: {"rows": n, "rep": k, "seed_rc": 0, "seed": {"rows": n, "seats": n + 1000},   # noqa: E731
                                 "tx": {"build_ms": blk, "probe_blocked_ms": blk - 300 + k, "probe_started_inside": True, "valid": True},
-                                "concurrently": {"build_ms": blk * 2, "probe_ms": 3, "valid": True}, **kw}
+                                "concurrently": {"build_ms": blk * 2, "probe_ms": 3, "probe_started_inside": True, "valid": True}, **kw}
 for k in range(1, 4):
     (vr / f"v12-1000000-rep{k}.json").write_text(json.dumps(vrec(1000000, k, 400)))
 check("M15-8 #5 계획한 500만 자리가 모두 빠짐 → 100만으로 판정하지 않고 판정 불가", S.v12_summary(vr, write=False)["verdict"].startswith("판정 불가"), S.v12_summary(vr, write=False)["verdict"])
@@ -491,7 +614,7 @@ check("M15-7 #5 시드 rc ≠ 0 → 판정 불가", S.v12_summary(vr, write=Fals
 check("M15-7 #5 시드 실측 예약 행 수 ≠ N → 판정 불가", S.v12_summary(vr, write=False)["verdict"].startswith("판정 불가"))
 (vr / "v12-5000000-rep1.json").write_text(json.dumps(vrec(5000000, 1, 1800)))
 (vr / "v12-5000000-rep3.json").write_text(json.dumps(vrec(5000000, 3, 2500, tx={"build_ms": 2500, "probe_blocked_ms": 100, "probe_started_inside": False, "valid": True},
-                                                       concurrently={"build_ms": 8000, "probe_ms": 3, "valid": True})))
+                                                       concurrently={"build_ms": 8000, "probe_ms": 3, "probe_started_inside": True, "valid": True})))
 check("#5 생성 2.5초(탐침은 구간 밖) → CONCURRENTLY 후속", S.v12_summary(vr, write=False)["verdict"].startswith("CONCURRENTLY"))
 (vr / "v12-5000000-rep2.json").write_text(json.dumps({"rows": 5000000, "rep": 2, "error": "prepare-failed"}))
 check("#5 값 빠짐 → 판정 불가", S.v12_summary(vr, write=False)["verdict"].startswith("판정 불가"))

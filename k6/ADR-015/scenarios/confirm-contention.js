@@ -81,8 +81,10 @@ export function setup() {
 
 const srvNow = () => Date.now() + CLOCK_OFFSET_MS;
 
-function confirmTags(res, cb, dup, seat, fl, ts, te, e) {
-  return { cb, dup: String(dup), st: String(res.status), code: confirmCodeOf(res), seat: String(seat), fl, ts: String(ts), te: String(te), e: String(e) };
+// e = 그 확정의 기준 만료(경합 증거 · 오프셋 기준 — ④ 경계 흐름은 e′) · el = 그 확정 앞에 서버가 준 가장 늦은 expiresAt(잘못된 거부 기준 — 리뷰 M15-32:
+//   ④ 기준 흐름은 payment-start 200이 연장한 e′ — 연장 전 e로 재면 e < te < e′ 사이의 거부를 놓친다 · 다른 모드는 e와 같다)
+function confirmTags(res, cb, dup, seat, fl, ts, te, e, el) {
+  return { cb, dup: String(dup), st: String(res.status), code: confirmCodeOf(res), seat: String(seat), fl, ts: String(ts), te: String(te), e: String(e), el: String(el) };
 }
 
 export function mainFlow() {
@@ -119,16 +121,17 @@ export function mainFlow() {
     }
   }
   sleepUntilSrv(refMs + a.c_ms);
+  const latestMs = Number.isFinite(extendedMs) ? Math.max(b.expMs, extendedMs) : b.expMs;
   const sentSrv = srvNow();
   if (a.dup) {
     const rs = http.batch([confirmReq(b.holdId, user, 'confirm'), confirmReq(b.holdId, user, 'confirm')]);
     const te = srvNow();
-    rs.forEach((r, i) => conf.add(1, confirmTags(r, cb, i + 1, seat, fl, sentSrv, te, refMs)));
+    rs.forEach((r, i) => conf.add(1, confirmTags(r, cb, i + 1, seat, fl, sentSrv, te, refMs, latestMs)));
     // 짝의 둘째 404는 N2(한 홀드는 한 번만 확정 — §설계-6)의 정상 결과다 — 짝 중 하나라도 200이면 홀드를 잃지 않았다(로컬 스모크 15-09: 짝 진 쪽 11건을 잃음으로 잘못 셌다)
     if (!rs.some((r) => r.status === 200)) lostCheck(rs[0], extendedMs, sentSrv);
   } else {
     const r = send(confirmReq(b.holdId, user, 'confirm'));
-    conf.add(1, confirmTags(r, cb, 0, seat, fl, sentSrv, srvNow(), refMs));
+    conf.add(1, confirmTags(r, cb, 0, seat, fl, sentSrv, srvNow(), refMs, latestMs));
     lostCheck(r, extendedMs, sentSrv);
   }
 }

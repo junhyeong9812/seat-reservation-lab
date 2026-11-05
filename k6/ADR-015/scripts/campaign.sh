@@ -162,10 +162,17 @@ if [[ -n "$missing" ]]; then echo "멈춤: 실행되지 않은 자리 $(wc -l <<
 bad=$(for mf in "$ROOT"/*/*/rep*/meta.json; do [[ -f "$mf" ]] || continue; [[ "$(jq -r '.harness_hash // ""' "$mf")" == "$C15_HHASH" ]] || echo "$mf"; done)
 if [[ -n "$bad" ]]; then echo "멈춤: 동결본과 다른 하네스 해시의 회차 — $bad" | tee -a "$LOG" >&2; exit 5; fi
 if (( SIMU )); then echo "simulate: $(grep -c . <<< "$ORDER")자리 모두 status · 해시 일치 — #5 · 끝 집계 생략($ROOT)" | tee -a "$LOG"; exit 0; fi
-if (( ! SKIP_V12 )); then   # #5 V12 생성 시간(초안 측정-2) — 부하 회차 뒤 한 번(회차 사이에 섞지 않는다)
+# #5 V12 생성 시간(초안 측정-10) — 부하 회차 뒤 한 번(회차 사이에 섞지 않는다). 단계 결과(v12-stage.json — skipped · rc)는 캠페인 완료 관문이다(리뷰 M15-30):
+#   누락(--skip-v12) · 실패(rc ≠ 0) · 필수 값 결측이면 요약기가 결론 옆에 'V12 판정 불가'를 적고, 교체 결론에는 '운영 적용 전 V12 판정 필요'를 붙인다
+if (( SKIP_V12 )); then
+  echo "$(date -Is) V12 단계 건너뜀(--skip-v12) — 결론 옆 'V12 판정 불가'" >> "$LOG"
+  jq -n '{skipped: true, rc: null}' > "$ROOT/v12-stage.json"
+else
   echo "$(date -Is) V12 단계 시작" >> "$LOG"
-  REPO_ROOT="$REPO" bash "$SRC/v12-build.sh" --sha "$SHA" --images "$IMAGES" --out "$ROOT/v12" "${RUN_KNOBS[@]}" < /dev/null >> "$ROOT/runner.log" 2>&1 || echo "$(date -Is) V12 단계 실패(rc=$?) — 판정 불가로 남는다" >> "$LOG"
+  REPO_ROOT="$REPO" bash "$SRC/v12-build.sh" --sha "$SHA" --images "$IMAGES" --out "$ROOT/v12" "${RUN_KNOBS[@]}" < /dev/null >> "$ROOT/runner.log" 2>&1; v12rc=$?
+  (( v12rc == 0 )) || echo "$(date -Is) V12 단계 실패(rc=$v12rc) — 결론 옆 'V12 판정 불가'" >> "$LOG"
+  jq -n --argjson rc "$v12rc" '{skipped: false, rc: $rc}' > "$ROOT/v12-stage.json"
 fi
 python3 -I "$SRC/summarize.py" "$ROOT" >> "$LOG" 2>&1 || { echo "끝 집계 실패 — $LOG" >&2; exit 7; }
-jq -r '.decision | "결론: \(.verdict) · 새 기본값 \(.new_default // "없음")"' "$ROOT/result.json" | tee -a "$LOG"
+jq -r '.decision | "결론: \(.verdict) · 새 기본값 \(.new_default // "없음") · V12 판정 \(if .v12_determined then "됨" else "불가" end)\(if .v12_required_before_apply then " — 운영 적용 전 V12 판정 필요" else "" end)"' "$ROOT/result.json" | tee -a "$LOG"
 echo "끝 — $ROOT/RESULT.md"

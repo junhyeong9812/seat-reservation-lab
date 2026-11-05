@@ -11,6 +11,8 @@
 판정 입력이 없거나 깨지면 0이 아니라 None이고 그 입력의 사유로 회차가 무효다(ADR-014 '판정 입력 전수 점검'과 같은 규칙). 캠페인에서 None = 판정 불가."""
 import csv
 import gzip
+import re
+from datetime import datetime
 import importlib.util
 import json
 import statistics
@@ -60,7 +62,20 @@ A_RULE_EXACT = ("5xx:hold", "5xx:rehold", "method_stall", "early_reject")
 A_RULE_PREFIX = ("timeout:",)
 A_DEFECT = ("integrity", "api_double", "deadlock")
 RACE, COST = "race", "cost"
-G3_METRICS = [(COST, "p99.confirm_200"), (COST, "p99.hold_201"), (COST, "db_cpu"), (RACE, "p99.confirm_200"), (RACE, "db_cpu")]
+# 3단 · G3 비용 지표 = cost 셀 셋만(리뷰 M15-33 — 사용자 결정 2026-11-05): race 셀은 ④ 재선점 구조(연장 때문에 409를 거듭 받는다) · ② 잠금 보유 지연이 섞여
+#   모드가 아니라 부하 구성을 잰다 → race 확정 p99 · race DB CPU는 설명 열(DESC_METRICS)로만. 결과 문서용으로 모드별 재선점 요청 수(req.rehold)를 함께 낸다
+G3_METRICS = [(COST, "p99.confirm_200"), (COST, "p99.hold_201"), (COST, "db_cpu")]
+DESC_METRICS = [(RACE, "p99.confirm_200"), (RACE, "db_cpu"), (RACE, "req.rehold"), (COST, "req.rehold")]
+# current 경합 증거 · G2(b)(c)의 원인 귀속(리뷰 M15-29): 회차 app.log(run.sh가 docker logs로 거둔 app.log.gz)에서 확정 5xx · 배치 틱 실패의 예외 종류를 센다.
+#   0행 DELETE 갈래 = Hibernate 고아 DELETE가 0행 → StaleObjectStateException → ObjectOptimisticLockingFailureException(15-02 실측 — ADR-015 :124 · log 11-04 23:47).
+#   .164 시험(int164 current race · 하네스 8388e198) 실물 형식: 요청 = '[dispatcherServlet] … Request processing failed: <예외>' + ReservationController.confirm 프레임 ·
+#   틱 = 'TaskUtils$LoggingErrorHandler : Unexpected error occurred in scheduled task' + 다음 줄 <예외> + ExpireHoldsService.expire 프레임.
+#   귀속 = 맨 위 예외 ∈ ZERO_ROW_EXC ∧ StaleObjectStateException이 SeatHold 엔티티에서 ∧ AbstractDeleteCoordinator(DELETE 행 수 검사) 프레임
+ZERO_ROW_EXC = ("org.springframework.orm.ObjectOptimisticLockingFailureException", "org.hibernate.StaleObjectStateException")
+LOG_HEAD = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d))\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+\d+\s+---\s+"
+                      r"(?:\[[^\]]*\]\s+)?\[[^\]]*\]\s+(\S+)\s+:\s?(.*)$")
+EXC_NAME = re.compile(r"([a-z][\w$]*(?:\.[\w$]+)+(?:Exception|Error))\b")
+APPLOG_SLACK_S = 2.0   # k6 첫 요청(t0) 앞 이만큼부터 센다(서버 시각 — 예열 · 시드 단계의 사건을 넣지 않는다)
 # #15 배치 문장 묶음(리뷰 M15-9 — pg_stat_statements 정규화 문장의 앞머리 · 공백 하나로 접은 뒤 비교). 실측 문장(fix1 로컬 스모크 — PG 16 · Hibernate 6.6)에서 옮겼다.
 #   shared = 확정 · 선점도 같은 문장을 낸다(문장 글자로 배치 몫을 가를 수 없다) → 틱당 값에서 빼고 따로 적는다.
 BATCH_STMTS = {
@@ -78,7 +93,8 @@ BATCH_STMTS = {
             ("J3-seat-update", "update product_seat set row_no=$1,schedule_id=$2,seat_no=$3,section=$4,status=$5 where id=$6", True),
             ("J5-hold-delete", "delete from seat_hold where id=$1", True)],
 }
-STAGE2_METRICS = [(RACE, "confirm_5xx"), (RACE, "tick_failed")]
+# 2단 · G2(b)(c) = 원인 귀속 값(리뷰 M15-29): current = app.log 0행 DELETE 갈래로 귀속된 확정 5xx · 틱 실패 · 새 모드 = 전체(보수적 — 귀속 안 된 5xx도 그 모드 몫이고 G-F 그대로)
+STAGE2_METRICS = [(RACE, "g2.confirm_5xx"), (RACE, "g2.tick_failed")]
 
 
 def parse_tags(s):
@@ -205,6 +221,74 @@ def b3wait_summary(rows, period_ms):
     gaps = [b[0] - a[0] for a, b in zip(pts, pts[1:])]
     return {"episodes": ep, "samples": len(pts), "bad": bad, "on_p2_samples": sum(1 for p in pts if p[2] >= 1),
             "b3_lock_samples": sum(1 for p in pts if p[1] >= 1), "gap_max_s": max(gaps) if gaps else None, "period_ms": period_ms}
+
+
+def _log_t(s):
+    """로그 머리 시각(ISO · Z 또는 ±hh:mm) → epoch 초(못 읽으면 None)."""
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def applog_attrib(path, t_from):
+    """app.log(.gz) → 확정 5xx · 틱 실패의 예외 종류별 수와 0행 DELETE 귀속 수(리뷰 M15-29). 사건 = 머리 줄(LOG_HEAD) + 다음 머리 줄 앞까지의 줄(스택).
+    t_from(서버 epoch 초) 앞 사건은 세지 않는다. 파일 없음 · 못 읽음 · 머리 줄 0 · 시각을 못 읽는 ERROR 머리 = None(판정 불가 — 0으로 채우지 않는다).
+    kind: confirm(ReservationController.confirm 프레임) · other_request(그 밖 요청 5xx) · tick(ExpireHoldsService.expire) · other_task(그 밖 예약 작업)."""
+    path = Path(path)
+    if not path.exists():
+        return None
+    out = {k: {"zero_row": 0, "by_exc": {}} for k in ("confirm", "other_request", "tick", "other_task")}
+    heads, bad = 0, 0
+    try:
+        with gzip.open(path, "rt", errors="replace") if path.suffix == ".gz" else open(path, errors="replace") as f:
+            lines = f.read().splitlines()
+    except (OSError, EOFError):
+        return None
+    ev = []
+
+    def flush(e):
+        nonlocal bad
+        if not e or e[1] != "ERROR":
+            return
+        t, _, logger, msg, body = e
+        if logger.endswith("[dispatcherServlet]") and "Request processing failed" in msg:
+            m = EXC_NAME.search(msg.split("Request processing failed", 1)[1])
+            text = msg + "\n" + "\n".join(body)
+            kind = "confirm" if "ReservationController.confirm(" in text else "other_request"
+        elif "LoggingErrorHandler" in logger and "scheduled task" in msg:
+            first = next((x for x in body if x.strip()), "")
+            m = EXC_NAME.match(first.strip())
+            text = "\n".join(body)
+            kind = "tick" if "ExpireHoldsService.expire(" in text else "other_task"
+        else:
+            return
+        if t is None:
+            bad += 1
+            return
+        if t < t_from:
+            return
+        exc = m.group(1) if m else "?"
+        o = out[kind]
+        o["by_exc"][exc] = o["by_exc"].get(exc, 0) + 1
+        if exc in ZERO_ROW_EXC and "StaleObjectStateException" in text and "domain.SeatHold#" in text and "AbstractDeleteCoordinator" in text:
+            o["zero_row"] += 1
+    cur = None
+    for ln in lines:
+        h = LOG_HEAD.match(ln)
+        if h:
+            heads += 1
+            flush(cur)
+            cur = (_log_t(h.group(1)), h.group(2), h.group(3), h.group(4), [])
+        elif cur is not None:
+            cur[4].append(ln)
+    flush(cur)
+    if heads == 0 or bad:
+        return None
+    for o in out.values():
+        o["total"] = sum(o["by_exc"].values())
+    out["heads"] = heads
+    return out
 
 
 def _d(a, b, *path):
@@ -438,16 +522,23 @@ def rep_summary(d):
         M["fm1_overlap_all"] = ov(spans_all)   # 설명(post · 짝 · ④ 기준 흐름 포함 — 루프 1 정의)
         # 잘못된 거부(리뷰 M15-19 — 모든 모드 · 모든 셀): 단독 확정의 응답 끝이 시계 오차를 보태도 기준 만료 e 앞(te + 오차 < e)이면 확정의 모든 문장이 e 전에 끝났다 —
         #   배치는 expires_at ≤ 배치 now(≥ e)인 행만 지우고 좌석은 HELD라 재선점도 못 잡는다 → 200 말고는 잘못된 거부(시간 초과 · 5xx 포함). 오차를 못 세우면 None(G-F에 넣지 않고 판정 입력 결측)
+        #   기준 = 그 확정 앞에 서버가 준 가장 늦은 expiresAt(리뷰 M15-32 — k6 conf{el}: ④는 payment-start 200의 연장 만료 e′ · 기준 흐름도 e가 아니라 e′ ·
+        #   다른 모드는 선점 201의 e와 같다). ④ 확정에 el이 없으면 기준을 모른다 → 판정 입력 결측(csv — 하네스)
+        el_of = lambda c: _f(c.get("el")) if c.get("el") not in (None, "") else (None if mode == "conditional-extend" else _f(c.get("e")))   # noqa: E731
+        if mode == "conditional-extend" and any(c.get("dup") == "0" and el_of(c) is None for c in csvd["conf"]):
+            inp.miss("csv", "④ 확정 conf{el}(서버가 준 가장 늦은 만료) 없음")
         if err_ms is None:
             M["early_reject"] = None
         else:
-            er = {}
+            er, n_early = {}, 0
             for c in csvd["conf"]:
-                te_, e_ = _f(c.get("te")), _f(c.get("e"))
-                if c.get("dup") == "0" and num(te_) and num(e_) and te_ + err_ms < e_ and c.get("st") != "200":
-                    er[f"{c.get('st')}:{c.get('code')}"] = er.get(f"{c.get('st')}:{c.get('code')}", 0) + 1
+                te_, el_ = _f(c.get("te")), el_of(c)
+                if c.get("dup") == "0" and num(te_) and num(el_) and te_ + err_ms < el_:
+                    n_early += 1
+                    if c.get("st") != "200":
+                        er[f"{c.get('st')}:{c.get('code')}"] = er.get(f"{c.get('st')}:{c.get('code')}", 0) + 1
             M["early_reject"] = er
-            M["early_n"] = sum(1 for c in csvd["conf"] if c.get("dup") == "0" and num(_f(c.get("te"))) and num(_f(c.get("e"))) and _f(c["te"]) + err_ms < _f(c["e"]))
+            M["early_n"] = n_early
         # 계획 확정 수 대 실제(리뷰 M15-23 — 흐름별): sess n 합 = conf 수 + conf_skip n 합. 어긋나면 반복이 확정 전에 끊겼다(gracefulStop · 스크립트 예외) → 하네스(G-H)
         nconf = {}
         for c in csvd["conf"]:
@@ -562,16 +653,31 @@ def rep_summary(d):
         elif sent:
             reasons.add("pay-unexpected")
     # 경합 증거(양성 대조 — 리뷰 M15-3a · M15-26): 회차 전체 · 단독 확정만(짝 진 쪽은 N2의 정상 결과라 배치 경합과 무관)
-    #   current = 계획 win 단독 확정 5xx(상태 ≥ 500 — FM1 0행 예외 갈래 · 시간 초과 제외) + 틱 실패(FM3 틱 롤백) — 서버 쪽 사실(예외 · 롤백)이라 그대로
+    #   current = app.log에서 0행 DELETE 갈래(StaleObjectState → ObjectOptimisticLockingFailure)로 귀속된 확정 5xx(FM1) + 배치 틱 실패(FM3) — 리뷰 M15-29
+    #     (루프 2까지의 '계획 win 단독 5xx + 틱 실패 지표'는 원인을 가리지 않아 다른 예외로도 성립했다 → 설명 열 evidence_desc로)
     #   ① · ③ = 기준 흐름(fl=b) · ④ = 경계 흐름(fl=x — e′ 기준) 단독 확정 중 404 HOLD_NOT_FOUND ∧ te + 오차 − 지연 + 여유 < e ∧ te − ts ≥ 지연(서버 :now < e — NOT_FOUND 머리말)
     #   ② = B3 대기 표본에서 'B3가 ② P2 뒤 지연 중인 확정을 기다림' 에피소드 수(b3wait-sampler.sh) — 표본 없음 = None(판정 불가)
     #   설명 열(판정 아님): 계획 오프셋 win 묶음 404(루프 1 근사) · 송신 기준(ts + 오차 < e − 여유 — 메인 초안 식) · pgss B3 max(②)
     def singles(fl):
         return [c for c in (csvd or {}).get("conf", []) if c.get("dup") == "0" and (c.get("fl") or "b") == fl]
     parts, delay, margin = {}, plan["delay_ms"], plan.get("evidence_margin_ms", plan15.EVIDENCE_MARGIN_MS)
+    # app.log 예외 종류(리뷰 M15-29 — 모든 모드 설명 · current는 판정 입력): k6 첫 요청(t0 — 서버 시각) 앞 APPLOG_SLACK_S부터
+    al = applog_attrib(d / "app.log.gz", t0 + off - APPLOG_SLACK_S) if t0 is not None and off is not None else None
+    M["applog"] = al
+    k5 = csvd["err5"].get("confirm", 0) if csvd is not None else None
+    tfm = app.get("tick_failed")
     if mode == "current":
-        parts = {"win_single_5xx": sum(1 for c in singles("b") if c.get("cb") == "win" and (c.get("st") or "").isdigit() and int(c["st"]) >= 500) if csvd is not None else None,
-                 "tick_failed": app.get("tick_failed")}
+        # current = app.log에서 0행 DELETE 갈래(StaleObjectState → ObjectOptimisticLockingFailure — 15-02 실측)로 귀속된 확정 5xx + 배치 틱 실패만.
+        #   귀속 안 된 확정 5xx(k6 5xx − 귀속) · 틱 실패(지표 − 귀속)는 evidence_desc.unattributed로 따로 센다(설명 — 원인 후보는 by_exc). 로그를 못 읽으면 None(판정 불가)
+        a5 = al["confirm"]["zero_row"] if al else None
+        at = al["tick"]["zero_row"] if al else None
+        parts = {"confirm_5xx_zero_row": a5, "tick_failed_zero_row": at}
+        M["g2"] = {"confirm_5xx": a5, "tick_failed": at}
+        M["evidence_desc"] = {
+            "win_single_5xx_k6": sum(1 for c in singles("b") if c.get("cb") == "win" and (c.get("st") or "").isdigit() and int(c["st"]) >= 500) if csvd is not None else None,
+            "confirm_5xx_k6": k5, "tick_failed_metric": tfm,
+            "unattributed": {"confirm_5xx": k5 - a5 if num(k5) and num(a5) else None, "tick_failed": tfm - at if num(tfm) and num(at) else None},
+            "log_confirm_by_exc": al["confirm"]["by_exc"] if al else None, "log_tick_by_exc": al["tick"]["by_exc"] if al else None}
     elif mode in ("conditional", "optimistic", "conditional-extend"):
         fl = "x" if mode == "conditional-extend" else "b"
         nf = [c for c in singles(fl) if (c.get("st"), c.get("code")) == NOT_FOUND] if csvd is not None else []
@@ -586,6 +692,9 @@ def rep_summary(d):
         b3 = ((M.get("batch_stmt") or {}).get("classes") or {}).get("B3") or {}
         M["pess_b3"] = {"max_ms": b3.get("max_ms"), "calls": b3.get("calls"), "total_ms": b3.get("total_ms"), "desc_threshold_ms": delay * PESS_B3_WAIT_FRAC}
         parts = {"b3_wait_on_p2": (M.get("b3wait") or {}).get("episodes")}
+    if mode != "current":
+        # 새 모드 G2(b)(c) 값 = 전체(보수적 — 그 모드 몫 · 귀속 안 된 5xx도 G-F 그대로)
+        M["g2"] = {"confirm_5xx": M.get("confirm_5xx") if csvd is not None else None, "tick_failed": tfm}
     M["evidence_parts"] = parts
     M["fm2_evidence"] = app.get("unique_violation") if mode == "current" else None
     M["contention_evidence"] = sum(parts.values()) if parts and all(num(x) for x in parts.values()) else None
@@ -650,7 +759,7 @@ def campaign(root, write=True):
            "current_integrity_defect": cur_defect, "candidates": {}, "undetermined": []}
     ev = {m: vals(RACE, m, "contention_evidence") for m in plan15.MODES}
     pc_ok = lambda m: len(ev[m]) >= plan15.REPS and all(x is not None and x >= 1 for x in ev[m])   # noqa: E731
-    # G4 캠페인 유효 — current 두 셀 유효 3회 · current race 회차마다 경합 증거 ≥ 1(win 단독 5xx + 틱 실패 — 리뷰 M15-3a · 시간 초과는 따로 기록)
+    # G4 캠페인 유효 — current 두 셀 유효 3회 · current race 회차마다 경합 증거 ≥ 1(app.log 0행 DELETE 귀속 확정 5xx + 틱 실패 — 리뷰 M15-29 · 시간 초과는 따로 기록)
     g4_parts = {"valid3": all(valid3[(c, "current")] for c in plan15.GROUPS), "positive_control": pc_ok("current")}
     g4 = all(g4_parts.values())
     res["G4"] = {"ok": g4, "parts": g4_parts, "evidence": {m: ev[m] for m in plan15.MODES},
@@ -673,6 +782,10 @@ def campaign(root, write=True):
                         soft[m].append(f"{tag} — current {c} 유효 {nvalid[(c, 'current')]}/{plan15.REPS}라 'A도 같은 문턱'을 세울 수 없음")
                     elif i in cur_items[c]:
                         soft[m].append(f"{tag} — current도 같은 (항목, 셀)에서 어김(하네스 · 환경 · 조건 원인)")
+                    elif i.startswith("timeout:") and any(x.startswith("timeout:") for x in cur_items[c]):
+                        # 시간 초과는 요청 이름과 무관하게 묶는다(Opus 루프 3 OQ2): 환경 원인 시간 초과는 그때 떠 있던 요청에 아무렇게나 걸린다 —
+                        #   current에 그 셀 시간 초과가 하나라도 있으면 X의 어느 요청 이름 시간 초과든(④ pay_start 포함) X의 실패로 가르지 못한다
+                        soft[m].append(f"{tag} — current도 같은 셀에서 시간 초과({sorted(x for x in cur_items[c] if x.startswith('timeout:'))} — 요청 이름 무관 묶음)")
                     else:
                         hard[m].append(tag)
     res["a_rule"] = {m: {"fail": hard[m], "undetermined": soft[m]} for m in plan15.NEW_MODES}
@@ -718,8 +831,9 @@ def campaign(root, write=True):
 
     def gates(m):
         """G2 · G3 — ok | False(확정적으로 못 넘음) | None(판정 불가). G3 hit가 있으면 판정 불가 지표가 함께 있어도 '걸림'(ADR-014 :801 끝)."""
-        b5, bc = R(RACE, m, "confirm_5xx"), R(RACE, "current", "confirm_5xx")
-        tf, tc = R(RACE, m, "tick_failed"), R(RACE, "current", "tick_failed")
+        # 원인 귀속 값(리뷰 M15-29): current = app.log 0행 DELETE 갈래로 귀속된 수 · X = 전체 — 귀속 안 된 current 5xx · 틱 실패로 X가 '이기지' 않는다
+        b5, bc = R(RACE, m, "g2.confirm_5xx"), R(RACE, "current", "g2.confirm_5xx")
+        tf, tc = R(RACE, m, "g2.tick_failed"), R(RACE, "current", "g2.tick_failed")
         a, b, c = cur_defect and not hard[m], lower(b5, bc), lower(tf, tc)
         g2 = True if (a or b or c) else (None if None in (b5, bc, tf, tc) else False)
         hit = [f"{cc}/{k}" for cc, k in G3_METRICS if much_higher(vals(cc, m, k), vals(cc, "current", k))]
@@ -750,17 +864,50 @@ def campaign(root, write=True):
         verdict = f"판정 불가 → 사용자 보고(후보 판정 불가 — {' · '.join(f'{m}: {why[m]}' for m in undet_block)}){provisional}"
     elif new_default:
         verdict = f"교체 — 새 기본값 {new_default}"
-    elif not cands:
-        verdict = "current 유지 ①(성공한 후보 없음)"
-    elif all(res["candidates"][m]["G2"]["ok"] is False for m in rank):
-        verdict = "current 유지 ②(G2 — 이긴 후보 없음)"
     else:
-        verdict = "current 유지 ③(G2를 넘은 후보가 모두 G3에서 걸림)"
+        # current 유지 사유는 사실대로(리뷰 M15-34): 판정 불가 후보는 여기 오기 전에 모두 관문에서 확정적으로 걸렸다(아니면 위 undet_block)
+        def caught(m):
+            g = res["candidates"][m]
+            return " · ".join(x for x in ("G2 False" if g["G2"]["ok"] is False else "", f"G3 hit {g['G3']['hit']}" if g["G3"]["ok"] is False else "") if x)
+        und_caught = [f"{m}({caught(m)})" for m in plan15.NEW_MODES if status[m] == "undetermined"]
+        tail = f" · 판정 불가였으나 관문에서 확정적으로 걸림: {' · '.join(und_caught)}" if und_caught else ""
+        if not cands:
+            fl = [m for m in plan15.NEW_MODES if status[m] == "fail"]
+            verdict = f"current 유지 ①(G1 성공 후보 없음 — 실패: {', '.join(fl) or '없음'}{tail})"
+        else:
+            verdict = f"current 유지 ②(성공 후보가 모두 관문에서 확정적으로 걸림 — {' · '.join(f'{m}({caught(m)})' for m in rank)}{tail})"
     if verdict.startswith("교체") and any(rank.index(x) < rank.index(new_default) for x in rank):
         verdict += " · 주의: 앞 순위 후보가 관문에서 걸렸다(결과 문서에 그 관문 기록)"
-    res["decision"] = {"verdict": verdict, "new_default": new_default if verdict.startswith("교체") else None, "provisional": new_default}
-    res["v12"] = v12_summary(Path(root) / "v12", write=False) if (Path(root) / "v12").is_dir() else None
+    # #5 V12 단계(측정-10)를 캠페인 완료 관문에 넣는다(리뷰 M15-30 · M15-31): campaign.sh가 남긴 v12-stage.json(skipped · rc) + v12-summary 판정.
+    #   단계 누락(--skip-v12 · 폴더 · 단계 기록 없음) · 실패(rc ≠ 0) · 필수 값 결측(v12_summary 판정 불가)이면 결론 옆에 'V12 판정 불가'를 적고,
+    #   교체 결론은 그대로 두되 '운영 적용 전 V12 판정 필요'를 붙인다(교체 커밋 · 운영 적용 앞에 #5를 다시 잰다)
+    vroot = Path(root) / "v12"
+    stage = load(Path(root) / "v12-stage.json")
+    res["v12"] = v12_summary(vroot, write=False) if vroot.is_dir() else None
+    if not isinstance(stage, dict):
+        v12why = "V12 단계 기록(v12-stage.json) 없음"
+    elif stage.get("skipped") is True:
+        v12why = "--skip-v12(단계 건너뜀)"
+    elif stage.get("rc") != 0:
+        v12why = f"V12 단계 실패(rc={stage.get('rc')!r})"
+    elif res["v12"] is None:
+        v12why = "v12 결과 폴더 없음"
+    elif str(res["v12"].get("verdict", "")).startswith("판정 불가"):
+        v12why = res["v12"]["verdict"]
+    else:
+        v12why = None
+    res["v12_gate"] = {"determined": v12why is None, "why": v12why, "stage": stage, "verdict": (res["v12"] or {}).get("verdict")}
+    if v12why is None:
+        verdict += f" · #5 V12: {res['v12']['verdict']}"
+    else:
+        verdict += f" · V12 판정 불가({v12why})"
+        if verdict.startswith("교체"):
+            verdict += " — 운영 적용 전 V12 판정 필요"
+    res["decision"] = {"verdict": verdict, "new_default": new_default if verdict.startswith("교체") else None, "provisional": new_default,
+                       "v12_determined": v12why is None, "v12_required_before_apply": verdict.startswith("교체") and v12why is not None}
     res["ranges"] = {f"{c}/{m}/{k}": R(c, m, k) for m in plan15.MODES for c, k in STAGE2_METRICS + G3_METRICS}
+    # 설명 열(판정 아님 — 리뷰 M15-33): race 확정 p99 · race DB CPU · 모드별 재선점 요청 수(req.rehold)
+    res["desc_ranges"] = {f"{c}/{m}/{k}": R(c, m, k) for m in plan15.MODES for c, k in DESC_METRICS}
     if write:
         (Path(root) / "result.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str))
         (Path(root) / "RESULT.md").write_text(render_md(res))
@@ -773,8 +920,9 @@ def render_md(res):
     for m in plan15.NEW_MODES:
         c = res["candidates"].get(m, {})
         L.append(f"| {m} | {c.get('status')} | {c.get('why') or '-'} | {c.get('G2', {}).get('ok', '-')} | {c.get('G3', {}).get('ok', '-')} | {res['eliminated_at'].get(m, '-')} |")
-    L += ["", f"G4 캠페인 유효: {res['G4']}", "", "## 범위(유효 3회 [최소, 최대])", ""]
+    L += ["", f"G4 캠페인 유효: {res['G4']}", "", f"#5 V12 관문: {res.get('v12_gate')}", "", "## 범위(유효 3회 [최소, 최대] — 2단 · 3단 · G2 · G3 판정)", ""]
     L += [f"- {k}: {v}" for k, v in res["ranges"].items()]
+    L += ["", "## 설명 열(판정 아님 — race 확정 p99 · race DB CPU · 재선점 요청 수 req.rehold)", ""] + [f"- {k}: {v}" for k, v in (res.get("desc_ranges") or {}).items()]
     L += ["", "## 모드 실패(G-F)", ""] + [f"- {m}: {v}" for m, v in res["fails"].items() if v]
     if res.get("undetermined"):
         L += ["", "## 판정 불가 후보", ""] + [f"- {x}" for x in res["undetermined"]]
@@ -830,8 +978,11 @@ def v12_summary(root, write=True):
                 if sd.get("rows") != n or sd.get("seats") != n + 1000:
                     why.append(f"시드 행 수 예약 {sd.get('rows')!r}(기대 {n}) · 좌석 {sd.get('seats')!r}(기대 {n + 1000})")
                 tx, cc = r.get("tx") or {}, r.get("concurrently") or {}
-                if not (num(tx.get("build_ms")) and num(tx.get("probe_blocked_ms"))):
-                    why.append("트랜잭션 안 값 없음")
+                if not (num(tx.get("build_ms")) and num(tx.get("probe_blocked_ms")) and isinstance(tx.get("probe_started_inside"), bool)) or tx.get("error"):
+                    why.append("트랜잭션 안 값 없음(build_ms · probe_blocked_ms · probe_started_inside)")
+                # CONCURRENTLY 판도 필수(리뷰 M15-31): 생성 시간 · 탐침 결과(대기 · 구간 안에서 떴나) — 빠지면 '두 방식 비교'가 불완전하다 → 판정 불가
+                if not (num(cc.get("build_ms")) and num(cc.get("probe_ms")) and isinstance(cc.get("probe_started_inside"), bool)) or cc.get("error"):
+                    why.append("CONCURRENTLY 값 없음(build_ms · probe_ms · probe_started_inside)")
                 if not (tx.get("valid") is True and cc.get("valid") is True):
                     why.append(f"indisvalid tx {tx.get('valid')!r} · conc {cc.get('valid')!r}")
             if why:
