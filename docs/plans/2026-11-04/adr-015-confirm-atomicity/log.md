@@ -49,6 +49,7 @@
 | 11-05 10:30 | 측정 설계 루프 3 수정 회수(M15-29~35 + OQ2 · selftest 167 EXIT 0 · 메인 재실행 EXIT 0 · .164 원자료 재요약: current 귀속 증거 32 = 0행 DELETE 확정 5xx 28 + 틱 실패 4 · 귀속 안 됨 0 · pessimistic ok · B3 26) → 하네스 커밋 86ffbcd1 → codex 타깃 재점검(EXIT 0): PF-m1 1건 → 기각(V12는 모드 독립) → 신규 채택 0 | **측정 설계 리뷰 종료**(3루프 + user override) · 초안을 ADR-015 '## 측정 전 고정 규칙'으로 옮겨 커밋 = **측정 전 고정** · 다음: 시작 조건(.164 스모크 7회 · 캠페인 스모크 · dry-run · PC 점검 · 전체 테스트 green 확인) |
 | 11-05 10:40 | 15-10 착수 — 시작 조건 ① .164 스모크 7회(하네스 86ffbcd1 · id smoke15-20261105 · 다섯 모드 race + current · conditional cost · 러너 scratchpad/smoke15.sh · 판정 미사용) 시작 · ⑦ 근거: main-app · reconciler · 빌드 파일 diff 8bd5f387..774cb308 = 0 → 1110/0/0/20 green(11-05 07:23:34 전체 실행)이 측정 SHA의 앱 코드와 같다(k6 PC = 이 PC라 측정 중 gradle 재실행은 부하 생성기를 흔들어 하지 않음) | 다음: 스모크 판정 → ② 캠페인 스모크(두 자리) → ③~⑥ → 캠페인 |
 | 11-05 16:20 | 시작 조건 ① 스모크 7회 회수(14:45~16:15 · 하네스 86ffbcd1): ok 5 · **invalid:dropped-iterations 2** — ④ race(rehold 13 · 15:52:20~24) · current cost(rehold 21 @ k6 +107초 · 8 @ +179초) · 누락은 rehold 시나리오만 · 경합 증거 current 29 · ① 19 · ② 14 에피소드 · ③ 16 · ④ 11(early-check rc 0) | 원인: k6 constant-arrival-rate는 빈 VU가 없으면 반복을 버리고 VU를 새로 만든다 — rehold 미리 만든 VU 여유 약 5%(rate × 45초 대 실수명 43초 · ④ race 평균 약 980 대 1000 · rehold 반복 최대 152.6초) · cost rehold 최소 20(반복 약 1ms라 k6 순간 정지에 몰림) → 하네스 수정 29e09aef(plan15 VU = 1.3 × 도착률 × 수명 × ρ · 최소 도착률 × 1초 · selftest 161 EXIT 0 — 기준 160 + 1) · 측정 규칙 · 판정식 무변경 · 새 SHA라 이미지 재준비 + 실패 2셀 재실행(id smoke15b-20261105) · 듀얼 1패스 리뷰 병행 |
+| 11-05 16:46 | 재실행 회수(29e09aef · smoke15b-20261105): ④ race ok(누락 0 · 증거 8 · vus 최대 2745) · current cost ok(누락 0 · vus 9116) · 리뷰 VU-1 결함 없음 · VU-2 기각(결정적 시드 최대 동시 세션 근거) · 시작 조건 JSON `k6/ADR-015/results/start-conditions-{csmoke-,}29e09aef.json`(⑤ 시계 차 PC−서버 −0.041~0.055초 · #12 앱−DB 괄호 중앙 4~15ms · #15 pgss 켬 · VU 최대) · ⑦ 8bd5f387..29e09aef 앱 · 빌드 diff 0 · ④ pccheck14 ok(load 2.6 · alert-system 11개 기록만) · dry-run 30자리 5.92시간 | ② 캠페인 스모크 campaign15smoke-20261105 시작(16:46:05 · --skip-v12 · 러너 scratchpad/csmoke15.sh — 세 번째 자리 진입 확인 뒤 멈춤) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -153,6 +154,8 @@
 | M15-34 | 3 | Opus F3 | 초안 :220 · summarize.py:753-758 — 'current 유지' 사유 갈래 부정확 | 채택(L) | fixed | 3+(86ffbcd1 · user override) |
 | M15-35 | 3 | Opus F4 | 초안 :115 — 인용 ExpireHoldsService.kt:39 실재 아님(:47 · SweepConditionalBatch.kt:38 · :61 · :72) | 채택(L) | fixed | 3+(86ffbcd1 · user override) |
 | PF-m1 | post-fix | codex(타깃 재점검) | summarize.py:881 · campaign.sh:176 — V12 판정 불가여도 결론 '교체' 유지 | 기각 — V12는 기본 위치라 current 포함 모든 모드에 같이 들어간다(모드 선택과 독립 · V12__…sql · application.yml) · V12 결과는 '트랜잭션 안 판 유지 / CONCURRENTLY 판 후속'이라는 배포 방식 질문 · 결론에 '운영 적용 전 V12 판정 필요' 강제로 충분 | — | |
+| VU-1 | 하네스 수정 1패스(29e09aef) | Opus | plan15.py:158-160 — 수명 모델 · 1.3 여유 · 소비처 | 결함 없음(수명 main 31 · rehold 43 · ④ +110 실흐름과 일치 · 소비처 run.sh만 · 미리 만든 VU +3%) | — | |
+| VU-2 | 하네스 수정 1패스(29e09aef) | codex | plan15.py:161 — 1.3배는 무누락 보장 아님(최악 20/s × 152.5초 = 3,050) | 기각 — 세션 속성은 (회차, 세션 번호) 결정적 · 계획 회차 rep1~3 실제 속성 최대 동시 세션(수명 상한 기준): ④ race rehold 1038 · 1039 · 1014 < 1274 · main 1765 < 2236 · race rehold 470 < 559(옛 1000은 rep1 1038에 못 미쳐 스모크 누락과 일치) · 남는 위험 = k6 정지 · 지연 꼬리(cost rehold 최소 = 도착률 × 1초) · 근거 `…/reviews/rv15-vu-fix/vupeak.mjs` | — | |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
