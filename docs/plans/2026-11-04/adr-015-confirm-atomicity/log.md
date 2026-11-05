@@ -44,6 +44,7 @@
 | 11-05 09:15 | 사용자 "164켰고 바로 진행하면 되" — .164 확인(uptime 14분 · 사용자 컨테이너 llm-ollama · llm-wrapper · ci-cd-agent 가동 — 무접촉 · 메모리 가용 29G · 디스크 40G) · codex 측정 리뷰 루프 2(EXIT 0 · F1~F6 — H 2는 새 모드 양성 대조의 근사성 · 루프 1 M15-3b와 같은 자리) | 명세 §5 '측정 전 ADR 고정' 유지 → 본 캠페인은 루프 2 수정 · ADR 커밋 뒤 · 그동안 .164 통합 시험 1회(current race · 하네스 8388e198 · 결과 scratchpad/int164 — 판정 · 시작 조건에 쓰지 않음) |
 | 11-05 09:35 | 측정 설계 리뷰 루프 2 회수: codex(F1~F6 — H 2: 새 모드 양성 대조 근사) · Opus(F1 H 'A도 같은 문턱' 누락 · F2~F4 M) → 종합(채택 12 · M15-26 기각 = 받아들인 한계) → codex 감사: **M15-26 기각 부적절**(계획 오프셋 기준 404 · B3 전체 실행 시간 max는 충돌 증명 불가 · 같은 시드 parity는 그 모드 회차의 충돌을 증명 못 함) → **메인 재판정: M15-26 채택(재설계)** — ①③④ = 실측 송신 시각(시계 차 보정) < e − 여유 ∧ 본문 code HOLD_NOT_FOUND(:now < e인데 C1/O2 0행 = 배치가 지움 — 서버 논리로 증명) · ② = 샘플러의 배치 DELETE seat_hold Lock 대기 관측 · 관측 불가면 판정 불가 | 신규 채택 13(M15-17~28 · 26) · 루프 2 수정 워커 · 사본 `…/reviews/rv15-measure-loop2/` · 루프 1 M15-3b의 근사 표지를 서버 논리 증거로 바꾸는 재설계(정지 규칙 — 같은 설계 polish가 아니라 증거 원천 교체) |
 | 11-05 09:20 | .164 통합 시험 회수(하네스 8388e198 · current race rep1 · 09:02:41~09:16:53 · prepare EXIT 0 · run EXIT 0 · 판정 · 시작 조건 미사용): status ok · reasons 0 · k6 rc 0 · 판정기 13열 전부 0 · 40P01 0 · 확정 5xx 28(win 단독 22 · win 이중 4 · post 1 — 우연한 가드 갈래) · 틱 실패 4/71 · unique_violation 723(FM2 짝) · FM1 겹침 10 · 확정 p99 205.8ms · DB CPU 19.8% · 시계 차 0.067s · flyway 1~13(기본 + updated-at + incremental) · 원격 seatlab 컨테이너 3개는 다음 회차 down -v 대상(사용자 컨테이너 무접촉) | **실경로(배포 · 기동 · 수집 · 요약) 동작 확인** · current 양성 대조(서버 쪽 5xx + 틱 실패)가 .164에서도 섬 · `post\|single\|HTTP404` 49 = M15-21(본문 code) 대상 |
+| 11-05 09:45 | 측정 설계 루프 2 수정 회수(원시각 09:21:06~09:34:57): M15-17~28 fixed · selftest 143 EXIT 0(메인 재실행 EXIT 0) · 로컬 스모크 5회 — 새 증거 ① 8 · ② 3 에피소드 · ③ 5 · ④ 2 · current 5 · 잘못된 거부 0 · 계약 밖 쌍 0 · V12 모양 음성 8갈래 0 | 하네스 커밋 5c1b96e5 · 메인 결정: ①③④ 증거식 = 응답 끝 기준(`te + ε − delay + 20ms < e ∧ te − ts ≥ delay` — 송신 기준은 :now 앞 대기 상한이 없어 증명 불가 · AtomicConfirmProcess.kt:41 · :69) 채택 · B3 표본기 20ms = race 셀 다섯 모드 공통(②만 켜면 표본 부하가 ② 비용에만 섞임) 채택 · cost 재선점 0은 사용자에 보고됨 · 미검증: B3 표본기 원격 경로(.164 스모크에서 확인) · 다음: 루프 3 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -128,18 +129,18 @@
 | M15-14 | 1 | Opus F10 | summarize.py:405 · :447 — undet 미사용 | 채택 | fixed | 1(8388e198) |
 | M15-15 | 1 | Opus F11 | summarize.py:284 · run.sh:262 — lateness 감쇠 최대 | 채택(L) | fixed | 1(8388e198) |
 | M15-16 | 1 | Opus F12 | v12-build.sh:73 — docker stop rc | 기각(감사 — 호출부 `prepare_db \|\| …`) | — | |
-| M15-17 | 2 | Opus F1 | 초안 :149-162 · :197 · summarize.py:407-426 · :526-527 — ADR-014 :765/:800 'A도 같은 문턱' 누락 | 채택(H) | open | |
-| M15-18 | 2 | Opus F2 · codex F1 일부 | summarize.py:331-332 · :346 — FM1 겹침이 post 묶음까지 | 채택 | open | |
-| M15-19 | 2 | Opus F3 | summarize.py:71 · 초안 :179 · :190 — pre 묶음 잘못된 거부 관문 없음 | 채택 | open | |
-| M15-20 | 2 | Opus F4 | confirm-contention.js:130-146 · plan15.py:39 — cost ④ 재선점 요청 구조적 차이 | 채택 → cost 셀 재선점 끔 | open | |
-| M15-21 | 2 | codex F3 · Opus OQ3 | diff :1715 · :2015 — 404 · 403 본문 code 미확인 | 채택 | open | |
-| M15-22 | 2 | codex F4 | diff :613 — V12 모양 검사 약함 | 채택 | open | |
-| M15-23 | 2 | codex F5 | diff :153 · :2112 — ④ expiresAt 파싱 실패 무음 · 확정 수 미대조 | 채택 | open | |
-| M15-24 | 2 | codex F6 | diff :858 — Hikari 풀 크기 미대조 | 채택 | open | |
-| M15-25 | 2 | codex OQ2 | 초안 :262 — PC 메모리 하한 관문 없음 | 채택 | open | |
-| M15-26 | 2 | codex F1 · F2 · 감사 | diff :2124 · :2138 · 초안 :168 — 새 모드 양성 대조가 충돌 증명 못 함 | 기각 → **감사로 채택(재설계)** | open | |
-| M15-27 | 2 | codex OQ1 | 초안 :288 — D-12~15 표기 | 채택(문서) | open | |
-| M15-28 | 2 | Opus OQ2 · OQ4 | 초안 :197 · summarize.py:586-599 — 닿지 않는 갈래 · 근거 | 채택(문서) | open | |
+| M15-17 | 2 | Opus F1 | 초안 :149-162 · :197 · summarize.py:407-426 · :526-527 — ADR-014 :765/:800 'A도 같은 문턱' 누락 | 채택(H) | fixed | 2(5c1b96e5) |
+| M15-18 | 2 | Opus F2 · codex F1 일부 | summarize.py:331-332 · :346 — FM1 겹침이 post 묶음까지 | 채택 | fixed | 2(5c1b96e5) |
+| M15-19 | 2 | Opus F3 | summarize.py:71 · 초안 :179 · :190 — pre 묶음 잘못된 거부 관문 없음 | 채택 | fixed | 2(5c1b96e5) |
+| M15-20 | 2 | Opus F4 | confirm-contention.js:130-146 · plan15.py:39 — cost ④ 재선점 요청 구조적 차이 | 채택 → cost 셀 재선점 끔 | fixed | 2(5c1b96e5) |
+| M15-21 | 2 | codex F3 · Opus OQ3 | diff :1715 · :2015 — 404 · 403 본문 code 미확인 | 채택 | fixed | 2(5c1b96e5) |
+| M15-22 | 2 | codex F4 | diff :613 — V12 모양 검사 약함 | 채택 | fixed | 2(5c1b96e5) |
+| M15-23 | 2 | codex F5 | diff :153 · :2112 — ④ expiresAt 파싱 실패 무음 · 확정 수 미대조 | 채택 | fixed | 2(5c1b96e5) |
+| M15-24 | 2 | codex F6 | diff :858 — Hikari 풀 크기 미대조 | 채택 | fixed | 2(5c1b96e5) |
+| M15-25 | 2 | codex OQ2 | 초안 :262 — PC 메모리 하한 관문 없음 | 채택 | fixed | 2(5c1b96e5) |
+| M15-26 | 2 | codex F1 · F2 · 감사 | diff :2124 · :2138 · 초안 :168 — 새 모드 양성 대조가 충돌 증명 못 함 | 기각 → **감사로 채택(재설계)** | fixed | 2(5c1b96e5) |
+| M15-27 | 2 | codex OQ1 | 초안 :288 — D-12~15 표기 | 채택(문서) | fixed | 2(5c1b96e5) |
+| M15-28 | 2 | Opus OQ2 · OQ4 | 초안 :197 · summarize.py:586-599 — 닿지 않는 갈래 · 근거 | 채택(문서) | fixed | 2(5c1b96e5) |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
