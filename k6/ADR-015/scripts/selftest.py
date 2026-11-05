@@ -96,8 +96,11 @@ for pool, want in (((10,), 0), ((20,), 1), (None, 1), (("10",), 1)):
     rc, out = plan15.config_check("current", "race", f)
     check(f"M15-24 Hikari 풀 실측 {pool} → rc {want}", rc == want and (want == 0 or any("hikaricp" in x for x in out["detail"])), json.dumps(out, ensure_ascii=False))
 pr_, pc_ = plan15.render("current", "race", 1), plan15.render("current", "cost", 1)
-check("M15-20 재선점 비율 race 0.5 · cost 0(루프 2 — cost만 끔) · cost rehold VU 최소 20",
-      pr_["k6"]["env"]["RHO"] == "0.5" and pc_["k6"]["env"]["RHO"] == "0.0" and pc_["k6"]["pre_vus"]["rehold"] == 20, f"{pr_['k6']['env']['RHO']} {pc_['k6']['env']['RHO']} {pc_['k6']['pre_vus']}")
+check("M15-20 재선점 비율 race 0.5 · cost 0(루프 2 — cost만 끔) · cost rehold VU 최소 = 도착률 × 1초(300)",
+      pr_["k6"]["env"]["RHO"] == "0.5" and pc_["k6"]["env"]["RHO"] == "0.0" and pc_["k6"]["pre_vus"]["rehold"] == 300, f"{pr_['k6']['env']['RHO']} {pc_['k6']['env']['RHO']} {pc_['k6']['pre_vus']}")
+px_ = plan15.render("conditional-extend", "race", 1)
+check("스모크 누락 — 미리 만든 VU ≥ 평균 동시 세션 × 1.3(④ race rehold 평균 20 × (43 + 55) × 0.5 = 980)",
+      px_["k6"]["pre_vus"]["rehold"] >= 980 * 1.3 and px_["k6"]["pre_vus"]["main"] >= 20 * (31 + 55) * 1.3 and pr_["k6"]["pre_vus"]["rehold"] >= 20 * 43 * 0.5 * 1.3, json.dumps(px_["k6"]["pre_vus"]))
 check("M15-26 B3 대기 표본 race 20ms(다섯 모드 같게) · cost 끔", all(plan15.render(m, "race", 1)["b3wait_ms"] == 20 and plan15.render(m, "cost", 1)["b3wait_ms"] == 0 for m in plan15.MODES))
 
 # ---- compose db.command = ADR-009 + shared_preload_libraries ----

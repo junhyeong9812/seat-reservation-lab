@@ -61,7 +61,10 @@ TOMCAT_MAX_CONNECTIONS, APP_NOFILE = 20000, 65536                               
 FLYWAY = ["classpath:db/migration", "classpath:db/migration-updated-at-trigger", "classpath:db/migration-incremental"]   # 업무 앱 기본 위치(application.yml)
 FLYWAY_V14 = "classpath:db/migration-confirm-version"                                     # ③만(V14 트리거 — 규칙 6)
 USERS = {"main": 1_000_000, "rehold": 4_000_000}                                          # 흐름별 사용자 대역(세션 번호 + 대역)
-PRE_VUS_PER_RATE = {"main": 40, "rehold": 45}                                             # 미리 만든 VU = 도착률 × 생각 시간(약 TTL) 보다 넉넉히 — main 세션 ≈ TTL + 1초 · rehold ≈ TTL + 13초 × ρ
+LIFE_S = {"main": TTL_S + 1, "rehold": TTL_S + REHOLD_UNTIL_S}                         # 흐름별 세션 수명(초) — main ≈ TTL + 1초 · rehold ≈ TTL + 재선점 끝 13초
+PRE_VUS_HEADROOM = 1.3                                                                   # 미리 만든 VU = 평균 동시 세션(도착률 × 수명 × ρ) × 1.3 — k6는 빈 VU가 없으면 그 반복을 버리고(dropped) VU를 새로 만든다.
+                                                                                          #   스모크 smoke15-20261105: rehold 45/도착률(여유 약 5%) → ④ race 평균 약 980 대 1000 · cost 최소 20 → 누락 13 · 29(G-H)
+PRE_VUS_MIN_S = 1                                                                        # 최소 = 도착률 × 1초(cost rehold는 ρ = 0이라 즉시 끝나도 k6 정지 순간 한 번에 몰린다)
 MAX_VUS_FACTOR = 1.5
 K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37                                            # ADR-014 plan14 k6_lead_s 식 그대로
 PGSS_DEFAULT = 1                                                                          # D-4 — 기본 켬(초안 권장 · 다섯 모드 모두). fix1: ② 경합 표지(A′ B3 대기)와 #15 틱당 문장 수가 pgss를 읽는다
@@ -155,8 +158,8 @@ def render(mode, cell, rep, knobs=None):
     # 미리 만든 VU: ④ 경계 흐름 세션은 약 (창 − 리드)초 더 산다(main · rehold 둘 다)
     longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
     rho = RHO[cell]
-    pre = {f: math.ceil(c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in PRE_VUS_PER_RATE.items()}
-    pre = {f: max(v, 20) for f, v in pre.items()}
+    pre = {f: math.ceil(PRE_VUS_HEADROOM * c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in LIFE_S.items()}
+    pre = {f: max(v, 20, math.ceil(c["rate"] * PRE_VUS_MIN_S)) for f, v in pre.items()}
     mx = {f: math.ceil(v * MAX_VUS_FACTOR) for f, v in pre.items()}
     d_arr = c["d_arr_s"]
     app_env = {
