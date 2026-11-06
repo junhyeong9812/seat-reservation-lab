@@ -59,6 +59,9 @@
 | 11-06 12:40 | ADR-015 §실험 결과 · §결정 · 상태 줄 커밋 f455f695 · NEXT N00 · N00a(기본값 교체 커밋 · EOF 하네스 수정 · CONCURRENTLY · 요약기 undet_block 보강) · measurement-log 1행 · 결과 문서 듀얼 1패스(codex ∥ Opus) 시작 · CS 이슈 아카이브 = **보류**(study-note 쓰기는 이 작업 금지영역 — issue-archive §1 보류 경로) | 리뷰 회수 대기 |
 | 11-06 13:05 | 결과 문서 듀얼 1패스 회수: Opus — 수치 결함 없음(cost 15 범위 · 중앙값 비 1.119 · 1.068 · 무효 6 + attempt4 · V12 · eliminate 재계산 {② · ④} 빠짐 · {① · ③} 남음 · ② 탈락 = ① cost 확정 p99 ≫ 1.166) · M 1 · L 2 / codex — 3건(rep 순서 · 과장 · 관문 통과 표기) → RR15-1~4 fixed(fa3e511c) → codex post-fix 재점검: 이전 4건 해결 · 신규 1(RR15-5 — 순위 가정 한정) fixed | **결과 문서 리뷰 종료**(1패스 + 재점검 · 설계 문서 유형 상한) |
 | 11-06 13:20 | 완료 요약 작성(Opus 워커 — 실파일 복사 스니펫 4 · packet 회수) → log '## 완료 요약' · 마감 2단: ① NEXT N00 · N00a 갱신(b0ffd994) ② CS 이슈 아카이브 보류(study-note 금지영역) · measurement-log 1행 · DEBT 0 | push · PR은 사용자 확인 대기 · 기본값 교체 커밋은 NEXT N00a(사용자 결정 필요 — 다른 만료 방식 조합) |
+| 11-06 13:50 | 사용자 논의: ADR-015가 확인한 것 정리 · B·C·D = ADR-014 만료 방식 · 사용자 판단 '우연한 가드로 해결되면 안 된다 · 결제 뒤 500은 문제 · 404로 명확히' → **기본값 교체 진행 · (나) 명시 강제**(자동 후퇴 없음 — B·C·D · 기본 밖 전략 조합 · V12 앞 기준선 · inject-app은 `seat.confirm.mode=current` 명시) · NEXT N00a에 '결제했는데 좌석을 잃음 자체를 줄이기'(④ · 결제 쪽 대책) 추가 | 명세 §목표 '이기면 교체'(측정-8 별도 커밋)의 구체화 · 교체: application.yml `seat.confirm.mode: conditional` · SeatConfirmProperties 기본 CONDITIONAL · 전체 테스트로 영향 범위 실측 중 |
+| 11-06 15:40 | 기본값 교체: 첫 전체 테스트(교체만) 1116 중 626 실패 — 89클래스 · 원인 = 범위 밖 구성이 확정 규칙 1 · 2 · 5 · 7에 거부(+ 컨텍스트 연쇄) · Opus 워커가 테스트 35파일에 current 명시 + Adr015DefaultModeContractTest(원시각 13:46~14:29 · 전체 EXIT 0 · XML main-app 1114/0/0/20 · reconciler 6/0) · 워커 관찰: 범위 밖 거부 테스트 일부가 먼저 도는 확정 규칙 문구에 우연히 맞아 통과하고 있었음 → current 명시로 원래 검사 복원 · 단언 무변경 · 커밋 a68d9518 → 듀얼 1패스 DF-1~6 → 수정 78335649 · 9060a4f1 · 31222388(옛 하네스 compose 11 — 사용자 결정) · selftest ADR-013 · 014(226) · 015(161) EXIT 0 · compose config 렌더 확인 | 전체 테스트 재실행 중(규칙 7 메시지 · 계약 테스트 6칸 뒤) |
+| 11-06 16:20 | 전체 테스트 재실행(리뷰 반영 뒤 · 첫 재실행은 대기 스크립트 정리 중 gradle 클라이언트가 끊겨 무효 → 처음부터): `./gradlew test --continue` EXIT 0 · 36분 26초 · XML main-app **1116/0/0/20** · reconciler-app 6/0/0/0 | ADR-015 §결정 · 상태 줄 · NEXT N00a에 교체 완료 반영 · 다음: 사용자에게 결과 보고 → push · PR 확인 |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -170,6 +173,12 @@
 | RR15-3 | 〃 | codex ∥ Opus(L) | §결과-1 · §결과-2 — 경합 증거 · FM1 값이 rep 순서가 아님(result.json 순서) | 채택 | fixed | fa3e511c |
 | RR15-4 | 〃 | Opus(L) | §결정 — ② 탈락 근거 '높다' → '≫(중앙값 비 1.166 · 비겹침)' | 채택 | fixed | fa3e511c |
 | RR15-5 | post-fix | codex | §결과-3 — '어느 쪽이든' 문장에 ④ 포함 순위를 적음(실제 순위엔 ④ 없음) | 채택 → 가정 한정 | fixed | (이 커밋) |
+| DF-1 | 기본값 교체 1패스(a68d9518) | codex(P1) ∥ Opus(M) | k6/ADR-002 · 005 · 009 · 014 compose — 새 커밋 이미지로 띄우면 기본 밖 조합 · V12 앞 target에서 기동 거부(옛 재현 경로 막힘) | 채택 → 사용자 결정 'compose에 current 명시' — ADR-001~014 compose 11개(12곳) `"confirm":{"mode":"current"}` · 옛 이미지는 모르는 키 무시 | fixed | 31222388 |
+| DF-2 | 〃 | codex(P2) ∥ Opus(L) | ops/expiry-mode-cutover/README.md:39 — B · C · D 전환 때 current 명시 안내 없음 | 채택 | fixed | 9060a4f1 |
+| DF-3 | 〃 | codex(P2) | ops/confirm-unique-v12/README.md:24 — 새 기본값의 V13 필요 · target 고정 DB 안내 없음 | 채택 | fixed | 9060a4f1 |
+| DF-4 | 〃 | Opus(L) | HoldStrategyStartupCheck.kt:256 KDoc · ADR-015 Q9 '기본 current' | 채택 | fixed | 78335649 · 9060a4f1 |
+| DF-5 | 〃 | Opus(L) | HoldStrategyStartupCheck.kt:309 규칙 7 메시지에 current 키 안내 없음 | 채택 | fixed | 78335649 |
+| DF-6 | 〃 | Opus(L) | Adr015DefaultModeContractTest — 기본값 거부가 규칙 1 · 2만(5 · 7 없음) | 채택 → 규칙 5 · 7 칸 추가(target 7 · 12) | fixed | 78335649 |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
@@ -187,7 +196,7 @@
   - 재현: 스모크 #1에서 load-bearing 가정 1은 부분 성립(결과 = 0행 DELETE → 예외 → 롤백 → 500 · 이중 결과 0 — 맞음 / flush 순서는 좌석 UPDATE → 홀드 DELETE로 추정과 반대), 가정 2(EPQ — 잠긴 행을 기다린 뒤 최신 버전으로 조건 재평가)는 성립(log 11-04 23:47). blind 테스트(구현 diff를 보지 않은 워커의 계약 테스트) 146칸에서 current 'V12 없음'과 대조 4칸(FM1 · FM2 · FM3 · FM5)이 green이었다. 하네스가 이중 결과를 실제로 만든다는 뜻이고, 그린 위장 점검을 통과했다(log 11-05 00:20).
   - 측정: .164 캠페인 30자리 중 유효 29 · ①②③ 성공 · ④ race 판정 불가(유효 2/3 — 선점 EOF(연결 끊김)) · current 양성 대조 25 · 27 · 25(ADR §결과-1·2).
   - **결정 = 사용자 결정으로 ① `conditional`**. 고정 규칙 요약기의 결론은 '판정 불가'(측정-8 ⓒ)였다. 그런데 ④가 어떤 값이어도 ①을 빼지 못한다(cost DB CPU 중앙값 비 ④/① 1.119 > 1.10 · 범위 비겹침). 이를 같은 규칙의 계산으로 보인 뒤 사용자가 정했다 — 자동 통과가 아니다(ADR §결과-3 · log 11-06 12:14). **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초).
-  - **기본값 교체 커밋은 아직 하지 않았다** — 측정-8 '별도 커밋'에 따라 별도로 한다(지금 `application.yml:36` `mode: current` · `SeatConfirmProperties.kt:13` `ConfirmMode.CURRENT`).
+  - **기본값 교체 커밋 = a68d9518(11-06 — 아래 후속 행)** — 작성 시점(13:20)에는 아직이었다 · 측정-8 '별도 커밋'에 따라 별도로 했다(지금 `application.yml:36` `mode: current` · `SeatConfirmProperties.kt:13` `ConfirmMode.CURRENT`).
 - 범위: 커밋 57개(e5556bcc..a54ece38) · 실행물 56파일 +7665/−90(`main-app` · `ops` · `k6/ADR-015/scripts`).
 
 ### 핵심 diff (before = `git show e5556bcc:<path>` · after = 작업 트리 a54ece38)
