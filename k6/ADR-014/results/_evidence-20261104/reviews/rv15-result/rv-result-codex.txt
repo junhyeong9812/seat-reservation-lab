@@ -1,0 +1,1392 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+model: gpt-6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: high
+reasoning summaries: none
+session id: 01a1aedb-9d6a-7420-9e23-b77f89519059
+--------
+user
+Review commit f455f695 (git show f455f695): ADR-015 sections '## 실험 결과' and '## 결정' in docs/adr/ADR-015-confirm-atomicity.md. Verify every number against raw data: k6/ADR-015/results/20261105-adr015-29e09aef/{RESULT.md,result.json,MATRIX.log,CAMPAIGN.log,runner.log} and */*/rep*/rep-summary.json. Verify the manual judgement in 결과-3 against the fixed rules in the same ADR (측정-8) and k6/ADR-015/scripts/summarize.py + k6/ADR-014/scripts/summarize.py (lower, much_higher TOL_RATIO, eliminate, beats2/beats3): can conditional-extend, whatever its race rep3 result, change the winner from conditional? Report concrete defects only (wrong number, wrong logic, overclaim), with file:line, in Korean, max 12 lines.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+요청하신 커밋의 두 섹션을 원시 결과와 집계 코드에 대조하겠습니다. 숫자와 결과-3의 판정 규칙을 확인한 뒤, 근거가 있는 결함만 줄 번호와 함께 적겠습니다.
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc 'git show --format=fuller --stat f455f695 && git show f455f695 -- docs/adr/ADR-015-confirm-atomicity.md' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+commit f455f69513c8f1f8d10e450a8e52a5832e5e4868
+Author:     junhyeong9812 <pickjog@gmail.com>
+AuthorDate: Fri Nov 6 12:16:13 2026 +0900
+Commit:     junhyeong9812 <pickjog@gmail.com>
+CommitDate: Fri Nov 6 12:16:13 2026 +0900
+
+    docs(seat-reservation-lab): ADR-015 실험 결과 · 결정 — 새 기본값 conditional · V12 트랜잭션 안 판 유지
+
+ docs/adr/ADR-015-confirm-atomicity.md | 43 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 40 insertions(+), 3 deletions(-)
+commit f455f69513c8f1f8d10e450a8e52a5832e5e4868
+Author: junhyeong9812 <pickjog@gmail.com>
+Date:   Fri Nov 6 12:16:13 2026 +0900
+
+    docs(seat-reservation-lab): ADR-015 실험 결과 · 결정 — 새 기본값 conditional · V12 트랜잭션 안 판 유지
+
+diff --git a/docs/adr/ADR-015-confirm-atomicity.md b/docs/adr/ADR-015-confirm-atomicity.md
+index 15a65307a..7c4a408d2 100644
+--- a/docs/adr/ADR-015-confirm-atomicity.md
++++ b/docs/adr/ADR-015-confirm-atomicity.md
+@@ -10,7 +10,7 @@
+ > 번호 이동(2026-10-18, 8차): 카운터 증분 대조·Kafka/복제본 대조를 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+ > 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 대조(옛 ADR-013)를 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
+ 
+-- 상태: 가설 (Hypothesis) — 미측정
++- 상태: 결정 (2026-11-06) — 새 기본값 ① `conditional`(측정 전 고정 규칙 + 수동 판정 — §결정) · 기본값 교체 커밋은 별도(측정-8)
+ - 대응 질문: Q6 "결제는 성공했는데 그 사이 선점이 만료됐다면?"
+ - 선행: ADR-000, ADR-001, ADR-014(만료 방식에 따라 전환 조건이 달라짐)
+ 
+@@ -896,8 +896,45 @@ RETURNING q.schedule_id, q.user_id, q.cnt;
+ 
+ ## 실험 결과
+ 
+-미측정.
++### 결과-1 캠페인 개요
++
++- **캠페인**: `k6/ADR-015/results/20261105-adr015-29e09aef/`(요약기 `RESULT.md` · `result.json`) · 하네스 29e09aef(동결본 해시 a50d3ca5…52bd) · 이미지 `images-29e09aef.json` · .164 서버 · k6 PC = 이 PC · 2026-11-05 17:14 ~ 11-06 07:23(사용자가 .164를 쓰려고 18:4x ~ 01:32 중지 · `--id`로 이어서 실행).
++- **시작 조건**(측정-9 ⓪~⑦ 모두 통과): .164 스모크 7회(86ffbcd1) 중 2회(④ race · current cost)가 `dropped-iterations`(rehold 흐름 반복 누락)라 **하네스 VU 크기를 고친 뒤**(29e09aef — 미리 만든 VU = 평균 동시 세션 × 1.3 · 최소 도착률 × 1초 · 측정 규칙 · 판정식 무변경) 두 셀을 다시 재 ok · 경합 증거 current 29 · ① 19 · ② 14 · ③ 16 · ④ 8 · 캠페인 스모크 두 자리 ok · ⑦ = 1110/0/0/20 green(8bd5f387) + 8bd5f387..29e09aef 앱 · 빌드 파일 diff 0.
++- **회차**: 30자리 중 유효 29 · 무효 6(모두 `invalid:k6-code0` — 회차마다 선점 · 재선점 요청 1~2건이 연결 끊김 EOF(k6 error_code 1000) · 확정 요청 0 · 시간 초과 0): race ② rep2 ×2(3번째 ok) · race ④ rep2 ×1(2번째 ok) · **race ④ rep3 ×3 → 재측정 상한 소진**. 사용자 override로 상한 넘어 1회 더(attempt4)도 같은 EOF 무효 → 재측정이 결론을 바꾸지 못함(결과-3)을 확인하고 중단(attempt5는 진행 중 중단 — `rep3.attempt5-aborted`).
++- **G4 캠페인 유효**: ok — current race 양성 대조(app.log 0행 DELETE 귀속 확정 5xx + 틱 실패) 회차별 25 · 25 · 27 · current 두 셀 유효 3회.
++
++### 결과-2 지표 범위 (유효 3회 [최소, 최대])
++
++| 모드 | race 확정 5xx | race 틱 실패 | cost 확정 p99(ms) | cost 선점 p99(ms) | cost DB CPU(%) | 상태 |
++|---|---|---|---|---|---|---|
++| current | [18, 26] | [1, 7] | [1.84, 1.99] | [2.10, 2.34] | [27.1, 28.3] | 대조군 |
++| ① conditional | [0, 0] | [0, 0] | [1.32, 1.38] | [2.24, 2.44] | [24.6, 26.0] | 성공 |
++| ② pessimistic | [0, 0] | [0, 0] | [1.52, 1.64] | [2.12, 2.46] | [25.1, 27.2] | 성공 |
++| ③ optimistic | [0, 0] | [0, 0] | [1.38, 1.49] | [2.10, 2.40] | [25.7, 26.2] | 성공 |
++| ④ conditional-extend | 유효 2회(값 있음 — 범위 없음) | 〃 | [1.25, 1.31] | [2.10, 2.17] | [28.0, 29.0] | 판정 불가(race 유효 2/3) |
++
++- 모드 실패(G-F) 0 · 'A도 같은 문턱' 0 · current A 결함(판정기 · API 이중 결과 · 40P01) 없음 — 이번 측정에서도 current의 정합은 '우연한 가드'(0행 DELETE → 예외 → 롤백)가 지켰고, 그 대가가 race 확정 5xx와 틱 실패다.
++- 새 모드 경합 증거(양성 대조 — 측정-0): ① 18 · 9 · 14 · ② 23 · 16 · 21(B3 대기 에피소드) · ③ 26 · 21 · 14 · ④ 6 · 7. FM1 겹침(win 단독 확정): current 10 · 7 · 10 · ① 15 · 9 · 7 · ② 0 · 0 · 0(구조상 — 측정-14) · ③ 18 · 18 · 10 · ④ 4 · 3.
++- 설명 열(판정 아님): race 확정 p99는 다섯 모드 모두 약 204ms(주입 지연 200ms 지배) · race DB CPU 22~27%.
++- **#5 V12 생성 시간**(측정-10): 트랜잭션 안 판 유지 — 100만 행 쓰기 차단 최대 139ms · 500만 행 712ms(≤ 2000ms) · CONCURRENTLY 판 500만 행 1080~1108ms(쓰기 차단 약 1ms).
++
++### 결과-3 판정 — 요약기 '판정 불가'와 수동 판정
++
++- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '이겼을 수 있다'로 막았다(summarize.py `undet_block`).
++- **수동 판정**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다.
++  - 2단(race 확정 5xx · 틱 실패 — 범위 비겹침으로 낮아야 이긴다): ①은 두 지표 모두 [0, 0] → 0보다 낮을 수 없다.
++  - 3단(cost 세 지표 — X ≫ Y = 범위 비겹침 ∧ 중앙값 비 > 1.10 · ④ cost 3회는 모두 유효라 재측정과 무관): cost DB CPU ④ 중앙값 28.94 대 ① 25.86 = **1.119 · 범위 비겹침 → ④ ≫ ①** → 3단 규칙상 ④는 ①을 뺄 수 없고 오히려 ①이 ④를 뺀다. ① ≫ ④인 지표는 없다(확정 p99 · 선점 p99 중앙값 비 ①/④ = 1.068 < 1.10).
++  - 따라서 ④가 성공 · 실패 · 판정 불가 어느 쪽이든 순위 첫자리는 ①이고, ①은 G1 성공 · G2 이긴다((b) 5xx [0, 0] < current [18, 26] · (c) 틱 [0, 0] < [1, 7]) · G3 걸림 없음(cost 세 지표 어디서도 ① ≫ current 아님 — 확정 p99는 current보다 낮다).
++- **받아들인 한계**: 이 판정은 요약기 출력이 아니라 같은 규칙의 수동 적용이다(입력 = `result.json` · rep-summary 원자료 — 계산은 log 11-06 행). ④는 race 판정 불가로 남는다(측정되지 않은 후보 — 'current 유지'처럼 '④가 졌다'로 적지 않는다 · 결정에는 영향 없음). 3단 DB CPU 비 1.119는 문턱 1.10에 가깝다 — ④ race 재측정과 무관한 cost 값이라 결론은 이 데이터로 고정된다.
++
++### 결과-4 하네스 결함 (측정에서 드러남 — 결과 판정과 분리)
++
++- **rehold 반복 누락**(스모크 · 고침 29e09aef): k6 constant-arrival-rate는 빈 VU가 없으면 반복을 버린다. 계획 회차 rep1~3의 결정적 세션 속성으로 센 최대 동시 세션(④ race rehold 1038 · 1039 · 1014)이 옛 미리 만든 VU 1000을 넘었다.
++- **선점 · 재선점 연결 끊김 EOF**(캠페인 · 고치지 않음 — NEXT): 가설(미검증) = 쉬던 VU가 서버 keep-alive 만료 순간에 같은 연결을 재사용(ADR-014 06c와 같은 류). ④ race에서 잦다(시도 7 중 무효 5 — 장수명 세션으로 VU가 오래 쉰다) · 29e09aef로 미리 만든 VU가 늘어 쉬는 시간이 길어졌을 수 있다.
+ 
+ ## 결정
+ 
+-미정.
++- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치 — 측정-8 교체 관문 G1~G4 통과 · 결과-3 수동 판정). current는 손잡이로 되돌릴 수 있게 남긴다.
++- **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초). CONCURRENTLY 판은 후속(NEXT).
++- **② · ③ · ④는 기본값이 아니다**: ②는 3단에서 빠짐(cost 확정 p99가 ①보다 높다) · ③은 남았으나 단순성 순서(①>②>③>④ — D-9)에서 뒤 · ④는 race 판정 불가(결정에 영향 없음 — 결과-3).
++- **기본값 교체는 별도 커밋**(측정-8 · ADR-012 §3 선례): `seat.confirm.mode` 기본 current → conditional. 교체 범위 · 다른 만료 방식(B · C · D) 조합과의 기동 검사 관계는 그 커밋에서 정한다(이 ADR은 A sweep + 기본 조합만 쟀다 — 명세 적용 범위).
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "rg -n 'def (lower|much_higher|eliminate|beats2|beats3)|TOL_RATIO|undet_block|winner|rank|ranked' k6/ADR-015/scripts/summarize.py k6/ADR-014/scripts/summarize.py" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-014/scripts/summarize.py:55:TOL_RATIO = 1.10               # ≫ 둘째 조건(측정-8)
+k6/ADR-014/scripts/summarize.py:1336:def lower(a, b):
+k6/ADR-014/scripts/summarize.py:1341:def much_higher(xv, yv):
+k6/ADR-014/scripts/summarize.py:1346:    return lower(ry, rx) and statistics.median(xv) > statistics.median(yv) * TOL_RATIO
+k6/ADR-014/scripts/summarize.py:1349:def eliminate(cands, beats):
+k6/ADR-014/scripts/summarize.py:1581:    stages, ranked = [], []
+k6/ADR-014/scripts/summarize.py:1588:    def beats3(y, x):    # 3단 — X ≫ Y인 지표가 있고 Y ≫ X인 지표가 없으면 X가 빠진다
+k6/ADR-014/scripts/summarize.py:1625:    rank_undec = [f"{st_['stage']} {st_['undecidable']}" for st_ in stages if st_["undecidable"]]
+k6/ADR-014/scripts/summarize.py:1628:    stage_rank = {"4": 0, "3 비용": 1, "2 판매 효과·사용자 실패": 2, "1 정합": 3}
+k6/ADR-014/scripts/summarize.py:1629:    ranked = sorted(cands, key=lambda m: (stage_rank.get(out_at.get(m, "4"), 0), SIMPLICITY.index(m)))
+k6/ADR-014/scripts/summarize.py:1659:    winner = None
+k6/ADR-014/scripts/summarize.py:1660:    for m in ranked:
+k6/ADR-014/scripts/summarize.py:1664:        if x["pass"] and winner is None:
+k6/ADR-014/scripts/summarize.py:1665:            winner = m
+k6/ADR-014/scripts/summarize.py:1668:    g3_undec = [m for m in ranked if gates[m]["G1"] and gates[m]["G4"] and not gates[m]["pass"] and not gates[m]["G3"]["hits"]
+k6/ADR-014/scripts/summarize.py:1670:    g3_ahead = [m for m in g3_undec if winner and ranked.index(m) < ranked.index(winner)]   # 관문 통과 후보보다 앞 순위 — 그 후보가 이겼을 수 있다
+k6/ADR-014/scripts/summarize.py:1673:    rivals = [m for m in ranked if m != winner and (gates[m]["pass"] or m in g3_undec)]
+k6/ADR-014/scripts/summarize.py:1674:    rank_block = [f"고르는 규칙 판정 불가 {rank_undec} · 경쟁 후보 {rivals}"] if winner and rank_undec and rivals else []
+k6/ADR-014/scripts/summarize.py:1675:    blocked = list(env_exhausted) + [m for m in result if result[m]["a_rule_only"]] + [f"{'G2' if gates[m]['G2']['undecidable'] else 'G3'} 판정 불가 {m}" for m in g3_ahead] + rank_block
+k6/ADR-014/scripts/summarize.py:1676:    if winner and blocked:
+k6/ADR-014/scripts/summarize.py:1679:        verdict = f"판정 불가 → 사용자 보고(측정-8 ⓐ·ⓑ·ⓒ·ⓓ — 잠정: {winner}({plan14.METHODS[winner]})가 관문 통과 · 막은 것 {blocked})"
+k6/ADR-014/scripts/summarize.py:1680:        winner = None
+k6/ADR-014/scripts/summarize.py:1681:    elif winner:
+k6/ADR-014/scripts/summarize.py:1682:        verdict = f"기본값 교체 — expiry-mode = {plan14.METHODS[winner]}({winner})"
+k6/ADR-014/scripts/summarize.py:1689:    elif all(gates[m]["G2"]["fail"] for m in ranked):
+k6/ADR-014/scripts/summarize.py:1700:           "integrity": a_integ, "G4": g4}, "P3_valid": p3_valid, "sample_cost": sample_cost, "stages": stages, "rank_undecidable": rank_undec, "ranked": ranked, "gates": gates,
+k6/ADR-014/scripts/summarize.py:1701:           "decision": {"verdict": verdict, "new_default": plan14.METHODS[winner] if winner else None,
+k6/ADR-014/scripts/summarize.py:1780:    L.append(f"- 순위: {res['ranked']}")
+k6/ADR-015/scripts/summarize.py:814:    def beats2(y, x):
+k6/ADR-015/scripts/summarize.py:819:    def beats3(y, x):
+k6/ADR-015/scripts/summarize.py:829:    rank = sorted(cands, key=lambda x: ({"4": 0, "3": 1, "2": 2}[stage_of[x]], plan15.SIMPLICITY.index(x)))
+k6/ADR-015/scripts/summarize.py:830:    res["rank"], res["eliminated_at"] = rank, stage_of
+k6/ADR-015/scripts/summarize.py:849:    for m in rank:   # 순위 차례 — 처음 모두 통과한 후보. 그 앞에 관문 판정 불가 후보가 있으면 멈춘다(리뷰 M15-2 · ADR-014 :801 ⓒ · :802 ⓓ)
+k6/ADR-015/scripts/summarize.py:856:    undet_block = [m for m in plan15.NEW_MODES if status[m] == "undetermined" and maybe(m)]   # 판정 불가 후보가 이겼을 수 있다(관문에서 확정적으로 걸리지 않았다)
+k6/ADR-015/scripts/summarize.py:858:    provisional = f" · 잠정: {new_default or '교체 후보 없음'} · 순위 {rank}"
+k6/ADR-015/scripts/summarize.py:863:    elif undet_block:
+k6/ADR-015/scripts/summarize.py:864:        verdict = f"판정 불가 → 사용자 보고(후보 판정 불가 — {' · '.join(f'{m}: {why[m]}' for m in undet_block)}){provisional}"
+k6/ADR-015/scripts/summarize.py:868:        # current 유지 사유는 사실대로(리뷰 M15-34): 판정 불가 후보는 여기 오기 전에 모두 관문에서 확정적으로 걸렸다(아니면 위 undet_block)
+k6/ADR-015/scripts/summarize.py:878:            verdict = f"current 유지 ②(성공 후보가 모두 관문에서 확정적으로 걸림 — {' · '.join(f'{m}({caught(m)})' for m in rank)}{tail})"
+k6/ADR-015/scripts/summarize.py:879:    if verdict.startswith("교체") and any(rank.index(x) < rank.index(new_default) for x in rank):
+
+hook: PostToolUse
+exec
+/bin/bash -lc "nl -ba docs/adr/ADR-015-confirm-atomicity.md | sed -n '700,975p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+   700	| `app-instances-not-one` | seatlab app 컨테이너 ≠ 1(모드 혼합 금지 — 측정-11) | G-H |
+   701	| `warmup-failed` · `pre-k6-mismatch` · `clock-offset-bad` · `db-cpu-missing` · `path-gap` · `waits-gap` · `probe-missing` · `gc-log-missing` · `container-log-missing` · `app-metric-missing` · `end-check-failed` · `table-stats-missing` · `pc-link-missing` | ADR-014 측정-9 사유와 같은 정의(summarize14 상수 · Inputs 결측 규칙 — 0으로 채우지 않는다) | G-H |
+   702	| `pc-mem-missing` | k6 PC MemAvailable 표본(`timeline-client.jsonl`)이 판정 창을 덮지 못함(파일 없음 · 깨짐 · 공백 > 30초 — ADR-014 R5 ② 이식 · M15-25) | G-H |
+   703	| `env-stall` · `pc-link-down` · `pc-mem-low` | ADR-014 측정-9 env-stall(MR-6 — 측정기 5초 무응답 ∧ GC < 100ms ∧ DB 쪽 원인 없음) · PC 링크 끊김 · 판정 창 MemAvailable 최소 < 4GiB(ADR-014 plan14 `PC_MEM_RUN_MIN_KB` — M15-25) | G-E |
+   704	
+   705	**G-F 모드 실패(회차는 유효 · 그 모드 탈락 자료)** — 1건이라도면 그 모드는 성공이 아니다(문턱 · 순위에 쓰지 않는다). 'A' 열 = 측정-7 **'A도 같은 문턱'** 대상(○)인가.
+   706	
+   707	| 항목 | 적용 | 근거 | A |
+   708	|---|---|---|---|
+   709	| 판정기 M11 열 ≠ 0 | **모든 모드** — current의 위반은 'A 결함'(G2(a) 입력 · ADR-014 측정-7 :767 'A는 기준'과 같은 처리) | §설계-8.2 '이중 결과 수 = 0' | × |
+   710	| API 수준 이중 결과 M12 ≠ 0 | 모든 모드(current = A 결함) | 측정-0 | × |
+   711	| 40P01 M7 ≠ 0 | 모든 모드(current = A 결함 — §3.5 'current 짝 고리 없음') | N8 | × |
+   712	| 선점 · 재선점 5xx ≠ 0(요청 이름별) | 새 모드 넷(current도 기록 — `5xx_non_confirm`) | N4 | ○ |
+   713	| 확정 5xx ≠ 0 | 새 모드 넷(current는 기대 > 0 — FM1) | N4 | × |
+   714	| payment-start 5xx ≠ 0 | ④(current는 그 경로가 없다) | N4 | × |
+   715	| 계약 밖 확정 (상태, code) 쌍 ≠ 0(**회차 전체** — M15-10 · M15-21) | 새 모드 넷 | N4 · §설계-3 | × |
+   716	| 시간 초과(1050) ≠ 0(요청 이름별) | 모든 모드 기록(새 모드는 실패 · current는 경합 증거에 넣지 않는다 — M15-3a) · 'A도 같은 문턱'은 요청 이름 무관 묶음(OQ2 — 측정-7) | N4 | ○ |
+   717	| **잘못된 거부 M15 ≠ 0(M15-19)** | 모든 모드(current는 기록 — 'A도 같은 문턱' 비교 자료) | N4 · 측정-4 fix2 행 | ○ |
+   718	| payment-start 비200 ≠ 0 · 서버 `extend` 갈래 ≠ 기대(extended = 200 수 · already = not_needed = too_late = 0) · **200 본문 expiresAt 못 읽음(`pay_body_bad` — M15-23: 본문은 앱이 만든다 · k6 파서 결함이면 모든 ④ 회차에 나서 시작 조건 ① 스모크가 먼저 잡는다)** | ④(M15-4) | §3.4 '200 {holdId, expiresAt}' · 흐름 구성(측정-3.1 ③) | × |
+   719	| `unique_violation` ≠ 0 · `unexpected` ≠ 0 | 새 모드 넷 | §설계-4 :344 · §3.1 | × |
+   720	| `revert{path=sweep,result=not_held\|kept_active}` ≠ 0 | 새 모드 넷 | §3.6 B5 'A 불변식 ② 위반이라 설계상 0' | × |
+   721	| `extension_lost` ≠ 0 · `ext_then_lost` ≠ 0 | ④(다른 모드는 구조적 0) | N10 | × |
+   722	| 방식 정지(정지 덩어리 중 env가 아닌 것) | 모든 모드(기록 · 새 모드는 실패) | ADR-014 측정-9 | ○ |
+   723	
+   724	### 측정-7 성공 조건 (G1)
+   725	
+   726	- 새 모드 X의 상태는 셋 중 하나다(M15-1 · M15-14):
+   727	  - **실패** = 유효 회차에 G-F가 1건이라도 — 'A도 같은 문턱' 대상(○) 항목은 아래 규칙에서 '실패'로 남은 것만(유효 반복이 모자라도 실패가 먼저다).
+   728	  - **판정 불가** = 실패가 아닌데 ⓞ 'A도 같은 문턱'으로 판정 불가가 된 항목이 있다(아래) ⓐ 두 셀 중 하나라도 유효 < 3(재측정 한도 뒤 — 사유 무관) ⓑ **X 자신의 race 경합 증거**(측정-0 — 모드별 실제 충돌 표지)가 어느 회차든 None 또는 0 ⓒ ①③④: race 3회 **FM1 겹침 합 = 0**(M12 = 0의 뜻이 서지 않는다 — M15-6 · ②는 구조상 0이라 이 조건이 없다 — 측정-14) ⓓ 2 · 3단 지표 중 하나라도 범위를 낼 수 없음(값 None).
+   729	  - **성공** = 위 둘이 아님. 판정 불가는 성공도 실패도 아니다 — 결론에서 측정-8 '판정 불가 결론'으로 간다(ADR-014 측정-8 :800 ⓑ와 같은 처리).
+   730	- **A도 같은 문턱(M15-17 — ADR-014 측정-7 :765 · 재해석 :766 · 측정-8 :800 ⓐ와 같은 꼴)**: G-F 표의 ○ 항목(선점 · 재선점 5xx · 시간 초과 · 잘못된 거부 · 방식 정지)은 current에도 같은 식 · 같은 창으로 계산한다(요청 이름별 · 셀별). 새 모드 X가 어긴 (항목, 셀)을 **current도 같은 셀의 유효 회차에서 어겼으면** 그 항목은 '하네스 · 환경 · 조건 원인 → 판정 불가'로 분류하고 X의 실패로 세지 않는다. current의 그 셀이 유효 < 3이라 'current도 어겼나'를 세울 수 없을 때도 실패가 아니라 판정 불가다(ADR-014 :766 CR14-30과 같은 보수적 처리). **시간 초과는 요청 이름과 무관하게 묶는다(fix3 · Opus 루프 3 OQ2)**: current에 그 셀 시간 초과가 하나라도 있으면 X의 모든 요청 이름 시간 초과(④ `pay_start` 포함)가 판정 불가다 — 환경 원인 시간 초과가 ④에만 있는 요청에 걸려 hard 실패가 되지 않게. current가 어기지 않은 항목을 X가 어기면 그대로 X의 실패다. × 항목은 이 규칙 밖이다 — 정합 · API 이중 결과 · 40P01(current의 위반은 A 결함 — G2(a))과 current의 기대가 0이 아니거나 그 경로가 없는 항목(확정 5xx · payment-start · 연장 · unexpected · 되돌림 · 계약 밖 쌍)은 X의 실패다. 왜: 환경 원인 시간 초과 · 정지가 다섯 모드 모두에 나면 새 모드가 모두 '실패' → 'current 유지 ①'로 **측정하지 못한 후보가 진 것으로** 결론 난다(opus 루프 2 F1).
+   731	- current는 후보가 아니라 기준이다(ADR-014 측정-7 :767과 같다) — 성공을 따지지 않는다.
+   732	
+   733	### 측정-8 고르는 규칙 · '이기면 교체' 조건
+   734	
+   735	**후보 줄 세우기**(성공한 새 모드만 — 명세 '정합 → 사용자 결과 → 비용 → 단순성'):
+   736	
+   737	| 단 | 지표 | 빠지는 규칙 |
+   738	|---|---|---|
+   739	| 1 정합 | G-F | 문턱만(이미 성공 조건) |
+   740	| 2 사용자 결과 | race 확정 5xx(M2) · race 틱 실패(M3) — 원인 귀속 값(current = app.log 0행 DELETE 귀속 · 새 모드 = 전체 — M15-29) | Y가 어느 지표에서 X보다 범위 비겹침으로 낮고 어느 지표에서도 범위 비겹침으로 높지 않으면 X가 빠진다(ADR-014 측정-8 2단 :777과 같은 꼴) |
+   741	| 3 비용 | cost 확정 p99 · cost 선점 p99 · cost DB CPU(**race 확정 p99 · race DB CPU는 빼고 설명 열 — M15-33 사용자 결정**) | Y가 어느 지표에서 X보다 실질적으로 낮고(X ≫ Y) 어느 지표에서도 Y ≫ X가 아니면 X가 빠진다(ADR-014 3단 :778) |
+   742	| 4 단순성 | 고정 순서 ① > ② > ③ > ④(D-9) | 남은 후보 중 앞선 것 |
+   743	
+   744	- 동률 · 순환 · 순위 = ADR-014 측정-8 :781-783 그대로(늦게 빠진 후보가 앞 · 순환은 순환에 든 후보만 남긴다).
+   745	
+   746	**교체 관문**(순위 차례로 G1~G4를 대고, 처음 모두 통과한 후보가 새 기본값):
+   747	
+   748	| 관문 | 조건 |
+   749	|---|---|
+   750	| G1 | 성공(측정-7) |
+   751	| G2 이긴다 | 다음 중 하나: (a) current에 A 결함(G-F의 판정기 · API 이중 결과 · **40P01** — M15-13)이 있고 X에는 없다 · (b) race 확정 5xx(상태 ≥ 500 — M2)가 current보다 범위 비겹침으로 낮다(계약 — N4) · (c) race 틱 실패가 current보다 범위 비겹침으로 낮다(N5 — FM3 틱 롤백). **(b)(c)의 current 값 = app.log 0행 DELETE 갈래로 귀속된 수 · X 값 = 전체**(M15-29 — 원인 없는 current 5xx · 틱 실패로 X가 이기지 않는다 · current 로그를 못 읽어 값이 None이면 판정 불가). **(b)(c)를 '이긴다'로 보는 것은 사용자 결정(D-10 · 2026-11-05) — 단 G3 비용 조건은 그대로다**. 셋 다 아니고 범위를 낼 수 없는 값이 있으면 '못 넘음'이 아니라 판정 불가 |
+   752	| G3 비용 | 3단의 세 지표(cost 셀 — M15-33) 어디서도 X ≫ current가 없다. X ≫ current인 지표가 있으면 판정 불가 지표가 함께 있어도 '걸림'(ADR-014 :801 끝) · 걸린 지표 없이 범위를 낼 수 없는 지표가 있으면 판정 불가 |
+   753	| G4 캠페인 유효 | current 두 셀 유효 3회 · **current race 양성 대조**: 회차마다 경합 증거(**app.log 0행 DELETE 귀속 확정 5xx + 틱 실패** — 측정-0 · M15-29 · 시간 초과 제외 · M15-3a) ≥ 1 · 로그를 못 읽은 회차(None)가 있으면 G4 실패(판정 불가). 유니크 위반(FM2)은 짝 설계로 거의 늘 생겨 이 증거에 넣지 않는다(로컬 스모크: 짝 6쌍 = unique_violation 6 · 5xx 0). current FM1 겹침은 기록만(구조상 드물다 — 측정-14) |
+   754	
+   755	- **교체가 성립하면**: `seat.confirm.mode` 기본값 = X를 **별도 커밋**(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — ADR-014 측정-8 :798과 같은 선례). ③이면 V14 위치를 기본 위치 목록에 더함 · ④면 payment-window · extend-min-remaining 앱 기본값(D-6)과 클라이언트의 payment-start 호출이 함께 필요하다. 기존 운영 전환은 측정-11 절차. `current`는 손잡이로 되돌릴 수 있게 둔다.
+   756	- **교체 후보가 여럿 이기면**: 위 순위(2단 → 3단 → 4단)의 앞 후보부터 관문을 대고 **처음 통과한 하나**만 교체한다. 그보다 앞 순위 후보의 G2 · G3가 판정 불가(확정적으로 걸리지 않음)면 그 후보가 이겼을 수 있으므로 **교체 선정을 멈추고** 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — ADR-014 측정-8 :801 ⓒ · :802 ⓓ · M15-2).
+   757	- **판정 불가 결론**(기본값 `current` 그대로 두되 'current가 이겼다'로 적지 않는다 — 사용자 보고 뒤 사용자가 정한다): ⓐ G4 실패 ⓑ 위 '앞 순위 관문 판정 불가' ⓒ 측정-7 판정 불가 후보('A도 같은 문턱' · 유효 반복 부족 · 양성 대조 없음 · 범위 없음 — 어느 사유든)가 있고 그 후보가 관문에서 확정적으로 걸리지 않았다(G2 확정 실패 · G3 걸림이 아니면 그 후보가 이겼을 수 있다 — M15-1 · M15-14 · M15-17). 판정 불가 후보가 확정적으로 걸렸으면 나머지 규칙대로 간다.
+   758	  - **재측정 상한 소진은 사유와 무관하게 측정-7 ⓐ(판정 불가)로 간다(M15-28)** — ADR-014는 환경 상한 소진만 판정 불가(:800 ⓑ)이고 하네스 상한 소진은 'A 유지 ⑤ superseded'였다. 이 측정은 둘을 가르지 않는다: 어느 쪽이든 그 후보는 **측정되지 않았고** 기본값은 current 그대로라 효과는 같지만, 'current 유지'로 적으면 측정하지 못한 후보가 진 것으로 남는다(D-15와 같은 이유). 그래서 15-09의 'current 유지 ④(superseded)' 갈래는 없앴다(ⓐ에 흡수 — 요약기에도 없다).
+   759	- **current 유지**(기본값 `current` 그대로 · 위 판정 불가가 아닐 때만 — 판정 불가 후보는 여기 올 때 모두 관문에서 확정적으로 걸렸다 · 사유는 사실대로 — M15-34): ① **G1 성공 후보 없음**(실패 후보 목록 · 판정 불가였으나 관문에서 확정적으로 걸린 후보와 그 관문을 함께 적는다) ② **성공 후보가 모두 관문에서 확정적으로 걸림**(후보마다 G2 False 또는 G3 hit 지표를 적는다 — 섞여도 ②). 결과 문서는 모드별 실패 항목 · 원인 후보를 적는다(무음 금지).
+   760	- **#5 V12 관문(M15-30 — 측정-10)**: 결론 옆에 늘 V12 상태를 적는다 — 판정이 서면 `#5 V12: <판정>` · 단계 누락(`--skip-v12` 포함) · 실패 · 필수 값 결측이면 **'V12 판정 불가(사유)'** · 교체 결론이면 여기에 **'— 운영 적용 전 V12 판정 필요'**(교체 자체는 그대로 · 교체 커밋 · 운영 적용 앞에 #5를 다시 잰다).
+   761	- **주의(측정 전에 밝혀 둔다 — ADR-014 측정-8 :803과 같은 꼴)**: 15-02 실측으로 current의 정합은 '우연한 가드(0행 DELETE → 예외 → 롤백)'가 지킨다. 그래서 G2(a)는 A 결함이 새로 드러날 때만 서고, 교체 여부는 사실상 **G2(b)(c) — 진 쪽이 5xx 대신 계약 코드로 끝나는가 · 배치 틱이 롤백되지 않는가 — 와 G3(비용)** 이 정한다. **사용자 결정(D-10 · 2026-11-05)**: 맞다 — (b)(c)를 '이긴다'로 본다 · G3 비용 조건은 유지.
+   762	
+   763	### 측정-9 시작 조건 · 재측정 · 멈춤
+   764	
+   765	**캠페인 시작 조건**(campaign.sh `cond_lines` — 각 log 1행):
+   766	
+   767	0. 하네스 동결(`--sha` git archive · 해시) · 이미지 ID 고정(`run.sh --prepare-image` — ADR-014 run.sh에 넘긴다).
+   768	1. .164 스모크: 다섯 모드 × race 1회 + current · conditional × cost 1회 — 모두 ok(env-stall만으로 무효면 막지 않음 — ADR-014 :810과 같다) · **current race 경합 증거 ≥ 1** · 흐름별 VU 최대(maxVUs = 미리 만든 VU × 1.5가 넘지 않는지). 스모크는 판정에 쓰지 않는다.
+   769	2. 캠페인 스모크(두 자리 이상 — 루프 stdin 교훈 · ADR-013 §6.1).
+   770	3. dry-run(`plan15.py --dry-run` exit 0 — 좌석 · 풀 점유 · 오프셋 창).
+   771	4. k6 PC 점검(`pccheck14.sh` 그대로 + 사람 기록).
+   772	5. [구현 검증] 측정 몫: #12 앱−DB 시계 차(스모크의 `app-db-clock-*.json`) · #15 pg_stat_statements 결정(D-4) · VU 최대.
+   773	6. knobs(`pgss` · `cost_rate` · `v12_rows`) — plan.json에 고정 · 이어서 실행 때 다르면 멈춤.
+   774	7. 측정 SHA에서 전체 테스트 green(15-08 끝 기준).
+   775	
+   776	**재측정**: invalid만 · 자리마다 환경 2번 · 하네스 2번 따로 · 원래 순서대로(ADR-014 campaign.sh와 같은 루프). ok(모드 실패 포함)는 다시 재지 않는다.
+   777	**멈춤**: 무효 연속 5회 → exit 3 · **회차 1 race 묶음 끝에 race/current/rep1이 ok인데 경합 증거 0 → exit 4**(부하가 경합을 만들지 못했다 — 사용자 보고 · D-1/D-8 재검토). 그 자리가 무효 · 없음이면 멈추지 않고 재측정 경로로 넘긴다(끝 G4가 판정 — M15-11 · summarize `--early-check` rc 0 · 1 · 2) · 미실행 자리 → exit 6 · 하네스 해시 불일치 → exit 5.
+   778	
+   779	### 측정-10 #5 V12 운영 크기 생성 시간 · 쓰기 차단 길이 (이 캠페인 안 — 부하 회차 뒤 한 번)
+   780	
+   781	- **크기**: 예약 N행(CONFIRMED · 좌석마다 1행 — 인덱스 크기 최대 쪽 · 보수적 선택) · N ∈ {1,000,000 · 5,000,000}(D-5 — ADR-002 규모 축 100만 · S5 상단 500만 — docs/adr/ADR-002-db-baseline.md:769) · 크기마다 3회.
+   782	- **절차**(`scripts/v12-build.sh`): 새 DB(V1~V13 — 앱 current로 한 번 띄워 Flyway 적용) → 앱 정지(다른 쓰기 없음) → 인덱스 DROP → 시드(좌석 N + 1,000 · 예약 N · ANALYZE) → ① 세션 A: `BEGIN; CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'; COMMIT;`(V12 파일과 같은 문장 — Flyway 기본 = 스크립트마다 트랜잭션 하나) · 50ms 뒤 세션 B: 예약 1행 INSERT(쓰기 하나 — 시작 · 끝 `clock_timestamp()`) → ② DROP 뒤 `CREATE UNIQUE INDEX CONCURRENTLY` + 같은 탐침 B → 끝에 `indisvalid AND indisunique` 확인(둘 다).
+   783	- **측정 SQL의 값**: 생성 시간 = A의 두 `clock_timestamp()` 차 · **쓰기 차단 길이 = max(트랜잭션 안 생성 시간, 탐침이 구간 안에서 떴으면 탐침 대기)** — SHARE 락은 문장 끝 · 커밋까지 쥐므로 그 순간 도착한 쓰기는 생성 시간만큼 기다린다(로컬 시험: 30만 행 생성 190ms < 탐침 지연 300ms라 탐침이 구간 밖에서 떴다 → 탐침만으로는 못 잰다 · 지연을 50ms로 줄이고 생성 시간을 하한 없이 쓴다).
+   784	- **판정**(`summarize.py --v12`): **계획한**(v12-build.sh가 남긴 `v12-plan.json` — 크기 목록 · 반복) 가장 큰 N의 3회 쓰기 차단 최대 ≤ 2,000ms(D-5 — ADR-013 :186) → **트랜잭션 안 판 유지** · > 2,000ms → **CONCURRENTLY 판 후속**(V12 `.conf` `executeInTransaction=false` + `indisvalid` 기동 검사 · §설계-4 재시도 절차 — 새 task). **계획한 모든 (크기, 반복) 자리**마다 파일 · 시드 종료 코드 0 · 시드 실측 행 수(예약 = N · 좌석 = N + 1,000) · 값 · indisvalid가 맞아야 한다 — 하나라도 빠지면 판정 불가(관측 파일 중 가장 큰 N으로 판정하지 않는다 · M15-7 · M15-8). **필수 값(fix3 M15-31)**: 트랜잭션 판 `build_ms` · `probe_blocked_ms` · `probe_started_inside` · **CONCURRENTLY 판 `build_ms` · `probe_ms` · `probe_started_inside`** · 두 판 `valid` — 하나라도 없으면(측정 오류 `error` 포함) 판정 불가. **이 판정은 캠페인 완료 관문이다(M15-30 — 측정-8 끝 'V12 관문')**: 단계 누락 · 실패 · 판정 불가면 결론 옆 'V12 판정 불가' · 교체면 '운영 적용 전 V12 판정 필요'. CONCURRENTLY 쪽 탐침 대기(쓰기를 막지 않아야 한다)와 생성 시간도 함께 적는다(Flyway 비트랜잭션 실패 이력 · `flyway repair`는 #5의 나머지 몫 — CONCURRENTLY 판을 고를 때 그 task가 잰다).
+   785	- **로컬 신호(.164 값 아님 · 판정에 쓰지 않는다)**: 이 PC 로컬 PG 16(tmpfs 아님)에서 100만 행 3회 생성 582~670ms · 탐침 대기 532~637ms · CONCURRENTLY 768~874ms(탐침 7~9ms). 선형이면 500만 행 약 3초 → 2초 문턱을 넘을 수 있다 — 결과가 'CONCURRENTLY 판 후속'으로 갈 가능성을 메인이 미리 알아 둔다.
+   786	
+   787	### 측정-11 모드 전환 절차 (셀 사이 — §3.5 '모드 혼합 금지')
+   788	
+   789	1. 회차마다 run.sh가 `compose down -v --remove-orphans`(seatlab 모든 컨테이너 · DB 볼륨) → seatlab 컨테이너 0 · 볼륨 없음을 확인(lib14 `compose_down14` — 3번까지 · 실패면 `compose-down-failed`).
+   790	2. 새 모드 값으로 `compose up`(앱 1대 · `CONFIRM_MODE` · delay · ④ 키 · Flyway 위치) → health UP.
+   791	3. seatlab app 컨테이너 = 1개 확인(`app-instances.txt` — 아니면 `app-instances-not-one`).
+   792	4. configprops `seat.confirm.mode`가 계획과 같은지 대조(`confirm-mode-mismatch`).
+   793	- 이 절차는 **롤링 전환 없음 · 전 인스턴스 정지 후 함께 기동**을 회차마다 강제한다. 운영의 모드 전환(교체 커밋 뒤)도 같은 순서다(기동 검사는 다른 인스턴스의 모드를 볼 수 없다 — 운영 절차 규칙).
+   794	
+   795	### 측정-12 측정 기록 항목 (설명 — 판정 아님)
+   796	
+   797	- **#15 A′ 대 JPA 배치(같은 후보 수)**:
+   798	  - A′ B2b 쌍당 SELECT = `seat.hold.expiry.missing_pairs{path=sweep}` 증분(MISSING 쌍마다 B2b `SELECT id FROM seat_hold WHERE schedule_id = ? AND user_id = ? AND expires_at <= ?` 1문장 — SweepConditionalBatch.kt:45-53). 기본 조합에서는 쿼터 행이 있어 0이 기대(추정).
+   799	  - 틱당 문장 수 · 시간(M15-9 — 실측): 요약기 `batch_statements`가 pgss 모든 행(상위 N행 아님)에서 배치 문장을 **정규화 문장 앞머리**로 골라(summarize.py `BATCH_STMTS` — fix1 로컬 PG 16 실측 문장에서 옮김) 묶음별 calls · total_ms · max_ms를 내고, **틱당 = 배치 전용 묶음 합 ÷ 틱 수**(같은 구간 — k6 직전 pgss 0 → 회차 끝 · 틱 = act15 tick ok + failed 증분)를 낸다. A′ = B1 · B2 · B2b · B3 · B3b · B4(감소) · B5 · B5d(전부 배치 전용). JPA = 후보 조회(J1 — `select distinct … left join seat_hold`) · 감소(J4) 만 배치 전용이고, 홀드 컬렉션 로딩 · 좌석 UPDATE · 홀드 DELETE(J2 · J3 · J5)는 **확정 · 선점과 같은 문장**이라 글자로 배치 몫을 가를 수 없다 → `shared`로 따로 적고 틱당 값에서 뺀다(JPA 틱당 값은 하한 — 측정-14). 틱 시간은 DB 쪽 하한(앱 쪽 틱 타이머 없음 — ExpireHoldsService.kt:59 · :63). 로컬 신호(배치 10초 · 20/s): JPA 틱당 전용 문장 약 153 · 15.7ms 대 A′ 약 82 · 13.7ms(.164 값 아님).
+   800	  - 지운 홀드 수: DB `pg_stat_user_tables seat_hold n_tup_del` 증분으로 견준다(아래 태그 차이 때문).
+   801	- **`seat.hold.expiry.deleted` 태그 키 차이(경로별 메모)**: JPA 배치(current)는 이 지표를 **내지 않는다** · A′는 `{path=sweep, extended=true|false}`(SweepConditionalBatch.kt:95-96) · ADR-014 B·C·D 경로는 `{path=reclaim}`(LazyHoldProcess.kt:143) · `{path=batch}`(LazyExpiryBatch.kt:100) · 정리 ①은 다른 이름(`seat.hold.counter.cleanup.deleted{mode}` — QuotaCleanup.kt:80 · :232). ADR-014 actsnap14는 `path=reclaim|batch`만 읽으므로 이 측정에서는 늘 0이다 — actsnap15가 `path=sweep` 두 태그를 따로 읽는다.
+   802	- **#11 지연 주입 자리의 모드별 의미**: ②는 P2 뒤(좌석 · 홀드 잠금을 쥔 채) 잔다 — race 셀에서 ②만 잠금 보유 비용이 섞인다(같은 좌석 재선점은 NOWAIT라 기다리지 않고 409 — 비용은 확정 p99 · DB CPU로만 보인다). ①④③은 잠금 없이 잔다.
+   803	- **#12 앱−DB 시계 차**: 회차 앞뒤 `app-db-clock-{before,after}.json`(lib14 `app_db_clock`) — `converted_after_expiry{clock=db}` 대 `{clock=app}` 차와 함께 적는다(#17).
+   804	- **#10 틱 롤백 빈도**: current race 틱 실패(M3 — 지표 · 0행 DELETE 귀속 수 · 귀속 안 된 수) 대 새 모드 0 — G2(c) 자료(귀속 수).
+   805	- **M9 분포**: 모드별 `converted_after_expiry` 건수 · lateness 감쇠 최대(창 끝 스냅숏) · 평균(win 묶음 크기의 표지 — 경합 증거가 아니다: 새 모드의 성공 수는 실제 충돌이 아니라 '창이 열렸다'일 뿐이다 · M15-3b).
+   806	- **M13 FM1 겹침**: 모드별 race 회차 값(①③④는 G1 조건 · current · ②는 기록만).
+   807	
+   808	### 측정-13 [구현 검증] 측정 몫 대응표
+   809	
+   810	| # | 이 캠페인에서 | 자리 |
+   811	|---|---|---|
+   812	| #5 | V12 생성 시간 · 쓰기 차단(트랜잭션 안 대 CONCURRENTLY) | 측정-10 · v12-build.sh |
+   813	| #10 | current 틱 실패 빈도 대 A′ | M3 · G2(c) |
+   814	| #11 | 지연 자리의 모드별 의미 | 측정-12 |
+   815	| #12 · #17 | 앱−DB 시계 차 · clock=db 대 app | 측정-12 · 시작 조건 ⑤ |
+   816	| #15 | A′ 문장 수 · 틱 시간 대 JPA | 측정-12(D-4) |
+   817	| #14 | V13 열이 .164 크기에서 표를 다시 쓰지 않는지 | 이번 측정의 시드는 빈 표에 V13을 적용한다 — **잴 수 없다**(받아들이는 한계 — 측정-14) |
+   818	
+   819	### 측정-14 받아들이는 한계 (측정 전)
+   820	
+   821	- 앱 1대라 '두 대 배치 겹침'(A′ ↔ A′)은 재지 않는다(§3.5 '해당 없음' 그대로).
+   822	- 경합은 지연 주입(200ms)으로 키운 창에서 생긴다 — 운영의 자연 창(수 ms)보다 크다. race 셀의 5xx · 틱 실패 수는 '창이 열렸을 때 무엇으로 끝나는가'의 비교이지 운영 빈도가 아니다.
+   823	- ④의 post 묶음 성공 · 재선점 0은 흐름 구성상(연장 2분 > 재선점 13초) 정해진다 — 측정한 성질이 아니다(D-7).
+   824	- #14(V13 ALTER의 잠금 길이)는 빈 표 적용이라 재지 않는다.
+   825	- env-stall 규칙 · PC 메모리 하한(`pc-mem-low` · `pc-mem-missing` — ADR-014 R5 ②)은 ADR-014 것을 그대로 쓴다(fix2에서 요약기에 이식 — M15-25).
+   826	- **(fix2) ③ 서버 논리 증거의 잔여 한계**: ③은 O1(지연 앞)에서도 404가 난다 — te − ts ≥ delay로 '지연을 잤다'를 요구하지만, 앞단 대기(Tomcat · 풀 — 트랜잭션 시작 앞)가 delay 이상인 O1 404는 가를 수 없다(그 확정은 송신이 e − 여유보다 앞이고 서버가 송신 뒤 delay 이상 늦게 :now를 잡았으며, 그 사이 배치 틱이 들어야 한다 — 드물다(추정)). ①④는 지연이 `:now` 바로 뒤라 이 한계가 없다.
+   827	- **(fix2) 시계 차 오차 ε는 회차 앞 · 뒤 두 표본 사이를 단조로 본다** — 회차 중 시계가 튀면(NTP 계단) 증거 · 잘못된 거부의 시각 조건이 틀릴 수 있다. ADR-014 `clock-offset-bad`(앞뒤 차 > 100ms)가 큰 계단은 회차 무효로 막는다.
+   828	- 열린 모델이라 '확정 처리량'(M4)은 도착률과 성공 비율의 곱이다 — 처리 능력 비교는 cost 셀 p99 · DB CPU로 대신한다.
+   829	- **(fix1) FM1-Y(배치가 푼 좌석을 남이 잡은 뒤 그 확정이 쓴다)는 current와 ②에서 부하가 재지 않는다(재현 테스트 몫 — Adr015ReproSmokeTest)**: current는 JPA 배치가 겹친 확정 때문에 틱 롤백(FM3)으로 지는 쪽이 잦아 좌석이 풀리지 않는다(로컬 배치 10초 · 2분: 틱 실패 6/14 · FM1 겹침 0) · ②는 확정이 홀드 · 좌석 잠금을 쥐어 재선점이 NOWAIT 409로 끝난다(로컬 FM1 겹침 0). 그래서 M12(API 수준 이중 결과)는 두 모드에서 G-F 문턱으로만 쓰고 'FM1-Y에 안전하다'의 근거로 쓰지 않는다. ①③④는 FM1 겹침 합 ≥ 1을 G1 조건으로 둔다(로컬 ① 7건/2분).
+   830	- **(fix3) current 원인 귀속은 앱 로그 형식에 기댄다(M15-29)**: Spring 기본 오류 기록(`dispatcherServlet` · `TaskUtils$LoggingErrorHandler`)과 Hibernate 6.6 예외 문구 · 스택 프레임으로 가른다(앱 코드 무변경 조건 — 원인 표지 지표를 새로 내지 않는다). 로그 형식이 바뀌면 귀속 0 · 머리 줄 0이면 None → G4 판정 불가로 드러난다(무음 성공 아님). 귀속은 0행 DELETE가 '누가 먼저 지웠나'까지는 말하지 않는다 — current 기간에 seat_hold를 지우는 쪽이 확정 · 배치뿐이고 짝 진 쪽은 유니크 인덱스에서 먼저 막힌다(측정-4 fix3 행)는 코드 사실에 기댄다.
+   831	- **(fix2) ② 경합 표지는 표본이다** — B3 대기 표본(20ms)이 잡은 에피소드 수라 실제 대기 수의 하한이다(잡을 확률 약 0.9 — 측정-4 fix2 행). 진 쪽 응답이 없는 설계라 응답 · 앱 지표로는 잴 수 없다(앱 코드 무변경 조건). 표본기 부하는 race 다섯 모드에 같게 든다.
+   832	- **(fix1) ④ 경계 흐름은 race 셀에만 있다** — cost 셀 ④는 기준 흐름(e − 10초 payment-start + e + c 확정)만이라 연장 뒤 경계 경합 비용은 cost 지표에 없다.
+   833	- **cost 셀 ④는 payment-start 요청을 포함한 채 다른 모드와 비교한다(사용자 결정 2026-11-05)** — ④의 cost 선점 · 확정 p99 · DB CPU에는 payment-start 한 번(세션마다 홀드 행 UPDATE 1)의 부하가 섞인다(그 대가는 ④가 치르는 실제 비용으로 읽는다).
+   834	- **(fix1) 현재 ④ 연장 기대값(not_needed = too_late = 0)은 흐름 구성이 정한다** — 결제 시간 분포가 다른 운영에서는 두 갈래가 생긴다(측정하지 않음 · D-6).
+   835	
+   836	### 사용자 결정 (D-1~D-11 — 2026-11-05 · 모두 권장안으로 고정)
+   837	
+   838	| # | 결정 | 근거(원래 권장 이유) |
+   839	|---|---|---|
+   840	| D-1 | race 지연 **200ms** | 풀 점유 4.4 < 5(풀 50%) · 500ms는 풀 고갈(11 > 10) · 100ms면 경합 추정 약 15건/회차 |
+   841	| D-2 | cost 도착률 **300/s** | ADR-014 맹목 300/s 선례 · VU 약 1.9만(스모크 ①에서 VU · dropped 확인) |
+   842	| D-3 | 짝 · 재선점 비율 **(0.1, 0.5)** — **루프 2 리뷰로 cost 셀 재선점만 0(race는 0.5 그대로 · M15-20 — 사용자 보고 필요)** | 짝은 FM2를 매 회차 수십 건 만드는 최소 · 재선점은 FM1 쪽 요청 수를 확정 수 이하로. cost만 0인 사유: cost 셀은 경합 판정 몫이 없고(race가 맡는다 · 조밀 구간도 이미 끔) ④만 연장 때문에 재선점이 13초 동안 409를 거듭 받아 요청 수가 구조적으로 많다 → G3(비용)가 모드가 아니라 부하 구성을 잰다(opus 루프 2 F4) |
+   843	| D-4 | pg_stat_statements **켬**(다섯 모드 같게) | #15 문장 수 · 틱 시간이 읽는다 — `PGSS_DEFAULT = 1`(fix2: ② 경합 표지는 B3 대기 표본으로 옮겼다 — pgss B3 max는 설명 열) |
+   844	| D-5 | #5 크기 **{100만, 500만} · 판정 500만 · 2초** | ADR-002 규모 축 선례 · 로컬 신호상 500만이 문턱 근처 |
+   845	| D-6 | ④ **측정 2m · 5s** · 앱 기본값 0 유지(④가 이기면 교체 커밋에서 2m · 5s) | §설계-10 T6 · 결제 시간 분포 자료 없음 |
+   846	| D-7 | ④의 post 묶음 성공 · 재선점 손실은 **설명만** | 흐름 구성상 정해지는 값(측정-14) |
+   847	| D-8 | D_arr **race 600 · cost 300** | 경합 추정 약 30건/회차 · 총 시간 |
+   848	| D-9 | 단순성 **① > ② > ③ > ④** | 더하는 부품 수(측정-4) |
+   849	| D-10 | '계약 코드로 진다(5xx 0)' · '틱 롤백 없음'을 **이긴다로 본다(G2 b · c) — 단 G3 비용 조건 유지** | §문제 · Q1(15-02 실측 — current 정합은 우연한 가드) |
+   850	| D-11 | 시작 조건 ① 스모크 **7회**(다섯 모드 × race + current · conditional × cost) | cost는 VU · 처리 상한 확인이 목적 |
+   851	
+   852	- 측정 규모 약 8시간 그대로(사용자) · cost 셀 ④는 payment-start 포함 그대로 비교(사용자 — 대가는 측정-14).
+   853	
+   854	### 메인 결정(확정 — fix1이 새로 둔 값 D-12~D-15 · 사용자 결정 범위 밖 · 루프 2 M15-27로 '필요' → '확정')
+   855	
+   856	메인이 권장안으로 확정했다(하네스 기본값과 같다). D-14는 루프 2(M15-26)에서 판정에서 빠졌다 — 표는 기록으로 둔다.
+   857	
+   858	| # | 질문 | 후보 | 확정 | 근거 |
+   859	|---|---|---|---|---|
+   860	| D-12 | ④ 경계 흐름 비율 · 셀 | race 0.5 · cost 0 / race 1.0 · cost 0 | **race 0.5 · cost 0** | 절반은 e′ 경계 경합(로컬 경계 win 단독 404 6건/30초) · 절반은 연장 유지(ext_then_lost) · cost에 넣으면 VU 약 2만 증가(300/s × 0.5 × 110초). 대가: ④ race 회차 +1.8분(gracefulStop 160초) · 최대 VU main 2,850 |
+   861	| D-13 | 재선점 조밀 구간 | e − 20ms ~ e + delay + 100ms · 20ms(17번) / 10ms(33번) | **20ms** | 창 평균 100ms의 1/5 · race 추가 요청 약 170/s(10ms면 약 330/s) · 로컬 FM1 겹침 ① 7건/2분(20ms로 충분) |
+   862	| D-14 | ② 경합 표지 문턱 | B3 max ≥ delay × 0.25(50ms) / × 0.5(100ms) | **0.25 — fix2에서 설명 열 기준으로만**(판정 = B3 대기 표본 · 측정-4 fix2 행) | 로컬 ② B3 max 143ms 대 ① 0.4ms · ④ 0.3ms(경합 없는 B3는 1ms 아래) — 기다린 시간은 확정의 남은 잠 시간이라 0~200ms 고르게(0.5면 절반쯤 놓친다 — 추정) |
+   863	| D-15 | 새 모드 경합 증거 0(그 모드에서 충돌이 안 생김) · FM1 겹침 0을 '실패'로 보나 '판정 불가'로 보나 | 판정 불가 / 실패(성공 아님 → current 유지 ① 가능) | **판정 불가** | 충돌이 없었으면 그 모드의 충돌 처리를 재지 못한 것 — '측정하지 못한 후보가 진 것으로 결론'(codex F1)과 같은 꼴. 15-09 하네스는 실패(→ current 유지 ①)로 처리했다 |
+   864	
+   865	<details><summary>15-09 원래 표(D-1~D-11 후보 · 권장 — 기록)</summary>
+   866	
+   867	| # | 질문 | 후보 | 권장 | 근거 |
+   868	|---|---|---|---|---|
+   869	| D-1 | race 지연 값 | 100ms · 200ms | **200ms** | 풀 점유 4.4 < 5(풀 50%) · 500ms는 풀 고갈(11 > 10) · 100ms면 경합 추정 약 15건/회차로 범위 비겹침이 약해진다(추정) |
+   870	| D-2 | cost 도착률 | 100/s · 300/s | **300/s** | ADR-014 맹목 300/s 선례 · VU 약 1.9만(ADR-014 경험 15,300 — 조금 위 · 스모크 ①에서 VU · dropped 확인) |
+   871	| D-3 | 짝 비율 · 재선점 비율 | (0.1, 0.5) · (0.2, 1.0) | **(0.1, 0.5)** | 근거 없음 — 짝은 FM2를 매 회차 수십 건 만드는 최소 · 재선점은 FM1 쪽 요청 수를 확정 수 이하로 둔다(cost 셀 요청 약 1,350/s 추정) |
+   872	| D-4 | pg_stat_statements(#15) | 켬(다섯 모드 같게) · 끔(문장 수는 코드 읽기 + missing_pairs만) | **켬** | #15는 '문장 수 · 틱 시간'을 요구하는데 앱에 틱 타이머가 없다 · 대가: ADR-014 이전 DB 조건과 갈린다(이 ADR 안 비교는 같다) |
+   873	| D-5 | #5 운영 크기 · 문턱 | 크기 {100만, 500만} · {100만}만 / 문턱 2초(ADR-013 :186) · race 확정 p99 기준 | **{100만, 500만} · 판정은 500만 · 2초** | ADR-002 규모 축 선례 · 로컬 신호상 500만이 문턱 근처 |
+   874	| D-6 | ④ payment-window · extend-min-remaining(측정값 · 앱 기본값) | 2m · 5s(T6 테스트 값) · 측정 근거로 새로 | **측정 2m · 5s · 앱 기본값은 0 유지 — ④가 이기면 교체 커밋에서 2m · 5s** | §설계-10 T6 '앱 기본값은 측정 task가 고정' — 결제 시간 분포 자료가 없다 |
+   875	| D-7 | ④의 post 묶음 성공 · 재선점 손실을 G2 · G3에 넣나 | 넣는다 · 설명만 | **설명만** | 흐름 구성상 정해지는 값(측정-14) — 넣으면 ④는 G2(d)로 늘 이기고 G3 재선점으로 늘 진다 |
+   876	| D-8 | D_arr | race 600 · cost 300 / race 300 · cost 300 | **race 600 · cost 300** | 경합 추정 약 30건/회차(600초) 대 약 15건(300초) · 총 시간 5.8 대 4.6시간 |
+   877	| D-9 | 단순성 순서 | ① > ② > ③ > ④ · ① > ③ > ② > ④ | **① > ② > ③ > ④** | 더하는 부품 수(측정-4) |
+   878	| D-10 | '계약 코드로 진다(5xx 0)'와 '틱 롤백 없음'을 '이긴다'로 보나 | 그렇다(G2 b · c) · 정합(a)만 | **그렇다 — 사용자 확인** | §문제 · Q1(15-02 실측: current 정합은 우연한 가드가 지킨다 — 진 쪽 500 · 틱 롤백이 남은 차이) · ADR-014 MQ3과 같은 성격 |
+   879	| D-11 | 시작 조건 ① 스모크 구성 | 다섯 모드 × race + current · conditional × cost(7회 약 1.4시간) · 다섯 × 두 셀(10회 약 2시간) | **7회** | cost는 VU · 처리 상한 확인이 목적 — 모드 둘이면 충분(추정) |
+   880	
+   881	</details>
+   882	
+   883	### 측정-15 하네스(15-09 — `k6/ADR-015/`)와 로컬 점검
+   884	
+   885	- **fix3(루프 3) 하네스 변경**: `summarize.py`(app.log 원인 귀속 `applog_attrib` · current 경합 증거 · `g2` 값 · 2단 · G2 원인 귀속 · G3 = cost 셋 · 설명 열 `desc_ranges` · V12 관문 `v12_gate` · V12 필수 값 · 'current 유지' 사유 · 시간 초과 묶음 · 잘못된 거부 `el`) · `campaign.sh`(`v12-stage.json` · 끝 줄에 V12 상태) · `confirm-contention.js`(`conf{el}`) · `selftest.py` · `scripts/fixtures/applog-164-current.log`(새 — .164 시험 1 app.log.gz 실물 사건 6개 그대로: 원본 67 · 4478 · 82~85 · 36910행).
+   886	- **fix3 로컬 점검**: selftest 160항목 · `--campaign` 167항목 EXIT 0(M15-29 픽스처 귀속 · 다른 예외 · 첫 요청 앞 · 로그 없음 · 머리 줄 0 · 새 모드 G-F · G2 귀속 값 · G2 None · M15-30/31 V12 7갈래 · M15-32 ④ e′ · el 없음 · M15-33 · M15-34 ①② · OQ2 3갈래) · `k6 inspect` 다섯 모드 × 두 셀 EXIT 0 · `bash -n` · `py_compile` · `plan15 --dry-run` · `campaign.sh --dry-run --worktree` · `docker compose config`(current · optimistic · conditional-extend) EXIT 0.
+   887	- **fix3 .164 원자료 재요약(새 요약기 — 원자료 사본에서 · 판정에 쓰지 않는다)**: 시험 1 current race(하네스 8388e198) — 경합 증거 **32 = 0행 DELETE 귀속 확정 5xx 28 + 틱 실패 4** · 귀속 안 됨 5xx 0 · 틱 0(k6 확정 5xx 28 · 틱 지표 4 · 계획 win 단독 5xx 23은 설명 열) · status `invalid:confirm-count-mismatch`(그 하네스 k6에 `sess` · `e` 태그가 없던 옛 형식 — fix2 이전 원자료라 기대된 결과) · 시험 2 pessimistic race(하네스 5c1b96e5) — status **ok** · 경합 증거 26(B3 대기 에피소드) · app.log 예외 0 · 잘못된 거부 0(단독 te + ε < el 3,532건).
+   888	
+   889	- **fix2(루프 2) 하네스 변경**: `scripts/b3wait-sampler.sh`(새 — 서버 쪽 B3 대기 표본) · `lib15.sh`(V12 모양 SQL · `b3wait_sampler`) · `run.sh`(race 셀 B3 표본기 기동 · 정지 · 사본 복구) · `plan15.py`(cost ρ = 0 · `B3WAIT_PERIOD_MS` · `EVIDENCE_MARGIN_MS` · Hikari 대조 · dry-run 점검) · `scenarios/lib15.js`(`confirmCodeOf`) · `confirm-contention.js`(`conf{e}` · 본문 code · `sess` · `conf_skip` · `pay_body_bad`) · `summarize.py`(서버 논리 증거 · B3 에피소드 · 계약 쌍 · 잘못된 거부 · 확정 수 · FM1 대상 · PC 메모리 하한 · 'A도 같은 문턱') · `selftest.py`.
+   890	- **fix2 로컬 점검**: selftest 143항목(`--campaign` 포함 — M15-17 11갈래 + 결론 2 · M15-19 · M15-21 · M15-23 · M15-24 · M15-25 · M15-26 · M15-18) EXIT 0 · `k6 inspect` 다섯 모드 × 두 셀 EXIT 0 · `bash -n` · `py_compile` · `plan15 --dry-run` · `campaign.sh --dry-run --worktree` · `run.sh --dry-run` · `docker compose config`(current · optimistic · conditional-extend) EXIT 0. 로컬 스모크 값은 측정-3.3 fix2 행 · V12 모양 SQL 음성 8갈래는 측정-4 fix2 행.
+   891	
+   892	- 파일: `compose.confirm.yml`(ADR-009 compose + tmpfs 위 오버레이 — 앱 JSON · 이미지 고정 · nofile · db.command + `PG_PRELOAD`) · `scenarios/{lib15.js, confirm-contention.js, warmup15.js}`(lib14.js 재수출 + payment-start · 세션 속성) · `scripts/{plan15.py, run.sh, lib15.sh, actsnap15.py, summarize.py, campaign.sh, selftest.py, hhash.sh, v12-build.sh}`. ADR-014 · ADR-009 하네스는 고치지 않고 동결 사본에서 source · import(lib14.sh · actsnap14.py · summarize.py · pccheck14.sh · pclink14.sh · run.sh --prepare-image).
+   893	- **fix1 로컬 점검**: selftest 109항목(`--campaign` 포함 · M15-1~M15-15 시뮬레이션 · 합성 회차) EXIT 0 · `k6 inspect` 열 렌더 EXIT 0 · `bash -n` · `py_compile` · `plan15 --dry-run` · `campaign.sh --dry-run --worktree` · `docker compose config`(current · optimistic · conditional-extend) EXIT 0. 로컬 스모크(PG 16 tmpfs + pg_stat_statements · 앱 jar 1대 · TTL 8초 · 지연 200ms · 20/s · ④ 창 20초 · 리드 6초): 다섯 모드 모두 판정기 0 · API 이중 결과 0 · 40P01 0 · 새 양성 대조 성립(값은 측정-3.3) · ④ payment-start 600/600 200 · extended 600 · not_needed = too_late = 0 · ext_then_lost 0.
+   894	- 15-09 로컬 점검(이 PC · .164 아님): selftest 62항목 통과(`--campaign` 30자리 시뮬레이션 · 재측정 상한 · `--check` 포함) · `k6 inspect` 다섯 렌더 EXIT 0 · `docker compose config` 세 모드 EXIT 0 · `plan15.py --dry-run` EXIT 0.
+   895	- 로컬 스모크(PG 16 컨테이너 + 앱 jar 1대 · TTL 8초 · 배치 2초(·1초) · k6 약 20초): 다섯 모드 모두 판정기 0 · API 이중 결과 0 · 하네스 사유 0. current 짝 → 409 SEAT_NOT_HELD + unique_violation(FM2) · 배치 1초 판에서 current win 묶음 확정 500 4건(서버 5xx 4 — FM1) 대 conditional 같은 조건 500 0 · win 404 4 · converted_after_expiry{db} 29. ④ 연장 96/96 · 잃음 0(스모크가 잡은 하네스 결함 1건 — 짝 진 쪽 404를 `ext_then_lost`로 세던 것 — 고침).
+   896	
+   897	## 실험 결과
+   898	
+   899	### 결과-1 캠페인 개요
+   900	
+   901	- **캠페인**: `k6/ADR-015/results/20261105-adr015-29e09aef/`(요약기 `RESULT.md` · `result.json`) · 하네스 29e09aef(동결본 해시 a50d3ca5…52bd) · 이미지 `images-29e09aef.json` · .164 서버 · k6 PC = 이 PC · 2026-11-05 17:14 ~ 11-06 07:23(사용자가 .164를 쓰려고 18:4x ~ 01:32 중지 · `--id`로 이어서 실행).
+   902	- **시작 조건**(측정-9 ⓪~⑦ 모두 통과): .164 스모크 7회(86ffbcd1) 중 2회(④ race · current cost)가 `dropped-iterations`(rehold 흐름 반복 누락)라 **하네스 VU 크기를 고친 뒤**(29e09aef — 미리 만든 VU = 평균 동시 세션 × 1.3 · 최소 도착률 × 1초 · 측정 규칙 · 판정식 무변경) 두 셀을 다시 재 ok · 경합 증거 current 29 · ① 19 · ② 14 · ③ 16 · ④ 8 · 캠페인 스모크 두 자리 ok · ⑦ = 1110/0/0/20 green(8bd5f387) + 8bd5f387..29e09aef 앱 · 빌드 파일 diff 0.
+   903	- **회차**: 30자리 중 유효 29 · 무효 6(모두 `invalid:k6-code0` — 회차마다 선점 · 재선점 요청 1~2건이 연결 끊김 EOF(k6 error_code 1000) · 확정 요청 0 · 시간 초과 0): race ② rep2 ×2(3번째 ok) · race ④ rep2 ×1(2번째 ok) · **race ④ rep3 ×3 → 재측정 상한 소진**. 사용자 override로 상한 넘어 1회 더(attempt4)도 같은 EOF 무효 → 재측정이 결론을 바꾸지 못함(결과-3)을 확인하고 중단(attempt5는 진행 중 중단 — `rep3.attempt5-aborted`).
+   904	- **G4 캠페인 유효**: ok — current race 양성 대조(app.log 0행 DELETE 귀속 확정 5xx + 틱 실패) 회차별 25 · 25 · 27 · current 두 셀 유효 3회.
+   905	
+   906	### 결과-2 지표 범위 (유효 3회 [최소, 최대])
+   907	
+   908	| 모드 | race 확정 5xx | race 틱 실패 | cost 확정 p99(ms) | cost 선점 p99(ms) | cost DB CPU(%) | 상태 |
+   909	|---|---|---|---|---|---|---|
+   910	| current | [18, 26] | [1, 7] | [1.84, 1.99] | [2.10, 2.34] | [27.1, 28.3] | 대조군 |
+   911	| ① conditional | [0, 0] | [0, 0] | [1.32, 1.38] | [2.24, 2.44] | [24.6, 26.0] | 성공 |
+   912	| ② pessimistic | [0, 0] | [0, 0] | [1.52, 1.64] | [2.12, 2.46] | [25.1, 27.2] | 성공 |
+   913	| ③ optimistic | [0, 0] | [0, 0] | [1.38, 1.49] | [2.10, 2.40] | [25.7, 26.2] | 성공 |
+   914	| ④ conditional-extend | 유효 2회(값 있음 — 범위 없음) | 〃 | [1.25, 1.31] | [2.10, 2.17] | [28.0, 29.0] | 판정 불가(race 유효 2/3) |
+   915	
+   916	- 모드 실패(G-F) 0 · 'A도 같은 문턱' 0 · current A 결함(판정기 · API 이중 결과 · 40P01) 없음 — 이번 측정에서도 current의 정합은 '우연한 가드'(0행 DELETE → 예외 → 롤백)가 지켰고, 그 대가가 race 확정 5xx와 틱 실패다.
+   917	- 새 모드 경합 증거(양성 대조 — 측정-0): ① 18 · 9 · 14 · ② 23 · 16 · 21(B3 대기 에피소드) · ③ 26 · 21 · 14 · ④ 6 · 7. FM1 겹침(win 단독 확정): current 10 · 7 · 10 · ① 15 · 9 · 7 · ② 0 · 0 · 0(구조상 — 측정-14) · ③ 18 · 18 · 10 · ④ 4 · 3.
+   918	- 설명 열(판정 아님): race 확정 p99는 다섯 모드 모두 약 204ms(주입 지연 200ms 지배) · race DB CPU 22~27%.
+   919	- **#5 V12 생성 시간**(측정-10): 트랜잭션 안 판 유지 — 100만 행 쓰기 차단 최대 139ms · 500만 행 712ms(≤ 2000ms) · CONCURRENTLY 판 500만 행 1080~1108ms(쓰기 차단 약 1ms).
+   920	
+   921	### 결과-3 판정 — 요약기 '판정 불가'와 수동 판정
+   922	
+   923	- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '이겼을 수 있다'로 막았다(summarize.py `undet_block`).
+   924	- **수동 판정**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다.
+   925	  - 2단(race 확정 5xx · 틱 실패 — 범위 비겹침으로 낮아야 이긴다): ①은 두 지표 모두 [0, 0] → 0보다 낮을 수 없다.
+   926	  - 3단(cost 세 지표 — X ≫ Y = 범위 비겹침 ∧ 중앙값 비 > 1.10 · ④ cost 3회는 모두 유효라 재측정과 무관): cost DB CPU ④ 중앙값 28.94 대 ① 25.86 = **1.119 · 범위 비겹침 → ④ ≫ ①** → 3단 규칙상 ④는 ①을 뺄 수 없고 오히려 ①이 ④를 뺀다. ① ≫ ④인 지표는 없다(확정 p99 · 선점 p99 중앙값 비 ①/④ = 1.068 < 1.10).
+   927	  - 따라서 ④가 성공 · 실패 · 판정 불가 어느 쪽이든 순위 첫자리는 ①이고, ①은 G1 성공 · G2 이긴다((b) 5xx [0, 0] < current [18, 26] · (c) 틱 [0, 0] < [1, 7]) · G3 걸림 없음(cost 세 지표 어디서도 ① ≫ current 아님 — 확정 p99는 current보다 낮다).
+   928	- **받아들인 한계**: 이 판정은 요약기 출력이 아니라 같은 규칙의 수동 적용이다(입력 = `result.json` · rep-summary 원자료 — 계산은 log 11-06 행). ④는 race 판정 불가로 남는다(측정되지 않은 후보 — 'current 유지'처럼 '④가 졌다'로 적지 않는다 · 결정에는 영향 없음). 3단 DB CPU 비 1.119는 문턱 1.10에 가깝다 — ④ race 재측정과 무관한 cost 값이라 결론은 이 데이터로 고정된다.
+   929	
+   930	### 결과-4 하네스 결함 (측정에서 드러남 — 결과 판정과 분리)
+   931	
+   932	- **rehold 반복 누락**(스모크 · 고침 29e09aef): k6 constant-arrival-rate는 빈 VU가 없으면 반복을 버린다. 계획 회차 rep1~3의 결정적 세션 속성으로 센 최대 동시 세션(④ race rehold 1038 · 1039 · 1014)이 옛 미리 만든 VU 1000을 넘었다.
+   933	- **선점 · 재선점 연결 끊김 EOF**(캠페인 · 고치지 않음 — NEXT): 가설(미검증) = 쉬던 VU가 서버 keep-alive 만료 순간에 같은 연결을 재사용(ADR-014 06c와 같은 류). ④ race에서 잦다(시도 7 중 무효 5 — 장수명 세션으로 VU가 오래 쉰다) · 29e09aef로 미리 만든 VU가 늘어 쉬는 시간이 길어졌을 수 있다.
+   934	
+   935	## 결정
+   936	
+   937	- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치 — 측정-8 교체 관문 G1~G4 통과 · 결과-3 수동 판정). current는 손잡이로 되돌릴 수 있게 남긴다.
+   938	- **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초). CONCURRENTLY 판은 후속(NEXT).
+   939	- **② · ③ · ④는 기본값이 아니다**: ②는 3단에서 빠짐(cost 확정 p99가 ①보다 높다) · ③은 남았으나 단순성 순서(①>②>③>④ — D-9)에서 뒤 · ④는 race 판정 불가(결정에 영향 없음 — 결과-3).
+   940	- **기본값 교체는 별도 커밋**(측정-8 · ADR-012 §3 선례): `seat.confirm.mode` 기본 current → conditional. 교체 범위 · 다른 만료 방식(B · C · D) 조합과의 기동 검사 관계는 그 커밋에서 정한다(이 ADR은 A sweep + 기본 조합만 쟀다 — 명세 적용 범위).
+
+hook: PostToolUse Completed
+hook: PostToolUse
+exec
+/bin/bash -lc "find k6/ADR-015/results/20261105-adr015-29e09aef -name 'rep-summary.json' -o -name 'RESULT.md' -o -name 'result.json' -o -name 'MATRIX.log' -o -name 'CAMPAIGN.log' -o -name 'runner.log' | sort" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log
+k6/ADR-015/results/20261105-adr015-29e09aef/RESULT.md
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt4/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2.attempt2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/result.json
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log
+
+hook: PostToolUse Completed
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "sed -n '790,890p' k6/ADR-015/scripts/summarize.py" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+exec
+/bin/bash -lc "sed -n '1330,1385p;1570,1635p' k6/ADR-014/scripts/summarize.py" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+                        hard[m].append(tag)
+    res["a_rule"] = {m: {"fail": hard[m], "undetermined": soft[m]} for m in plan15.NEW_MODES}
+    # G1 — 새 모드 상태: fail(G-F 1건이라도 — 'A도 같은 문턱' 대상 항목은 current가 같은 (항목, 셀)을 어기지 않았을 때만) |
+    #   undetermined('A도 같은 문턱' · 유효 반복 부족(재측정 한도 뒤) · 양성 대조 None/0 · 2 · 3단 지표 범위 없음 — 리뷰 M15-1 · M15-14 · M15-17) | success
+    status, why = {}, {}
+    for m in plan15.NEW_MODES:
+        if hard[m]:
+            status[m], why[m] = "fail", "G-F " + " · ".join(hard[m][:5])
+        elif soft[m]:
+            status[m], why[m] = "undetermined", "A도 같은 문턱 " + " · ".join(soft[m][:5])
+        elif not all(valid3[(c, m)] for c in plan15.GROUPS):
+            status[m], why[m] = "undetermined", "유효 반복 부족 " + ", ".join(f"{c} {nvalid[(c, m)]}/{plan15.REPS}" for c in plan15.GROUPS if not valid3[(c, m)])
+        elif not pc_ok(m):
+            status[m], why[m] = "undetermined", f"양성 대조 성립 안 함(race 경합 표지 {ev[m]})"
+        elif m in FM1_PC_MODES and not (len(res["fm1_overlap"][m]) >= plan15.REPS and all(num(x) for x in res["fm1_overlap"][m]) and sum(res["fm1_overlap"][m]) >= 1):
+            status[m], why[m] = "undetermined", f"FM1 양성 대조 없음(race FM1 겹침 {res['fm1_overlap'][m]} — M12 = 0의 뜻이 서지 않는다)"
+        elif any(R(c, m, k) is None for c, k in STAGE2_METRICS + G3_METRICS):
+            status[m], why[m] = "undetermined", "2 · 3단 지표 범위 없음 " + ", ".join(f"{c}/{k}" for c, k in STAGE2_METRICS + G3_METRICS if R(c, m, k) is None)
+        else:
+            status[m], why[m] = "success", ""
+        res["candidates"][m] = {"G1": status[m] == "success", "status": status[m], "why": why[m],
+                                "G1_detail": {"valid": {c: nvalid[(c, m)] for c in plan15.GROUPS}, "fails": fails[m], "evidence": ev[m]}}
+    cands = [m for m in plan15.NEW_MODES if status[m] == "success"]
+
+    def beats2(y, x):
+        better = any(lower(R(c, y, k), R(c, x, k)) for c, k in STAGE2_METRICS)
+        worse = any(lower(R(c, x, k), R(c, y, k)) for c, k in STAGE2_METRICS)
+        return better and not worse
+
+    def beats3(y, x):
+        return any(much_higher(vals(c, x, k), vals(c, y, k)) for c, k in G3_METRICS) and not any(much_higher(vals(c, y, k), vals(c, x, k)) for c, k in G3_METRICS)
+    stage_of, pool = {}, list(cands)
+    for stage, fn in (("2", beats2), ("3", beats3)):
+        keep, out = eliminate(pool, fn)
+        for x in out:
+            stage_of[x] = stage
+        pool = keep
+    for x in sorted(pool, key=plan15.SIMPLICITY.index):
+        stage_of.setdefault(x, "4")
+    rank = sorted(cands, key=lambda x: ({"4": 0, "3": 1, "2": 2}[stage_of[x]], plan15.SIMPLICITY.index(x)))
+    res["rank"], res["eliminated_at"] = rank, stage_of
+
+    def gates(m):
+        """G2 · G3 — ok | False(확정적으로 못 넘음) | None(판정 불가). G3 hit가 있으면 판정 불가 지표가 함께 있어도 '걸림'(ADR-014 :801 끝)."""
+        # 원인 귀속 값(리뷰 M15-29): current = app.log 0행 DELETE 갈래로 귀속된 수 · X = 전체 — 귀속 안 된 current 5xx · 틱 실패로 X가 '이기지' 않는다
+        b5, bc = R(RACE, m, "g2.confirm_5xx"), R(RACE, "current", "g2.confirm_5xx")
+        tf, tc = R(RACE, m, "g2.tick_failed"), R(RACE, "current", "g2.tick_failed")
+        a, b, c = cur_defect and not hard[m], lower(b5, bc), lower(tf, tc)
+        g2 = True if (a or b or c) else (None if None in (b5, bc, tf, tc) else False)
+        hit = [f"{cc}/{k}" for cc, k in G3_METRICS if much_higher(vals(cc, m, k), vals(cc, "current", k))]
+        und3 = [f"{cc}/{k}" for cc, k in G3_METRICS if R(cc, m, k) is None or R(cc, "current", k) is None]
+        g3 = False if hit else (None if und3 else True)
+        return {"G2": {"a_integrity": a, "b_5xx": b, "c_tick": c, "ok": g2}, "G3": {"ok": g3, "hit": hit, "undetermined": und3}}
+    for m in plan15.NEW_MODES:
+        if status[m] != "fail":
+            res["candidates"][m].update(gates(m))
+    passes = lambda m: res["candidates"][m]["G2"]["ok"] is True and res["candidates"][m]["G3"]["ok"] is True   # noqa: E731
+    maybe = lambda m: res["candidates"][m]["G2"]["ok"] is not False and res["candidates"][m]["G3"]["ok"] is not False   # noqa: E731 — 넘었을 수 있다
+    new_default, blocked = None, None
+    for m in rank:   # 순위 차례 — 처음 모두 통과한 후보. 그 앞에 관문 판정 불가 후보가 있으면 멈춘다(리뷰 M15-2 · ADR-014 :801 ⓒ · :802 ⓓ)
+        if passes(m):
+            new_default = m
+            break
+        if maybe(m):
+            blocked = m
+            break
+    undet_block = [m for m in plan15.NEW_MODES if status[m] == "undetermined" and maybe(m)]   # 판정 불가 후보가 이겼을 수 있다(관문에서 확정적으로 걸리지 않았다)
+    res["undetermined"] = [f"{m}: {why[m]}" for m in plan15.NEW_MODES if status[m] == "undetermined"]
+    provisional = f" · 잠정: {new_default or '교체 후보 없음'} · 순위 {rank}"
+    if not g4:
+        verdict = f"판정 불가 → 사용자 보고(G4 — {', '.join(k for k, v in g4_parts.items() if not v)})"
+    elif blocked:
+        verdict = f"판정 불가 → 사용자 보고(앞 순위 {blocked}의 관문 판정 불가 — G2 {res['candidates'][blocked]['G2']['ok']} · G3 {res['candidates'][blocked]['G3']['ok']}){provisional}"
+    elif undet_block:
+        verdict = f"판정 불가 → 사용자 보고(후보 판정 불가 — {' · '.join(f'{m}: {why[m]}' for m in undet_block)}){provisional}"
+    elif new_default:
+        verdict = f"교체 — 새 기본값 {new_default}"
+    else:
+        # current 유지 사유는 사실대로(리뷰 M15-34): 판정 불가 후보는 여기 오기 전에 모두 관문에서 확정적으로 걸렸다(아니면 위 undet_block)
+        def caught(m):
+            g = res["candidates"][m]
+            return " · ".join(x for x in ("G2 False" if g["G2"]["ok"] is False else "", f"G3 hit {g['G3']['hit']}" if g["G3"]["ok"] is False else "") if x)
+        und_caught = [f"{m}({caught(m)})" for m in plan15.NEW_MODES if status[m] == "undetermined"]
+        tail = f" · 판정 불가였으나 관문에서 확정적으로 걸림: {' · '.join(und_caught)}" if und_caught else ""
+        if not cands:
+            fl = [m for m in plan15.NEW_MODES if status[m] == "fail"]
+            verdict = f"current 유지 ①(G1 성공 후보 없음 — 실패: {', '.join(fl) or '없음'}{tail})"
+        else:
+            verdict = f"current 유지 ②(성공 후보가 모두 관문에서 확정적으로 걸림 — {' · '.join(f'{m}({caught(m)})' for m in rank)}{tail})"
+    if verdict.startswith("교체") and any(rank.index(x) < rank.index(new_default) for x in rank):
+        verdict += " · 주의: 앞 순위 후보가 관문에서 걸렸다(결과 문서에 그 관문 기록)"
+    # #5 V12 단계(측정-10)를 캠페인 완료 관문에 넣는다(리뷰 M15-30 · M15-31): campaign.sh가 남긴 v12-stage.json(skipped · rc) + v12-summary 판정.
+    #   단계 누락(--skip-v12 · 폴더 · 단계 기록 없음) · 실패(rc ≠ 0) · 필수 값 결측(v12_summary 판정 불가)이면 결론 옆에 'V12 판정 불가'를 적고,
+    #   교체 결론은 그대로 두되 '운영 적용 전 V12 판정 필요'를 붙인다(교체 커밋 · 운영 적용 앞에 #5를 다시 잰다)
+    vroot = Path(root) / "v12"
+    stage = load(Path(root) / "v12-stage.json")
+    res["v12"] = v12_summary(vroot, write=False) if vroot.is_dir() else None
+    if not isinstance(stage, dict):
+        v12why = "V12 단계 기록(v12-stage.json) 없음"
+    elif stage.get("skipped") is True:
+        v12why = "--skip-v12(단계 건너뜀)"
+
+ succeeded in 0ms:
+    """유효 3회 값 → [최소, 최대] · 값이 3개 미만이거나 None이 섞이면 None(판정 불가)."""
+    if len(vals) < plan14.REPS or any(v is None for v in vals):
+        return None
+    return [min(vals), max(vals)]
+
+
+def lower(a, b):
+    """a가 b보다 범위 비겹침으로 낮다(a 최대 < b 최소 — 같은 값이면 겹침)."""
+    return a is not None and b is not None and a[1] < b[0]
+
+
+def much_higher(xv, yv):
+    """X ≫ Y(측정-0): X가 Y보다 범위 비겹침으로 높고 X 중앙값 > Y 중앙값 × 1.10."""
+    rx, ry = rng(xv), rng(yv)
+    if rx is None or ry is None:
+        return False
+    return lower(ry, rx) and statistics.median(xv) > statistics.median(yv) * TOL_RATIO
+
+
+def eliminate(cands, beats):
+    """beats(y, x) = y가 x를 빼는가. 빠지는 관계가 돌아 아무도 안 남으면 순환에 든 후보만 남긴다(ADR-013 §5.5 S5-12)."""
+    out = {x for x in cands if any(beats(y, x) for y in cands if y != x)}
+    keep = [x for x in cands if x not in out]
+    if keep or not cands:
+        return keep, sorted(out)
+    # 모두 빠짐 — 순환에 든 후보(관계 그래프에서 자기에게 돌아오는 경로가 있는 후보)만 남긴다
+    graph = {x: [y for y in cands if y != x and beats(x, y)] for x in cands}
+
+    def reach(a, b, seen=()):
+        return any(n == b or (n not in seen and reach(n, b, seen + (n,))) for n in graph[a])
+    cyc = [x for x in cands if reach(x, x)]
+    return cyc, sorted(set(cands) - set(cyc))
+
+
+def summary_gaps(s, c, m):
+    """유효(status ok) 회차 요약의 판정 열 검사 — 캠페인이 `.get(k) or {}`로 '없음 = 위반 없음'을 읽지 않게 한 곳에서 본다(판정 입력 전수 점검).
+    빠진 열 목록을 돌려준다(빈 목록 = 통과). 빠졌으면 그 회차는 유효로 세지 않는다(→ 유효 < 3 → 판정 불가)."""
+    gaps = []
+
+    def has(path, ok=lambda x: x is not None):
+        x = s
+        for p_ in path.split("."):
+            x = x.get(p_) if isinstance(x, dict) else None
+        if not ok(x):
+            gaps.append(path)
+    isd, isl = (lambda x: isinstance(x, dict)), (lambda x: isinstance(x, list))
+    has("metrics.rep", num)
+    for k, f in (("integrity", isd), ("state", isl), ("p12", isd), ("p12_unknown", isl), ("p12_checked", isl)):
+        has(f"violations.{k}", f)
+    if c in MAIN_CELLS:
+        has("metrics.state.T95", lambda x: num(_f(x)) or _f(x) == INF)
+        for k in ("n409", "batch", "den", "unfair_d13"):
+            has(f"metrics.probe.m3.{k}", num)
+        has("metrics.probe.pr3", isd)
+        has("metrics.flow", isd)
+        if m in ("B", "C", "D"):
+    p3_valid = {}
+    for g, cells in TTL_GROUPS.items():
+        per = []
+        for r in range(1, plan14.REPS + 1):
+            ss = [next((x for x in reps.get(("A", c), []) if _rep_no(x) == r), None) for c in cells]
+            uf = [mget(x, "probe", "m3", "unfair_d13") for x in ss if x is not None]
+            per.append(None if any(x is None for x in ss) or not all(num(u) for u in uf) else sum(uf))   # `or 0` 금지 — 값이 없으면 P3 유효 판정 불가
+        p3_valid[g] = None if any(x is None for x in per) else any(x > 0 for x in per)
+
+    # ---- 고르는 규칙(측정-8) ----
+    cands = [m for m in ("B", "C", "D") if result[m]["verdict"] == "성공"]
+    stages, ranked = [], []
+
+    def better2(y, x):   # 2단 — T95(4셀 · 낮을수록) · M3ᵦ(2묶음 · 낮을수록): y가 어디선가 낫고 어디서도 나쁘지 않으면 x를 뺀다
+        mets = [(rng(T95[(y, c)]), rng(T95[(x, c)])) for c in MAIN_CELLS] + [(rng(M3b[(y, g)]), rng(M3b[(x, g)])) for g in TTL_GROUPS]
+        return any(lower(a, b) for a, b in mets) and not any(lower(b, a) for a, b in mets)
+    cost_keys = [k for k in COSTM if not (k == "a50t300_db_cpu" and separate_cpu)]
+
+    def beats3(y, x):    # 3단 — X ≫ Y인 지표가 있고 Y ≫ X인 지표가 없으면 X가 빠진다
+        return any(much_higher(COSTM[k](x), COSTM[k](y)) for k in cost_keys) and not any(much_higher(COSTM[k](y), COSTM[k](x)) for k in cost_keys)
+
+    def undec2(alive):
+        """2단도 같은 꼴(판정 입력 전수 점검 — CR14-24와 같은 결함): 남은 후보 둘 이상 · 어느 (지표, 셀·묶음, 후보)의 범위가 None이면 2단 판정 불가."""
+        if len(alive) < 2:
+            return []
+        return ([f"T95 {c} {m}" for c in MAIN_CELLS for m in alive if rng(T95[(m, c)]) is None]
+                + [f"M3b {g} {m}" for g in TTL_GROUPS for m in alive if rng(M3b[(m, g)]) is None])
+
+    def undec3(alive):
+        """측정 전 재해석 CR14-24: 3단에 남은 후보가 둘 이상인데 어느 (지표, 후보)의 범위가 None(유효 회차의 값 None 등)이면 3단 결과는 판정 불가다.
+        much_higher가 None을 '≫ 아님'(거짓)으로 돌려 빠질 후보가 남는 것을 숨기지 않는다 — 결과(잠정)는 그대로 내고 판정 불가 목록을 단다."""
+        if len(alive) < 2:
+            return []
+        out = [f"{k} {m}" for k in cost_keys for m in alive if rng(COSTM[k](m)) is None]
+        if sep_unknown and "a50t300_db_cpu" in cost_keys:
+            # 분리 여부를 모른다 — 그 지표를 빼고 돌린 결과가 다르면 3단 결과는 판정 불가
+            k2 = [k for k in cost_keys if k != "a50t300_db_cpu"]
+            alt = eliminate(alive, lambda y, x: any(much_higher(COSTM[k](x), COSTM[k](y)) for k in k2)
+                            and not any(much_higher(COSTM[k](y), COSTM[k](x)) for k in k2))
+            if sorted(alt[0]) != sorted(eliminate(alive, beats3)[0]):
+                out.append("a50t300_db_cpu 분리 판정 불가(표본 비용 Δc 또는 A 범위 없음)")
+        return out
+    stage_undec = {"2 판매 효과·사용자 실패": undec2, "3 비용": undec3}
+    alive = list(cands)
+    out_at = {}
+    for name, rule in (("1 정합", None), ("2 판매 효과·사용자 실패", better2), ("3 비용", beats3)):
+        if rule is None:
+            stages.append({"stage": name, "alive": list(alive), "out": [], "undecidable": []})
+            continue
+        und = stage_undec[name](alive) if name in stage_undec else []
+        keep, gone = eliminate(alive, rule)
+        for g in gone:
+            out_at[g] = name
+        stages.append({"stage": name, "alive": keep, "out": gone, "undecidable": und})
+        alive = keep
+    rank_undec = [f"{st_['stage']} {st_['undecidable']}" for st_ in stages if st_["undecidable"]]
+    alive_sorted = sorted(alive, key=SIMPLICITY.index)
+    stages.append({"stage": "4 단순성(D > B > C)", "alive": alive_sorted[:1], "out": alive_sorted[1:], "undecidable": []})
+    stage_rank = {"4": 0, "3 비용": 1, "2 판매 효과·사용자 실패": 2, "1 정합": 3}
+    ranked = sorted(cands, key=lambda m: (stage_rank.get(out_at.get(m, "4"), 0), SIMPLICITY.index(m)))
+
+    # ---- 교체 관문 G1~G4 ----
+    def tri(xs):   # 하나라도 참이면 참 · 아니면 None이 있으면 None(판정 불가) · 모두 거짓이면 거짓
+        return True if any(x is True for x in xs) else None if any(x is None for x in xs) else False
+
+    def g2(m):
+
+exec
+/bin/bash -lc "sed -n '1,240p' k6/ADR-015/results/20261105-adr015-29e09aef/RESULT.md" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+# ADR-015 확정 원자성 측정 결과(요약기 — 측정 전 고정 규칙 초안 측정-8)
+
+**결론**: 판정 불가 → 사용자 보고(후보 판정 불가 — conditional-extend: 유효 반복 부족 race 2/3) · 잠정: conditional · 순위 ['conditional', 'optimistic', 'pessimistic'] · #5 V12: 트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms
+
+| 모드 | 상태 | 사유 | G2 이긴다 | G3 비용 | 탈락 단 |
+|---|---|---|---|---|---|
+| conditional | success | - | True | True | 4 |
+| pessimistic | success | - | True | True | 3 |
+| optimistic | success | - | True | True | 4 |
+| conditional-extend | undetermined | 유효 반복 부족 race 2/3 | None | True | - |
+
+G4 캠페인 유효: {'ok': True, 'parts': {'valid3': True, 'positive_control': True}, 'evidence': {'current': [25, 25, 27], 'conditional': [18, 9, 14], 'pessimistic': [23, 16, 21], 'optimistic': [26, 21, 14], 'conditional-extend': [6, 7]}, 'current_timeout': []}
+
+#5 V12 관문: {'determined': True, 'why': None, 'stage': {'skipped': False, 'rc': 0}, 'verdict': '트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms'}
+
+## 범위(유효 3회 [최소, 최대] — 2단 · 3단 · G2 · G3 판정)
+
+- race/current/g2.confirm_5xx: [18, 26]
+- race/current/g2.tick_failed: [1, 7]
+- cost/current/p99.confirm_200: [1.843604, 1.994852]
+- cost/current/p99.hold_201: [2.104594, 2.343565]
+- cost/current/db_cpu: [27.094166666666666, 28.292916666666667]
+- race/conditional/g2.confirm_5xx: [0, 0]
+- race/conditional/g2.tick_failed: [0, 0]
+- cost/conditional/p99.confirm_200: [1.315786, 1.380315]
+- cost/conditional/p99.hold_201: [2.238096, 2.439226]
+- cost/conditional/db_cpu: [24.63625, 26.030833333333334]
+- race/pessimistic/g2.confirm_5xx: [0, 0]
+- race/pessimistic/g2.tick_failed: [0, 0]
+- cost/pessimistic/p99.confirm_200: [1.518384, 1.638248]
+- cost/pessimistic/p99.hold_201: [2.119694, 2.458322]
+- cost/pessimistic/db_cpu: [25.06875, 27.173333333333332]
+- race/optimistic/g2.confirm_5xx: [0, 0]
+- race/optimistic/g2.tick_failed: [0, 0]
+- cost/optimistic/p99.confirm_200: [1.377316, 1.486834]
+- cost/optimistic/p99.hold_201: [2.099229, 2.401121]
+- cost/optimistic/db_cpu: [25.729583333333334, 26.185]
+- race/conditional-extend/g2.confirm_5xx: None
+- race/conditional-extend/g2.tick_failed: None
+- cost/conditional-extend/p99.confirm_200: [1.250952, 1.309489]
+- cost/conditional-extend/p99.hold_201: [2.099518, 2.173712]
+- cost/conditional-extend/db_cpu: [28.02375, 29.03125]
+
+## 설명 열(판정 아님 — race 확정 p99 · race DB CPU · 재선점 요청 수 req.rehold)
+
+- race/current/p99.confirm_200: [204.875001, 205.028568]
+- race/current/db_cpu: [23.694583333333334, 26.723125]
+- race/current/req.rehold: [164340, 166320]
+- cost/current/req.rehold: None
+- race/conditional/p99.confirm_200: [203.623349, 203.768705]
+- race/conditional/db_cpu: [23.310833333333335, 24.749166666666667]
+- race/conditional/req.rehold: [162236, 165684]
+- cost/conditional/req.rehold: None
+- race/pessimistic/p99.confirm_200: [203.951689, 204.347374]
+- race/pessimistic/db_cpu: [22.41, 24.97918367346939]
+- race/pessimistic/req.rehold: [162779, 166673]
+- cost/pessimistic/req.rehold: None
+- race/optimistic/p99.confirm_200: [203.682541, 203.978743]
+- race/optimistic/db_cpu: [24.584583333333335, 26.919583333333332]
+- race/optimistic/req.rehold: [162096, 165124]
+- cost/optimistic/req.rehold: None
+- race/conditional-extend/p99.confirm_200: None
+- race/conditional-extend/db_cpu: None
+- race/conditional-extend/req.rehold: None
+- cost/conditional-extend/req.rehold: None
+
+## 모드 실패(G-F)
+
+
+## 판정 불가 후보
+
+- conditional-extend: 유효 반복 부족 race 2/3
+
+## #5 V12 생성 시간
+
+트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms
+
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json
+p='k6/ADR-015/results/20261105-adr015-29e09aef/result.json'
+x=json.load(open(p)); print(x.keys()); print(json.dumps(x.get('decision'),ensure_ascii=False,indent=2)); print(json.dumps(x.get('ranking'),ensure_ascii=False,indent=2)); print(json.dumps(x.get('stages'),ensure_ascii=False,indent=2))
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+dict_keys(['valid3', 'nvalid', 'fails', 'current_integrity_defect', 'candidates', 'undetermined', 'G4', 'fm1_overlap', 'a_rule', 'rank', 'eliminated_at', 'v12', 'v12_gate', 'decision', 'ranges', 'desc_ranges'])
+{
+  "verdict": "판정 불가 → 사용자 보고(후보 판정 불가 — conditional-extend: 유효 반복 부족 race 2/3) · 잠정: conditional · 순위 ['conditional', 'optimistic', 'pessimistic'] · #5 V12: 트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms",
+  "new_default": null,
+  "provisional": "conditional",
+  "v12_determined": true,
+  "v12_required_before_apply": false
+}
+null
+null
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+현재 요약기는 ④의 race 유효 회차가 2/3이라 전체 결론을 판정 불가로 냈습니다. 수동 판정의 핵심인 ①·④의 cost 비교와, race 세 번째 값이 들어왔을 때 2단 순위가 어떻게 달라질지 따로 계산하고 있습니다.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json,glob,statistics,os
+base='k6/ADR-015/results/20261105-adr015-29e09aef'
+x=json.load(open(base+'/result.json'))
+for k,v in x['ranges'].items():
+ if 'cost/' in k:print(k,v)
+print('nvalid',x['nvalid']);print('candidates',json.dumps(x['candidates'],ensure_ascii=False,indent=2));print('eliminated',x['eliminated_at'])
+for m in ['conditional','conditional-extend','current','optimistic','pessimistic']:
+ print('\\n',m)
+ for f in sorted(glob.glob(f'{base}/cost/{m}/rep*/rep-summary.json')):
+  s=json.load(open(f));print(os.path.basename(os.path.dirname(f)),s.get('status'),s.get('metrics',{}).get('p99'),s.get('metrics',{}).get('db_cpu'))
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+exec
+/bin/bash -lc "rg -n '2026-11-06|2026-11-05|attempt|EOF|k6-code0|abort|V12|v12|green|smoke|start|stop|resume' k6/ADR-015/results/20261105-adr015-29e09aef/{MATRIX.log,CAMPAIGN.log,runner.log} | tail -120" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:77:2026-11-06T11:52:31+09:00 RUN rep3 race conditional-extend attempt4 (user override — 상한 넘어 재측정)
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:78:2026-11-06T12:08:23+09:00 END rep3 race conditional-extend attempt4 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:79:2026-11-06T12:08:23+09:00 RUN rep3 race conditional-extend attempt5 (user override — 상한 넘어 재측정)
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:80:2026-11-06T12:14:32+09:00 END rep3 race conditional-extend attempt5 중단(사용자 — 재측정이 결론을 못 바꿈 · 수동 판정으로 마감)
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:1:2026-11-05T17:28:59+09:00 race conditional rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:2:2026-11-05T17:43:04+09:00 race pessimistic rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:3:2026-11-05T17:57:11+09:00 race optimistic rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:4:2026-11-05T18:13:04+09:00 race conditional-extend rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:5:2026-11-05T18:27:18+09:00 race current rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:6:2026-11-05T18:36:12+09:00 cost pessimistic rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:7:2026-11-06T01:41:50+09:00 cost optimistic rep1 attempt2 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:8:2026-11-06T01:50:53+09:00 cost conditional-extend rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:9:2026-11-06T01:59:58+09:00 cost current rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:10:2026-11-06T02:08:55+09:00 cost conditional rep1 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:11:2026-11-06T02:23:00+09:00 race pessimistic rep2 attempt1 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:12:2026-11-06T02:37:06+09:00 race optimistic rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:13:2026-11-06T02:53:04+09:00 race conditional-extend rep2 attempt1 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:14:2026-11-06T03:07:19+09:00 race current rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:15:2026-11-06T03:21:27+09:00 race conditional rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:16:2026-11-06T03:30:25+09:00 cost optimistic rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:17:2026-11-06T03:39:29+09:00 cost conditional-extend rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:18:2026-11-06T03:48:38+09:00 cost current rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:19:2026-11-06T03:57:35+09:00 cost conditional rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:20:2026-11-06T04:06:28+09:00 cost pessimistic rep2 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:21:2026-11-06T04:20:33+09:00 race optimistic rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:22:2026-11-06T04:36:31+09:00 race conditional-extend rep3 attempt1 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:23:2026-11-06T04:50:39+09:00 race current rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:24:2026-11-06T05:04:41+09:00 race conditional rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:25:2026-11-06T05:18:43+09:00 race pessimistic rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:26:2026-11-06T05:27:39+09:00 cost conditional-extend rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:27:2026-11-06T05:36:30+09:00 cost current rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:28:2026-11-06T05:45:15+09:00 cost conditional rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:29:2026-11-06T05:53:57+09:00 cost pessimistic rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:30:2026-11-06T06:02:42+09:00 cost optimistic rep3 attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:31:2026-11-06T06:16:38+09:00 race pessimistic rep2 attempt2 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:32:2026-11-06T06:32:23+09:00 race conditional-extend rep2 attempt2 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:33:2026-11-06T06:48:09+09:00 race conditional-extend rep3 attempt2 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:34:2026-11-06T07:02:04+09:00 race pessimistic rep2 attempt3 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:35:2026-11-06T07:17:51+09:00 race conditional-extend rep3 attempt3 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/MATRIX.log:36:2026-11-06T12:08:23+09:00 race conditional-extend rep3 attempt4 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:1:[2026-11-05 17:14:54] ADR-015 race conditional rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:2:[2026-11-05 17:28:59] race conditional rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:3:[2026-11-05 17:29:00] ADR-015 race pessimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:4:[2026-11-05 17:43:04] race pessimistic rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:5:[2026-11-05 17:43:05] ADR-015 race optimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:6:[2026-11-05 17:57:11] race optimistic rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:7:[2026-11-05 17:57:13] ADR-015 race conditional-extend rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:8:[2026-11-05 18:13:04] race conditional-extend rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:9:[2026-11-05 18:13:05] ADR-015 race current rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:10:[2026-11-05 18:27:18] race current rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:11:[2026-11-05 18:27:20] ADR-015 cost pessimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:12:[2026-11-05 18:36:12] cost pessimistic rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:13:[2026-11-05 18:36:13] ADR-015 cost optimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:14:[2026-11-06 01:32:53] ADR-015 cost optimistic rep1 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:15:[2026-11-06 01:41:50] cost optimistic rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:16:[2026-11-06 01:41:52] ADR-015 cost conditional-extend rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:17:[2026-11-06 01:50:53] cost conditional-extend rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:18:[2026-11-06 01:50:54] ADR-015 cost current rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:19:[2026-11-06 01:59:58] cost current rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:20:[2026-11-06 01:59:59] ADR-015 cost conditional rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:21:[2026-11-06 02:08:55] cost conditional rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:22:[2026-11-06 02:08:56] ADR-015 race pessimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:23:[2026-11-06 02:23:00] race pessimistic rep2 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:24:[2026-11-06 02:23:01] ADR-015 race optimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:25:[2026-11-06 02:37:06] race optimistic rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:26:[2026-11-06 02:37:07] ADR-015 race conditional-extend rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:27:[2026-11-06 02:53:04] race conditional-extend rep2 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:28:[2026-11-06 02:53:05] ADR-015 race current rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:29:[2026-11-06 03:07:19] race current rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:30:[2026-11-06 03:07:21] ADR-015 race conditional rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:31:[2026-11-06 03:21:27] race conditional rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:32:[2026-11-06 03:21:29] ADR-015 cost optimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:33:[2026-11-06 03:30:25] cost optimistic rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:34:[2026-11-06 03:30:26] ADR-015 cost conditional-extend rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:35:[2026-11-06 03:39:29] cost conditional-extend rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:36:[2026-11-06 03:39:31] ADR-015 cost current rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:37:[2026-11-06 03:48:38] cost current rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:38:[2026-11-06 03:48:39] ADR-015 cost conditional rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:39:[2026-11-06 03:57:35] cost conditional rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:40:[2026-11-06 03:57:37] ADR-015 cost pessimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:41:[2026-11-06 04:06:28] cost pessimistic rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:42:[2026-11-06 04:06:29] ADR-015 race optimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:43:[2026-11-06 04:20:33] race optimistic rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:44:[2026-11-06 04:20:34] ADR-015 race conditional-extend rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:45:[2026-11-06 04:36:31] race conditional-extend rep3 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:46:[2026-11-06 04:36:32] ADR-015 race current rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:47:[2026-11-06 04:50:39] race current rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:48:[2026-11-06 04:50:40] ADR-015 race conditional rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:49:[2026-11-06 05:04:41] race conditional rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:50:[2026-11-06 05:04:42] ADR-015 race pessimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:51:[2026-11-06 05:18:43] race pessimistic rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:52:[2026-11-06 05:18:44] ADR-015 cost conditional-extend rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:53:[2026-11-06 05:27:39] cost conditional-extend rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:54:[2026-11-06 05:27:40] ADR-015 cost current rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:55:[2026-11-06 05:36:30] cost current rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:56:[2026-11-06 05:36:31] ADR-015 cost conditional rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:57:[2026-11-06 05:45:15] cost conditional rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:58:[2026-11-06 05:45:16] ADR-015 cost pessimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:59:[2026-11-06 05:53:57] cost pessimistic rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:60:[2026-11-06 05:53:57] ADR-015 cost optimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:61:[2026-11-06 06:02:42] cost optimistic rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:62:[2026-11-06 06:02:43] ADR-015 race pessimistic rep2 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:63:[2026-11-06 06:16:38] race pessimistic rep2 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:64:[2026-11-06 06:16:39] ADR-015 race conditional-extend rep2 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:65:[2026-11-06 06:32:23] race conditional-extend rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:66:[2026-11-06 06:32:24] ADR-015 race conditional-extend rep3 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:67:[2026-11-06 06:48:09] race conditional-extend rep3 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:68:[2026-11-06 06:48:10] ADR-015 race pessimistic rep2 attempt3 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:69:[2026-11-06 07:02:04] race pessimistic rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:70:[2026-11-06 07:02:05] ADR-015 race conditional-extend rep3 attempt3 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:71:[2026-11-06 07:17:51] race conditional-extend rep3 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:72:{"rows":1000000,"rep":1,"at":"2026-11-06T07:18:24+09:00","seed":{"rows":1000000,"table_bytes":93134848,"seats":1001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":139.3,"probe_ms":90.5,"probe_started_inside":true,"probe_blocked_ms":90.5,"valid":true},"concurrently":{"build_ms":187.2,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:73:{"rows":1000000,"rep":2,"at":"2026-11-06T07:18:54+09:00","seed":{"rows":1000000,"table_bytes":93134848,"seats":1001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":136.8,"probe_ms":92.4,"probe_started_inside":true,"probe_blocked_ms":92.4,"valid":true},"concurrently":{"build_ms":188.6,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:74:{"rows":1000000,"rep":3,"at":"2026-11-06T07:19:24+09:00","seed":{"rows":1000000,"table_bytes":93134848,"seats":1001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":135.4,"probe_ms":130.4,"probe_started_inside":true,"probe_blocked_ms":130.4,"valid":true},"concurrently":{"build_ms":186.9,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:75:{"rows":5000000,"rep":1,"at":"2026-11-06T07:20:51+09:00","seed":{"rows":5000000,"table_bytes":465592320,"seats":5001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":709.4,"probe_ms":1,"probe_started_inside":false,"probe_blocked_ms":1,"valid":true},"concurrently":{"build_ms":1080.4,"probe_ms":1.1,"probe_started_inside":true,"probe_blocked_ms":1.1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:76:{"rows":5000000,"rep":2,"at":"2026-11-06T07:22:18+09:00","seed":{"rows":5000000,"table_bytes":465592320,"seats":5001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":708.3,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true},"concurrently":{"build_ms":1082,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:77:{"rows":5000000,"rep":3,"at":"2026-11-06T07:23:45+09:00","seed":{"rows":5000000,"table_bytes":465592320,"seats":5001000},"seed_rc":0,"statement":"CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'","tx":{"build_ms":711.7,"probe_ms":1.1,"probe_started_inside":true,"probe_blocked_ms":1.1,"valid":true},"concurrently":{"build_ms":1108,"probe_ms":1,"probe_started_inside":true,"probe_blocked_ms":1,"valid":true}}
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:79:[2026-11-06 11:52:32] ADR-015 race conditional-extend rep3 attempt4 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:80:[2026-11-06 12:08:23] race conditional-extend rep3 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:81:[2026-11-06 12:08:24] ADR-015 race conditional-extend rep3 attempt5 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+
+ succeeded in 28ms:
+cost/current/p99.confirm_200 [1.843604, 1.994852]
+cost/current/p99.hold_201 [2.104594, 2.343565]
+cost/current/db_cpu [27.094166666666666, 28.292916666666667]
+cost/conditional/p99.confirm_200 [1.315786, 1.380315]
+cost/conditional/p99.hold_201 [2.238096, 2.439226]
+cost/conditional/db_cpu [24.63625, 26.030833333333334]
+cost/pessimistic/p99.confirm_200 [1.518384, 1.638248]
+cost/pessimistic/p99.hold_201 [2.119694, 2.458322]
+cost/pessimistic/db_cpu [25.06875, 27.173333333333332]
+cost/optimistic/p99.confirm_200 [1.377316, 1.486834]
+cost/optimistic/p99.hold_201 [2.099229, 2.401121]
+cost/optimistic/db_cpu [25.729583333333334, 26.185]
+cost/conditional-extend/p99.confirm_200 [1.250952, 1.309489]
+cost/conditional-extend/p99.hold_201 [2.099518, 2.173712]
+cost/conditional-extend/db_cpu [28.02375, 29.03125]
+nvalid {'race/current': 3, 'race/conditional': 3, 'race/pessimistic': 3, 'race/optimistic': 3, 'race/conditional-extend': 2, 'cost/current': 3, 'cost/conditional': 3, 'cost/pessimistic': 3, 'cost/optimistic': 3, 'cost/conditional-extend': 3}
+candidates {
+  "conditional": {
+    "G1": true,
+    "status": "success",
+    "why": "",
+    "G1_detail": {
+      "valid": {
+        "race": 3,
+        "cost": 3
+      },
+      "fails": [],
+      "evidence": [
+        18,
+        9,
+        14
+      ]
+    },
+    "G2": {
+      "a_integrity": false,
+      "b_5xx": true,
+      "c_tick": true,
+      "ok": true
+    },
+    "G3": {
+      "ok": true,
+      "hit": [],
+      "undetermined": []
+    }
+  },
+  "pessimistic": {
+    "G1": true,
+    "status": "success",
+    "why": "",
+    "G1_detail": {
+      "valid": {
+        "race": 3,
+        "cost": 3
+      },
+      "fails": [],
+      "evidence": [
+        23,
+        16,
+        21
+      ]
+    },
+    "G2": {
+      "a_integrity": false,
+      "b_5xx": true,
+      "c_tick": true,
+      "ok": true
+    },
+    "G3": {
+      "ok": true,
+      "hit": [],
+      "undetermined": []
+    }
+  },
+  "optimistic": {
+    "G1": true,
+    "status": "success",
+    "why": "",
+    "G1_detail": {
+      "valid": {
+        "race": 3,
+        "cost": 3
+      },
+      "fails": [],
+      "evidence": [
+        26,
+        21,
+        14
+      ]
+    },
+    "G2": {
+      "a_integrity": false,
+      "b_5xx": true,
+      "c_tick": true,
+      "ok": true
+    },
+    "G3": {
+      "ok": true,
+      "hit": [],
+      "undetermined": []
+    }
+  },
+  "conditional-extend": {
+    "G1": false,
+    "status": "undetermined",
+    "why": "유효 반복 부족 race 2/3",
+    "G1_detail": {
+      "valid": {
+        "race": 2,
+        "cost": 3
+      },
+      "fails": [],
+      "evidence": [
+        6,
+        7
+      ]
+    },
+    "G2": {
+      "a_integrity": false,
+      "b_5xx": false,
+      "c_tick": false,
+      "ok": null
+    },
+    "G3": {
+      "ok": true,
+      "hit": [],
+      "undetermined": []
+    }
+  }
+}
+eliminated {'pessimistic': '3', 'conditional': '4', 'optimistic': '4'}
+
+ conditional
+rep1 ok {'confirm_200': 1.369414, 'hold_201': 2.307649, 'rehold_409': None, 'pay_start_200': None} 24.63625
+rep2 ok {'confirm_200': 1.380315, 'hold_201': 2.439226, 'rehold_409': None, 'pay_start_200': None} 26.030833333333334
+rep3 ok {'confirm_200': 1.315786, 'hold_201': 2.238096, 'rehold_409': None, 'pay_start_200': None} 25.862083333333334
+
+ conditional-extend
+rep1 ok {'confirm_200': 1.281938, 'hold_201': 2.173712, 'rehold_409': None, 'pay_start_200': 1.079856} 28.93875
+rep2 ok {'confirm_200': 1.309489, 'hold_201': 2.161152, 'rehold_409': None, 'pay_start_200': 1.118204} 29.03125
+rep3 ok {'confirm_200': 1.250952, 'hold_201': 2.099518, 'rehold_409': None, 'pay_start_200': 1.032264} 28.02375
+
+ current
+rep1 ok {'confirm_200': 1.994852, 'hold_201': 2.343565, 'rehold_409': None, 'pay_start_200': None} 28.292916666666667
+rep2 ok {'confirm_200': 1.843604, 'hold_201': 2.248332, 'rehold_409': None, 'pay_start_200': None} 27.133333333333333
+rep3 ok {'confirm_200': 1.906779, 'hold_201': 2.104594, 'rehold_409': None, 'pay_start_200': None} 27.094166666666666
+
+ optimistic
+rep1 ok {'confirm_200': 1.486834, 'hold_201': 2.27739, 'rehold_409': None, 'pay_start_200': None} 26.185
+rep2 ok {'confirm_200': 1.48289, 'hold_201': 2.401121, 'rehold_409': None, 'pay_start_200': None} 25.729583333333334
+rep3 ok {'confirm_200': 1.377316, 'hold_201': 2.099229, 'rehold_409': None, 'pay_start_200': None} 26.175833333333333
+
+ pessimistic
+rep1 ok {'confirm_200': 1.596924, 'hold_201': 2.458322, 'rehold_409': None, 'pay_start_200': None} 25.06875
+rep2 ok {'confirm_200': 1.638248, 'hold_201': 2.432764, 'rehold_409': None, 'pay_start_200': None} 25.512916666666666
+rep3 ok {'confirm_200': 1.518384, 'hold_201': 2.119694, 'rehold_409': None, 'pay_start_200': None} 27.173333333333332
+
+hook: PostToolUse
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json,glob,collections,os
+b='k6/ADR-015/results/20261105-adr015-29e09aef'
+for f in sorted(glob.glob(b+'/*/*/rep*/rep-summary.json')):
+ x=json.load(open(f));print(f.removeprefix(b+'/'),x.get('status'),x.get('reason') or x.get('why') or x.get('invalid_reasons'))
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse
+ succeeded in 16ms:
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc 'cat k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+2026-11-05T17:14:53+09:00 RUN rep1 race conditional attempt1
+2026-11-05T17:28:59+09:00 END rep1 race conditional attempt1 ok
+2026-11-05T17:28:59+09:00 RUN rep1 race pessimistic attempt1
+2026-11-05T17:43:04+09:00 END rep1 race pessimistic attempt1 ok
+2026-11-05T17:43:04+09:00 RUN rep1 race optimistic attempt1
+2026-11-05T17:57:11+09:00 END rep1 race optimistic attempt1 ok
+2026-11-05T17:57:11+09:00 RUN rep1 race conditional-extend attempt1
+2026-11-05T18:13:04+09:00 END rep1 race conditional-extend attempt1 ok
+2026-11-05T18:13:04+09:00 RUN rep1 race current attempt1
+2026-11-05T18:27:18+09:00 END rep1 race current attempt1 ok
+early-check: race/current/rep1 경합 증거 25 · status ok
+2026-11-05T18:27:19+09:00 RUN rep1 cost pessimistic attempt1
+2026-11-05T18:36:12+09:00 END rep1 cost pessimistic attempt1 ok
+2026-11-05T18:36:12+09:00 RUN rep1 cost optimistic attempt1
+early-check: race/current/rep1 경합 증거 25 · status ok
+2026-11-06T01:32:51+09:00 RUN rep1 cost optimistic attempt2
+2026-11-06T01:41:50+09:00 END rep1 cost optimistic attempt2 ok
+2026-11-06T01:41:50+09:00 RUN rep1 cost conditional-extend attempt1
+2026-11-06T01:50:53+09:00 END rep1 cost conditional-extend attempt1 ok
+2026-11-06T01:50:53+09:00 RUN rep1 cost current attempt1
+2026-11-06T01:59:58+09:00 END rep1 cost current attempt1 ok
+2026-11-06T01:59:58+09:00 RUN rep1 cost conditional attempt1
+2026-11-06T02:08:55+09:00 END rep1 cost conditional attempt1 ok
+2026-11-06T02:08:55+09:00 RUN rep2 race pessimistic attempt1
+2026-11-06T02:23:00+09:00 END rep2 race pessimistic attempt1 invalid:k6-code0
+2026-11-06T02:23:00+09:00 RUN rep2 race optimistic attempt1
+2026-11-06T02:37:06+09:00 END rep2 race optimistic attempt1 ok
+2026-11-06T02:37:06+09:00 RUN rep2 race conditional-extend attempt1
+2026-11-06T02:53:04+09:00 END rep2 race conditional-extend attempt1 invalid:k6-code0
+2026-11-06T02:53:04+09:00 RUN rep2 race current attempt1
+2026-11-06T03:07:19+09:00 END rep2 race current attempt1 ok
+2026-11-06T03:07:19+09:00 RUN rep2 race conditional attempt1
+2026-11-06T03:21:27+09:00 END rep2 race conditional attempt1 ok
+2026-11-06T03:21:27+09:00 RUN rep2 cost optimistic attempt1
+2026-11-06T03:30:25+09:00 END rep2 cost optimistic attempt1 ok
+2026-11-06T03:30:25+09:00 RUN rep2 cost conditional-extend attempt1
+2026-11-06T03:39:29+09:00 END rep2 cost conditional-extend attempt1 ok
+2026-11-06T03:39:29+09:00 RUN rep2 cost current attempt1
+2026-11-06T03:48:38+09:00 END rep2 cost current attempt1 ok
+2026-11-06T03:48:38+09:00 RUN rep2 cost conditional attempt1
+2026-11-06T03:57:35+09:00 END rep2 cost conditional attempt1 ok
+2026-11-06T03:57:35+09:00 RUN rep2 cost pessimistic attempt1
+2026-11-06T04:06:28+09:00 END rep2 cost pessimistic attempt1 ok
+2026-11-06T04:06:28+09:00 RUN rep3 race optimistic attempt1
+2026-11-06T04:20:33+09:00 END rep3 race optimistic attempt1 ok
+2026-11-06T04:20:33+09:00 RUN rep3 race conditional-extend attempt1
+2026-11-06T04:36:31+09:00 END rep3 race conditional-extend attempt1 invalid:k6-code0
+2026-11-06T04:36:31+09:00 RUN rep3 race current attempt1
+2026-11-06T04:50:39+09:00 END rep3 race current attempt1 ok
+2026-11-06T04:50:39+09:00 RUN rep3 race conditional attempt1
+2026-11-06T05:04:41+09:00 END rep3 race conditional attempt1 ok
+2026-11-06T05:04:41+09:00 RUN rep3 race pessimistic attempt1
+2026-11-06T05:18:43+09:00 END rep3 race pessimistic attempt1 ok
+2026-11-06T05:18:43+09:00 RUN rep3 cost conditional-extend attempt1
+2026-11-06T05:27:39+09:00 END rep3 cost conditional-extend attempt1 ok
+2026-11-06T05:27:39+09:00 RUN rep3 cost current attempt1
+2026-11-06T05:36:30+09:00 END rep3 cost current attempt1 ok
+2026-11-06T05:36:30+09:00 RUN rep3 cost conditional attempt1
+2026-11-06T05:45:15+09:00 END rep3 cost conditional attempt1 ok
+2026-11-06T05:45:15+09:00 RUN rep3 cost pessimistic attempt1
+2026-11-06T05:53:57+09:00 END rep3 cost pessimistic attempt1 ok
+2026-11-06T05:53:57+09:00 RUN rep3 cost optimistic attempt1
+2026-11-06T06:02:42+09:00 END rep3 cost optimistic attempt1 ok
+2026-11-06T06:02:42+09:00 RUN rep2 race pessimistic attempt2
+2026-11-06T06:16:38+09:00 END rep2 race pessimistic attempt2 invalid:k6-code0
+2026-11-06T06:16:38+09:00 RUN rep2 race conditional-extend attempt2
+2026-11-06T06:32:23+09:00 END rep2 race conditional-extend attempt2 ok
+2026-11-06T06:32:23+09:00 RUN rep3 race conditional-extend attempt2
+2026-11-06T06:48:09+09:00 END rep3 race conditional-extend attempt2 invalid:k6-code0
+2026-11-06T06:48:09+09:00 RUN rep2 race pessimistic attempt3
+2026-11-06T07:02:04+09:00 END rep2 race pessimistic attempt3 ok
+2026-11-06T07:02:05+09:00 RUN rep3 race conditional-extend attempt3
+2026-11-06T07:17:51+09:00 END rep3 race conditional-extend attempt3 invalid:k6-code0
+2026-11-06T07:17:52+09:00 V12 단계 시작
+판정 불가 → 사용자 보고(후보 판정 불가 — conditional-extend: 유효 반복 부족 race 2/3) · 잠정: conditional · 순위 ['conditional', 'optimistic', 'pessimistic'] · #5 V12: 트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms
+결론: 판정 불가 → 사용자 보고(후보 판정 불가 — conditional-extend: 유효 반복 부족 race 2/3) · 잠정: conditional · 순위 ['conditional', 'optimistic', 'pessimistic'] · #5 V12: 트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms · 새 기본값 없음 · V12 판정 됨
+2026-11-06T11:52:31+09:00 RUN rep3 race conditional-extend attempt4 (user override — 상한 넘어 재측정)
+2026-11-06T12:08:23+09:00 END rep3 race conditional-extend attempt4 invalid:k6-code0
+2026-11-06T12:08:23+09:00 RUN rep3 race conditional-extend attempt5 (user override — 상한 넘어 재측정)
+2026-11-06T12:14:32+09:00 END rep3 race conditional-extend attempt5 중단(사용자 — 재측정이 결론을 못 바꿈 · 수동 판정으로 마감)
+
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json,glob,os,collections
+b='k6/ADR-015/results/20261105-adr015-29e09aef'
+for c in ('race','cost'):
+ for m in ('current','conditional','pessimistic','optimistic','conditional-extend'):
+  for f in sorted(glob.glob(f'{b}/{c}/{m}/rep*/rep-summary.json')):
+   s=json.load(open(f));print(f.removeprefix(b+'/'),s['status'],'metric keys=',list(s['metrics'].keys()),'g2=',s['metrics'].get('g2'),'evidence=',s['metrics'].get('evidence'),'fm1=',s['metrics'].get('fm1_overlap'))
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+race/current/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 24, 'tick_failed': 1} evidence= None fm1= 7
+race/current/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 26, 'tick_failed': 1} evidence= None fm1= 10
+race/current/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 18, 'tick_failed': 7} evidence= None fm1= 10
+race/conditional/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 9
+race/conditional/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 7
+race/conditional/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 15
+race/pessimistic/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+race/pessimistic/rep2.attempt1/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+race/pessimistic/rep2.attempt2/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+race/pessimistic/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+race/pessimistic/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+race/optimistic/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 18
+race/optimistic/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 10
+race/optimistic/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 18
+race/conditional-extend/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 4
+race/conditional-extend/rep2.attempt1/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 3
+race/conditional-extend/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 3
+race/conditional-extend/rep3.attempt1/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 12
+race/conditional-extend/rep3.attempt2/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 2
+race/conditional-extend/rep3.attempt3/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 4
+race/conditional-extend/rep3.attempt4/rep-summary.json invalid:k6-code0 metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'b3wait', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 8
+cost/current/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/current/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/current/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'g2', 'evidence_desc', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/pessimistic/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/pessimistic/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/pessimistic/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'pess_b3', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/optimistic/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/optimistic/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/optimistic/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional-extend/rep1/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional-extend/rep2/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+cost/conditional-extend/rep3/rep-summary.json ok metric keys= ['mode', 'cell', 'rep', 't0_pc', 'window_pc', 'off_s', 'seed_to_first_request_s', 'config_detail', 'flyway', 'pc_mem', 'clock_err_ms', 'db_cpu', 'db_cpu_detail', 'p99', 'dropped', 'code0_other', 'hold_fail', 'hold_fail_other', 'err', 'err5', 'timeout', 'req', 'confirm_dist', 'confirm_ok_window', 'confirm_tps', 'confirm_noncontract', 'confirm_5xx', 'confirm_timeout', 'api_double', 'rehold_ok', 'rehold_ok_dense', 'fm1_overlap', 'fm1_overlap_all', 'early_reject', 'early_n', 'confirm_count', 'pay', 'pay_fl', 'ext_then_lost', 'crn', 'stall', 'app', 'app_window', 'tick_failed', 'deadlocks', 'db_tup', 'cons', 'batch_stmt', 'pay_sent', 'pay_200', 'pay_planned', 'applog', 'evidence_desc', 'g2', 'evidence_parts', 'fm2_evidence', 'contention_evidence'] g2= {'confirm_5xx': 0, 'tick_failed': 0} evidence= None fm1= 0
+
+exec
+/bin/bash -lc "rg -n '29|19|14|16|8|86ffbcd1|1110|1038|1039|1014|1000|smoke|GREEN|green' k6/ADR-015/results/20261105-adr015-29e09aef/runner.log k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log | head -75" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse
+ succeeded in 0ms:
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:1:2026-11-05T17:14:53+09:00 RUN rep1 race conditional attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:2:2026-11-05T17:28:59+09:00 END rep1 race conditional attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:3:2026-11-05T17:28:59+09:00 RUN rep1 race pessimistic attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:8:2026-11-05T18:13:04+09:00 END rep1 race conditional-extend attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:9:2026-11-05T18:13:04+09:00 RUN rep1 race current attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:10:2026-11-05T18:27:18+09:00 END rep1 race current attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:12:2026-11-05T18:27:19+09:00 RUN rep1 cost pessimistic attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:13:2026-11-05T18:36:12+09:00 END rep1 cost pessimistic attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:14:2026-11-05T18:36:12+09:00 RUN rep1 cost optimistic attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:21:2026-11-06T01:59:58+09:00 END rep1 cost current attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:22:2026-11-06T01:59:58+09:00 RUN rep1 cost conditional attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:23:2026-11-06T02:08:55+09:00 END rep1 cost conditional attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:24:2026-11-06T02:08:55+09:00 RUN rep2 race pessimistic attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:31:2026-11-06T03:07:19+09:00 END rep2 race current attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:32:2026-11-06T03:07:19+09:00 RUN rep2 race conditional attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:37:2026-11-06T03:39:29+09:00 END rep2 cost conditional-extend attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:38:2026-11-06T03:39:29+09:00 RUN rep2 cost current attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:39:2026-11-06T03:48:38+09:00 END rep2 cost current attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:40:2026-11-06T03:48:38+09:00 RUN rep2 cost conditional attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:43:2026-11-06T04:06:28+09:00 END rep2 cost pessimistic attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:44:2026-11-06T04:06:28+09:00 RUN rep3 race optimistic attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:53:2026-11-06T05:18:43+09:00 END rep3 race pessimistic attempt1 ok
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:54:2026-11-06T05:18:43+09:00 RUN rep3 cost conditional-extend attempt1
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:65:2026-11-06T06:16:38+09:00 END rep2 race pessimistic attempt2 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:66:2026-11-06T06:16:38+09:00 RUN rep2 race conditional-extend attempt2
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:69:2026-11-06T06:48:09+09:00 END rep3 race conditional-extend attempt2 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:70:2026-11-06T06:48:09+09:00 RUN rep2 race pessimistic attempt3
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:78:2026-11-06T12:08:23+09:00 END rep3 race conditional-extend attempt4 invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:79:2026-11-06T12:08:23+09:00 RUN rep3 race conditional-extend attempt5 (user override — 상한 넘어 재측정)
+k6/ADR-015/results/20261105-adr015-29e09aef/CAMPAIGN.log:80:2026-11-06T12:14:32+09:00 END rep3 race conditional-extend attempt5 중단(사용자 — 재측정이 결론을 못 바꿈 · 수동 판정으로 마감)
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:1:[2026-11-05 17:14:54] ADR-015 race conditional rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:2:[2026-11-05 17:28:59] race conditional rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:3:[2026-11-05 17:29:00] ADR-015 race pessimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:5:[2026-11-05 17:43:05] ADR-015 race optimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:7:[2026-11-05 17:57:13] ADR-015 race conditional-extend rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:8:[2026-11-05 18:13:04] race conditional-extend rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:9:[2026-11-05 18:13:05] ADR-015 race current rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:10:[2026-11-05 18:27:18] race current rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:11:[2026-11-05 18:27:20] ADR-015 cost pessimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:12:[2026-11-05 18:36:12] cost pessimistic rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:13:[2026-11-05 18:36:13] ADR-015 cost optimistic rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:14:[2026-11-06 01:32:53] ADR-015 cost optimistic rep1 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:16:[2026-11-06 01:41:52] ADR-015 cost conditional-extend rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:18:[2026-11-06 01:50:54] ADR-015 cost current rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:19:[2026-11-06 01:59:58] cost current rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:20:[2026-11-06 01:59:59] ADR-015 cost conditional rep1 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep1
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:21:[2026-11-06 02:08:55] cost conditional rep1 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:22:[2026-11-06 02:08:56] ADR-015 race pessimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:24:[2026-11-06 02:23:01] ADR-015 race optimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:26:[2026-11-06 02:37:07] ADR-015 race conditional-extend rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:28:[2026-11-06 02:53:05] ADR-015 race current rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:29:[2026-11-06 03:07:19] race current rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:30:[2026-11-06 03:07:21] ADR-015 race conditional rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:32:[2026-11-06 03:21:29] ADR-015 cost optimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:34:[2026-11-06 03:30:26] ADR-015 cost conditional-extend rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:35:[2026-11-06 03:39:29] cost conditional-extend rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:36:[2026-11-06 03:39:31] ADR-015 cost current rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:37:[2026-11-06 03:48:38] cost current rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:38:[2026-11-06 03:48:39] ADR-015 cost conditional rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:40:[2026-11-06 03:57:37] ADR-015 cost pessimistic rep2 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:41:[2026-11-06 04:06:28] cost pessimistic rep2 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:42:[2026-11-06 04:06:29] ADR-015 race optimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:44:[2026-11-06 04:20:34] ADR-015 race conditional-extend rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:46:[2026-11-06 04:36:32] ADR-015 race current rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:48:[2026-11-06 04:50:40] ADR-015 race conditional rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:50:[2026-11-06 05:04:42] ADR-015 race pessimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:51:[2026-11-06 05:18:43] race pessimistic rep3 → ok
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:52:[2026-11-06 05:18:44] ADR-015 cost conditional-extend rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:54:[2026-11-06 05:27:40] ADR-015 cost current rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:56:[2026-11-06 05:36:31] ADR-015 cost conditional rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:58:[2026-11-06 05:45:16] ADR-015 cost pessimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:60:[2026-11-06 05:53:57] ADR-015 cost optimistic rep3 attempt1 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep3
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:62:[2026-11-06 06:02:43] ADR-015 race pessimistic rep2 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:63:[2026-11-06 06:16:38] race pessimistic rep2 → invalid:k6-code0
+k6/ADR-015/results/20261105-adr015-29e09aef/runner.log:64:[2026-11-06 06:16:39] ADR-015 race conditional-extend rep2 attempt2 → /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2
+
+hook: PostToolUse Completed
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import glob,json,os,statistics
+b='k6/ADR-015/results/20261105-adr015-29e09aef'
+for f in sorted(glob.glob(b+'/race/*/rep*/rep-summary.json')):
+ s=json.load(open(f));
+ if s['status']"'!='"'ok':continue
+ m=s['metrics'];print(f.removeprefix(b+'/'), 'rep=',m['rep'],'g2=',m['g2'],'ev=',m['contention_evidence'],'fm1=',m['fm1_overlap'],'cpu=',m['db_cpu'])
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+race/conditional-extend/rep1/rep-summary.json rep= 1 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 6 fm1= 4 cpu= 26.816875
+race/conditional-extend/rep2/rep-summary.json rep= 2 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 7 fm1= 3 cpu= 27.45875
+race/conditional/rep1/rep-summary.json rep= 1 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 9 fm1= 9 cpu= 24.749166666666667
+race/conditional/rep2/rep-summary.json rep= 2 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 14 fm1= 7 cpu= 23.310833333333335
+race/conditional/rep3/rep-summary.json rep= 3 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 18 fm1= 15 cpu= 24.134166666666665
+race/current/rep1/rep-summary.json rep= 1 g2= {'confirm_5xx': 24, 'tick_failed': 1} ev= 25 fm1= 7 cpu= 26.723125
+race/current/rep2/rep-summary.json rep= 2 g2= {'confirm_5xx': 26, 'tick_failed': 1} ev= 27 fm1= 10 cpu= 23.694583333333334
+race/current/rep3/rep-summary.json rep= 3 g2= {'confirm_5xx': 18, 'tick_failed': 7} ev= 25 fm1= 10 cpu= 26.606875
+race/optimistic/rep1/rep-summary.json rep= 1 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 21 fm1= 18 cpu= 26.919583333333332
+race/optimistic/rep2/rep-summary.json rep= 2 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 14 fm1= 10 cpu= 24.584583333333335
+race/optimistic/rep3/rep-summary.json rep= 3 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 26 fm1= 18 cpu= 25.673750000000002
+race/pessimistic/rep1/rep-summary.json rep= 1 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 16 fm1= 0 cpu= 22.41
+race/pessimistic/rep2/rep-summary.json rep= 2 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 21 fm1= 0 cpu= 24.97918367346939
+race/pessimistic/rep3/rep-summary.json rep= 3 g2= {'confirm_5xx': 0, 'tick_failed': 0} ev= 23 fm1= 0 cpu= 24.033541666666665
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+cost 원자료에서는 ④의 DB CPU가 ①보다 실질적으로 높고, ①의 두 p99는 ④보다 10% 넘게 높지 않습니다. 그래서 ④의 세 번째 race가 유효해도 ①을 순위에서 제칠 수는 없습니다. 다만 현재 데이터의 ‘판정 불가’를 그 가정으로 해소할 수 있는지는 고정 규칙의 별도 문제입니다.
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json,glob,statistics
+b='k6/ADR-015/results/20261105-adr015-29e09aef'
+for k in ('confirm_200','hold_201','db_cpu'):
+ d={}
+ for m in ('conditional','conditional-extend'):
+  d[m]=[json.load(open(f))['metrics'].get('p99',{}).get(k) if k"'!='"'db_cpu' else json.load(open(f))['metrics'][k] for f in sorted(glob.glob(f'{b}/cost/{m}/rep*/rep-summary.json'))]
+ a,e=d['conditional'],d['conditional-extend']
+ print(k,'conditional',a,'extend',e,'ratio conditional/extend',statistics.median(a)/statistics.median(e),'ratio extend/conditional',statistics.median(e)/statistics.median(a))
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+- [ADR-015:904](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:904): current 양성 대조의 **회차별** 값은 `25·25·27`이 아니라 원자료 rep1~3 기준 `25·27·25`입니다.
+- [ADR-015:903](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:903): “재측정이 결론을 바꾸지 못함”은 과장입니다. ④의 유효 rep3가 나오면 고정 규칙의 *판정 불가* 결론은 바뀔 수 있습니다. 다만 ④가 **승자를 ①에서 바꿀 수는 없습니다**. 성공 시 2단에서 ①보다 낮아질 수 없고, 3단에서는 DB CPU로 ①에게 탈락합니다.
+- [ADR-015:937](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:937): 현재 원자료로 “측정-8 교체 관문 통과”라고 확정한 것은 고정 규칙과 어긋납니다. ④는 race 2/3으로 판정 불가이고 G2도 미정, G3에는 걸리지 않아 측정-8 ⓒ가 선정을 멈춥니다. 요약기의 `new_default`도 `null`입니다. 수동 선택이라면 고정 규칙의 통과로 표기할 수 없습니다.
+hook: Stop
+hook: Stop Completed
+tokens used
+63,188
+- [ADR-015:904](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:904): current 양성 대조의 **회차별** 값은 `25·25·27`이 아니라 원자료 rep1~3 기준 `25·27·25`입니다.
+- [ADR-015:903](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:903): “재측정이 결론을 바꾸지 못함”은 과장입니다. ④의 유효 rep3가 나오면 고정 규칙의 *판정 불가* 결론은 바뀔 수 있습니다. 다만 ④가 **승자를 ①에서 바꿀 수는 없습니다**. 성공 시 2단에서 ①보다 낮아질 수 없고, 3단에서는 DB CPU로 ①에게 탈락합니다.
+- [ADR-015:937](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:937): 현재 원자료로 “측정-8 교체 관문 통과”라고 확정한 것은 고정 규칙과 어긋납니다. ④는 race 2/3으로 판정 불가이고 G2도 미정, G3에는 걸리지 않아 측정-8 ⓒ가 선정을 멈춥니다. 요약기의 `new_default`도 `null`입니다. 수동 선택이라면 고정 규칙의 통과로 표기할 수 없습니다.

@@ -57,6 +57,7 @@
 | 11-06 11:52 | 사용자 답(AskUserQuestion): '상한 넘어 3회차 재측정'(**user override** — 하네스 · 규칙 그대로) → 러너 scratchpad/override15.sh: git archive 29e09aef 동결 · 해시 a50d3ca5…52bd = plan.json 일치 · run.sh --attempt 4~7(유효에서 멈춤) · 뒤에 summarize 다시 · pccheck14 ok(load 2.39) · .164 seatlab 0 | ④ race rep3 attempt4 시작 · 연결 끊김 원인 수정은 NEXT로 · 사용자 '그냥 마무리할까?' 질문에 계속 권고(④가 ①을 이겼을 가능성 해소) |
 | 11-06 12:14 | 사용자 '재측정이 의미가 있나?' → 메인 계산(rep-summary 원자료): 2단 ① race 5xx · 틱 [0, 0] → ④가 범위 비겹침으로 낮을 수 없다 · 3단 cost DB CPU ④ [28.94, 29.03, 28.02] 대 ① [24.64, 26.03, 25.86] 중앙값 비 1.119 > 1.10 ∧ 비겹침 → ④ ≫ ① → ④는 ①을 못 뺀다(①/④ 확정 p99 · 선점 p99 1.068) → ④ 결과와 무관하게 승자 ① · 사용자 '멈추고 그렇게 마무리' → override 러너 중지(attempt4 = invalid:k6-code0 rehold 1 · attempt5 진행 중 중단 → `rep3.attempt5-aborted`) · .164 seatlab down -v | **수동 판정 = 교체 — 새 기본값 ① conditional**(요약기 '판정 불가' 대체 · ADR §결과-3에 근거 · 받아들인 한계 기록) |
 | 11-06 12:40 | ADR-015 §실험 결과 · §결정 · 상태 줄 커밋 f455f695 · NEXT N00 · N00a(기본값 교체 커밋 · EOF 하네스 수정 · CONCURRENTLY · 요약기 undet_block 보강) · measurement-log 1행 · 결과 문서 듀얼 1패스(codex ∥ Opus) 시작 · CS 이슈 아카이브 = **보류**(study-note 쓰기는 이 작업 금지영역 — issue-archive §1 보류 경로) | 리뷰 회수 대기 |
+| 11-06 13:05 | 결과 문서 듀얼 1패스 회수: Opus — 수치 결함 없음(cost 15 범위 · 중앙값 비 1.119 · 1.068 · 무효 6 + attempt4 · V12 · eliminate 재계산 {② · ④} 빠짐 · {① · ③} 남음 · ② 탈락 = ① cost 확정 p99 ≫ 1.166) · M 1 · L 2 / codex — 3건(rep 순서 · 과장 · 관문 통과 표기) → RR15-1~4 fixed(fa3e511c) → codex post-fix 재점검: 이전 4건 해결 · 신규 1(RR15-5 — 순위 가정 한정) fixed | **결과 문서 리뷰 종료**(1패스 + 재점검 · 설계 문서 유형 상한) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -163,6 +164,11 @@
 | PF-m1 | post-fix | codex(타깃 재점검) | summarize.py:881 · campaign.sh:176 — V12 판정 불가여도 결론 '교체' 유지 | 기각 — V12는 기본 위치라 current 포함 모든 모드에 같이 들어간다(모드 선택과 독립 · V12__…sql · application.yml) · V12 결과는 '트랜잭션 안 판 유지 / CONCURRENTLY 판 후속'이라는 배포 방식 질문 · 결론에 '운영 적용 전 V12 판정 필요' 강제로 충분 | — | |
 | VU-1 | 하네스 수정 1패스(29e09aef) | Opus | plan15.py:158-160 — 수명 모델 · 1.3 여유 · 소비처 | 결함 없음(수명 main 31 · rehold 43 · ④ +110 실흐름과 일치 · 소비처 run.sh만 · 미리 만든 VU +3%) | — | |
 | VU-2 | 하네스 수정 1패스(29e09aef) | codex | plan15.py:161 — 1.3배는 무누락 보장 아님(최악 20/s × 152.5초 = 3,050) | 기각 — 세션 속성은 (회차, 세션 번호) 결정적 · 계획 회차 rep1~3 실제 속성 최대 동시 세션(수명 상한 기준): ④ race rehold 1038 · 1039 · 1014 < 1274 · main 1765 < 2236 · race rehold 470 < 559(옛 1000은 rep1 1038에 못 미쳐 스모크 누락과 일치) · 남는 위험 = k6 정지 · 지연 꼬리(cost rehold 최소 = 도착률 × 1초) · 근거 `…/reviews/rv15-vu-fix/vupeak.mjs` | — | |
+| RR15-1 | 결과 문서 1패스(f455f695) | codex ∥ Opus(M) | ADR-015 §결과-3 · §결정 · 상태 줄 — 요약기가 멈춘(측정-8 ⓒ) 결론을 '교체 관문 통과'로 적음 · 사용자 결정 누락 | 채택 → '고정 규칙 결론 = 판정 불가 · ⓒ 근거 반증 · 사용자 결정'으로 | fixed | fa3e511c |
+| RR15-2 | 〃 | codex | §결과-1 — '재측정이 결론을 바꾸지 못함' 과장(요약기 출력은 바뀔 수 있다 · 승자는 못 바꾼다) | 채택 | fixed | fa3e511c |
+| RR15-3 | 〃 | codex ∥ Opus(L) | §결과-1 · §결과-2 — 경합 증거 · FM1 값이 rep 순서가 아님(result.json 순서) | 채택 | fixed | fa3e511c |
+| RR15-4 | 〃 | Opus(L) | §결정 — ② 탈락 근거 '높다' → '≫(중앙값 비 1.166 · 비겹침)' | 채택 | fixed | fa3e511c |
+| RR15-5 | post-fix | codex | §결과-3 — '어느 쪽이든' 문장에 ④ 포함 순위를 적음(실제 순위엔 ④ 없음) | 채택 → 가정 한정 | fixed | (이 커밋) |
 
 - 주(설계 선검증 표): Opus 설계 선검증 원문은 파일로 남지 않았다(워커 회수 본문) — 위 id 대응은 ADR-014 log 11-04 16:40 행의 요약에서 옮긴 것.
 
