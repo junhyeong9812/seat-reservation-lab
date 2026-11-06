@@ -117,6 +117,12 @@ val OLD_DEFAULTS = mapOf<String, String?>(
     "spring.flyway.locations" to LOC_BASE,
 )
 
+/**
+ * ADR-015 §결정(나 — 명시 강제 · 자동 후퇴 없음): 기본 확정 모드(conditional)는 sweep + 기본 조합 + inject-app 끔 + V12·V13에서만 뜬다.
+ * 그 밖(B·C·D 만료 · 기본 밖 좌석/매수 전략 · inject-app · Flyway target 12 이하 · V12 없는 기준선)을 띄우는 기동은 이 키로 current를 명시한다.
+ */
+val CONFIRM_CURRENT = mapOf<String, String?>("seat.confirm.mode" to "current")
+
 /** 증분·안전망 공통 기동 키(주기 1h — 진입점을 테스트가 부른다, 가정 S5). */
 fun incrementalProps(method: String, locations: String, vararg extra: Pair<String, String?>): Map<String, String?> = mapOf<String, String?>(
     "seat.hold.counter-drift.expiry-repair" to "true",

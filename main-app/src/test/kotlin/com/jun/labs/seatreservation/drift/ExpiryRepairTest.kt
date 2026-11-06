@@ -222,10 +222,10 @@ abstract class ExpiryRepairOnTest(private val type: UserLimitStrategyType) : Exp
 @TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert-precheck", "seat.hold.counter-drift.expiry-repair=true"])
 class ExpiryRepairPrecheckTest : ExpiryRepairOnTest(UserLimitStrategyType.COUNTER_UPSERT_PRECHECK)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert", "seat.hold.counter-drift.expiry-repair=true"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert", "seat.hold.counter-drift.expiry-repair=true", "seat.confirm.mode=current"])
 class ExpiryRepairUpsertTest : ExpiryRepairOnTest(UserLimitStrategyType.COUNTER_UPSERT)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter", "seat.hold.counter-drift.expiry-repair=true"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter", "seat.hold.counter-drift.expiry-repair=true", "seat.confirm.mode=current"])
 class ExpiryRepairCounterTest : ExpiryRepairOnTest(UserLimitStrategyType.COUNTER)
 
 /**

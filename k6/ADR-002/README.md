@@ -8,7 +8,7 @@ ADR-001 하네스를 복사하고 **조건 축**(인덱스 유무 · 풀 크기 
 
 | 축 | 값 | 적용 방법 |
 |----|----|----------|
-| 인덱스 | off / on | `FLYWAY_TARGET` — off = `1`(V1까지, ADR-001 스키마), on = `latest`(V2 일반 인덱스 5개) |
+| 인덱스 | off / on | `FLYWAY_TARGET` — off = `1`(V1까지, ADR-001 스키마), on = `7`(V2 일반 인덱스 5개 — V12 앞 마지막 버전 · ADR-015 뒤 SHA의 latest는 V12 유니크 인덱스 · V13까지 적용한다) |
 | 커넥션 풀 | 10 / 20 / 40 | `POOL_SIZE` → `spring.datasource.hikari.maximum-pool-size` |
 | 배경 규모 N | 0 / 10만 / 100만 | `/internal/reset?backgroundRows=N` — 배경 회차에 HELD N석·홀드 N + RESERVED N석·CONFIRMED N |
 

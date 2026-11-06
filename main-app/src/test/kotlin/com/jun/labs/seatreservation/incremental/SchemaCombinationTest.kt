@@ -152,7 +152,7 @@ class SchemaCombinationTest : BootTestBase() {
     fun `ⓒ + limit-strategy=counter-trigger — 기동 실패(rv41 H2 — V8 quota_add의 UPDATE를 덮지 못한다)`() = fails(
         // B는 A와 함께 금지(기존 검사)이고 증분 틱은 A가 필수라, 다른 검사와 겹치지 않게 '표시만'(M3 업무 앱 모양) 구성으로 본다 —
         // H2 검사는 업무 앱이 한다(§4.2.2 · enabled와 무관). 아래 ⓑ 대조가 같은 구성으로 뜨는 것으로 원인을 가른다
-        incrementalProps(
+        CONFIRM_CURRENT + incrementalProps(
             "stmt", locs(LOC_V8, LOC_V9_STMT, LOC_V10),
             "seat.hold.limit-strategy" to "counter-trigger",
             "seat.hold.counter-drift.expiry-repair" to "false",
@@ -166,7 +166,7 @@ class SchemaCombinationTest : BootTestBase() {
     fun `대조 — ⓑ + counter-trigger는 허용 조합이다(H2는 ⓒ만 막는다)`() {
         // counter-trigger(B)는 A와 함께 켤 수 없고(ADR-009 기동 검사), 증분은 A가 필수다 — 그래서 '증분 켬 + B'는 증분 틱 프로세스가 아닌 표시만(enabled=false) 구성으로 본다
         bootsWith(
-            incrementalProps(
+            CONFIRM_CURRENT + incrementalProps(
                 "trigger", locs(LOC_V8, LOC_V9_TRG, LOC_V10),
                 "seat.hold.limit-strategy" to "counter-trigger",
                 "seat.hold.counter-drift.expiry-repair" to "false",
@@ -235,11 +235,11 @@ class SchemaCombinationTest : BootTestBase() {
 
     @Test
     fun `inject-app 켬 + loadtest 프로필 없음 — 기동 실패`() =
-        fails(mapOf("$INJECT.enabled" to "true"), "주입은 loadtest 프로필 전용", "loadtest", "inject")
+        fails(CONFIRM_CURRENT + mapOf("$INJECT.enabled" to "true"), "주입은 loadtest 프로필 전용", "loadtest", "inject")
 
     @Test
     fun `inject-app 켬 + loadtest 프로필 — 성공`() =
-        bootsWith(incrementalProps("trigger", locs(LOC_V9_TRG, LOC_V10), "$INJECT.enabled" to "true", "spring.profiles.active" to "loadtest"))
+        bootsWith(CONFIRM_CURRENT + incrementalProps("trigger", locs(LOC_V9_TRG, LOC_V10), "$INJECT.enabled" to "true", "spring.profiles.active" to "loadtest"))
 }
 
 /** rv41 M4 — 준비된 트랜잭션이 켜진 DB(max_prepared_transactions > 0)에서는 ⓑⓒ 틱 프로세스가 뜨지 않는다. 표시만(enabled=false)은 뜬다(대조). */

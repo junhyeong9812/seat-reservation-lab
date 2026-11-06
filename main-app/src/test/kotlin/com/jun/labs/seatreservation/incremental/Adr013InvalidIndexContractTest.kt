@@ -26,7 +26,8 @@ class Adr013InvalidIndexContractTest : BootTestBase() {
     private fun prepareInvalidIndexDb(): Pair<String, JdbcTemplate> {
         val url = freshDbUrl()
         val db = jdbcFor(url)
-        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(LOC_BASE, LOC_V9_TRG).load().migrate()
+        // target 9 고정 — ADR-015 기본 위치 V12 · V13이 먼저 적용되면 앱의 V10이 순서 밖이 된다(§설계-4 순서 함정)
+        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(LOC_BASE, LOC_V9_TRG).target("9").load().migrate()
         val versions = db.queryForList("SELECT version FROM flyway_schema_history WHERE success AND version IS NOT NULL", String::class.java)
         assertTrue("9" in versions && "10" !in versions, "전제: V9 기록 · V10 미적용: $versions")
         assertTrue(db.columnExists("user_hold_quota", "updated_at") && db.triggerExists("user_hold_quota_touch"), "전제: V9 객체")

@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        "seat.confirm.mode=current",
     ],
 )
 class TriggerLoop3ImplTest : DriftTestSupport() {

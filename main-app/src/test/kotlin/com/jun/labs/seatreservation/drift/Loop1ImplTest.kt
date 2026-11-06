@@ -241,7 +241,7 @@ class Loop1BootImplTest {
     fun `counter-trigger는 예외 — C·external-reconciler에 A 없이 뜬다`() {
         // C와 external-reconciler는 따로 띄운다 — 업무 앱에서 둘을 함께 켜는 것은 대조 중복으로 거부된다(task 07a 리뷰 F1 기동 검사). 각각 A 없이 뜨는지가 이 테스트의 뜻
         val trigger = arrayOf(
-            "--seat.hold.expiry-scheduler-enabled=false", *OLD, "--seat.hold.limit-strategy=counter-trigger",
+            "--seat.hold.expiry-scheduler-enabled=false", *OLD, "--seat.hold.limit-strategy=counter-trigger", "--seat.confirm.mode=current", // ADR-015 §결정(나) — 기본 밖 매수 방식은 current 명시
             "--spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
             "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none",
         )

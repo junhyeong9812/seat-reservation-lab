@@ -2,10 +2,12 @@ package com.jun.labs.seatreservation.service.hold
 
 import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategy
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import com.jun.labs.seatreservation.support.IntegrationTest
@@ -23,6 +25,7 @@ import kotlin.test.assertEquals
         "seat.hold.strategy=unique",
         "seat.hold.limit-strategy=none", // 매수 방식은 좌석 3b에서만(기동 검사) — ADR-008 기본값 전환 뒤에도 none
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-unique",
+        "seat.confirm.mode=current",
     ],
 )
 class UniqueHoldStrategyTest : IntegrationTest() {
@@ -65,7 +68,7 @@ class UniqueHoldStrategyTest : IntegrationTest() {
 
     @Test
     fun `기동 검사 — 유니크 인덱스가 있는데 다른 전략이면 앱을 띄우지 않는다`() {
-        val mismatched = HoldStrategyStartupCheck(properties.copy(strategy = HoldStrategyType.NONE), jdbcTemplate, redis)
+        val mismatched = HoldStrategyStartupCheck(properties.copy(strategy = HoldStrategyType.NONE), jdbcTemplate, redis, confirm = SeatConfirmProperties(mode = ConfirmMode.CURRENT))
 
         assertThrows<IllegalStateException> { mismatched.run(org.springframework.boot.DefaultApplicationArguments()) }
     }

@@ -2,6 +2,7 @@ package com.jun.labs.seatreservation.expiry
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.jun.labs.seatreservation.incremental.BootTestBase
+import com.jun.labs.seatreservation.incremental.CONFIRM_CURRENT
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
 import com.jun.labs.seatreservation.service.HoldSeatCommand
@@ -69,7 +70,7 @@ class Adr014CutoverContractTest : BootTestBase() {
         val db = jdbcFor(url)
         var s = 0L
         var seats = emptyList<Long>()
-        boot(url, mapOf(EXPIRY_MODE to "derived")).use { d ->
+        boot(url, CONFIRM_CURRENT + mapOf(EXPIRY_MODE to "derived")).use { d ->
             s = db.seedSchedule()
             seats = (1..5).map { db.seat(s) }
             d.hold(s, seats[0], 1)                                    // 활성
@@ -84,7 +85,7 @@ class Adr014CutoverContractTest : BootTestBase() {
         db.assertCutoverChecks("D → B")
         assertEquals(listOf("HELD", "AVAILABLE", "RESERVED", "HELD", "AVAILABLE"), seats.map { db.storedStatus(it) })
         assertEquals(listOf(1, 0, 1, 0, 1), (1L..5L).map { db.quotaCnt(s, it) ?: 0 }, "T1 감소는 지운 행 수만큼")
-        boot(url, mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
+        boot(url, CONFIRM_CURRENT + mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
             assertEquals(
                 mapOf(seats[0] to "HELD", seats[1] to "AVAILABLE", seats[2] to "RESERVED", seats[3] to "HELD", seats[4] to "AVAILABLE"),
                 b.seatMap(s), "B 좌석 맵 빠른 길(저장 HELD가 활성 홀드를 덮는다 — §3.3)",
@@ -101,7 +102,7 @@ class Adr014CutoverContractTest : BootTestBase() {
         val db = jdbcFor(url)
         var s = 0L
         var seats = emptyList<Long>()
-        boot(url, mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
+        boot(url, CONFIRM_CURRENT + mapOf(EXPIRY_MODE to "lazy", LAZY_CLEANUP_KEY to "schedule")).use { b ->
             s = db.seedSchedule()
             seats = (1..4).map { db.seat(s) }
             db.expire(b.hold(s, seats[0], 1))                         // 만료 · 저장 HELD(거짓)

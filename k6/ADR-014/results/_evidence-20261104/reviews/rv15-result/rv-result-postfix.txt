@@ -1,0 +1,868 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+model: gpt-6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: high
+reasoning summaries: none
+session id: 01a1aede-7fbb-7a52-9a39-4eaed4b34b28
+--------
+user
+Post-fix recheck of commit fa3e511c (git show fa3e511c) on docs/adr/ADR-015-confirm-atomicity.md. Previous findings: (1) rep order of evidence values, (2) overclaim that rerun cannot change the conclusion, (3) decision described as passing fixed rules although summarizer stopped (측정-8 ⓒ) — must be stated as user decision, (4) pessimistic elimination wording. Check each is resolved and no new contradiction was introduced in '## 실험 결과'/'## 결정'/status line. Korean, max 6 lines, 'resolved' or concrete defect with line.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+fa3e511c의 변경 내용과 해당 ADR의 실험 결과·결정·상태 줄을 확인하겠습니다.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc 'git status --short && git rev-parse HEAD' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+exec
+/bin/bash -lc "nl -ba docs/adr/ADR-015-confirm-atomicity.md | sed -n '1,260p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+     1	# ADR-015: 결제 성공 시 확정 — 2중 확인과 전환의 원자성 (Q6)
+     2	> 번호 이동(2026-10-12, 5차): 운영 중 매수 방식 전환을 새 ADR-010으로 넣으며 기존 ADR-010~015를 011~016으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     3	> 번호 이동(2026-10-12, 4차): 카운터 어긋남 탐지·격리·복구를 새 ADR-009로 넣으며 기존 ADR-009~014를 010~015로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     4	> 번호 이동(2026-10-11, 3차): counter-upsert-precheck 기본 적용·검증을 새 ADR-008로 넣으며 기존 ADR-008~013을 009~014로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     5	> 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     6	> 번호 이동(2026-10-09): counter 1문장 upsert 재측정을 새 ADR-006으로 넣으며 기존 ADR-006~011을 007~012로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     7	> 번호 이동(2026-10-04): 임계 구역 길이·락 보유 시간을 새 ADR-004로 넣으며 기존 ADR-004~010을 005~011로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     8	> 번호 이동(2026-10-15, 6차): 앱 JVM GC·메모리 기준을 새 ADR-010으로 넣으며 기존 ADR-010~016을 011~017로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+     9	> 번호 이동(2026-10-16, 7차): 측정 환경 꼬리 지연 원인을 새 ADR-011로 넣으며 기존 ADR-011~017을 012~018로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+    10	> 번호 이동(2026-10-18, 8차): 카운터 증분 대조·Kafka/복제본 대조를 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+    11	> 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 대조(옛 ADR-013)를 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
+    12	
+    13	- 상태: 결정 (2026-11-06) — 새 기본값 ① `conditional`(고정 규칙 요약기 = 판정 불가 → 사용자 보고 → 사용자 결정 — §결과-3 · §결정) · 기본값 교체 커밋은 별도(측정-8)
+    14	- 대응 질문: Q6 "결제는 성공했는데 그 사이 선점이 만료됐다면?"
+    15	- 선행: ADR-000, ADR-001, ADR-014(만료 방식에 따라 전환 조건이 달라짐)
+    16	
+    17	## 인터뷰 (2026-11-04 — 사용자 답 · 요구사항 명세는 ADR-014 마감 뒤 작업 폴더에 옮긴다)
+    18	
+    19	- 선택지: **4개 전부** — ① 조건부 UPDATE(전환 문장의 WHERE가 곧 확인 · 영향 행 수로 판정) ② 비관락(좌석·홀드 `FOR UPDATE` 뒤 확인·전환) ③ 낙관락(`@Version`) ④ 결제 중 홀드 연장. 최후 방어선(부분 유니크 인덱스)은 공통.
+    20	- 적용 범위: **A(sweep — 현재 기본값) 확정만**. B·C·D는 ADR-014 최소 가드 그대로(ADR-014 재측정에서 D가 기본값이 되면 그때 D를 다시 본다).
+    21	- 만료 뒤 결제 성공: **거부**(ADR-014와 같은 규칙) — 결제 취소·환불 같은 보상은 ADR-016.
+    22	- 측정: **재현 테스트 + 부하 측정** — 짧은 TTL · 확정 지연 주입으로 이중 결과를 재현해 선택지마다 0건 확인 · .164 확정 경합 부하로 처리량·p99·DB CPU 비교.
+    23	- 최후 방어선: `reservation(seat_id) WHERE status='CONFIRMED'` 부분 유니크 인덱스를 **새 마이그레이션 · 기본 위치**(모든 구성에 적용) — 기존 중복 확정 사전 검사·복구 SQL을 운영 절차로(ADR-013 원칙).
+    24	- 기본값: **이기면 교체**(교체 조건은 측정 전에 고정 — ADR-014와 같은 틀).
+    25	- stakes **높음** · 자율성 **auto**.
+    26	- 설계 초안 열린 질문 사용자 답(2026-11-04): Q1 문제 정의 = **재현 스모크 먼저**(우연한 가드 — 홀드 DELETE 0행 → 예외 → 롤백 · 진 쪽 500 — 가 맞으면 §문제를 고치고 선택지 4개 비교는 그대로) · Q4·Q5 ④ = **새 API `POST /api/holds/{id}/payment-start`**(재호출 멱등 · 늦은 연장 409 HOLD_EXPIRED · 확정 문장은 ①) · Q7 V12 = **기본 위치 유지 + 기존 테스트 수정**(기준선 재현은 `flyway.target=11`) · Q10 배치 틱 전체 롤백 = **지표로 재고 NEXT**. 나머지 열린 질문(Q2·Q3·Q6·Q8·Q9·Q11~Q14)은 설계 초안의 권장안으로 둔다(설계 선검증에서 다시 본다).
+    27	- 설계 선검증 뒤 사용자 답(2026-11-04): **A 배치 최소 수정을 범위에 넣는다**(앞의 Q10 'NEXT로'를 재합의 — 배치가 지울 때 만료 조건을 다시 확인하는 조건부 DELETE · 좌석은 `status='HELD'`일 때만 되돌림 · 행 수로 판정 · 틱 전체 롤백 개선은 그대로 NEXT) · ④ 재호출 멱등 = **첫 연장만 반영**(재호출은 현재 만료 시각 200 · 연장 표지 열 추가 — 새 마이그레이션 · 추가형) · V12 × 옛 방식 DB = **ADR-013 전환 절차에 outOfOrder 1회**(V9·V10 적용 때만 · 테스트로 고정) · 확정 만료 판정 시각 = **요청 시작 시각(:now · 앱 Clock) 유지** · 측정에서 '전환 시각이 만료 뒤인 성공'을 따로 센다.
+    28	- 출발점(코드 확인 2026-11-04): A 확정 `ConfirmReservationService.confirm`은 `findByHoldsId`(잠금 없음)로 좌석을 읽고 앱 Clock으로 `seat.confirm(...)` 확인 뒤 전환 · 예약 저장 — 확인과 전환 사이를 막는 잠금·조건부 문장·DB 유니크 제약이 없다.
+    29	
+    30	## 문제
+    31	
+    32	기준선의 확정은 `홀드 조회 → 내 것·만료 전 비교 → 좌석 HELD 비교 → 전환`이다. **확인과 전환 사이에 상태가 바뀔 수 있다**: 확인 직후 홀드가 만료되고 배치가 좌석을 풀고 다른 사용자가 선점하면, 이미 남의 좌석을 `RESERVED`로 만든다.
+    33	
+    34	## 가설
+    35	
+    36	- TTL을 짧게(수 초) 두고 확정 지연을 주입하면 한 좌석에 두 사용자의 결과(남의 홀드 + 내 예약)가 공존한다.
+    37	
+    38	## 선택지 후보
+    39	
+    40	- **확인과 전환을 원자적으로 묶는다**: 별도 확인 SELECT 없이 전환 문장의 WHERE 조건이 곧 확인. 조건부 문장 1회 + 영향 행 수로 성공 판정.
+    41	  - 예: `UPDATE product_seat SET status='RESERVED' WHERE id=? AND status=…` + `DELETE FROM seat_hold WHERE seat_id=? AND user_id=? AND expires_at > now()`, 둘 다 1행이어야 커밋
+    42	- 비관락: 좌석·홀드 행 `FOR UPDATE` 후 비교·전환
+    43	- 확정 시 홀드 연장(결제 진행 중 만료 방지)
+    44	
+    45	## 함께 검증할 경합
+    46	
+    47	- **예약된 좌석 위에 홀드가 생기는 경합**: 전환이 홀드를 지운 직후 다른 사용자의 선점이 끼어드는 경우. 후보: 선점 시 좌석 행 `FOR SHARE`(공유 락 — 여러 선점 요청은 동시에 통과, 전환의 UPDATE와는 서로 대기).
+    48	- **락 순서**: 모든 좌석 경로를 사용자(advisory) → 좌석 행 → 홀드 행 순으로 고정하지 않으면 전환과 선점이 교착한다.
+    49	- **최후 방어선**: `reservation(seat_id) WHERE status='CONFIRMED'` 부분 유니크 인덱스 — 앱 로직이 뚫려도 DB가 중복 확정을 막는다.
+    50	- **정정(15-01b — 코드와 어긋남)**: ⓐ 첫 항목의 '선점 시 좌석 행 `FOR SHARE`'는 지금 선점 잠금(`FOR UPDATE NOWAIT` — DbLockHoldStrategies.kt:53-60)보다 약해지는 쪽이라 넣지 않는다(§설계-2 둘째 글머리). ⓑ 둘째 항목의 '사용자(advisory) → 좌석 → 홀드'는 기본 조합(쿼터 행 잠금 — advisory 아님 · UserLimitStrategies.kt:320-341)과 A 배치 순서(쿼터 → 홀드 → 좌석 — ExpiryCounters.kt:49-63 뒤 flush)에 맞지 않는다 — 이 ADR의 고정 순서는 **쿼터 행 → 홀드 행 → 좌석 행**이다(§설계-3 공통 규칙 · §3.5).
+    51	
+    52	## 설계 (측정 전 고정 — 초안)
+    53	
+    54	> 초안(task 15-01a — 2026-11-04). 기준 = 작업 디렉토리 그대로(이 폴더는 git 저장소가 아니라 기준 SHA를 적지 못했다 — 구현 착수 때 `main` HEAD에서 아래 `파일:줄`을 다시 확인한다 · 줄 번호는 이 초안을 쓸 때의 것). 정답 기준 = 위 §인터뷰(2026-11-04 사용자 답 — 선택지 4개 · 범위 A 확정만 · 만료 뒤 거부 · 재현 + 부하 · 기본 위치 부분 유니크 인덱스 · 이기면 교체). 실코드로 확인한 사실에는 `파일:줄`, 코드로 확인하지 못한 판단은 **(추정)**, 구현에 닿아야 판정할 수 있는 값은 `[구현 검증]`(§설계-7에 모음)으로 적는다. 측정 고정값 · 성공 기준 · 기본값 교체 조건은 다음 task 몫이다 — 이 절의 측정은 뼈대까지(§설계-8).
+    55	>
+    56	> 개정(task 15-01b — 2026-11-04): 설계 선검증 지적 11건과 §인터뷰 마지막 사용자 답('설계 선검증 뒤')을 반영했다 — A 배치 최소 수정(새 §3.6 A′ 배치 · 손잡이로만 켬) · ④ 연장 표지 열(V13 — 첫 연장만) · ③ 트리거 번호 V14로 이동 · 새 확정 모드는 V12 없으면 기동 거부 · FM2를 V12 유무로 가름 · 복구 R1을 다시 세기로 · ADR-013 전환 절차의 outOfOrder 1회 · 유니크 위반 매핑은 A만 · 트리거 짝 검사를 마이그레이션 앞으로 · `CONCURRENTLY` 재시도에 `flyway repair` · '만료 뒤 전환된 성공' 지표. 줄 번호는 이 개정 때 다시 읽은 것이다(§설계-9 끝 '다시 읽은 파일').
+    57	
+    58	### 설계-0 용어
+    59	
+    60	| 기호 | 뜻 |
+    61	|---|---|
+    62	| A | 만료 방식 sweep(`seat.hold.expiry-mode=sweep` — 기본값 · application.yml:39). 좌석에 `HELD`를 저장하고 주기 배치가 만료분을 지운다. 만료 판정은 **앱 Clock**(ADR-014 Q1 결정 — A는 DB `now()`로 옮기지 않았다) |
+    63	| 기본 조합 | 좌석 경합 `pessimistic-nowait`(좌석 행 `FOR UPDATE NOWAIT` — 잠겨 있으면 기다리지 않고 진다) + 매수 `counter-upsert-precheck`(잠금 없는 좌석 선조회 + 쿼터 한 문장 upsert)(application.yml:45·47) |
+    64	| 확인 · 전환 | 확인 = 내 홀드 · 만료 전 · 좌석 `HELD` 비교. 전환 = 좌석 `RESERVED` + 홀드 행 삭제 + 예약 `CONFIRMED` INSERT(ADR-000 §3) |
+    65	| 이중 결과 | 한 좌석에 두 결과가 남는 것: ⓐ 남의 홀드가 살아 있는 좌석이 `RESERVED`(내 예약 + 남의 홀드) ⓑ 같은 좌석 `CONFIRMED` 2건 ⓒ 예약 `CONFIRMED`인데 좌석이 `RESERVED` 아님(전환 없는 예약) · 좌석 `RESERVED`인데 확정 예약 없음 |
+    66	| 우연한 가드 | 설계로 둔 장치가 아닌데 결과적으로 경합을 막는 동작. 여기서는 Hibernate가 엔티티 DELETE의 영향 행 수를 1로 기대하는 동작(§설계-1) |
+    67	| RC | READ COMMITTED(이 앱의 격리 수준 — 문장마다 그 순간까지 커밋된 것을 본다) |
+    68	| EPQ | EvalPlanQual — RC에서 잠그거나 고치려던 행이 그 사이 바뀌었으면 **그 행의 조건만** 최신 버전으로 다시 보는 PostgreSQL 동작(하위 질의는 문장 시작 스냅숏 그대로 — ADR-014 §설계-2.3) |
+    69	| FK 검사 잠금 | 예약 INSERT가 참조하는 회차·좌석 행에 거는 `FOR KEY SHARE`(외래 키 검사) — `FOR UPDATE`와는 충돌하고 `FOR NO KEY UPDATE`(키가 아닌 열의 UPDATE)와는 충돌하지 않는다 |
+    70	| `:now` | 확정 트랜잭션 시작 때 한 번 읽은 앱 Clock 값(지금 `ConfirmReservationService.kt:43`과 같은 자리). 네 선택지 모두 만료 비교에 이 값을 쓴다 |
+    71	| TTL | 홀드 유효 시간(`seat.hold.ttl` — 5분, application.yml:34) |
+    72	| A′ 배치 | A 만료 배치의 최소 수정판(§3.6) — 지울 때 만료 조건을 다시 보는 조건부 DELETE · 좌석은 `status='HELD'`일 때만 되돌림 · 행 수로 판정 · 카운터는 실제로 지운 행만큼. `seat.confirm.mode ≠ current`일 때만 돈다(`current`면 지금 JPA 배치 그대로) |
+    73	| 대조 배치 · 대조 확정 | 재현 테스트 전용(테스트 소스에만 — 앱 빈 아님): 가드 없이 쓰는 배치 · 확정. '가드가 없으면' 칸을 실제로 만들어 하네스가 이중 결과를 잡을 수 있음을 보인다(§설계-8.1) |
+    74	| 표지 열 | `seat_hold.extended_at`(V13 — §3.4) — ④ 첫 연장 시각. NULL = 연장 안 함 |
+    75	
+    76	### 설계-1 지금 코드의 사실 (A 확정 · 기본 조합)
+    77	
+    78	**확정 문장 순서**(`ConfirmReservationService.confirm` — ConfirmReservationService.kt:38-66 · `expiry-mode ≠ sweep`이면 :40에서 ADR-014 B·C·D 확정 `LazyConfirmProcess`로 간다):
+    79	
+    80	| # | 문장 · 동작 | 잠금 | 근거 |
+    81	|---|---|---|---|
+    82	| A0 | `beforeConfirm()` — 기본 조합은 빈 함수(counter-trigger만 `set_config`) | — | ConfirmReservationService.kt:42 · UserLimitStrategies.kt:51 · :371 |
+    83	| A1 | `:now = clock.instant()` | — | ConfirmReservationService.kt:43 |
+    84	| A2 | `findByHoldsId(holdId)` — 홀드 id로 좌석 로드. 없으면 404 | 없음 | ConfirmReservationService.kt:44-45 · ProductSeatRepository.kt:16 |
+    85	| A3 | 좌석의 홀드 컬렉션 로드(지연 로딩 — A2와 **다른 문장 · 다른 스냅숏**) (추정) | 없음 | ProductSeat.kt:40-42 · :60 `holds.find` |
+    86	| A4 | 메모리 안 확인: 내 홀드인가(403) → `isExpired(:now)`(409 HOLD_EXPIRED — 만료 정각은 만료) → `status == HELD`(409 SEAT_NOT_HELD) → `status = RESERVED` · `holds.remove` | 없음 | ProductSeat.kt:59-73 · SeatHold.kt:27 |
+    87	| A5 | `reservationRepository.save` — id가 IDENTITY라 **save 시점에 곧바로 INSERT**(flush를 기다리지 않는다) (추정) | 회차·좌석 행 FK 검사 잠금 | ConfirmReservationService.kt:49-58 · Reservation.kt:23-25 · V1__init.sql:33-41 |
+    88	| A6 | 커밋 flush: 고아 홀드 `DELETE FROM seat_hold WHERE id = ?`(orphanRemoval) | 홀드 행 | ProductSeat.kt:40 |
+    89	| A7 | 커밋 flush: `UPDATE product_seat SET …, status = 'RESERVED' WHERE id = ?` — **상태 조건 없음 · 버전 없음**(V3 `version` 열은 엔티티에 매핑하지 않는다 — V3__add_seat_version.sql:1-2) | 좌석 행(`FOR NO KEY UPDATE` 급) | ProductSeat.kt:36-37 |
+    90	| A8 | `changes.changed(회차, 사용자)`(ADR-012 ⓐ 메모리 집합 등록 — method ≠ memory면 아무것도 안 함) · 쿼터 행은 건드리지 않는다(확정 = 홀드 −1 · 예약 +1 → cnt 그대로) | — | ConfirmReservationService.kt:59-60 · UserLimitStrategies.kt:224 주석 |
+    91	
+    92	- ~~A6·A7의 순서는 Hibernate flush 규칙(고아 삭제가 UPDATE보다 먼저)~~ **정정(15-02 실측 — Hibernate 6.6.26 · PG 서버 실행 로그 · Adr015ReproSmokeTest)**: flush는 **좌석 UPDATE(A7) → 고아 DELETE(A6)** 순이다. 만료 배치도 같다(가드 감소 JDBC → 좌석 UPDATE → 홀드 DELETE). 그래서 0행 DELETE 예외는 좌석 UPDATE가 이미 실행된 뒤에 나고, 롤백이 그 UPDATE를 되돌린다 — 지금 정합은 롤백 하나가 지킨다. 결과(FM1 · FM3 이중 결과 0 · 진 확정 HTTP 500 · 예외 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` · FM3 틱 전체 롤백)는 §설계-1 추정과 같다. JPA 경로의 잠금 순서는 확정 = FK 검사 → 좌석 → 홀드 · 배치 = 쿼터 → 좌석 → 홀드(둘이 같은 방향이라 `current` 짝에 고리는 없다). Hibernate `PESSIMISTIC_WRITE` = `FOR NO KEY UPDATE`(#4 답).
+    93	- **경합 창**: W1 = A2·A3(잠금 없는 읽기) ~ A5·A6·A7(쓰기). W2 = A1의 `:now`(트랜잭션 시작에 고정) ~ 커밋. 만료 직전에 시작해 만료 뒤에 커밋하는 확정은 지금도 허용된다(판정 시각 = 트랜잭션 시작 — ADR-014 §설계-2.2와 같은 규칙).
+    94	
+    95	**W1에 끼어들 수 있는 경로**(기본 조합 · 앱 1대):
+    96	
+    97	| 경로 | 문장 순서 | 잠금 순서 | 근거 |
+    98	|---|---|---|---|
+    99	| 만료 배치(A) | 틱 = 트랜잭션 1 · `findDistinctByHoldsExpiresAtLessThanEqual(앱 now)`(잠금 없음) → `expireHolds` = 만료 홀드 제거 + `HELD`면 `AVAILABLE` → 쿼터 가드 감소(JDBC — 즉시) → 커밋 flush(좌석 UPDATE → 홀드 DELETE — 15-02 실측) | 쿼터 행(정렬) → 좌석 행 → 홀드 행 (15-02 실측 — 감소 JDBC는 flush 앞에서 즉시) | ExpireHoldsService.kt:38-45 · ProductSeatRepository.kt:18 · ProductSeat.kt:76-86 · ExpiryCounters.kt:49-63 |
+   100	| 선점(다른 사용자 Y) | 회차 `FOR SHARE` → 좌석 선조회(`AVAILABLE` 아니면 409) → 쿼터 upsert → 좌석 `FOR UPDATE NOWAIT` → `assertHoldable`(잠근 뒤 `AVAILABLE` 확인) → 홀드 INSERT + 좌석 `HELD` | 회차(공유) → 쿼터 행 → 좌석 행(NOWAIT — 기다리지 않음) | SalesCloseGate.kt:50-52 · UserLimitStrategies.kt:320-341 · DbLockHoldStrategies.kt:53-60 · ProductSeatRepository.kt:31-34 · HoldSeatProcess.kt:70-89 |
+   101	| 같은 홀드의 두 번째 확정(재시도 · 두 탭) | A0~A8 그대로 | 위와 같음 | — |
+   102	| 정리 ①(마감 회차) | 회차 `FOR UPDATE` → 홀드 있으면 아무것도 안 지움 · 없으면 쿼터 행 삭제 | 회차 행(배타) | QuotaCleanup.kt:117-136 |
+   103	
+   104	- **지금 이중 결과를 막는 것**: 잠금 없음 · 조건부 문장 없음(A7은 `WHERE id = ?`뿐) · 버전 없음 · DB 제약 없음(V1__init.sql:1-2 · V2 `idx_reservation_seat_id`는 유니크가 아니다 — V2__add_indexes.sql:12). **남는 것은 우연한 가드 하나**: A6의 DELETE가 0행이면(배치·다른 확정이 그 홀드를 먼저 지우고 커밋) Hibernate가 행 수 불일치 예외를 던져 트랜잭션 전체가 롤백된다 (추정 — Hibernate 6.6의 기본 행 수 기대값 · 이 저장소 테스트로 확인한 적이 없다 · ADR-014 §설계-10 #8과 같은 미확인 · `[구현 검증]` #1).
+   105	  - 그 예외는 `SeatReservationException`이 아니라 `ApiExceptionHandler`가 받지 않는다(ApiExceptionHandler.kt:25-33 — 처리기는 이것 하나) → **500**(추정). 진 쪽이 계약 코드(404·409)가 아니라 5xx로 끝난다.
+   106	  - 배치 쪽이 지면(확정이 홀드를 먼저 지움) 같은 예외로 **틱 전체**가 롤백된다 — 그 틱의 다른 좌석 만료 · 쿼터 감소도 함께 사라지고 다음 틱(10초 — application.yml:36)으로 밀린다(ExpireHoldsService.kt:46-50 실패 지표 · ExpiryCounters.kt:186-198 skipped 기록).
+   107	  - **배치의 카운터 감소는 '지운 행'이 아니라 '고른 행' 기준이다**: 감소(`userLimit.strategy.onHoldsExpired(expired)` — ExpireHoldsService.kt:43 → ExpiryCounters.kt:49-63)는 메모리에서 고른 목록(ProductSeat.kt:76-86)으로 JDBC 문장을 즉시 보내고, 실제 홀드 DELETE는 그 뒤 커밋 flush에서 일어난다. 그래서 DELETE가 0행이 되는 경합에서 감소와 삭제가 맞으려면 지금은 '0행 → 예외 → 틱 롤백(감소도 함께 사라짐)'에 기댈 수밖에 없다 — 우연한 가드가 카운터 정합까지 떠받친다. A′ 배치(§3.6)는 순서를 '지운 뒤 지운 만큼 감소'로 바꾼다.
+   108	  - 배치의 좌석 되돌림도 조건이 없다: `status == HELD`는 메모리 판정(ProductSeat.kt:82)이고 flush UPDATE는 `WHERE id = ?`뿐 — 낡은 스냅숏으로 남의 `RESERVED`를 덮을 수 있는 자리다(FM3 '가드가 없으면').
+   109	  - ADR-014 캠페인에서 A 정합 위반 0(ADR-014 §결정-1 'ADR-015에 새로 넘길 A 결함은 없다' · MQ9)은 이 가드와 어긋나지 않는다 — TTL 5분 · 확정 지연 주입 없음 조건이라 창이 거의 열리지 않았다(추정).
+   110	- **초안 '출발점'(§인터뷰 마지막 줄)과의 차이**: '막는 잠금 · 조건부 문장 · DB 유니크 제약이 없다'는 사실이지만, 결과가 '이중 결과'가 아니라 '500 + 롤백'일 수 있다. 이것이 맞는지는 착수 직후 재현 테스트가 정한다(§설계-8.1 · Q1 — 정해짐: 재현 스모크 먼저).
+   111	
+   112	### 설계-2 재현할 실패 모양 (끼어들기 순서)
+   113	
+   114	각 모양마다 '우연한 가드가 있으면'(지금 코드의 기대 — 추정)과 '가드가 없으면'(대조군 — §설계-8.1)을 적는다. `te` = 내 홀드 만료 시각.
+   115	
+   116	| # | 끼어들기 | 가드가 있으면(지금 추정) | 가드가 없으면 |
+   117	|---|---|---|---|
+   118	| FM1 남의 홀드 위 내 RESERVED | ① X(나) 확정이 `t0 < te`에 시작 — A1~A4 통과(`isExpired(t0)` 거짓) 뒤 늦어짐 ② `te` 뒤 배치 틱이 내 홀드를 지우고 좌석 `AVAILABLE` · cnt(X) −1 · 커밋 ③ Y가 선점 — 새 홀드 h′ · 좌석 `HELD` · 커밋 ④ X가 A5 예약 INSERT → A6 내 홀드 DELETE | A6 0행 → 예외 → X 롤백 → X에게 500 · Y 홀드 그대로 | A6 0행 무시 → A7이 Y의 `HELD`를 `RESERVED`로 덮음 → **좌석 RESERVED + Y의 활성 홀드 h′ + X 예약**(이중 결과 ⓐ — 판정기 `active_on_reserved_seats` · `v_hold_on_unheld_seat` — LoadtestDataService.kt:172-173 · :231). cnt(X)는 배치가 −1 · 예약 +1 → 실제보다 1 작다(below — `v_counter_mismatch`). Y의 확정은 409 SEAT_NOT_HELD(ADR-016 '돈은 빠졌는데 좌석 없음'이 Y에게 생긴다) |
+   119	| FM2 같은 홀드 이중 확정 | ① X1 · X2가 같은 홀드로 동시에 A2~A4 통과 ② 둘 다 A5 예약 INSERT ③ X1 A6 DELETE · A7 · 커밋 ④ X2가 그 뒤 진행 | **V12 없음('V12 없음' 판 — 설계-8.1)**: ②의 두 INSERT는 서로 막지 않는다 → ④ X2 A6 DELETE가 X1을 기다린 뒤 0행 → X2 롤백 → 500. **V12 있음(기본)**: ②에서 늦게 INSERT한 쪽(X2)이 유니크 검사로 X1 커밋을 기다린 뒤 **23505** — A6에 닿기 전에 진다 → 유니크 위반 매핑(N6)으로 409 SEAT_NOT_HELD + `seat.confirm.unique_violation` +1 (추정 `[구현 검증]` #13 — SQL 로그로 '23505가 INSERT 문장에서 났는가 · DELETE 0행 예외가 아닌가'를 본다) | V12 없음: X2도 커밋 → **같은 좌석 CONFIRMED 2건**(이중 결과 ⓑ — `v_duplicate_confirmed_seats` · LoadtestDataService.kt:164) · cnt(X) +0인데 실제 +1(below). V12 있음: 대조 확정의 INSERT가 23505 → 대조군은 매핑이 없어 500 · 이중 결과 0 — **인덱스가 가린다**(그래서 '가드가 없으면' FM2 칸은 `target=11` 판에서만 잰다) |
+   120	| FM3 확정과 배치의 같은 틱 | ① 배치 틱이 내 홀드를 만료로 읽음(배치 `now ≥ te`) ② X 확정(`t0 < te` 시작)이 A6·A7을 먼저 보내고 커밋 ③ 배치 flush의 홀드 DELETE가 X를 기다린 뒤 0행 | 배치 **틱 전체 롤백**(정합은 지켜지지만 그 틱의 모든 만료가 다음 틱으로 밀림 · 실패 지표) | 배치 좌석 UPDATE(전체 열 · 낡은 스냅숏 `AVAILABLE`)가 X의 `RESERVED`를 덮음 → **예약 CONFIRMED + 좌석 AVAILABLE**(이중 결과 ⓒ — `v_confirmed_on_unreserved_seat` · LoadtestDataService.kt:168-169) → 그 좌석이 다시 팔린다 · cnt(X) −1(지우지 않은 홀드만큼 below) |
+   121	| FM4 응답 계약 | FM1~FM3의 진 쪽 | 5xx(계약 밖 · ADR-016이 '확정 실패'를 404·409로 가를 수 없다) — 단 V12가 있으면 FM2의 진 쪽은 409(매핑) | 진 쪽이 없다(이중 결과) |
+   122	| FM5 연장을 잃음(④) | ① 배치가 내 홀드를 만료 후보로 읽음(배치 `:now ≥` 원래 `te`) ② 내 `payment-start`가 연장 커밋(`expires_at` → `:now′ + window` · `extended_at` 기록) ③ 배치가 그 홀드를 지움 | 지금 JPA 배치(id로만 지움): 연장된 홀드가 지워진다 → 좌석 `AVAILABLE` → 내 확정 404(정합은 지키지만 연장이 무효) | 대조 배치도 같다(지워짐 · 잃음 1) |
+   123	
+   124	- **15-02 실측(`current` — Adr015ReproSmokeTest)**: FM1 = X 확정 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` → 롤백(예약 INSERT · 좌석 UPDATE 함께 사라짐) → **HTTP 500**(Spring 기본 오류 JSON — `ApiExceptionHandler` 밖) · 끝 상태 좌석 HELD · Y 홀드 1 · 예약 0 · 판정기 전부 0. FM3 = 배치가 같은 예외로 **틱 전체 롤백**(가드 감소도 사라짐 · `seat.hold.expiry.tick{outcome=failed}` +1) · X 확정 성공 · 판정기 전부 0. 정정: FM3의 '배치 DELETE가 X를 기다린 뒤 0행'은 이번 순서(X가 L-B 대기 중 커밋)에선 기다림 없이 0행이었고, flush가 좌석 UPDATE를 먼저 보내므로 X 커밋 전이면 배치가 기다리는 곳은 좌석 행이다(추정 — 미실측). 진 배치는 낡은 `AVAILABLE` 좌석 UPDATE를 **실제로 실행한 뒤** 롤백된다 — '가드가 없으면' 칸의 덮어쓰기 모양과 같다.
+   125	- **새 모드(①~④ + A′ 배치)의 기대**: FM1 → 404(C1 · P1 · O2가 0행) · FM2 → 404(뒤 쪽이 홀드 행에서 기다린 뒤 0행 — 예약 INSERT 앞이라 V12 유무와 무관) · FM3 → 확정 성공 · A′ 배치는 그 홀드를 0행으로 지나가고(감소 0 · 좌석 되돌림 0행) **틱은 커밋**(다른 좌석 만료는 그대로 진행) · FM5 → A′ 배치의 조건부 DELETE가 EPQ로 연장된 `expires_at`을 다시 보고 지우지 않는다(잃음 0).
+   126	- 정리 ①과 확정은 기다림만 있다(정리 ①이 회차 행 `FOR UPDATE`를 쥐는 동안 A5의 FK 검사가 기다린다 — QuotaCleanup.kt:120-123 주석) — 이중 결과 모양이 아니므로 재현 대상에서 뺀다(교착 점검은 §설계-3.5).
+   127	- 선점 쪽이 '예약된 좌석 위에 홀드'(§함께 검증할 경합 첫 항목)를 만드는 길은 기본 조합 A에 없다(추정): 선점은 좌석을 `FOR UPDATE NOWAIT`로 잠근 **뒤** `AVAILABLE`을 다시 보고(DbLockHoldStrategies.kt:54 → HoldSeatProcess.kt:74-77), 확정은 좌석을 `AVAILABLE`로 만들지 않으며 홀드 삭제와 좌석 `RESERVED`를 한 트랜잭션에서 한다. 그래서 초안 후보 '선점 시 좌석 행 `FOR SHARE`'는 지금 잠금(`FOR UPDATE NOWAIT`)보다 약한 것으로 바꾸는 셈이라 **넣지 않는다**(재현 테스트에 '확정 커밋 직후 선점' 칸만 둔다 — 기대 409).
+   128	
+   129	### 설계-3 선택지 넷 — 데이터 모델 · 문장 순서 · 잠금 · 배치 · 카운터 · 에러 · 교착 · 되돌리기
+   130	
+   131	**공통 규칙**(네 선택지 모두):
+   132	
+   133	- **범위**: A(sweep) + 기본 조합의 확정 경로 + **A 만료 배치의 최소 수정(A′ — §3.6 · 사용자 재합의 2026-11-04)**. 선점 · 정리 ① · B·C·D 경로는 바꾸지 않는다(③의 트리거와 ④의 새 API만 예외 — 각 절). 손잡이 기본값(`current`)은 지금 JPA 확정 · JPA 배치 그대로다(§설계-5 — 측정의 기준선 칸이 바뀌지 않게 · '기존 동작 보존').
+   134	- **시각**: 만료 비교는 `:now`(앱 Clock — 설계-0). DB `now()`를 쓰지 않는다 — A 배치가 앱 Clock으로 만료를 고르고(ExpireHoldsService.kt:39) 기존 테스트가 `MutableClock`으로 만료를 만든다(ConfirmReservationServiceTest.kt:26·66 — ADR-014 §설계-2.1 Q1과 같은 이유). 초안 예시의 `expires_at > now()`(§선택지 후보)는 `expires_at > :now`로 바꾼다.
+   135	- **에러 계약 · 순서(지금 A와 같다)**: 404 HOLD_NOT_FOUND → 403 HOLD_NOT_OWNED → 409 HOLD_EXPIRED → 409 SEAT_NOT_HELD(ProductSeat.kt:59-73 · ErrorCode.kt:7-10 · ApiExceptionHandler.kt:46-55). 경합에서 진 확정은 이 넷 중 하나로 끝나야 한다 — 5xx 금지(N4). 문장 영향 행이 0이면 잠금 없는 **진단 문장**으로 코드를 고른다(판정은 영향 행 수가 하고, 진단은 코드만 고른다 — 진단 순간 값이 또 바뀌어도 결과(거부)는 같다).
+   136	- **구현 형태(권장)**: 새 선택지는 JDBC 문장으로 쓴다(`LazyConfirmProcess`와 같은 방식 — LazyConfirmProcess.kt:36-71). JPA 애그리거트(`ProductSeat.confirm`)는 메모리 판정 + 전체 열 UPDATE라 조건부 문장을 담을 수 없다. `current` 경로(JPA 확정 · JPA 배치)의 SQL · 판정 · 순서는 건드리지 않는다 — 더하는 것은 유니크 위반 매핑(§설계-4)과 관측 지표 `converted_after_expiry{clock=app}`(아래) 둘뿐이다.
+   137	- **카운터 · 대조**: 확정은 쿼터 행을 잡지도 쓰지도 않는다(지금과 같다 — 홀드 −1 · 예약 +1이 같은 트랜잭션이라 cnt = 홀드 행 + 확정이 어느 스냅숏에서도 성립). 커밋 뒤 등록 `changes.changed`는 지금 자리 그대로(ConfirmReservationService.kt:60 · LazyConfirmProcess.kt:69). counter-trigger 등 다른 매수 방식은 기동 거부(§설계-5)라 `beforeConfirm`을 부를 일이 없다. 대조 실제 값 정의(V6__backfill_user_hold_quota.sql:2-3 · LoadtestDataService.kt:190-203)는 바꾸지 않는다.
+   138	- **최후 방어선 위반**: 예약 INSERT가 §설계-4의 인덱스에 걸리면(23505 · 인덱스 이름 일치) 409 SEAT_NOT_HELD + ERROR 로그 + 지표 `seat.confirm.unique_violation` — 다른 무결성 오류는 그대로 올린다(DbLockHoldStrategies.kt:104-111과 같은 방식 · 무음 변환 금지). **A 확정만**(`current` 포함 · 새 모드 넷). B·C·D 확정(LazyConfirmProcess.kt:61-67)의 23505는 매핑하지 않고 500으로 둔다 — 무음이 아니고(5xx로 드러남), B·C·D는 K2 좌석 잠금(LazyConfirmProcess.kt:44)이 같은 좌석 확정을 직렬화해 두 번째가 409 SEAT_NOT_HELD로 먼저 끝나므로 23505는 '가드가 뚫렸다'는 뜻일 때만 난다(§인터뷰 범위 'B·C·D는 ADR-014 최소 가드 그대로' — 받아들인 한계).
+   139	- **만료 뒤 전환된 성공(관측만 — 판정은 바꾸지 않는다)**: 만료 판정 시각은 `:now`(요청 시작 · 앱 Clock — §인터뷰 사용자 답)를 그대로 둔다. 대신 성공한 확정 중 **전환 시각이 그 홀드의 `expires_at` 뒤**인 것을 따로 센다 — 지표 `seat.confirm.converted_after_expiry{clock}`:
+   140	  - `clock=db`: 홀드를 지우는 전환 문장이 `RETURNING …, clock_timestamp() > expires_at AS late`로 같이 돌려준다(① C1 · ④ C1 · ③ O2 · ② P4 — `clock_timestamp()` = 그 문장을 실행한 DB 시각 · 트랜잭션 시작 시각인 `now()`가 아니다). 새 모드만.
+   141	  - `clock=app`: 커밋 뒤(`TransactionSynchronization.afterCommit`) 앱 `clock.instant() > expires_at`. 모든 A 모드(`current` 포함 — `current`는 `ProductSeat.confirm` 앞에 찾은 홀드의 `expiresAt`(SeatHold.kt:20)을 들고 있다가 커밋 뒤 비교 · SQL은 바꾸지 않는다).
+   142	  - 기대: 0이 아닐 수 있다(만료 직전 시작 · 지연 주입 — 설계상 허용되는 성공). 이것은 '이중 결과'가 아니라 **`:now` 규칙이 허용한 창의 크기**다 — 측정에서 모드별 분포(건수 · `전환 시각 − expires_at` 최대)를 남긴다. 두 시계 차는 `[구현 검증]` #12.
+   143	- **잠금 순서(A 전체)**: 기다리는 잠금은 **쿼터 행 → 홀드 행 → 좌석 행** 순(새 모드의 배치 A′가 이 순서 — §3.6. 정정 15-02: `current`의 JPA 배치는 쿼터 → 좌석 → 홀드지만 Q15로 새 확정 모드와 짝지어지지 않는다). 확정은 쿼터 행을 잡지 않으므로 **홀드 행 → 좌석 행 → (예약 INSERT FK 검사: 회차 · 좌석 `FOR KEY SHARE`)**. 선점의 좌석 잠금은 NOWAIT라 기다리지 않는다. 초안 §함께 검증할 경합의 '사용자(advisory) → 좌석 → 홀드'는 기본 조합(쿼터 행 — advisory 아님)과 A′ 배치 순서(홀드 → 좌석)에 맞지 않는다 — 새 모드 확정이 좌석을 먼저 잡으면 A′ 배치와 교착한다(§3.2 · 열린 질문 Q2).
+   144	
+   145	#### 3.1 ① 조건부 문장 — 전환 문장의 WHERE가 곧 확인 (`seat.confirm.mode=conditional`)
+   146	
+   147	- 데이터 모델: 변경 없음.
+   148	
+   149	```sql
+   150	-- C1 홀드 소비 = 확인(내 것 · 만료 전) — 조건이 모두 홀드 행 자신의 열이라 EPQ가 전부 다시 본다(하위 질의 없음)
+   151	DELETE FROM seat_hold WHERE id = :hold AND user_id = :u AND expires_at > :now
+   152	RETURNING seat_id, schedule_id, clock_timestamp() > expires_at AS late;   -- late → converted_after_expiry{clock=db}
+   153	--   0행 → C1d 진단(잠금 없음): SELECT user_id, expires_at FROM seat_hold WHERE id = :hold
+   154	--         없음 → 404 · 남의 것 → 403 · expires_at <= :now → 409 HOLD_EXPIRED
+   155	--         '내 것 · 활성'(설계상 생기지 않는다) → ERROR 로그 + 지표 seat.confirm.unexpected + 409 HOLD_EXPIRED(무음 아님)
+   156	-- C2 좌석 전환 = 확인(HELD) — 0행 → 409 SEAT_NOT_HELD(C1 롤백)
+   157	UPDATE product_seat SET status = 'RESERVED' WHERE id = :seat AND status = 'HELD';
+   158	-- C3 예약(created_at = :now — 지금과 같다) — 23505(§설계-4 인덱스) → 409 SEAT_NOT_HELD + 지표
+   159	INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, created_at)
+   160	VALUES (:s, :seat, :u, :paymentUid, 'CONFIRMED', :now) RETURNING id;
+   161	```
+   162	
+   163	- 잠금 순서: 홀드 행(C1) → 좌석 행(C2) → FK 검사(C3). C1을 C2보다 먼저 두는 이유: ⓐ 배치와 같은 순서(교착 없음) ⓑ 에러 순서 HOLD_EXPIRED → SEAT_NOT_HELD를 문장 순서가 그대로 만든다.
+   164	- 왜 충분한가(A 불변식 ② 'HELD ⇔ 홀드 정확히 1개' 위 — ADR-000 §2.1): 기본 조합 A에서 좌석이 다시 선점되려면 먼저 배치가 그 좌석의 홀드(내 것)를 지워야 한다(선점은 `AVAILABLE`만 잡는다). 그 삭제가 C1보다 먼저 커밋됐으면 C1은 0행(FM1 → 404). C1이 먼저면 C1이 홀드 행을 쥐어 배치 DELETE가 기다린다 → 그동안 좌석은 `AVAILABLE`이 될 수 없다. 홀드 id는 BIGSERIAL이라 다시 쓰이지 않아(V1__init.sql:25) Y의 새 홀드가 내 id로 보이는 ABA(값이 A → B → A로 돌아와 변경을 못 알아채는 문제)가 없다. 같은 홀드 이중 확정(FM2)은 뒤 쪽 C1이 앞 쪽 커밋을 기다린 뒤 0행 → 404.
+   165	- 배치와(이 모드에서는 A′ 배치 — §3.6): FM3(확정이 먼저)에서 A′의 조건부 DELETE는 홀드 행을 기다린 뒤 0행 → 그 쌍은 감소 0 · 좌석은 되돌림 대상에 들지 않는다 → **틱은 커밋**(정정 — 초안의 '틱 전체 롤백이 남는다'는 A 배치 무변경 전제였다). 배치가 먼저면 C1 0행 → 404(지금 A의 '배치 뒤 확정 = 404'와 같은 응답).
+   166	- 문장 수: 성공 3(지금 A2 · A3 · A5 · A6 · A7 = 5 — 추정 `[구현 검증]` #2) · 실패 +1(진단).
+   167	- 되돌리기: 손잡이를 `current`로(스키마 없음).
+   168	
+   169	#### 3.2 ② 비관락 — 홀드 · 좌석 `FOR UPDATE` 뒤 확인 · 전환 (`seat.confirm.mode=pessimistic`)
+   170	
+   171	- 데이터 모델: 변경 없음.
+   172	
+   173	```sql
+   174	-- P0 홀드 찾기(잠금 없음) — 없음 404 · 남의 것 403(남의 홀드 행을 잠그지 않으려고 잠금 전에 거른다 — LazyConfirmProcess.kt:38-40 K1과 같다)
+   175	SELECT seat_id, schedule_id, user_id FROM seat_hold WHERE id = :hold;
+   176	-- P1 홀드 행 잠금 + 새 판정 — 행 없음(그 사이 배치 · 다른 확정) → 404 · expires_at <= :now → 409 HOLD_EXPIRED
+   177	SELECT expires_at FROM seat_hold WHERE id = :hold FOR UPDATE;
+   178	-- P2 좌석 행 잠금 — status <> 'HELD' → 409 SEAT_NOT_HELD
+   179	SELECT status FROM product_seat WHERE id = :seat FOR UPDATE;
+   180	-- P3~P5 전환 — 두 행을 쥐었으므로 조건 없이 쓴다. P4는 1행이어야 한다(아니면 ERROR + 롤백 — 설계상 생기지 않는다)
+   181	UPDATE product_seat SET status = 'RESERVED' WHERE id = :seat;
+   182	DELETE FROM seat_hold WHERE id = :hold RETURNING clock_timestamp() > expires_at AS late;
+   183	INSERT INTO reservation (…) VALUES (…) RETURNING id;     -- C3과 같다
+   184	```
+   185	
+   186	- **잠금 순서 = 홀드 → 좌석**(초안 '좌석 → 홀드'를 바꾼다 — Q2). 좌석을 먼저 잡으면: ① ②가 좌석 S를 잠금 ② A′ 배치 B3이 내 홀드 h를 DELETE(행 잠금 획득) 뒤 B5 좌석 S UPDATE에서 ②를 기다림 ③ ②의 P1이 h에서 배치를 기다림 → **고리(40P01 — 교착 탐지로 한쪽 롤백)**. A′가 홀드 → 좌석 순서로 쓰기 때문이다(§3.6 · `[구현 검증]` #3). 정정 15-02: JPA 배치(`current`)는 좌석 → 홀드 순이라 '좌석 → 홀드' 판과 고리가 닫히지 않는다 — 대조판은 A′ 배치와 짝지어 보인다. ADR-014 B·C·D 확정(`LazyConfirmProcess` — 좌석 K2 → 홀드 K3)은 좌석 → 홀드지만, 그쪽 배치는 좌석을 `SKIP LOCKED`로 먼저 잡거나(C) 좌석을 쓰지 않아(D) 고리가 없다(ADR-014 §3.2) — A 배치는 그렇지 않다. 재현 테스트에 '좌석 → 홀드' 대조판을 넣어 40P01이 나는 것을 한 번 보인다(§설계-7 #9).
+   187	- ①과의 차이: 확인을 문장 조건이 아니라 잠근 뒤 메모리에서 한다. 잠금 읽기 2문장이 늘고(성공 6), 좌석 잠금을 P2부터 커밋까지 쥔다 — 그동안 같은 좌석 선점은 NOWAIT로 진다(어차피 `HELD`라 선조회 409가 먼저다 — UserLimitStrategies.kt:340).
+   188	- 배치와(A′): P1이 먼저면 A′ DELETE가 기다린 뒤 0행 → 그 쌍만 건너뛰고 틱 커밋(①과 같다). 배치가 먼저면 P1 행 없음 → 404.
+   189	- 되돌리기: 손잡이.
+   190	
+   191	#### 3.3 ③ 낙관락 — 좌석 버전 비교 (`seat.confirm.mode=optimistic`)
+   192	
+   193	- **지금 버전은 아무도 올리지 않는다**: `product_seat.version`(V3)은 엔티티에 매핑돼 있지 않고(V3__add_seat_version.sql:1-2 — '@Version을 달면 모든 전략에 낙관락 검사가 걸려 기준선이 바뀐다'), 올리는 곳은 ADR-003 낙관락 선점 전략뿐이다(DbLockHoldStrategies.kt:74-93 · ProductSeatRepository.kt:44-51). 기본 조합의 선점 · 배치 · 확정은 버전을 올리지 않는다 → 확정만 버전을 비교하면 FM1(배치 `AVAILABLE` → Y `HELD` — 상태가 `HELD`로 돌아오는 ABA)을 못 본다.
+   194	- 버전을 올릴 방법(Q3):
+   195	
+   196	| 안 | 내용 | 판단 |
+   197	|---|---|---|
+   198	| (가) `ProductSeat`에 `@Version` 매핑 | JPA가 모든 좌석 UPDATE에 `version = version + 1 … WHERE version = ?`를 붙인다 | **기각** — 손잡이와 무관하게 모든 전략 · 경로의 SQL이 바뀐다(V3 주석). ADR-003 낙관락 선점은 버전을 먼저 읽고 flush 뒤 `bumpVersion(expected)`를 하는데(DbLockHoldStrategies.kt:86-91) JPA가 먼저 올리면 늘 0행 → 늘 진다. 범위(A 확정만) 밖 |
+   199	| (나) 상태가 바뀔 때 버전을 올리는 DB 트리거 — 새 **선택 위치** `db/migration-confirm-version`의 **V14**(15-01b에서 V13 → V14 — 기본 위치의 V12 · V13 위에 두어, 나중에 이 위치를 더해도 '적용된 버전보다 낮은 미적용'이 되지 않게 · §설계-4 번호): `BEFORE UPDATE OF status ON product_seat FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)` → `NEW.version := OLD.version + 1` | 선점 · 배치 · 확정(JPA · JDBC 모두) 코드를 고치지 않고 덮는다. ③ 셀에만 위치를 더한다 — 트리거 비용이 곧 ③의 비용이다 | **권장** — 기동 검사로 짝을 맞춘다(§설계-5 · V4·V8과 같은 방식 — HoldStrategyStartupCheck.kt:97-104 · :122-132) |
+   200	| (다) 선점(HoldSeatProcess) · 배치(ExpireHoldsService)에 버전 증가 문장 추가 | 손잡이로 켬 | 차선 — 범위 밖 코드 두 곳을 고친다 · 앞으로 새 쓰기 경로가 빠뜨릴 수 있다 |
+   201	
+   202	```sql
+   203	-- O1 한 문장 = 한 스냅숏(잠금 없음) — A 순서로 판정: 없음 404 · 남의 것 403 · expires_at <= :now 409 HOLD_EXPIRED · status <> 'HELD' 409 SEAT_NOT_HELD
+   204	SELECT h.seat_id, h.schedule_id, h.user_id, h.expires_at, s.status, s.version
+   205	FROM seat_hold h JOIN product_seat s ON s.id = h.seat_id WHERE h.id = :hold;
+   206	-- O2 홀드 삭제 — 0행(그 사이 배치 · 다른 확정) → 404. 순서: 홀드 → 좌석(①과 같은 이유 — 배치와 교착 없음)
+   207	DELETE FROM seat_hold WHERE id = :hold RETURNING clock_timestamp() > expires_at AS late;
+   208	-- O3 버전 비교 전환(트리거가 version을 올린다) — 0행 → C1d와 같은 진단 뒤 좌석을 다시 읽어 코드 결정(대개 409 SEAT_NOT_HELD)
+   209	UPDATE product_seat SET status = 'RESERVED' WHERE id = :seat AND version = :v;
+   210	-- O4 예약 = C3
+   211	```
+   212	
+   213	- 재시도 없음(진 확정은 거부 — ADR-003 낙관락 선점과 같은 원칙 · DbLockHoldStrategies.kt:67-72 주석).
+   214	- **정직한 한계**: A에서는 O2의 행 수 검사만으로 FM1·FM2가 막힌다(홀드 id 재사용 없음 — ①과 같은 논리). O3의 버전은 '홀드 행 정체성 없이 좌석 쪽만으로도 막는다'는 이중 확인이다. 그래서 ③이 ①을 이기는 길은 비용뿐이고, 트리거가 선점 · 배치의 좌석 UPDATE마다 붙어 ③ 셀의 선점 비용도 늘어난다(추정 `[구현 검증]` #7). 사용자 결정(4개 전부 측정)대로 그대로 잰다.
+   215	- 되돌리기: 손잡이를 `current`로. V14 트리거는 남아도 기본 조합에 무해하다(버전을 읽는 곳이 없다) — 단 낙관락 선점 전략과는 함께 띄우지 않는다(기동 거부 — §설계-5). **정정**: 되돌릴 때 위치 `classpath:db/migration-confirm-version`을 목록에서 **빼지 않는다** — 이미 적용된 V14가 위치에 없으면 Flyway 검증이 '적용됐는데 위치에 없는 버전'으로 기동을 멈춘다(HoldStrategyStartupCheck.kt:52-54 주석의 Flyway 거부 갈래). 위치는 남기고 모드만 바꾼다 — 그래서 짝 검사는 '위치가 있으면 낙관락 선점 금지'로 둔다(§설계-5).
+   216	
+   217	#### 3.4 ④ 결제 중 홀드 연장 (`seat.confirm.mode=conditional-extend`)
+   218	
+   219	- **'결제 시작'의 정의**: 이 랩에는 결제 단계가 없다(ADR-000 §6 — 확정 API가 결제 결과 `paymentUid`를 받는다 · ReservationController.kt:20-35). 그래서 '결제 시작' = **클라이언트가 사용자를 결제 화면(PG — 결제 대행사)으로 보내기 직전에 부르는 새 API**로 정의한다:
+   220	  - `POST /api/holds/{holdId}/payment-start` · 헤더 `X-User-Id` · 본문 없음 → `200 {holdId, expiresAt}` · 실패 `404` HOLD_NOT_FOUND · `403` HOLD_NOT_OWNED · `409` HOLD_EXPIRED(만료 또는 아직 연장 전인데 남은 시간 ≤ 연장 하한 — 새 에러 코드를 두지 않는다 · §인터뷰 Q5). 이 손잡이 값에서만 등록한다(`@Profile("!reconciler")` — 지금 컨트롤러와 같게).
+   221	  - **재호출 멱등 = 첫 연장만 반영**(§인터뷰 '설계 선검증 뒤' 사용자 답): 한 홀드는 **많아야 한 번** 연장된다. 재호출은 연장하지 않고 지금 `expires_at`을 200으로 돌려준다.
+   222	  - 손잡이: `seat.confirm.payment-window`(연장 뒤 남는 시간 · 기본값은 측정 task가 고정) · `seat.confirm.extend-min-remaining`(연장을 받는 최소 남은 시간 · 초안 5초).
+   223	- **데이터 모델(정정 — 초안 '열 추가 없음'을 바꾼다)**: 표지 열 하나를 더한다 — 새 마이그레이션 **V13 · 기본 위치**(추가형 · 모든 구성):
+   224	
+   225	```sql
+   226	-- V13__seat_hold_extended_at.sql — classpath:db/migration
+   227	-- ADR-015 ④: 첫 연장 시각(NULL = 연장 안 함). 기존 행은 NULL(연장 안 한 홀드 — 뜻이 맞다). 기본값 없음 · NULL 허용이라 PostgreSQL은 표를 다시 쓰지 않는다(카탈로그만 · 짧은 ACCESS EXCLUSIVE)
+   228	ALTER TABLE seat_hold ADD COLUMN extended_at TIMESTAMPTZ NULL;
+   229	```
+   230	
+   231	  - 엔티티 `SeatHold`(SeatHold.kt:16-24)에는 매핑하지 않는다 — `ddl-auto: validate`(application.yml:12)는 매핑한 열만 보므로 더한 열에 걸리지 않고, JPA 선점 INSERT는 이 열을 쓰지 않아 NULL로 들어간다(추정 `[구현 검증]` #14). 이 열을 쓰는 곳은 E1 하나 · 읽는 곳은 E1 진단 · A′ 배치 B3 `RETURNING` · 대조 배치 · 판정 문장뿐이다.
+   232	  - 번호: V12(유니크 인덱스) → **V13(이 열)** → V14(③ 트리거 · 선택 위치). 기본 위치 둘을 선택 위치보다 낮게 둔다(§설계-4 번호).
+   233	  - 기본 위치라 생기는 일: ADR-013 전환 · 선택 위치 추가 때의 Flyway 순서 함정이 V12와 같이 생긴다(§설계-4 — 같은 처리).
+   234	
+   235	```sql
+   236	-- E1 첫 연장(홀드 행만 · 좌석 · 쿼터 무관) — 내 것 · 활성 · 아직 연장 안 함 · 연장이 실제로 늘리는 경우만
+   237	UPDATE seat_hold
+   238	   SET expires_at = :now + :window, extended_at = :now
+   239	 WHERE id = :hold AND user_id = :u
+   240	   AND extended_at IS NULL
+   241	   AND expires_at > :now + :minRemaining
+   242	   AND expires_at < :now + :window
+   243	RETURNING expires_at;
+   244	-- 상한: :now < expires_at(원래) − minRemaining 이고 한 번뿐이라 새 expires_at < 원래 expires_at − minRemaining + window ≤ held_at + TTL + window — 따로 계산하지 않는다(초안의 LEAST 식 삭제)
+   245	-- 동시 두 첫 호출: 뒤 쪽 UPDATE가 앞 쪽 행 잠금을 기다린 뒤 EPQ가 extended_at IS NULL을 최신 버전으로 다시 봐 0행 → 아래 진단 ③ → 200(첫 연장 값)
+   246	--   0행 → E1d 진단(잠금 없음): SELECT user_id, expires_at, extended_at FROM seat_hold WHERE id = :hold — 위에서부터 첫 일치
+   247	--     ① 없음 → 404 HOLD_NOT_FOUND
+   248	--     ② 남의 것 → 403 HOLD_NOT_OWNED
+   249	--     ③ expires_at <= :now → 409 HOLD_EXPIRED(연장했어도 이미 지난 홀드)
+   250	--     ④ extended_at IS NOT NULL → 200 {expiresAt = 지금 값}(멱등 재호출 · 지표 seat.confirm.extend{result=already})
+   251	--     ⑤ expires_at <= :now + :minRemaining → 409 HOLD_EXPIRED(연장하기엔 늦음 · result=too_late)
+   252	--     ⑥ expires_at >= :now + :window → 200 {expiresAt = 지금 값}(남은 시간이 이미 window 이상 — 연장이 늘리지 않으므로 아무것도 쓰지 않고 **표지도 남기지 않는다** · result=not_needed · 뒤의 재호출이 연장을 받을 수 있다 — Q16)
+   253	--     ⑦ 그 밖(내 것 · 활성 · 연장 전 · 범위 안 — 설계상 생기지 않는다) → ERROR 로그 + seat.confirm.unexpected + 409 HOLD_EXPIRED(무음 아님)
+   254	--   성공 → result=extended
+   255	```
+   256	
+   257	- **확정 문장 = ① C1~C3**(§인터뷰 Q4). 연장만으로는 확인과 전환 사이 경합이 없어지지 않는다(늦은 확정 · 이중 확정은 그대로) — ④는 '결제 중 만료' 발생 수를 줄이는 장치이고 원자성은 ①이 맡는다. '지금 확정(current) + 연장'은 연장 효과만 따로 보고 싶을 때의 대조 셀 후보(측정 task 판단 — 그 셀은 `current`라 A′ 배치가 돌지 않으므로 FM5 창이 열린다는 점을 함께 적는다).
+   258	- **배치와의 창(연장을 잃는 경우 — FM5)**: 지금 JPA 배치는 고른 홀드를 id로만 지운다(만료 조건을 다시 보지 않는다 — ProductSeat.kt:76-86 · :40 고아 삭제). 이 모드에서는 **A′ 배치**(§3.6)가 돈다 — B3 조건부 DELETE의 `expires_at <= :now`가 홀드 행 자신의 열이라, 배치가 후보로 읽은 뒤 연장이 커밋됐으면 EPQ가 연장된 값을 다시 보고 지우지 않는다(연장 커밋 전이면 E1의 행 잠금을 B3이 기다린 뒤 같은 재확인). 그래서 A′ 아래에서 연장을 잃는 창은 **구조적으로 닫힌다**(추정 — 래치 테스트 `[구현 검증]` #8).
+   259	- **`extension_lost`를 보는 법(표지 열이 있어 보인다)**:
+   260	  - 서버(배치 쪽): 홀드를 지우는 배치 문장이 `RETURNING extended_at IS NOT NULL AS extended, expires_at > :now AS lost`를 함께 돌려준다 → 지표 `seat.hold.expiry.deleted{extended=true|false}` · `seat.confirm.extension_lost`(= `lost` 참인 지운 행 수). A′에서는 WHERE가 `expires_at <= :now`라 `lost`는 늘 거짓(구조적 0) — 이 값이 뜻을 갖는 곳은 **대조 배치**(id로만 지움 — §설계-8.1)다: 대조에서 ≥ 1 · A′에서 0이어야 '창을 닫았다'가 증명된다. `extended=true`(연장했는데도 만료돼 지워짐)는 잃음이 아니라 'window가 결제 시간보다 짧았다'의 신호다(측정에서 따로 센다).
+
+exec
+/bin/bash -lc 'git show --format=fuller --stat fa3e511c && git show --format= -- docs/adr/ADR-015-confirm-atomicity.md fa3e511c' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 2ms:
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+ succeeded in 313ms:
+?? .claude/
+?? k6/ADR-001/results/smoke-dbpoll/
+?? k6/ADR-001/results/smoke-final/
+?? k6/ADR-001/results/smoke-fix/
+?? k6/ADR-001/results/smoke-heavy/
+?? k6/ADR-001/results/smoke-poll/
+?? k6/ADR-001/results/smoke-postfix/
+?? k6/ADR-001/results/smoke-s1/
+?? k6/ADR-002/results/smoke-run-v3/
+?? k6/ADR-002/results/smoke-run/
+?? k6/ADR-002/results/smoke-s5-fix/
+?? k6/ADR-002/results/smoke-s5-v3/
+?? k6/ADR-002/results/smoke-s5/
+?? k6/ADR-007/results/dry-dc-b943/
+?? k6/ADR-007/results/dry-fs-x/
+?? k6/ADR-007/results/dry-rest-b943/
+?? k6/ADR-007/results/rotcheck-dryrun/
+?? k6/ADR-007/results/smoke-campaign-dryrun-pyfail/
+?? k6/ADR-007/results/smoke-campaign-dryrun/
+?? k6/ADR-007/results/smoke2-campaign-dryrun/
+?? k6/ADR-007/results/smoke3-campaign-dryrun/
+?? k6/ADR-009/results/adr012-ext-launch.log
+?? k6/ADR-009/results/adr012eff-launch.log
+?? k6/ADR-009/results/adr012r5-launch.log
+?? k6/ADR-009/results/adr012r8-launch.log
+?? k6/ADR-009/results/adr012s1-launch.log
+?? k6/ADR-009/results/adr012s2-launch.log
+?? k6/ADR-009/results/e1-launch.log
+?? k6/ADR-009/results/e1b-launch.log
+?? k6/ADR-009/results/e2-launch.log
+?? k6/ADR-009/results/e2b-launch.log
+?? k6/ADR-009/results/e3-launch.log
+?? k6/ADR-009/results/e3rc-launch.log
+?? k6/ADR-009/results/smoke-04b-default-unreachable.runner.log
+?? k6/ADR-009/results/smoke-04b-default-unreachable/
+?? k6/ADR-009/results/smoke-04b-default.runner.log
+?? k6/ADR-009/results/smoke-04b-default/
+?? k6/ADR-009/results/smoke-adr012r5-ae.runner.log
+?? k6/ADR-009/results/smoke-adr012r5-ae/
+?? k6/ADR-009/results/smoke-adr012r5-s2.runner.log
+?? k6/ADR-009/results/smoke-adr012r5-s2/
+?? k6/ADR-009/results/smoke-adr012s1-f.runner.log
+?? k6/ADR-009/results/smoke-adr012s1-f/
+?? k6/ADR-009/results/smoke-ai-mem-overrun/
+?? k6/ADR-009/results/smoke-ai-mem.runner.log
+?? k6/ADR-009/results/smoke-ai-mem/
+?? k6/ADR-009/results/smoke-ai-stmt-overrun/
+?? k6/ADR-009/results/smoke-ai-stmt.runner.log
+?? k6/ADR-009/results/smoke-ai-stmt/
+?? k6/ADR-009/results/smoke-ai-trg-overrun/
+?? k6/ADR-009/results/smoke-ai-trg.runner.log
+?? k6/ADR-009/results/smoke-ai-trg/
+?? k6/ADR-009/results/smoke-ax-stmt.runner.log
+?? k6/ADR-009/results/smoke-ax-stmt/
+?? k6/ADR-009/results/smoke-ax-trg.runner.log
+?? k6/ADR-009/results/smoke-ax-trg/
+?? k6/ADR-009/results/smoke-eff-trg-stopped.runner.log
+?? k6/ADR-009/results/smoke-eff-trg-stopped/
+?? k6/ADR-009/results/smoke-eff-trg.runner.log
+?? k6/ADR-009/results/smoke-eff-trg/
+?? k6/ADR-009/results/smoke-r8-group.runner.log
+?? k6/ADR-009/results/smoke-r8-group/
+?? k6/ADR-009/results/smoke-r8-split.runner.log
+?? k6/ADR-009/results/smoke-r8-split/
+?? k6/ADR-014/results/20261103-adr014-fd494aea/
+?? k6/ADR-014/results/20261104-adr014-r7-4d0117de/
+?? k6/ADR-014/results/20261104-adr014-r7-merged/
+?? k6/ADR-014/results/_evidence-20261104/06a-counterfactual/
+?? k6/ADR-014/results/_evidence-20261104/06c-keepalive-repro/
+?? k6/ADR-014/results/_evidence-20261104/completion-summary.md
+?? k6/ADR-014/results/_evidence-20261104/pr-seatlab.md
+?? k6/ADR-014/results/_evidence-20261104/pr-sn.md
+?? k6/ADR-014/results/_evidence-20261104/rerun12.log
+?? k6/ADR-014/results/_evidence-20261104/rerun12.sh
+?? k6/ADR-014/results/_evidence-20261104/reviews/ds15-design/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rr14-postfix/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv14-results/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-loop1/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-loop2/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-loop3/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-impl-postfix/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-measure-loop1/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-measure-loop2/
+?? k6/ADR-014/results/_evidence-20261104/reviews/rv15-measure-loop3/
+?? k6/ADR-014/results/campaign14smoke-20261103/
+?? k6/ADR-014/results/confirm14-20261030/
+?? k6/ADR-014/results/confirm14-20261103/
+?? k6/ADR-014/results/confirm14-20261103b/
+?? k6/ADR-014/results/images-0bf4c827.json
+?? k6/ADR-014/results/images-2bb7355f.json
+?? k6/ADR-014/results/images-4d0117de.json
+?? k6/ADR-014/results/images-fd494aea.json
+?? k6/ADR-014/results/smoke14-20261028/
+?? k6/ADR-014/results/smoke14-20261029-rejudge-20261029/
+?? k6/ADR-014/results/smoke14-20261029/
+?? k6/ADR-014/results/smoke14net-20261028/
+?? k6/ADR-014/results/start-conditions-csmoke-fd494aea.json
+?? k6/ADR-014/results/start-conditions-fd494aea.json
+?? k6/ADR-015/results/
+fa3e511c6ca87a2911bbc3e24776b7fb62140564
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "rg -n '측정-8|eliminate|단순성 순서|1\\.166|1\\.119|rep1~3|이겼을 수 있다' docs/adr/ADR-015-confirm-atomicity.md" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+13:- 상태: 결정 (2026-11-06) — 새 기본값 ① `conditional`(고정 규칙 요약기 = 판정 불가 → 사용자 보고 → 사용자 결정 — §결과-3 · §결정) · 기본값 교체 커밋은 별도(측정-8)
+473:- 셀 수 · 반복 · 길이 · 문턱(G — 관문) · '이기면 교체' 조건은 측정 task(ADR-014 측정-8과 같은 틀).
+610:- ④ 기준 흐름 세션은 홀드가 연장돼 재선점이 모두 409다(설계상 — 측정-8 D-7). 경계 흐름 세션의 재선점은 e′ 둘레를 노린다.
+640:| 허용선 +10%(≫ 둘째 조건) | 측정-8 G3 · 3단 | ADR-014 측정-4 :665 ← ADR-009 사용자 결정 '선점 p99·처리량 대조군 대비 10% 이내'(docs/adr/ADR-009-counter-drift.md:259) · DB CPU에 쓰는 +10%는 선례 없음(ADR-014와 같은 보수적 선택) | 선례(p99) · **보수적 선택**(CPU) |
+641:| 단순성 순서 ① > ② > ③ > ④ | 측정-8 4단 | 더하는 부품 수: ① 0 · ② 잠금 문장(P1 `FOR UPDATE`) 1 · ③ 선택 위치 V14 트리거 + 기동 짝 검사(규칙 6) 2 · ④ 새 API + 키 2 + 클라이언트 호출 3 | 설계 · **D-9** |
+658:| **(fix3) #5 V12 = 캠페인 완료 관문(M15-30 · M15-31)** | 측정-8 결론 · 측정-10 | campaign.sh가 `v12-stage.json`(skipped · rc)을 남기고 요약기가 결론 옆에 적는다: 단계 누락(`--skip-v12` · 기록 없음 · 폴더 없음) · 실패(rc ≠ 0) · 필수 값 결측(자리마다 트랜잭션 판 `build_ms` · `probe_blocked_ms` · `probe_started_inside` · CONCURRENTLY 판 `build_ms` · `probe_ms` · `probe_started_inside` · 두 판 `valid` · 시드 rc · 시드 행 수) → **'V12 판정 불가(사유)'**. 교체 결론은 그대로 두되 **'— 운영 적용 전 V12 판정 필요'**를 붙인다(`decision.v12_required_before_apply` — 교체 커밋 · 운영 적용 앞에 #5를 다시 잰다). V12 판정이 서면 결론 옆에 `#5 V12: <판정>` | 설계(codex 루프 3 F2 · F3) |
+659:| **(fix3) 3단 · G3 = cost 셀 지표 셋만(M15-33 — 사용자 결정 2026-11-05)** | 측정-8 | race 셀 확정 p99 · DB CPU에는 ④ 재선점 구조(연장 때문에 409를 거듭 받는다) · ② 잠금 보유 지연 · 경계 흐름 VU가 섞여 모드가 아니라 부하 구성을 잰다(Opus 루프 3 F2) → 설명 열(`desc_ranges`)로만. 결과 문서용으로 모드별 재선점 요청 수 `req.rehold`(race · cost)를 함께 낸다 | 사용자 결정 |
+729:  - **성공** = 위 둘이 아님. 판정 불가는 성공도 실패도 아니다 — 결론에서 측정-8 '판정 불가 결론'으로 간다(ADR-014 측정-8 :800 ⓑ와 같은 처리).
+730:- **A도 같은 문턱(M15-17 — ADR-014 측정-7 :765 · 재해석 :766 · 측정-8 :800 ⓐ와 같은 꼴)**: G-F 표의 ○ 항목(선점 · 재선점 5xx · 시간 초과 · 잘못된 거부 · 방식 정지)은 current에도 같은 식 · 같은 창으로 계산한다(요청 이름별 · 셀별). 새 모드 X가 어긴 (항목, 셀)을 **current도 같은 셀의 유효 회차에서 어겼으면** 그 항목은 '하네스 · 환경 · 조건 원인 → 판정 불가'로 분류하고 X의 실패로 세지 않는다. current의 그 셀이 유효 < 3이라 'current도 어겼나'를 세울 수 없을 때도 실패가 아니라 판정 불가다(ADR-014 :766 CR14-30과 같은 보수적 처리). **시간 초과는 요청 이름과 무관하게 묶는다(fix3 · Opus 루프 3 OQ2)**: current에 그 셀 시간 초과가 하나라도 있으면 X의 모든 요청 이름 시간 초과(④ `pay_start` 포함)가 판정 불가다 — 환경 원인 시간 초과가 ④에만 있는 요청에 걸려 hard 실패가 되지 않게. current가 어기지 않은 항목을 X가 어기면 그대로 X의 실패다. × 항목은 이 규칙 밖이다 — 정합 · API 이중 결과 · 40P01(current의 위반은 A 결함 — G2(a))과 current의 기대가 0이 아니거나 그 경로가 없는 항목(확정 5xx · payment-start · 연장 · unexpected · 되돌림 · 계약 밖 쌍)은 X의 실패다. 왜: 환경 원인 시간 초과 · 정지가 다섯 모드 모두에 나면 새 모드가 모두 '실패' → 'current 유지 ①'로 **측정하지 못한 후보가 진 것으로** 결론 난다(opus 루프 2 F1).
+733:### 측정-8 고르는 규칙 · '이기면 교체' 조건
+740:| 2 사용자 결과 | race 확정 5xx(M2) · race 틱 실패(M3) — 원인 귀속 값(current = app.log 0행 DELETE 귀속 · 새 모드 = 전체 — M15-29) | Y가 어느 지표에서 X보다 범위 비겹침으로 낮고 어느 지표에서도 범위 비겹침으로 높지 않으면 X가 빠진다(ADR-014 측정-8 2단 :777과 같은 꼴) |
+744:- 동률 · 순환 · 순위 = ADR-014 측정-8 :781-783 그대로(늦게 빠진 후보가 앞 · 순환은 순환에 든 후보만 남긴다).
+755:- **교체가 성립하면**: `seat.confirm.mode` 기본값 = X를 **별도 커밋**(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — ADR-014 측정-8 :798과 같은 선례). ③이면 V14 위치를 기본 위치 목록에 더함 · ④면 payment-window · extend-min-remaining 앱 기본값(D-6)과 클라이언트의 payment-start 호출이 함께 필요하다. 기존 운영 전환은 측정-11 절차. `current`는 손잡이로 되돌릴 수 있게 둔다.
+756:- **교체 후보가 여럿 이기면**: 위 순위(2단 → 3단 → 4단)의 앞 후보부터 관문을 대고 **처음 통과한 하나**만 교체한다. 그보다 앞 순위 후보의 G2 · G3가 판정 불가(확정적으로 걸리지 않음)면 그 후보가 이겼을 수 있으므로 **교체 선정을 멈추고** 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — ADR-014 측정-8 :801 ⓒ · :802 ⓓ · M15-2).
+757:- **판정 불가 결론**(기본값 `current` 그대로 두되 'current가 이겼다'로 적지 않는다 — 사용자 보고 뒤 사용자가 정한다): ⓐ G4 실패 ⓑ 위 '앞 순위 관문 판정 불가' ⓒ 측정-7 판정 불가 후보('A도 같은 문턱' · 유효 반복 부족 · 양성 대조 없음 · 범위 없음 — 어느 사유든)가 있고 그 후보가 관문에서 확정적으로 걸리지 않았다(G2 확정 실패 · G3 걸림이 아니면 그 후보가 이겼을 수 있다 — M15-1 · M15-14 · M15-17). 판정 불가 후보가 확정적으로 걸렸으면 나머지 규칙대로 간다.
+761:- **주의(측정 전에 밝혀 둔다 — ADR-014 측정-8 :803과 같은 꼴)**: 15-02 실측으로 current의 정합은 '우연한 가드(0행 DELETE → 예외 → 롤백)'가 지킨다. 그래서 G2(a)는 A 결함이 새로 드러날 때만 서고, 교체 여부는 사실상 **G2(b)(c) — 진 쪽이 5xx 대신 계약 코드로 끝나는가 · 배치 틱이 롤백되지 않는가 — 와 G3(비용)** 이 정한다. **사용자 결정(D-10 · 2026-11-05)**: 맞다 — (b)(c)를 '이긴다'로 본다 · G3 비용 조건은 유지.
+784:- **판정**(`summarize.py --v12`): **계획한**(v12-build.sh가 남긴 `v12-plan.json` — 크기 목록 · 반복) 가장 큰 N의 3회 쓰기 차단 최대 ≤ 2,000ms(D-5 — ADR-013 :186) → **트랜잭션 안 판 유지** · > 2,000ms → **CONCURRENTLY 판 후속**(V12 `.conf` `executeInTransaction=false` + `indisvalid` 기동 검사 · §설계-4 재시도 절차 — 새 task). **계획한 모든 (크기, 반복) 자리**마다 파일 · 시드 종료 코드 0 · 시드 실측 행 수(예약 = N · 좌석 = N + 1,000) · 값 · indisvalid가 맞아야 한다 — 하나라도 빠지면 판정 불가(관측 파일 중 가장 큰 N으로 판정하지 않는다 · M15-7 · M15-8). **필수 값(fix3 M15-31)**: 트랜잭션 판 `build_ms` · `probe_blocked_ms` · `probe_started_inside` · **CONCURRENTLY 판 `build_ms` · `probe_ms` · `probe_started_inside`** · 두 판 `valid` — 하나라도 없으면(측정 오류 `error` 포함) 판정 불가. **이 판정은 캠페인 완료 관문이다(M15-30 — 측정-8 끝 'V12 관문')**: 단계 누락 · 실패 · 판정 불가면 결론 옆 'V12 판정 불가' · 교체면 '운영 적용 전 V12 판정 필요'. CONCURRENTLY 쪽 탐침 대기(쓰기를 막지 않아야 한다)와 생성 시간도 함께 적는다(Flyway 비트랜잭션 실패 이력 · `flyway repair`는 #5의 나머지 몫 — CONCURRENTLY 판을 고를 때 그 task가 잰다).
+877:| D-9 | 단순성 순서 | ① > ② > ③ > ④ · ① > ③ > ② > ④ | **① > ② > ③ > ④** | 더하는 부품 수(측정-4) |
+904:- **G4 캠페인 유효**: ok — current race 양성 대조(app.log 0행 DELETE 귀속 확정 5xx + 틱 실패) rep1~3 25 · 27 · 25 · current 두 셀 유효 3회.
+917:- 새 모드 경합 증거(양성 대조 — 측정-0 · rep1~3 순): ① 9 · 14 · 18 · ② 16 · 21 · 23(B3 대기 에피소드) · ③ 21 · 14 · 26 · ④ 6 · 7(rep1 · rep2). FM1 겹침(win 단독 확정): current 7 · 10 · 10 · ① 9 · 7 · 15 · ② 0 · 0 · 0(구조상 — 측정-14) · ③ 18 · 10 · 18 · ④ 4 · 3.
+923:- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '이겼을 수 있다'로 막았다(summarize.py `undet_block`).
+924:- **고정 규칙의 결론은 지금도 '판정 불가'다**(측정-8 ⓒ를 글자 그대로 — ④는 G2 None · G3 True라 관문에서 확정적으로 걸리지 않았다 · `result.json` new_default = null).
+925:- **ⓒ의 근거('④가 이겼을 수 있다') 반증**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다(④를 넣고 eliminate를 돌리면 3단에서 빠지는 쪽 {② · ④} · 남는 쪽 {① · ③} · 순환 없음 — 결과 문서 리뷰 재계산).
+927:  - 3단(cost 세 지표 — X ≫ Y = 범위 비겹침 ∧ 중앙값 비 > 1.10 · ④ cost 3회는 모두 유효라 재측정과 무관): cost DB CPU ④ 중앙값 28.94 대 ① 25.86 = **1.119 · 범위 비겹침 → ④ ≫ ①** → 3단 규칙상 ④는 ①을 뺄 수 없고 오히려 ①이 ④를 뺀다. ① ≫ ④인 지표는 없다(확정 p99 · 선점 p99 중앙값 비 ①/④ = 1.068 < 1.10).
+929:- **사용자 결정**(측정-8 '판정 불가 → 사용자 보고 뒤 사용자가 정한다' 경로 — log 11-06 12:14 '멈추고 그렇게 마무리'): 위 반증을 근거로 ①을 새 기본값으로 정했다. **고정 규칙의 자동 통과가 아니다** — 명세 '측정 전에 고정한 규칙으로 기본값을 정한다'에 대해, 규칙이 멈춘 자리를 사용자가 같은 규칙의 계산으로 메운 것이다.
+930:- **받아들인 한계**: 입력 = `result.json` · rep-summary 원자료(계산은 log 11-06 행 · 결과 문서 리뷰가 재계산으로 확인). ④는 race 판정 불가로 남는다(측정되지 않은 후보 — 'current 유지'처럼 '④가 졌다'로 적지 않는다 · 결정에는 영향 없음). 3단 DB CPU 비 1.119는 문턱 1.10에 가깝다 — ④ race 재측정과 무관한 cost 값이라 결론은 이 데이터로 고정된다.
+934:- **rehold 반복 누락**(스모크 · 고침 29e09aef): k6 constant-arrival-rate는 빈 VU가 없으면 반복을 버린다. 계획 회차 rep1~3의 결정적 세션 속성으로 센 최대 동시 세션(④ race rehold 1038 · 1039 · 1014)이 옛 미리 만든 VU 1000을 넘었다.
+939:- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치) — **사용자 결정**(2026-11-06): 요약기 결론은 판정 불가(측정-8 ⓒ — ④ race 유효 2/3)였고, ④가 어떤 값이어도 승자가 ①임을 같은 규칙으로 보인 뒤 사용자가 정했다(결과-3). ① 자신은 G1 성공 · G2 이긴다 · G3 걸림 없음 · G4 ok. current는 손잡이로 되돌릴 수 있게 남긴다.
+941:- **② · ③ · ④는 기본값이 아니다**: ②는 3단에서 빠짐(cost 확정 p99 ② ≫ ① — 중앙값 비 1.166 · 범위 비겹침) · ③은 남았으나 단순성 순서(①>②>③>④ — D-9)에서 뒤 · ④는 race 판정 불가(결정에 영향 없음 — 결과-3).
+942:- **기본값 교체는 별도 커밋**(측정-8 · ADR-012 §3 선례): `seat.confirm.mode` 기본 current → conditional. 교체 범위 · 다른 만료 방식(B · C · D) 조합과의 기동 검사 관계는 그 커밋에서 정한다(이 ADR은 A sweep + 기본 조합만 쟀다 — 명세 적용 범위).
+
+hook: PostToolUse
+hook: PostToolUse Completed
+exec
+/bin/bash -lc "nl -ba docs/adr/ADR-015-confirm-atomicity.md | sed -n '890,945p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+   890	- **fix2 로컬 점검**: selftest 143항목(`--campaign` 포함 — M15-17 11갈래 + 결론 2 · M15-19 · M15-21 · M15-23 · M15-24 · M15-25 · M15-26 · M15-18) EXIT 0 · `k6 inspect` 다섯 모드 × 두 셀 EXIT 0 · `bash -n` · `py_compile` · `plan15 --dry-run` · `campaign.sh --dry-run --worktree` · `run.sh --dry-run` · `docker compose config`(current · optimistic · conditional-extend) EXIT 0. 로컬 스모크 값은 측정-3.3 fix2 행 · V12 모양 SQL 음성 8갈래는 측정-4 fix2 행.
+   891	
+   892	- 파일: `compose.confirm.yml`(ADR-009 compose + tmpfs 위 오버레이 — 앱 JSON · 이미지 고정 · nofile · db.command + `PG_PRELOAD`) · `scenarios/{lib15.js, confirm-contention.js, warmup15.js}`(lib14.js 재수출 + payment-start · 세션 속성) · `scripts/{plan15.py, run.sh, lib15.sh, actsnap15.py, summarize.py, campaign.sh, selftest.py, hhash.sh, v12-build.sh}`. ADR-014 · ADR-009 하네스는 고치지 않고 동결 사본에서 source · import(lib14.sh · actsnap14.py · summarize.py · pccheck14.sh · pclink14.sh · run.sh --prepare-image).
+   893	- **fix1 로컬 점검**: selftest 109항목(`--campaign` 포함 · M15-1~M15-15 시뮬레이션 · 합성 회차) EXIT 0 · `k6 inspect` 열 렌더 EXIT 0 · `bash -n` · `py_compile` · `plan15 --dry-run` · `campaign.sh --dry-run --worktree` · `docker compose config`(current · optimistic · conditional-extend) EXIT 0. 로컬 스모크(PG 16 tmpfs + pg_stat_statements · 앱 jar 1대 · TTL 8초 · 지연 200ms · 20/s · ④ 창 20초 · 리드 6초): 다섯 모드 모두 판정기 0 · API 이중 결과 0 · 40P01 0 · 새 양성 대조 성립(값은 측정-3.3) · ④ payment-start 600/600 200 · extended 600 · not_needed = too_late = 0 · ext_then_lost 0.
+   894	- 15-09 로컬 점검(이 PC · .164 아님): selftest 62항목 통과(`--campaign` 30자리 시뮬레이션 · 재측정 상한 · `--check` 포함) · `k6 inspect` 다섯 렌더 EXIT 0 · `docker compose config` 세 모드 EXIT 0 · `plan15.py --dry-run` EXIT 0.
+   895	- 로컬 스모크(PG 16 컨테이너 + 앱 jar 1대 · TTL 8초 · 배치 2초(·1초) · k6 약 20초): 다섯 모드 모두 판정기 0 · API 이중 결과 0 · 하네스 사유 0. current 짝 → 409 SEAT_NOT_HELD + unique_violation(FM2) · 배치 1초 판에서 current win 묶음 확정 500 4건(서버 5xx 4 — FM1) 대 conditional 같은 조건 500 0 · win 404 4 · converted_after_expiry{db} 29. ④ 연장 96/96 · 잃음 0(스모크가 잡은 하네스 결함 1건 — 짝 진 쪽 404를 `ext_then_lost`로 세던 것 — 고침).
+   896	
+   897	## 실험 결과
+   898	
+   899	### 결과-1 캠페인 개요
+   900	
+   901	- **캠페인**: `k6/ADR-015/results/20261105-adr015-29e09aef/`(요약기 `RESULT.md` · `result.json`) · 하네스 29e09aef(동결본 해시 a50d3ca5…52bd) · 이미지 `images-29e09aef.json` · .164 서버 · k6 PC = 이 PC · 2026-11-05 17:14 ~ 11-06 07:23(사용자가 .164를 쓰려고 18:4x ~ 01:32 중지 · `--id`로 이어서 실행).
+   902	- **시작 조건**(측정-9 ⓪~⑦ 모두 통과): .164 스모크 7회(86ffbcd1) 중 2회(④ race · current cost)가 `dropped-iterations`(rehold 흐름 반복 누락)라 **하네스 VU 크기를 고친 뒤**(29e09aef — 미리 만든 VU = 평균 동시 세션 × 1.3 · 최소 도착률 × 1초 · 측정 규칙 · 판정식 무변경) 두 셀을 다시 재 ok · 경합 증거 current 29 · ① 19 · ② 14 · ③ 16 · ④ 8 · 캠페인 스모크 두 자리 ok · ⑦ = 1110/0/0/20 green(8bd5f387) + 8bd5f387..29e09aef 앱 · 빌드 파일 diff 0.
+   903	- **회차**: 30자리 중 유효 29 · 무효 6(모두 `invalid:k6-code0` — 회차마다 선점 · 재선점 요청 1~2건이 연결 끊김 EOF(k6 error_code 1000) · 확정 요청 0 · 시간 초과 0): race ② rep2 ×2(3번째 ok) · race ④ rep2 ×1(2번째 ok) · **race ④ rep3 ×3 → 재측정 상한 소진**. 사용자 override로 상한 넘어 1회 더(attempt4)도 같은 EOF 무효 → 재측정이 **승자**를 바꾸지 못함(결과-3 — 유효 rep3가 나오면 요약기 출력 '판정 불가'는 바뀔 수 있다)을 확인하고 사용자 결정으로 중단(attempt5는 진행 중 중단 — `rep3.attempt5-aborted`).
+   904	- **G4 캠페인 유효**: ok — current race 양성 대조(app.log 0행 DELETE 귀속 확정 5xx + 틱 실패) rep1~3 25 · 27 · 25 · current 두 셀 유효 3회.
+   905	
+   906	### 결과-2 지표 범위 (유효 3회 [최소, 최대])
+   907	
+   908	| 모드 | race 확정 5xx | race 틱 실패 | cost 확정 p99(ms) | cost 선점 p99(ms) | cost DB CPU(%) | 상태 |
+   909	|---|---|---|---|---|---|---|
+   910	| current | [18, 26] | [1, 7] | [1.84, 1.99] | [2.10, 2.34] | [27.1, 28.3] | 대조군 |
+   911	| ① conditional | [0, 0] | [0, 0] | [1.32, 1.38] | [2.24, 2.44] | [24.6, 26.0] | 성공 |
+   912	| ② pessimistic | [0, 0] | [0, 0] | [1.52, 1.64] | [2.12, 2.46] | [25.1, 27.2] | 성공 |
+   913	| ③ optimistic | [0, 0] | [0, 0] | [1.38, 1.49] | [2.10, 2.40] | [25.7, 26.2] | 성공 |
+   914	| ④ conditional-extend | 유효 2회(값 있음 — 범위 없음) | 〃 | [1.25, 1.31] | [2.10, 2.17] | [28.0, 29.0] | 판정 불가(race 유효 2/3) |
+   915	
+   916	- 모드 실패(G-F) 0 · 'A도 같은 문턱' 0 · current A 결함(판정기 · API 이중 결과 · 40P01) 없음 — 이번 측정에서도 current의 정합은 '우연한 가드'(0행 DELETE → 예외 → 롤백)가 지켰고, 그 대가가 race 확정 5xx와 틱 실패다.
+   917	- 새 모드 경합 증거(양성 대조 — 측정-0 · rep1~3 순): ① 9 · 14 · 18 · ② 16 · 21 · 23(B3 대기 에피소드) · ③ 21 · 14 · 26 · ④ 6 · 7(rep1 · rep2). FM1 겹침(win 단독 확정): current 7 · 10 · 10 · ① 9 · 7 · 15 · ② 0 · 0 · 0(구조상 — 측정-14) · ③ 18 · 10 · 18 · ④ 4 · 3.
+   918	- 설명 열(판정 아님): race 확정 p99는 다섯 모드 모두 약 204ms(주입 지연 200ms 지배) · race DB CPU 22~27%.
+   919	- **#5 V12 생성 시간**(측정-10): 트랜잭션 안 판 유지 — 100만 행 쓰기 차단 최대 139ms · 500만 행 712ms(≤ 2000ms) · CONCURRENTLY 판 500만 행 1080~1108ms(쓰기 차단 약 1ms).
+   920	
+   921	### 결과-3 판정 — 요약기 '판정 불가'와 수동 판정
+   922	
+   923	- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '이겼을 수 있다'로 막았다(summarize.py `undet_block`).
+   924	- **고정 규칙의 결론은 지금도 '판정 불가'다**(측정-8 ⓒ를 글자 그대로 — ④는 G2 None · G3 True라 관문에서 확정적으로 걸리지 않았다 · `result.json` new_default = null).
+   925	- **ⓒ의 근거('④가 이겼을 수 있다') 반증**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다(④를 넣고 eliminate를 돌리면 3단에서 빠지는 쪽 {② · ④} · 남는 쪽 {① · ③} · 순환 없음 — 결과 문서 리뷰 재계산).
+   926	  - 2단(race 확정 5xx · 틱 실패 — 범위 비겹침으로 낮아야 이긴다): ①은 두 지표 모두 [0, 0] → 0보다 낮을 수 없다.
+   927	  - 3단(cost 세 지표 — X ≫ Y = 범위 비겹침 ∧ 중앙값 비 > 1.10 · ④ cost 3회는 모두 유효라 재측정과 무관): cost DB CPU ④ 중앙값 28.94 대 ① 25.86 = **1.119 · 범위 비겹침 → ④ ≫ ①** → 3단 규칙상 ④는 ①을 뺄 수 없고 오히려 ①이 ④를 뺀다. ① ≫ ④인 지표는 없다(확정 p99 · 선점 p99 중앙값 비 ①/④ = 1.068 < 1.10).
+   928	  - 따라서 ④가 성공 · 실패 · 판정 불가 어느 쪽이든 순위 첫자리는 ①(순위 ① · ③ · ② · ④)이고, ①은 G1 성공 · G2 이긴다((b) 5xx [0, 0] < current [18, 26] · (c) 틱 [0, 0] < [1, 7]) · G3 걸림 없음(cost 세 지표 어디서도 ① ≫ current 아님 — 확정 p99는 current보다 낮다).
+   929	- **사용자 결정**(측정-8 '판정 불가 → 사용자 보고 뒤 사용자가 정한다' 경로 — log 11-06 12:14 '멈추고 그렇게 마무리'): 위 반증을 근거로 ①을 새 기본값으로 정했다. **고정 규칙의 자동 통과가 아니다** — 명세 '측정 전에 고정한 규칙으로 기본값을 정한다'에 대해, 규칙이 멈춘 자리를 사용자가 같은 규칙의 계산으로 메운 것이다.
+   930	- **받아들인 한계**: 입력 = `result.json` · rep-summary 원자료(계산은 log 11-06 행 · 결과 문서 리뷰가 재계산으로 확인). ④는 race 판정 불가로 남는다(측정되지 않은 후보 — 'current 유지'처럼 '④가 졌다'로 적지 않는다 · 결정에는 영향 없음). 3단 DB CPU 비 1.119는 문턱 1.10에 가깝다 — ④ race 재측정과 무관한 cost 값이라 결론은 이 데이터로 고정된다.
+   931	
+   932	### 결과-4 하네스 결함 (측정에서 드러남 — 결과 판정과 분리)
+   933	
+   934	- **rehold 반복 누락**(스모크 · 고침 29e09aef): k6 constant-arrival-rate는 빈 VU가 없으면 반복을 버린다. 계획 회차 rep1~3의 결정적 세션 속성으로 센 최대 동시 세션(④ race rehold 1038 · 1039 · 1014)이 옛 미리 만든 VU 1000을 넘었다.
+   935	- **선점 · 재선점 연결 끊김 EOF**(캠페인 · 고치지 않음 — NEXT): 가설(미검증) = 쉬던 VU가 서버 keep-alive 만료 순간에 같은 연결을 재사용(ADR-014 06c와 같은 류). ④ race에서 잦다(시도 7 중 무효 5 — 장수명 세션으로 VU가 오래 쉰다) · 29e09aef로 미리 만든 VU가 늘어 쉬는 시간이 길어졌을 수 있다.
+   936	
+   937	## 결정
+   938	
+   939	- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치) — **사용자 결정**(2026-11-06): 요약기 결론은 판정 불가(측정-8 ⓒ — ④ race 유효 2/3)였고, ④가 어떤 값이어도 승자가 ①임을 같은 규칙으로 보인 뒤 사용자가 정했다(결과-3). ① 자신은 G1 성공 · G2 이긴다 · G3 걸림 없음 · G4 ok. current는 손잡이로 되돌릴 수 있게 남긴다.
+   940	- **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초). CONCURRENTLY 판은 후속(NEXT).
+   941	- **② · ③ · ④는 기본값이 아니다**: ②는 3단에서 빠짐(cost 확정 p99 ② ≫ ① — 중앙값 비 1.166 · 범위 비겹침) · ③은 남았으나 단순성 순서(①>②>③>④ — D-9)에서 뒤 · ④는 race 판정 불가(결정에 영향 없음 — 결과-3).
+   942	- **기본값 교체는 별도 커밋**(측정-8 · ADR-012 §3 선례): `seat.confirm.mode` 기본 current → conditional. 교체 범위 · 다른 만료 방식(B · C · D) 조합과의 기동 검사 관계는 그 커밋에서 정한다(이 ADR은 A sweep + 기본 조합만 쟀다 — 명세 적용 범위).
+
+hook: PostToolUse
+exec
+/bin/bash -lc "rg --files k6/ADR-015/results/20261105-adr015-29e09aef | rg '(RESULT.md|result.json|rep-summary)' | head -40" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/results/20261105-adr015-29e09aef/RESULT.md
+k6/ADR-015/results/20261105-adr015-29e09aef/result.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/optimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep2.attempt2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional-extend/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/pessimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/optimistic/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/current/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/pessimistic/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep2.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep3/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/cost/conditional/rep2/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt1/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt4/rep-summary.json
+k6/ADR-015/results/20261105-adr015-29e09aef/race/conditional-extend/rep3.attempt3/rep-summary.json
+
+hook: PostToolUse Completed
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "nl -ba docs/adr/ADR-015-confirm-atomicity.md | sed -n '733,758p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+   733	### 측정-8 고르는 규칙 · '이기면 교체' 조건
+   734	
+   735	**후보 줄 세우기**(성공한 새 모드만 — 명세 '정합 → 사용자 결과 → 비용 → 단순성'):
+   736	
+   737	| 단 | 지표 | 빠지는 규칙 |
+   738	|---|---|---|
+   739	| 1 정합 | G-F | 문턱만(이미 성공 조건) |
+   740	| 2 사용자 결과 | race 확정 5xx(M2) · race 틱 실패(M3) — 원인 귀속 값(current = app.log 0행 DELETE 귀속 · 새 모드 = 전체 — M15-29) | Y가 어느 지표에서 X보다 범위 비겹침으로 낮고 어느 지표에서도 범위 비겹침으로 높지 않으면 X가 빠진다(ADR-014 측정-8 2단 :777과 같은 꼴) |
+   741	| 3 비용 | cost 확정 p99 · cost 선점 p99 · cost DB CPU(**race 확정 p99 · race DB CPU는 빼고 설명 열 — M15-33 사용자 결정**) | Y가 어느 지표에서 X보다 실질적으로 낮고(X ≫ Y) 어느 지표에서도 Y ≫ X가 아니면 X가 빠진다(ADR-014 3단 :778) |
+   742	| 4 단순성 | 고정 순서 ① > ② > ③ > ④(D-9) | 남은 후보 중 앞선 것 |
+   743	
+   744	- 동률 · 순환 · 순위 = ADR-014 측정-8 :781-783 그대로(늦게 빠진 후보가 앞 · 순환은 순환에 든 후보만 남긴다).
+   745	
+   746	**교체 관문**(순위 차례로 G1~G4를 대고, 처음 모두 통과한 후보가 새 기본값):
+   747	
+   748	| 관문 | 조건 |
+   749	|---|---|
+   750	| G1 | 성공(측정-7) |
+   751	| G2 이긴다 | 다음 중 하나: (a) current에 A 결함(G-F의 판정기 · API 이중 결과 · **40P01** — M15-13)이 있고 X에는 없다 · (b) race 확정 5xx(상태 ≥ 500 — M2)가 current보다 범위 비겹침으로 낮다(계약 — N4) · (c) race 틱 실패가 current보다 범위 비겹침으로 낮다(N5 — FM3 틱 롤백). **(b)(c)의 current 값 = app.log 0행 DELETE 갈래로 귀속된 수 · X 값 = 전체**(M15-29 — 원인 없는 current 5xx · 틱 실패로 X가 이기지 않는다 · current 로그를 못 읽어 값이 None이면 판정 불가). **(b)(c)를 '이긴다'로 보는 것은 사용자 결정(D-10 · 2026-11-05) — 단 G3 비용 조건은 그대로다**. 셋 다 아니고 범위를 낼 수 없는 값이 있으면 '못 넘음'이 아니라 판정 불가 |
+   752	| G3 비용 | 3단의 세 지표(cost 셀 — M15-33) 어디서도 X ≫ current가 없다. X ≫ current인 지표가 있으면 판정 불가 지표가 함께 있어도 '걸림'(ADR-014 :801 끝) · 걸린 지표 없이 범위를 낼 수 없는 지표가 있으면 판정 불가 |
+   753	| G4 캠페인 유효 | current 두 셀 유효 3회 · **current race 양성 대조**: 회차마다 경합 증거(**app.log 0행 DELETE 귀속 확정 5xx + 틱 실패** — 측정-0 · M15-29 · 시간 초과 제외 · M15-3a) ≥ 1 · 로그를 못 읽은 회차(None)가 있으면 G4 실패(판정 불가). 유니크 위반(FM2)은 짝 설계로 거의 늘 생겨 이 증거에 넣지 않는다(로컬 스모크: 짝 6쌍 = unique_violation 6 · 5xx 0). current FM1 겹침은 기록만(구조상 드물다 — 측정-14) |
+   754	
+   755	- **교체가 성립하면**: `seat.confirm.mode` 기본값 = X를 **별도 커밋**(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — ADR-014 측정-8 :798과 같은 선례). ③이면 V14 위치를 기본 위치 목록에 더함 · ④면 payment-window · extend-min-remaining 앱 기본값(D-6)과 클라이언트의 payment-start 호출이 함께 필요하다. 기존 운영 전환은 측정-11 절차. `current`는 손잡이로 되돌릴 수 있게 둔다.
+   756	- **교체 후보가 여럿 이기면**: 위 순위(2단 → 3단 → 4단)의 앞 후보부터 관문을 대고 **처음 통과한 하나**만 교체한다. 그보다 앞 순위 후보의 G2 · G3가 판정 불가(확정적으로 걸리지 않음)면 그 후보가 이겼을 수 있으므로 **교체 선정을 멈추고** 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — ADR-014 측정-8 :801 ⓒ · :802 ⓓ · M15-2).
+   757	- **판정 불가 결론**(기본값 `current` 그대로 두되 'current가 이겼다'로 적지 않는다 — 사용자 보고 뒤 사용자가 정한다): ⓐ G4 실패 ⓑ 위 '앞 순위 관문 판정 불가' ⓒ 측정-7 판정 불가 후보('A도 같은 문턱' · 유효 반복 부족 · 양성 대조 없음 · 범위 없음 — 어느 사유든)가 있고 그 후보가 관문에서 확정적으로 걸리지 않았다(G2 확정 실패 · G3 걸림이 아니면 그 후보가 이겼을 수 있다 — M15-1 · M15-14 · M15-17). 판정 불가 후보가 확정적으로 걸렸으면 나머지 규칙대로 간다.
+   758	  - **재측정 상한 소진은 사유와 무관하게 측정-7 ⓐ(판정 불가)로 간다(M15-28)** — ADR-014는 환경 상한 소진만 판정 불가(:800 ⓑ)이고 하네스 상한 소진은 'A 유지 ⑤ superseded'였다. 이 측정은 둘을 가르지 않는다: 어느 쪽이든 그 후보는 **측정되지 않았고** 기본값은 current 그대로라 효과는 같지만, 'current 유지'로 적으면 측정하지 못한 후보가 진 것으로 남는다(D-15와 같은 이유). 그래서 15-09의 'current 유지 ④(superseded)' 갈래는 없앴다(ⓐ에 흡수 — 요약기에도 없다).
+
+hook: PostToolUse
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json
+p='k6/ADR-015/results/20261105-adr015-29e09aef/result.json'
+d=json.load(open(p))
+print('keys',list(d))
+print('decision',json.dumps(d.get('decision'),ensure_ascii=False,indent=2)[:5000])
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse Completed
+ succeeded in 47ms:
+keys ['valid3', 'nvalid', 'fails', 'current_integrity_defect', 'candidates', 'undetermined', 'G4', 'fm1_overlap', 'a_rule', 'rank', 'eliminated_at', 'v12', 'v12_gate', 'decision', 'ranges', 'desc_ranges']
+decision {
+  "verdict": "판정 불가 → 사용자 보고(후보 판정 불가 — conditional-extend: 유효 반복 부족 race 2/3) · 잠정: conditional · 순위 ['conditional', 'optimistic', 'pessimistic'] · #5 V12: 트랜잭션 안 판 유지 — 5,000,000행 쓰기 차단 최대 712ms ≤ 2000ms",
+  "new_default": null,
+  "provisional": "conditional",
+  "v12_determined": true,
+  "v12_required_before_apply": false
+}
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json
+p='k6/ADR-015/results/20261105-adr015-29e09aef/result.json'
+d=json.load(open(p))
+for k in ['rank','eliminated_at','G4','fm1_overlap','undetermined']:
+ print(k,repr(d.get(k))[:3500])
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 24ms:
+rank ['conditional', 'optimistic', 'pessimistic']
+eliminated_at {'pessimistic': '3', 'conditional': '4', 'optimistic': '4'}
+G4 {'ok': True, 'parts': {'valid3': True, 'positive_control': True}, 'evidence': {'current': [25, 25, 27], 'conditional': [18, 9, 14], 'pessimistic': [23, 16, 21], 'optimistic': [26, 21, 14], 'conditional-extend': [6, 7]}, 'current_timeout': []}
+fm1_overlap {'current': [10, 7, 10], 'conditional': [15, 9, 7], 'pessimistic': [0, 0, 0], 'optimistic': [18, 18, 10], 'conditional-extend': [4, 3]}
+undetermined ['conditional-extend: 유효 반복 부족 race 2/3']
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "python3 - <<'PY'
+import json
+p='k6/ADR-015/results/20261105-adr015-29e09aef/race/current/rep1/rep-summary.json'
+d=json.load(open(p));print(json.dumps(d,ensure_ascii=False,indent=2)[:5000])
+PY" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 24ms:
+{
+  "status": "ok",
+  "reasons": [],
+  "missing": {},
+  "flags": [],
+  "metrics": {
+    "mode": "current",
+    "cell": "race",
+    "rep": 1,
+    "t0_pc": 1793870111.652,
+    "window_pc": [
+      1793870111.652,
+      1793870711.652
+    ],
+    "off_s": 0.0091,
+    "seed_to_first_request_s": 87.59061932563782,
+    "config_detail": [],
+    "flyway": [
+      "1",
+      "2",
+      "3",
+      "5",
+      "6",
+      "7",
+      "9",
+      "10",
+      "12",
+      "13"
+    ],
+    "pc_mem": {
+      "min_kb": 20176400,
+      "n": 115,
+      "gap_max_s": 6.0,
+      "floor_kb": 4194304
+    },
+    "clock_err_ms": 23.799999999999997,
+    "db_cpu": 26.723125,
+    "db_cpu_detail": {
+      "n": 48,
+      "need": 40,
+      "max_gap_s": 13.0,
+      "mean": 26.723125,
+      "missing": false
+    },
+    "b3wait": {
+      "episodes": 0,
+      "samples": 38987,
+      "bad": 0,
+      "on_p2_samples": 0,
+      "b3_lock_samples": 0,
+      "gap_max_s": 0.027258872985839844,
+      "period_ms": 20
+    },
+    "p99": {
+      "confirm_200": 205.028568,
+      "hold_201": 7.398396,
+      "rehold_409": 3.068595,
+      "pay_start_200": null
+    },
+    "dropped": {},
+    "code0_other": {},
+    "hold_fail": {},
+    "hold_fail_other": {},
+    "err": {
+      "confirm": 24
+    },
+    "err5": {
+      "confirm": 24
+    },
+    "timeout": {},
+    "req": {
+      "hold": 12000,
+      "confirm": 13171,
+      "rehold": 164571
+    },
+    "confirm_dist": {
+      "post|dup|200:OK": 13,
+      "post|dup|404:HOLD_NOT_FOUND": 6,
+      "post|dup|409:HOLD_EXPIRED": 832,
+      "post|dup|409:SEAT_NOT_HELD": 13,
+      "post|single|200:OK": 167,
+      "post|single|404:HOLD_NOT_FOUND": 51,
+      "post|single|409:HOLD_EXPIRED": 3650,
+      "post|single|500:NOCODE": 2,
+      "pre|dup|200:OK": 400,
+      "pre|dup|409:SEAT_NOT_HELD": 400,
+      "pre|single|200:OK": 3813,
+      "win|dup|200:OK": 283,
+      "win|dup|409:SEAT_NOT_HELD": 283,
+      "win|dup|500:NOCODE": 6,
+      "win|single|200:OK": 2591,
+      "win|single|500:NOCODE": 16
+    },
+    "confirm_ok_window": 7267,
+    "confirm_tps": 12.111666666666666,
+    "confirm_noncontract": {
+      "post|single|500:NOCODE": 2,
+      "win|dup|500:NOCODE": 6,
+      "win|single|500:NOCODE": 16
+    },
+    "confirm_5xx": 24,
+    "confirm_timeout": 0,
+    "api_double": 0,
+    "rehold_ok": 2183,
+    "rehold_ok_dense": 64,
+    "fm1_overlap": 7,
+    "fm1_overlap_all": 10,
+    "early_reject": {},
+    "early_n": 3654,
+    "confirm_count": {
+      "planned": {
+        "b": 13171
+      },
+      "sent": {
+        "b": 13171
+      },
+      "skipped": {}
+    },
+    "pay": {},
+    "pay_fl": {},
+    "ext_then_lost": 0,
+    "crn": {
+      "main": {
+        "n": 12000,
+        "h1": 6329757042,
+        "h2": 6321202634
+      }
+    },
+    "stall": {
+      "secs": 0,
+      "env_secs": 0,
+      "chunks": []
+    },
+    "app": {
+      "unique_violation": 730.0,
+      "unexpected": 0,
+      "tick_ok": 70.0,
+      "tick_failed": 1.0,
+      "converted_db": 0,
+      "converted_app": 3034.0,
+      "lateness_db_wend_max_s": 0,
+      "lateness_db_count": 0,
+      "lateness_db_total_s": 0,
+      "extend": {
+        "extended": 0,
+        "already": 0,
+        "not_needed": 0,
+        "too_late": 0
+      },
+      "extension_lost": 0,
+      "deleted_sweep": {
+        "true": 0,
+        "false": 0
+      },
+      "deleted_other": {
+        "reclaim": 0,
+        "batch": 0
+      },
+      "missing_pairs_sweep": 0,
+      "revert_sweep": {
+        "reverted": 0,
+        "not_held": 0,
+        "kept_active": 0
+      },
+      "missing_mismatch": 0,
+      "server_5xx": 24.0,
+      "lateness_db_mean_s": null
+    },
+    "app_window": {
+      "tick_failed": 1.0,
+      "unique_violation": 701.0
+    },
+    "tick_failed": 1.0,
+    "deadlocks": 0,
+    "db_tup": {
+      "seat_hold.n_tup_del": 14201,
+      "product_seat.n_tup_upd": 28484,
+      "reservation.n_tup_ins": 8395
+    },
+    "cons": {
+      "v_duplicate_confirmed_seats": 0,
+      "v_reserved_without_confirmed": 0,
+      "v_confirmed_on_unreserved_seat": 0,
+      "v_hold_on_unheld_seat": 0,
+      "active_on_reserved_seats": 0,
+      "double_sold_seats": 0,
+      "v_counter_mismatch": 0,
+      "v_over_limit_users": 0,
+      "multi_active_seats": 0,
+      "v_duplicate_hold_seats": 0,
+      "v_held_without_hold": 0,
+      "expired_hold_rows": 0,
+      "v_stale_held_seats": 0,
+      "held_no_active": 0,
+      "confirmed": 7641,
+      "reserved": 7641,
+      "hold_rows": 0
+    },
+    "batch_stmt": {
+      "path": "jpa",
+      "classes": {
+        "J3-seat-update": {
+          "calls": 28484,
+          "total_ms": 498.092,
+          "max_ms": 0.735,
+          "shared": true
+        },
+        "J2-holds-load": {
+          "calls": 33932,
+          "total_ms": 259.016,
+          "max_ms": 0.563,
+          "shared": true
+        },
+        "J1-finder": {
+          "calls": 71,
+          "total_ms": 149.241,
+          "max_ms": 12.958,
+          "shared": false
+        },
+        "J4-decrement": {
+          "calls": 6636,
+          "
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+이전 네 지적은 모두 해결됐습니다. rep 값은 회차 순서로 적혔고, 재측정에 따른 요약기 결론 변경 가능성과 사용자 결정을 명시했으며, ② 탈락 근거도 규칙에 맞게 고쳤습니다.
+
+새 모순은 [928행](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:928)입니다. ④가 판정 불가인 경우까지 포괄하면서 순위를 `① · ③ · ② · ④`로 적었지만, 고정 규칙의 실제 순위에는 ④가 없습니다. 해당 순위가 **④가 유효한 가정에서만** 성립한다고 한정해야 합니다.
+hook: Stop
+hook: Stop Completed
+tokens used
+31,715
+이전 네 지적은 모두 해결됐습니다. rep 값은 회차 순서로 적혔고, 재측정에 따른 요약기 결론 변경 가능성과 사용자 결정을 명시했으며, ② 탈락 근거도 규칙에 맞게 고쳤습니다.
+
+새 모순은 [928행](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/docs/adr/ADR-015-confirm-atomicity.md:928)입니다. ④가 판정 불가인 경우까지 포괄하면서 순위를 `① · ③ · ② · ④`로 적었지만, 고정 규칙의 실제 순위에는 ④가 없습니다. 해당 순위가 **④가 유효한 가정에서만** 성립한다고 한정해야 합니다.

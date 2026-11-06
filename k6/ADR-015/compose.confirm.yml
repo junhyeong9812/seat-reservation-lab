@@ -1,0 +1,39 @@
+# ADR-015 측정 오버레이(확정 원자성 — 측정 전 고정 규칙 초안 측정-1 · 측정-3.6) — k6/ADR-009/compose.yml + compose.tmpfs.yml 위에 얹는다(lb 없음 · 앱 1대):
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml -f k6/ADR-009/compose.tmpfs.yml -f k6/ADR-015/compose.confirm.yml …   (run.sh compose15)
+#   경로는 첫 파일(k6/ADR-009)의 폴더 기준 — 이 파일은 경로를 쓰지 않는다. ADR-014 compose.expiry.yml과 같은 구조(사본이 아니라 오버레이 — 그 머리말의 이유 그대로).
+# 앱(app):
+#   image = seatlab-app:<APP_TAG>(측정 SHA 8자 — run.sh --prepare-image) · build 절을 지우고 pull_policy: never — 다섯 모드가 같은 이미지에서 손잡이만 다르다.
+#   SPRING_APPLICATION_JSON을 통째로 바꾼다(ADR-009 compose.yml의 조건 조각은 쓰지 않는다):
+#     seat.confirm.mode(모드 손잡이 — current · conditional · pessimistic · optimistic · conditional-extend) · seat.confirm.loadtest.delay(확정 지연 주입 — §설계-11 자리) ·
+#     seat.confirm.payment-window · extend-min-remaining(④만 의미 — 0이면 키를 넣어도 다른 모드는 읽지 않는다 · ④는 규칙 4가 > 0을 요구) ·
+#     seat.hold.expiry-mode = sweep(A — 새 모드의 기동 조건 규칙 1) · TTL · 배치 주기 · 좌석 전략 pessimistic-nowait(규칙 2 — 매수는 업무 앱 기본 counter-upsert-precheck) ·
+#     Flyway 위치(업무 앱 기본 위치 3개 — optimistic만 + classpath:db/migration-confirm-version(V14) · target 없음 = 최신 V12 · V13(· V14) 적용) ·
+#     Tomcat 연결 상한 20,000 · 앱 nofile 65,536(ADR-014 측정-1 재해석 R5 ① 그대로 — 동시 VU가 keep-alive 연결을 쥔다).
+#   카운터 구성 키(counter-drift.*)는 넣지 않는다 — 업무 앱 기본값 그대로(configprops로 대조 — plan15.py --config-check).
+#   변수 기본값은 실패하지 않는 값이다(서버 측정기 기동 `up probe`도 이 파일을 함께 읽는다) — 잘못 뜬 모드·지연은 configprops 대조가 잡는다.
+# DB(db): ADR-009 command 그대로 + shared_preload_libraries=${PG_PRELOAD}(기본 빈 값 = PostgreSQL 기본값 '' — 아무것도 싣지 않는다).
+#   PG_PRELOAD=pg_stat_statements는 [구현 검증] #15(A′ 대 JPA 배치 문장 수 · 시간)를 DB 쪽에서 재는 선택 장치(초안 '메인 결정 필요' D-4) — 켜면 다섯 모드 모두 같게.
+#   ADR-009 command 목록을 여기 다시 쓰는 까닭: compose는 command를 목록째 바꾼다(덧붙이기 없음). 값은 ADR-009 compose.yml db.command와 같아야 한다(selftest가 대조).
+services:
+  db:
+    command: ["postgres", "-c", "track_io_timing=on", "-c", "track_wal_io_timing=on", "-c", "log_checkpoints=on",
+              "-c", "checkpoint_timeout=${PG_CHECKPOINT_TIMEOUT:-5min}", "-c", "max_wal_size=${PG_MAX_WAL_SIZE:-1GB}",
+              "-c", "shared_buffers=${PG_SHARED_BUFFERS:-128MB}",
+              "-c", "shared_preload_libraries=${PG_PRELOAD:-}"]
+  app:
+    image: seatlab-app:${APP_TAG:-none}
+    pull_policy: never
+    build: !reset null
+    ulimits:
+      nofile:
+        soft: ${APP_NOFILE:-65536}
+        hard: ${APP_NOFILE:-65536}
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"confirm":{"mode":"${CONFIRM_MODE:-current}","payment-window":"${PAYMENT_WINDOW:-0s}","extend-min-remaining":"${EXTEND_MIN_REMAINING:-0s}",
+                            "loadtest":{"delay":"${CONFIRM_DELAY:-0ms}"}},
+                 "hold":{"expiry-mode":"sweep","ttl":"${HOLD_TTL:-30s}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental}"},
+                   "data":{"redis":{"host":"redis","port":6379}}},
+         "server":{"tomcat":{"max-connections":${TOMCAT_MAX_CONNECTIONS:-20000}}}}

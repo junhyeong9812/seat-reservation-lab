@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * 매수 방식은 none으로 고정한다(ADR-008 — 기본값이 counter-upsert-precheck로 바뀌었다): 전략 빈을 직접 불러 기동 검사를 건너뛰므로,
  * 고정하지 않으면 기동 검사가 금지하는 조합(좌석 3b 외 + 매수 방식)이 조용히 돈다.
  */
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class HoldStrategyTest : IntegrationTest() {
 
     @Autowired lateinit var strategies: List<HoldStrategy>

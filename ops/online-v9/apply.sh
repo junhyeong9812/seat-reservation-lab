@@ -18,20 +18,26 @@
 #
 # 단계(§4.4 표):
 #   0 사전 확인: 열·함수·트리거·인덱스(유효)·V9 이력·소유자 — 있는 단계는 건너뛴다('이어서'). V9 이력이 이미 있으면 멈춘다(already-recorded).
+#     + max_applied(ADR-015 §설계-4 'V12 · V13 × 옛 방식 DB'): 성공한 적용 버전의 최댓값 → state0.max_applied. 9보다 크면(새 SHA를 기본 위치만으로 띄워
+#     V12 · V13이 먼저 적용된 DB) 기록 ①에 -outOfOrder=true를 그 한 번만 붙인다. 10보다 크면 이어지는 앱 첫 기동(V10)도 그 한 번만
+#     spring.flyway.out-of-order=true(SPRING_FLYWAY_OUT_OF_ORDER=true) — --out의 next.app_first_boot_out_of_order. V10 이력 확인 뒤 다음 기동부터 뺀다.
 #   1 열: BEGIN · SET LOCAL lock_timeout · 01-column.sql · COMMIT — lock_timeout(55P03)에 걸리면 1초 쉬고 다시(최대 --retries). 시도마다 대기·결과를 남긴다.
 #   2 함수·트리거: 한 트랜잭션 · 같은 시한·재시도(02-function.sql + 02-trigger.sql).
 #   3 인덱스: RESET lock_timeout · SET statement_timeout(DS-8) · 03-index.sql(CONCURRENTLY — 자동 커밋) → indisvalid AND indisready 확인 —
 #     아니면 DROP INDEX CONCURRENTLY 뒤 다시(최대 --index-retries) · 그래도 아니면 기록하지 않고 멈춘다.
 #   4 동치 확인 + 기록: 04-catalog.sql(열 정의·기본값 식 · 인덱스 정의·유효 · 함수 정의 · 트리거 정의·활성)이 ref와 같아야 기록한다(N5 · N7 — 다르면 기록하지 않는다).
 #     빼는 값(DS-14): atthasmissing·attmissingval(m — 기록만) · OID 등.
-#     기록 ① Flyway CLI: migrate -target=9 -skipExecutingMigrations=true -locations=<전체 위치 중 V10 뺀 것>.
+#     기록 ① Flyway CLI: migrate -target=9 -skipExecutingMigrations=true -locations=<전체 위치 중 V10 뺀 것> (+ max_applied > 9이면 -outOfOrder=true — knobs.out_of_order_cli · record.cli.args).
+#       ADR-015 R15-6: outOfOrder 판은 단계 0에서 '9 이하 미적용 = {9}'(위치 이름 → 이 저장소의 같은 폴더 · state0.pending_le9)를 먼저 본다 — 아니면 멈춘다(fail_step 0 · 아무것도 쓰지 않음).
+#       모든 기록 ①은 전후 이력 차이가 정확히 V9 한 행인지 다시 본다(record.cli.history_diff) — 아니면 class history-diff로 실패(쓴 행은 남는다 — 사람이 확인).
+#       그 뒤 확인 · 재개 절차(남은 행 · 객체 유무 · 06-history-diff-recover.sql) = ops/online-v9/README.md '기록 ① 뒤 history-diff 실패' · 앱 첫 기동 out-of-order 1회도 같은 README.
 #       실패 원인 분류: 검증 오류(Validate failed · checksum mismatch · 해석 못 한 적용 버전) = 위치·파일이 틀림 → 멈춘다(②로 가지 않는다 — ②도 같은 이력에서 실패한다) ·
 #       판 제한(유료판 기능 요구 — Flyway 11.7.2 고정 문구·예외 이름으로만: FlywayEditionUpgradeRequiredException '<판> upgrade required: <기능> is not supported by <판>' ·
 #       FlywayRedgateEditionRequiredException 'Redgate Edition Required: <기능> is not supported by OSS Edition' · 옛 FlywayTeamsUpgradeRequiredException) → ② ·
 #       그 밖 = 멈춘다(분류 불가 — 숨기지 않는다). 판 이름 낱말만으로는 분류하지 않는다(시작 배너 'Flyway OSS Edition …'이 늘 찍힌다 — CR13-7).
 #     기록 ② 직전: 같은 트랜잭션(이력 표 SHARE ROW EXCLUSIVE)에서 V9 이력 0을 다시 확인 — 있으면 넣지 않고 멈춘다(① 일부 기록과 겹치지 않게 — CR13-7).
 #     실패하면(어느 단계든 · 이력 표가 있을 때) V9 이력을 다시 읽어 record.history_after_fail에 남긴다.
-#     기록 ② 직접: ref V9 이력 행(version · description · type · script · checksum)을 installed_rank = 다음 번호 · success = true로 넣는다
+#     기록 ② 직접: ref V9 이력 행(version · description · type · script · checksum)을 installed_rank = 다음 번호 · success = true로 넣는다(버전 순서를 보지 않는다 — outOfOrder 무관)
 #       (Flyway 내부 표 직접 쓰기 — Flyway 버전에 묶이는 한계). **같은 트랜잭션 안에서** V9 행 1개 · success · 체크섬 = ref를 확인한 뒤에만 COMMIT —
 #       아니면 ROLLBACK(이력이 남지 않는다 — CR13-26).
 #     기록 뒤 확인: V9 행 1개 · success · 체크섬 = ref. ①(Flyway CLI)은 트랜잭션 밖이라 확인 실패 때 이미 쓴 이력이 남는다 — 사유에 그렇게 적고
@@ -82,15 +88,16 @@ fail() {   # 인자: 단계 사유 — 기록하지 않고 끝낸다(N7). 이력
   fi
   finish failed; exit 1
 }
-STEPS='{}'; M=null; EQUIV=null; REC=null; STATE0=null; FAIL_STEP=null REASON=null; T_START=$(now)
+STEPS='{}'; M=null; EQUIV=null; REC=null; STATE0=null; FAIL_STEP=null REASON=null; T_START=$(now); OOO=false
 step_put() { STEPS=$(jq -c --arg k "$1" --argjson v "$2" '. + {($k): $v}' <<< "$STEPS"); }
 finish() {
   jq -n --arg result "$1" --argjson t0 "$T_START" --argjson t1 "$(now)" --argjson state0 "$STATE0" --argjson steps "$STEPS" --argjson m "$M" \
         --argjson equiv "$EQUIV" --argjson rec "$REC" --arg fstep "$FAIL_STEP" --arg reason "$REASON" \
-        --arg lt "$LOCK_TIMEOUT" --arg st "$STMT_TIMEOUT" --argjson rt "$RETRIES" --argjson ir "$INDEX_RETRIES" --arg mode "$RECORD" --arg loc "$LOCATIONS" \
+        --arg lt "$LOCK_TIMEOUT" --arg st "$STMT_TIMEOUT" --argjson rt "$RETRIES" --argjson ir "$INDEX_RETRIES" --arg mode "$RECORD" --arg loc "$LOCATIONS" --argjson ooo "$OOO" \
     '{tool: "ops/online-v9/apply.sh", result: $result, start_pc: $t0, end_pc: $t1, wall_s: ($t1 - $t0), state0: $state0, steps: $steps, m: $m,
       equivalence: $equiv, record: $rec, fail_step: (if $fstep == "null" then null else $fstep end), reason: (if $reason == "null" then null else $reason end),
-      knobs: {lock_timeout: $lt, retries: $rt, stmt_timeout: $st, index_retries: $ir, record: $mode, locations: $loc}}' > "$OUT"
+      knobs: {lock_timeout: $lt, retries: $rt, stmt_timeout: $st, index_retries: $ir, record: $mode, locations: $loc, out_of_order_cli: $ooo},
+      next: {app_first_boot_out_of_order: (if ($state0 | type) == "object" and ($state0.max_applied | type) == "number" then $state0.max_applied > 10 else null end)}}' > "$OUT"
 }
 
 # ---- 0 사전 확인 ------------------------------------------------------------------------------------------------------------
@@ -111,6 +118,28 @@ HIST_TABLE=$(jq -r .hist_table <<< "$s0")
 h0=$(psql_run "$(cat "$HERE/05-history.sql")" | tail -1)
 jq -e 'type == "array"' <<< "$h0" > /dev/null 2>&1 || fail 0 "V9 이력 조회 실패: $(head -c 300 "$W/err")"
 if (( $(jq 'length' <<< "$h0") > 0 )); then fail 0 "already-recorded — V9 이력이 이미 있다($h0)"; fi
+# 적용된 최대 버전(ADR-015 §설계-4 — V12 · V13이 먼저 적용된 옛 방식 DB면 V9 · V10이 순서 밖이 된다). 읽지 못하면 멈춘다(순서 판정 없이 기록하지 않는다)
+ma=$(psql_run "SELECT json_build_object('max_applied', (SELECT max(version::numeric) FROM flyway_schema_history WHERE success AND version IS NOT NULL));" | tail -1)
+jq -e 'type == "object" and (.max_applied | type == "number" or . == null)' <<< "$ma" > /dev/null 2>&1 || fail 0 "적용된 최대 버전 조회 실패: $(head -c 300 "$W/err")"
+STATE0=$(jq -c --argjson m "$ma" '. + $m' <<< "$STATE0")
+[[ "$(jq -r '(.max_applied // 0) > 9' <<< "$STATE0")" == true ]] && OOO=true
+# 기록 ①을 -outOfOrder=true로 부를 판이면(ADR-015 R15-6) 9 이하 미적용 = {9}인지 먼저 본다 — outOfOrder는 9 이하의 **다른** 미적용 버전(위치를 잘못 준 V4 · V8 등)도
+# 실행 없이 이력에 적는다(-skipExecutingMigrations — 객체 없이 '적용됨'). 위치 이름(마지막 경로 조각)을 이 저장소의 같은 이름 폴더로 읽어 버전을 모은다 —
+# 못 찾는 위치가 있으면 판정 없이 기록하지 않는다(멈춘다). 기록 뒤에도 이력 차이 = V9 한 행을 다시 본다(rec_cli — 이 사전 확인이 원격 위치와 어긋날 수 있어서)
+if [[ "$OOO" == true && ( "$RECORD" == cli || ( "$RECORD" == auto && -n "$FLYWAY" ) ) ]]; then
+  DB_DIR="$(cd "$HERE/../.." && pwd)/main-app/src/main/resources/db"
+  le9="" miss=""
+  for l in ${LOCATIONS//,/ }; do
+    d="$DB_DIR/$(basename "${l#*:}")"
+    if [[ -d "$d" ]]; then le9="$le9 $(find "$d" -maxdepth 1 -name 'V*__*.sql' -printf '%f\n' | sed -E 's/^V([0-9]+)__.*/\1/' | awk '$1 <= 9' | tr '\n' ' ')"
+    else miss="$miss $l"; fi
+  done
+  [[ -z "$miss" ]] || fail 0 "outOfOrder 기록 ① 사전 확인 불가 — 이 저장소에 없는 위치:$miss(9 이하 미적용 = {9}를 판정하지 못하면 기록하지 않는다 · --record direct는 V9 한 행만 쓴다)"
+  applied=$(psql_run "SELECT string_agg(version, ' ') FROM flyway_schema_history WHERE success AND version IS NOT NULL;" | tail -1)
+  pend=$(comm -23 <(tr ' ' '\n' <<< "$le9" | grep -v '^$' | sort -u) <(tr ' ' '\n' <<< "$applied" | grep -v '^$' | sort -u) | sort -n | tr '\n' ' ' | sed 's/ $//')
+  STATE0=$(jq -c --arg p "$pend" '. + {pending_le9: ($p | split(" ") | map(select(. != "")))}' <<< "$STATE0")
+  [[ "$pend" == 9 ]] || fail 0 "outOfOrder 기록 ① 거부 — 9 이하 미적용 = {${pend// /, }} ≠ {9}(위치 ${LOCATIONS}) · -outOfOrder=true는 V9 밖 버전도 실행 없이 기록한다 · --locations를 V9 위치까지로 고쳐라"
+fi
 
 # ---- 1·2: lock_timeout + 재시도 트랜잭션 ---------------------------------------------------------------------------------
 lock_tx() {   # 인자: 단계 이름 · SQL 몸통(트랜잭션 안) → STEPS[단계] · 성공 0 / 실패 1
@@ -225,8 +254,13 @@ EQUIV=$(jq -c --slurpfile r "$REF_CAT" '
 # ---- 4 기록 ------------------------------------------------------------------------------------------------------------------
 want_ck=$(jq -r '.[0].checksum' "$REF_HIST")
 verify_hist() { psql_run "$(cat "$HERE/05-history.sql")" | tail -1; }
+hist_rows() { psql_run "SELECT coalesce(json_agg(json_build_object('installed_rank', installed_rank, 'version', version, 'success', success) ORDER BY installed_rank), '[]') FROM flyway_schema_history;" | tail -1; }
 rec_cli() {
-  local args=(-url="$FLYWAY_URL" -user="$FLYWAY_USER" -locations="$LOCATIONS" -target=9 -skipExecutingMigrations=true migrate)
+  local hb ha diff
+  hb=$(hist_rows); jq -e 'type == "array"' <<< "$hb" > /dev/null 2>&1 || { REC=$(jq -nc --arg e "$(head -c 300 "$W/err")" '{cli: {class: "history-read-failed", err: $e}}'); return 1; }
+  local args=(-url="$FLYWAY_URL" -user="$FLYWAY_USER" -locations="$LOCATIONS" -target=9 -skipExecutingMigrations=true)
+  [[ "$OOO" == true ]] && args+=(-outOfOrder=true)   # 이 한 번의 CLI 호출에만(max_applied > 9 — ADR-015 §설계-4)
+  args+=(migrate)
   local pc0 pc1 rc out cls
   pc0=$(now); out=$(export FLYWAY_PASSWORD; eval "$FLYWAY $(printf '%q ' "${args[@]}")" 2>&1); rc=$?; pc1=$(now)   # 비밀번호 = 환경(CR13-14)
   cls=ok
@@ -235,8 +269,13 @@ rec_cli() {
     elif grep -qE 'FlywayEditionUpgradeRequiredException|FlywayRedgateEditionRequiredException|FlywayTeamsUpgradeRequiredException| upgrade required: .+ is not supported by |Redgate Edition Required: .+ is not supported by ' <<< "$out"; then cls=edition-limit
     else cls=unknown; fi
   fi
-  REC=$(jq -nc --argjson rc "$rc" --arg cls "$cls" --arg tail "$(tail -c 1500 <<< "$out")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" \
-        '{cli: {rc: $rc, class: $cls, output_tail: $tail, start_pc: $pc0, end_pc: $pc1}}')
+  # 기록 ① 전후 이력 차이 = 정확히 V9 한 행이어야 한다(ADR-015 R15-6 — outOfOrder가 다른 미적용을 함께 적는 경우 · 트랜잭션 밖이라 쓴 행은 남는다)
+  ha=$(hist_rows); jq -e 'type == "array"' <<< "$ha" > /dev/null 2>&1 || ha='null'
+  diff=$(jq -c --argjson b "$hb" 'if type == "array" then [.[] | select(. as $r | $b | index($r) | not)] else null end' <<< "$ha")
+  if [[ "$cls" == ok && "$(jq -c '[.[]? | .version]' <<< "$diff")" != '["9"]' ]]; then cls=history-diff; fi
+  REC=$(jq -nc --argjson rc "$rc" --arg cls "$cls" --arg tail "$(tail -c 1500 <<< "$out")" --argjson pc0 "$pc0" --argjson pc1 "$pc1" --argjson diff "$diff" \
+        --argjson args "$(printf '%s\n' "${args[@]}" | jq -R 'gsub("(?<k>[Pp]assword=)[^&;]*"; "\(.k)***")' | jq -sc .)" \
+        '{cli: {rc: $rc, class: $cls, args: $args, history_diff: $diff, output_tail: $tail, start_pc: $pc0, end_pc: $pc1}}')
   [[ "$cls" == ok ]]
 }
 rec_direct() {
@@ -274,16 +313,20 @@ SELECT 'VERIFY_FAIL ' || :v9_n;
   [[ -z "$vf" ]] || return 4   # 같은 트랜잭션 확인 실패 — ROLLBACK(이력 없음 — CR13-26)
   (( rc == 0 )) && grep -qx OK <<< "$out"
 }
+cli_diff_note() {   # history-diff면 쓴 행을 사유에 붙인다(지우지 않는다 — 사람이 확인)
+  [[ "$(jq -r '.cli.class // ""' <<< "$REC")" == history-diff ]] || return 0
+  echo " — 이력 차이 $(jq -c '[.cli.history_diff[]? | .version]' <<< "$REC") ≠ [\"9\"] · 기록 ①(트랜잭션 밖)이 쓴 행은 남아 있다(record.cli.history_diff · 확인 · 복구 = ops/online-v9/README.md '기록 ① 뒤 history-diff 실패')"
+}
 method=""
 case "$RECORD" in
-  cli) rec_cli && method=cli || fail 4 "기록 ① 실패($(jq -r .cli.class <<< "$REC")) — ②로 넘어가지 않는다(--record cli)" ;;
+  cli) rec_cli && method=cli || fail 4 "기록 ① 실패($(jq -r .cli.class <<< "$REC"))$(cli_diff_note) — ②로 넘어가지 않는다(--record cli)" ;;
   direct) rec_direct && method=direct || fail 4 "기록 ② 실패($(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" elif .direct.in_tx_verify_failed then "같은 트랜잭션 확인 실패(V9 \(.direct.in_tx_v9_rows)행 · 성공·체크섬) — ROLLBACK · 이력 남지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))" ;;
   auto)
     if [[ -n "$FLYWAY" ]] && rec_cli; then method=cli
     elif [[ -z "$FLYWAY" ]] || [[ "$(jq -r .cli.class <<< "$REC")" == edition-limit ]]; then
       rec_direct && method=direct || fail 4 "기록 ② 실패(① $( [[ -z "$FLYWAY" ]] && echo '없음' || echo 'edition-limit') · $(jq -r 'if .direct.precheck_v9_rows > 0 then "넣기 직전 V9 이력 \(.direct.precheck_v9_rows)행 — 넣지 않음" elif .direct.in_tx_verify_failed then "같은 트랜잭션 확인 실패(V9 \(.direct.in_tx_v9_rows)행 · 성공·체크섬) — ROLLBACK · 이력 남지 않음" else "rc \(.direct.rc)" end' <<< "$REC"))"
     else
-      fail 4 "기록 ① 실패 — $(jq -r .cli.class <<< "$REC")(검증 오류·분류 불가는 ②로 넘어가지 않는다 · §4.4)"
+      fail 4 "기록 ① 실패 — $(jq -r .cli.class <<< "$REC")$(cli_diff_note)(검증 오류·분류 불가는 ②로 넘어가지 않는다 · §4.4)"
     fi ;;
 esac
 h1=$(verify_hist)

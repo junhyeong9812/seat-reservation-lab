@@ -153,11 +153,11 @@ const val ADR014_SMALL_CHUNK = "seat.hold.expiry-batch-size=2"
 const val ADR014_LAZY_CLEANUP = "seat.hold.counter-drift.cleanup.mode=schedule"
 const val ADR014_LAZY_CLEANUP_IDLE = "seat.hold.counter-drift.cleanup.interval=1h"
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK, ADR014_LAZY_CLEANUP, ADR014_LAZY_CLEANUP_IDLE])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK, ADR014_LAZY_CLEANUP, ADR014_LAZY_CLEANUP_IDLE, "seat.confirm.mode=current"])
 annotation class LazyMode
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy-sweep", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy-sweep", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK, "seat.confirm.mode=current"])
 annotation class LazySweepMode
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=derived", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=derived", ADR014_REPAIR_ON, ADR014_SMALL_CHUNK, "seat.confirm.mode=current"])
 annotation class DerivedMode

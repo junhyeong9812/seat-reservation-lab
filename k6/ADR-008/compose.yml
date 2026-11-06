@@ -65,10 +65,11 @@ services:
       # 설정값은 정확한 속성 이름으로 주입한다 (relaxed binding 추측 배제)
       # ADR-009 후보·정리는 끔 고정(ADR-009 결정으로 앱 기본값이 A·C·정리 ① 켬으로 바뀌었다 — 이 하네스는 그 축이 없던 측정이라 이전 기본값 끔을 명시. 카운터 계열이 아닌 매수 방식은 켠 채로는 기동 검사가 거부한다)
       # ADR-012 증분·안전망·탐지 모양도 옛 값 고정(ADR-012 기본값 교체 — 업무 앱 기본값이 증분 trigger 1초 · 안전망 · split · V9 트리거·V10 위치로 바뀌었다. 이 하네스는 그 축이 없던 측정이라 이전 실효 값을 명시)
+      # ADR-015(R15-5): 이 SHA부터 기본 위치에 V12(확정 유니크 인덱스) · V13(seat_hold.extended_at)이 있다 — 이 하네스의 기준선을 지키려고 Flyway target = 위치 집합의 V12 앞 마지막 버전 = 7(위치 = 기본 또는 기본 + V4 unique — 둘 다 7 · failOnMissingTarget — 그 버전이 위치에 있어야 한다 · ADR-015 T12)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false,"incremental":{"method":"none","enabled":false},"safety-net":{"enabled":false},"detect-shape":"one-shot"},"cleanup":{"mode":"none"}}}},
+        {"seat":{"confirm":{"mode":"current"},"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"${CRITICAL_SECTION_DELAY:-0s}","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false,"incremental":{"method":"none","enabled":false},"safety-net":{"enabled":false},"detect-shape":"one-shot"},"cleanup":{"mode":"none"}}}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
-                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
+                   "flyway":{"target":"7","locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}}}
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
     ports:

@@ -83,11 +83,11 @@ abstract class Adr014ImplRepairOffTest : Adr014ImplSupport() {
     }
 }
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_SMALL_CHUNK, ADR014_LAZY_CLEANUP, ADR014_LAZY_CLEANUP_IDLE])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy", ADR014_SMALL_CHUNK, ADR014_LAZY_CLEANUP, ADR014_LAZY_CLEANUP_IDLE, "seat.confirm.mode=current"])
 class Adr014ImplRepairOffLazyTest : Adr014ImplRepairOffTest()
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy-sweep", ADR014_SMALL_CHUNK])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=lazy-sweep", ADR014_SMALL_CHUNK, "seat.confirm.mode=current"])
 class Adr014ImplRepairOffLazySweepTest : Adr014ImplRepairOffTest()
 
-@TestPropertySource(properties = ["seat.hold.expiry-mode=derived", ADR014_SMALL_CHUNK])
+@TestPropertySource(properties = ["seat.hold.expiry-mode=derived", ADR014_SMALL_CHUNK, "seat.confirm.mode=current"])
 class Adr014ImplRepairOffDerivedTest : Adr014ImplRepairOffTest()

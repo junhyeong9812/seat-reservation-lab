@@ -271,6 +271,7 @@ class Adr012DefaultsContractTest {
     /** 해석: 계약 '그 키들 + method=none + 위치 db/migration' — C는 새 기본값이 끔이라 명시하지 않는다 */
     private fun k4OffKeys(strategy: String) = arrayOf(
         "--seat.hold.limit-strategy=$strategy",
+        "--seat.confirm.mode=current", // ADR-015 §결정(나) — 기본 밖 매수 방식은 current 명시
         "--$DRIFT.expiry-repair=false",
         "--$DRIFT.cleanup.mode=none",
         "--$INC_K.enabled=false",
@@ -281,12 +282,12 @@ class Adr012DefaultsContractTest {
 
     @Test
     fun `K4 none + 키 없음 — 거부하고 A·정리·증분·안전망 끌 키를 안내한다`() {
-        assertBootRejected(arrayOf("--seat.hold.limit-strategy=none"), *k4HintKeys)
+        assertBootRejected(arrayOf("--seat.hold.limit-strategy=none", "--seat.confirm.mode=current"), *k4HintKeys)
     }
 
     @Test
     fun `K4 advisory + 키 없음 — 거부하고 A·정리·증분·안전망 끌 키를 안내한다`() {
-        assertBootRejected(arrayOf("--seat.hold.limit-strategy=advisory"), *k4HintKeys)
+        assertBootRejected(arrayOf("--seat.hold.limit-strategy=advisory", "--seat.confirm.mode=current"), *k4HintKeys)
     }
 
     @Test
@@ -308,16 +309,19 @@ class Adr012DefaultsContractTest {
 
     private val counterTrigger = "--seat.hold.limit-strategy=counter-trigger"
 
+    /** ADR-015 §결정(나) — 기본 밖 매수 방식(counter-trigger)은 확정 모드 current를 명시해야 뜬다 */
+    private val confirmCurrent = "--seat.confirm.mode=current"
+
     @Test
     fun `K5 counter-trigger + 키 없음 — A·B 함께 금지로 거부, 안내에 A 끔과 증분 끔이 함께 있다`() {
         // 해석: 위치는 계약 기본 위치에 V8을 더해 준다(counter-trigger는 V8이 있어야 한다 — 위치가 빠져 다른 검사로 거부되지 않게)
-        assertBootRejected(arrayOf(counterTrigger, "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10"), "expiry-repair", "incremental.enabled")
+        assertBootRejected(arrayOf(counterTrigger, confirmCurrent, "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10"), "expiry-repair", "incremental.enabled")
     }
 
     @Test
     fun `K5 counter-trigger + A 끔 + 증분 켠 채(기본값) — 거부`() {
         assertBootRejected(
-            arrayOf(counterTrigger, "--$DRIFT.expiry-repair=false", "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10"),
+            arrayOf(counterTrigger, confirmCurrent, "--$DRIFT.expiry-repair=false", "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10"),
             "incremental.enabled",
         )
     }
@@ -326,7 +330,7 @@ class Adr012DefaultsContractTest {
     fun `K5 counter-trigger + A 끔 + 증분 끔(나머지 기본값 · 위치 기본 + V8) — 뜨고 증분 스레드가 없다`() {
         // 해석: 계약 '지금 규칙 유지 + 증분 끔 필요' → 필요한 키 = A 끔 + 증분 끔(+ V8 위치). method(trigger 표시만)·안전망은 기본값 그대로 둔다
         //       (안전망의 A 필수 규칙은 counter-trigger 예외 — 교체 전 HoldStrategyStartupCheck 규칙 유지)
-        boot(counterTrigger, "--$DRIFT.expiry-repair=false", "--$INC_K.enabled=false", "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10").use { b ->
+        boot(counterTrigger, confirmCurrent, "--$DRIFT.expiry-repair=false", "--$INC_K.enabled=false", "--spring.flyway.locations=$LOC_BASE,$LOC_V8,$LOC_V9_TRG,$LOC_V10").use { b ->
             assertEquals(0, b.threads(T_INCREMENTAL), "K5: 증분 스레드 없음 (새 스레드 ${b.newThreads})")
             assertEquals(false, b.props.counterDrift.expiryRepair)
         }
@@ -335,7 +339,7 @@ class Adr012DefaultsContractTest {
     @Test
     fun `K5 counter-trigger + 옛 조건 키 전부(A 끔 · 증분 끔 · method none · 안전망 끔 · 위치 base + V8) — 뜬다`() {
         boot(
-            counterTrigger, "--$DRIFT.expiry-repair=false", "--$INC_K.enabled=false", "--$INC_K.method=none", "--$SAFE_K.enabled=false",
+            counterTrigger, confirmCurrent, "--$DRIFT.expiry-repair=false", "--$INC_K.enabled=false", "--$INC_K.method=none", "--$SAFE_K.enabled=false",
             "--spring.flyway.locations=$LOC_BASE,$LOC_V8",
         ).use { b ->
             assertEquals(0, b.threads(T_INCREMENTAL) + b.threads(T_SAFETY), "K5: 증분·안전망 스레드 없음 (새 스레드 ${b.newThreads})")

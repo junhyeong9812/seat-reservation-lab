@@ -79,7 +79,9 @@ class V6FlywayUpgradeTest {
         assertEquals(MigrationState.SUCCESS, v6.state, "flyway info: V6")
         assertEquals("backfill user hold quota", v6.description)
         assertEquals(0L, counterMismatch(jdbc), "v_counter_mismatch")
-        assertEquals(holdsBefore, rows("SELECT * FROM seat_hold ORDER BY id"), "홀드는 그대로")
+        // ADR-015 V13(기본 위치)이 seat_hold에 extended_at 열을 더한다 — 비교는 V5 시점 열만(기존 행의 값은 그대로 · 새 열은 NULL)
+        assertEquals(holdsBefore, rows("SELECT ${holdsBefore.first().keys.joinToString()} FROM seat_hold ORDER BY id"), "홀드는 그대로")
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM seat_hold WHERE extended_at IS NOT NULL", Int::class.java), "V13 새 열은 NULL")
         assertEquals(reservationsBefore, rows("SELECT * FROM reservation ORDER BY id"), "예약은 그대로")
         val cnt = rows("SELECT schedule_id, user_id, cnt FROM user_hold_quota ORDER BY 1, 2")
             .associate { (it["schedule_id"] as Number).toLong() to (it["user_id"] as Number).toLong() to (it["cnt"] as Number).toInt() }

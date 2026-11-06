@@ -1,9 +1,12 @@
 package com.jun.labs.seatreservation.expiry
 
 import com.jun.labs.seatreservation.incremental.BootTestBase
+import com.jun.labs.seatreservation.incremental.CONFIRM_CURRENT
 import com.jun.labs.seatreservation.incremental.assertStartupFailure
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
@@ -23,7 +26,10 @@ class Adr014ImplStartupTest : BootTestBase() {
 
     private val base = SeatHoldProperties(ttl = Duration.ofMinutes(5), maxPerUser = 2, expiryInterval = Duration.ofSeconds(10))
 
-    private fun check(p: SeatHoldProperties) = HoldStrategyStartupCheck.checkConfig(p, null)
+    /** ADR-015 §결정(나): B·C·D · 기본 밖 조합은 current 명시 — 이 클래스는 ADR-014 검사 문구를 본다(확정 규칙이 먼저 거부하지 않게) */
+    private val current = SeatConfirmProperties(mode = ConfirmMode.CURRENT)
+
+    private fun check(p: SeatHoldProperties) = HoldStrategyStartupCheck.checkConfig(p, null, current)
 
     @Test
     fun `checkConfig — 기본 조합이면 네 방식 모두 통과한다`() {
@@ -113,10 +119,10 @@ class Adr014ImplStartupTest : BootTestBase() {
     @Test
     fun `기동 — lazy + 정리 끔은 마이그레이션 앞에서 거부되고 스키마를 바꾸지 않는다 · 정리 ①을 켜면 뜬다(CR14-1)`() {
         val url = freshDbUrl()
-        val error = bootFailure(url, mapOf("seat.hold.expiry-mode" to "lazy")) // 옛 동작 고정 키 = cleanup.mode=none
+        val error = bootFailure(url, CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "lazy")) // 옛 동작 고정 키 = cleanup.mode=none
         assertStartupFailure(error, "lazy + cleanup none", listOf("seat.hold.counter-drift.cleanup.mode=schedule로"))
         assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
-        boot(freshDbUrl(), mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "schedule")).close()
+        boot(freshDbUrl(), CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "schedule")).close()
     }
 
     @Test
@@ -125,9 +131,9 @@ class Adr014ImplStartupTest : BootTestBase() {
         fun env(vararg profiles: String) = MockEnvironment().apply { setActiveProfiles(*profiles) }
         // reconciler 프로필은 만료 스케줄러를 꺼야 하고(F 검사) 대조를 켜야 한다(L1-13) — 그 두 검사가 대신 거부하지 않게 둘 다 맞춘다
         val f = p.copy(counterDrift = p.counterDrift.copy(reconcile = p.counterDrift.reconcile.copy(enabled = true)))
-        HoldStrategyStartupCheck.checkConfig(f, env("reconciler").apply { setProperty("seat.hold.expiry-scheduler-enabled", "false") })
+        HoldStrategyStartupCheck.checkConfig(f, env("reconciler").apply { setProperty("seat.hold.expiry-scheduler-enabled", "false") }, current)
         listOf(env(), null).forEach { e ->
-            val error = assertFailsWith<IllegalStateException>("업무 프로필 $e") { HoldStrategyStartupCheck.checkConfig(p, e) }
+            val error = assertFailsWith<IllegalStateException>("업무 프로필 $e") { HoldStrategyStartupCheck.checkConfig(p, e, current) }
             assertTrue(error.message!!.contains("seat.hold.counter-drift.cleanup.mode=schedule"), error.message)
         }
     }
@@ -135,13 +141,13 @@ class Adr014ImplStartupTest : BootTestBase() {
     @Test
     fun `기동 — reconciler 프로필 + lazy + 정리 끔(F 기본값)은 뜬다 · 같은 키의 업무 앱은 거부된다(CR14-26)`() {
         // 업무 앱 기본값으로 띄운다(옛 동작 고정 키를 뺀다) — F의 정리·대조·증분·안전망은 application-reconciler.yml이 정한다(cleanup none · C 켬)
-        boot(freshDbUrl(), OLD_DEFAULTS_OFF + mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-mode" to "lazy")).use { ctx ->
+        boot(freshDbUrl(), OLD_DEFAULTS_OFF + CONFIRM_CURRENT + mapOf("spring.profiles.active" to "reconciler", "seat.hold.expiry-mode" to "lazy")).use { ctx ->
             val props = ctx.getBean(SeatHoldProperties::class.java)
             assertEquals(SeatHoldProperties.CleanupMode.NONE, props.counterDrift.cleanup.mode, "전제: F는 정리 끔")
             assertEquals(ExpiryMode.LAZY, props.expiryMode, "전제: lazy")
         }
         val url = freshDbUrl()
-        val error = bootFailure(url, OLD_DEFAULTS_OFF + mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "none"))
+        val error = bootFailure(url, OLD_DEFAULTS_OFF + CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.counter-drift.cleanup.mode" to "none"))
         assertStartupFailure(error, "업무 앱 + lazy + cleanup none", listOf("seat.hold.counter-drift.cleanup.mode=schedule로"))
         assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
     }
@@ -149,7 +155,7 @@ class Adr014ImplStartupTest : BootTestBase() {
     @Test
     fun `기동 — 기본 조합 밖 lazy는 마이그레이션 앞에서 거부되고 스키마를 바꾸지 않는다(N7)`() {
         val url = freshDbUrl()
-        val error = bootFailure(url, mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.strategy" to "pessimistic", "seat.hold.limit-strategy" to "none"))
+        val error = bootFailure(url, CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "lazy", "seat.hold.strategy" to "pessimistic", "seat.hold.limit-strategy" to "none"))
         assertStartupFailure(error, "기본 조합 밖 lazy", listOf("seat.hold.expiry-mode"))
         assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
     }
@@ -159,7 +165,7 @@ class Adr014ImplStartupTest : BootTestBase() {
         val url = freshDbUrl()
         val error = bootFailure(
             url,
-            mapOf("seat.hold.expiry-mode" to "derived", "spring.profiles.active" to "loadtest", "seat.hold.loadtest.inject-app.enabled" to "true"),
+            CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "derived", "spring.profiles.active" to "loadtest", "seat.hold.loadtest.inject-app.enabled" to "true"),
         )
         assertStartupFailure(error, "derived + inject-app", listOf("inject-app"))
         assertEquals(false, jdbcFor(url).queryForObject("SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean::class.java))
@@ -168,9 +174,11 @@ class Adr014ImplStartupTest : BootTestBase() {
     @Test
     fun `V11 — 선택 위치를 더해야만 좌석 맵 인덱스가 생긴다 · 기본 위치 목록에는 없다(DS14-OQ1)`() {
         val withV11 = freshDbUrl()
-        boot(withV11, mapOf("seat.hold.expiry-mode" to "derived", "spring.flyway.locations" to "classpath:db/migration,classpath:db/migration-seat-map")).close()
+        boot(withV11, CONFIRM_CURRENT + mapOf("seat.hold.expiry-mode" to "derived", "spring.flyway.locations" to "classpath:db/migration,classpath:db/migration-seat-map")).close()
         assertEquals(1, jdbcFor(withV11).queryForObject("SELECT count(*) FROM pg_indexes WHERE indexname = 'idx_product_seat_schedule_id'", Int::class.java))
-        assertEquals("11", jdbcFor(withV11).queryForObject("SELECT max(version::int)::text FROM flyway_schema_history", String::class.java))
+        // ADR-015: 기본 위치에 V12 · V13이 더해져 최대 버전은 13 — V11 적용은 이력 행으로 본다
+        assertEquals("13", jdbcFor(withV11).queryForObject("SELECT max(version::int)::text FROM flyway_schema_history", String::class.java))
+        assertEquals(1, jdbcFor(withV11).queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version = '11' AND success", Int::class.java))
 
         val defaults = freshDbUrl()
         boot(defaults, OLD_DEFAULTS_OFF).close() // 업무 앱 기본값(application.yml 위치 목록)

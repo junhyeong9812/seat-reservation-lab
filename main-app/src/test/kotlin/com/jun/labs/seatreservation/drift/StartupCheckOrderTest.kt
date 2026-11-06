@@ -106,7 +106,7 @@ class StartupCheckOrderTest {
 
     /** 명세 §10 K4 안내 조합(A·정리·증분·안전망 끔 + method none + 위치 db/migration) */
     private val k4Keys = arrayOf(
-        "--seat.hold.limit-strategy=none",
+        "--seat.hold.limit-strategy=none", "--seat.confirm.mode=current",
         "--$DRIFT.expiry-repair=false", "--$DRIFT.cleanup.mode=none",
         "--$INC_K.enabled=false", "--$SAFE_K.enabled=false", "--$INC_K.method=none",
         "--spring.flyway.locations=classpath:db/migration",
@@ -121,7 +121,7 @@ class StartupCheckOrderTest {
     @Test
     fun `K4 none만 주고 기동 — 마이그레이션 전에 거부(V9·V10 없음) · 같은 DB를 안내 키로 다시 띄우면 뜬다`() {
         val url = freshDbUrl()
-        assertRejected(url, arrayOf("--seat.hold.limit-strategy=none"), "expiry-repair", "cleanup.mode", "incremental.enabled", "safety-net.enabled")
+        assertRejected(url, arrayOf("--seat.hold.limit-strategy=none", "--seat.confirm.mode=current"), "expiry-repair", "cleanup.mode", "incremental.enabled", "safety-net.enabled")
         assertNoV9V10(url, "K4 거부 뒤")
         boot(url, *k4Keys).use { ctx -> assertTrue(ctx.isActive) }
         assertTrue(!jdbc(url).hasTouchTrigger(), "K4 재기동: 트리거 없음")
@@ -139,7 +139,7 @@ class StartupCheckOrderTest {
     fun `Flyway가 꺼진 구성 — 같은 설정 검사가 ApplicationRunner에서 돌아 거부한다`() {
         val url = freshDbUrl()
         boot(url, *k4Keys).close() // V1~V7 스키마 준비(JPA validate가 통과하게)
-        assertRejected(url, arrayOf("--seat.hold.limit-strategy=none", "--spring.flyway.enabled=false"), "expiry-repair", "safety-net.enabled")
+        assertRejected(url, arrayOf("--seat.hold.limit-strategy=none", "--seat.confirm.mode=current", "--spring.flyway.enabled=false"), "expiry-repair", "safety-net.enabled")
     }
 
     @Test

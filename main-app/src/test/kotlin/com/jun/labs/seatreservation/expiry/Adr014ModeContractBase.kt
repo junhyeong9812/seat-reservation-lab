@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.http.MediaType
+import org.springframework.test.context.TestPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
@@ -47,6 +48,7 @@ import kotlin.test.assertTrue
  * 구현 전(손잡이 무시 → A 동작)에는 대부분 실패하고, 구현 뒤 통과해야 한다. A 경로 테스트는 Adr014SweepContractTest가 본다.
  */
 @AutoConfigureMockMvc
+@TestPropertySource(properties = ["seat.confirm.mode=current"])
 abstract class Adr014ModeContractBase : IntegrationTest() {
 
     @Autowired lateinit var mockMvc: MockMvc

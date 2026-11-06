@@ -166,34 +166,35 @@ abstract class SalesCloseOrderTest(private val seatType: HoldStrategyType, priva
 
 // ---- 좌석 전략 × 매수 none (매수 방식은 좌석 3b에서만 — 기동 검사) ----------------------------------------------------------
 
-@TestPropertySource(properties = ["seat.hold.strategy=none", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=none", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatNoneTest : SalesCloseOrderTest(HoldStrategyType.NONE, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=jvm-lock", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=jvm-lock", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatJvmLockTest : SalesCloseOrderTest(HoldStrategyType.JVM_LOCK, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=jvm-lock-in-tx", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=jvm-lock-in-tx", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatJvmLockInTxTest : SalesCloseOrderTest(HoldStrategyType.JVM_LOCK_IN_TX, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=conditional-update", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=conditional-update", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatConditionalUpdateTest : SalesCloseOrderTest(HoldStrategyType.CONDITIONAL_UPDATE, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=pessimistic", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=pessimistic", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatPessimisticTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=pessimistic-nowait", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=pessimistic-nowait", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatNowaitTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=optimistic", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=optimistic", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatOptimisticTest : SalesCloseOrderTest(HoldStrategyType.OPTIMISTIC, UserLimitStrategyType.NONE)
 
-@TestPropertySource(properties = ["seat.hold.strategy=advisory", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=advisory", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatAdvisoryTest : SalesCloseOrderTest(HoldStrategyType.ADVISORY, UserLimitStrategyType.NONE)
 
 @TestPropertySource(
     properties = [
         "seat.hold.strategy=unique", "seat.hold.limit-strategy=none",
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-unique",
+        "seat.confirm.mode=current",
     ],
 )
 class SalesCloseOrderSeatUniqueTest : SalesCloseOrderTest(HoldStrategyType.UNIQUE, UserLimitStrategyType.NONE)
@@ -208,52 +209,53 @@ abstract class SalesCloseOrderRedisTest(seatType: HoldStrategyType) : SalesClose
 }
 
 @Import(RedisTestcontainersConfiguration::class)
-@TestPropertySource(properties = ["seat.hold.strategy=redis-nx", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=redis-nx", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatRedisNxTest : SalesCloseOrderRedisTest(HoldStrategyType.REDIS_NX)
 
 @Import(RedisTestcontainersConfiguration::class)
-@TestPropertySource(properties = ["seat.hold.strategy=redis-lock", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=redis-lock", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderSeatRedisLockTest : SalesCloseOrderRedisTest(HoldStrategyType.REDIS_LOCK)
 
 // ---- 좌석 3b × 매수 방식 -----------------------------------------------------------------------------------------------
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitAdvisoryTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.ADVISORY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitAdvisoryTryTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.ADVISORY_TRY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try-early"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try-early", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitAdvisoryTryEarlyTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.ADVISORY_TRY_EARLY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-lock"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-lock", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitQuotaLockTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.QUOTA_LOCK)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitQuotaNowaitTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.QUOTA_NOWAIT)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait-early"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait-early", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitQuotaNowaitEarlyTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.QUOTA_NOWAIT_EARLY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitCounterTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.COUNTER)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitCounterUpsertTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.COUNTER_UPSERT)
 
 @TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert-precheck"])
 class SalesCloseOrderLimitPrecheckTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.COUNTER_UPSERT_PRECHECK)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitSerializableTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.SERIALIZABLE)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable-retry"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.confirm.mode=current"])
 class SalesCloseOrderLimitSerializableRetryTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.SERIALIZABLE_RETRY)
 
 @TestPropertySource(
     properties = [
         "seat.hold.limit-strategy=counter-trigger",
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
+        "seat.confirm.mode=current",
     ],
 )
 class SalesCloseOrderLimitCounterTriggerTest : SalesCloseOrderTest(HoldStrategyType.PESSIMISTIC_NOWAIT, UserLimitStrategyType.COUNTER_TRIGGER)

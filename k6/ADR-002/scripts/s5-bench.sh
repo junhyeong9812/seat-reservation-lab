@@ -82,7 +82,7 @@ echo "$(date -Is) S5 start sha=$SHA levels=[$LEVELS] scales=[$SCALES] seconds=$S
 FAILED=0
 for level in $LEVELS; do
   for index in off on; do
-    target=$([[ "$index" == on ]] && echo latest || echo 1)
+    target=$([[ "$index" == on ]] && echo 7 || echo 1)   # on = V12 앞 마지막 버전(ADR-015 R15-5 — run.sh와 같다)
     combo="L$level-idx$index"
     pending=0
     for n in $SCALES; do [[ "$(cat "$OUT/$combo/N$n/status" 2>/dev/null)" == ok ]] || pending=1; done

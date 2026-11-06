@@ -71,9 +71,9 @@ class Adr013FirstWindowContractTest : BootTestBase() {
 
     private fun ConfigurableApplicationContext.meters(): MeterRegistry = getBean(MeterRegistry::class.java)
 
-    /** V1~V7만 적용(옛 앱 DB — updated_at·트리거·V10 없음) */
+    /** V1~V7만 적용(옛 앱 DB — updated_at·트리거·V10 없음). target 7 고정 — ADR-015 기본 위치 V12 · V13이 먼저 적용되면 앱의 V9 · V10이 순서 밖이 된다(§설계-4 순서 함정) */
     private fun migrateV7(url: String) {
-        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(LOC_BASE).load().migrate()
+        Flyway.configure().dataSource(url, dbUser, dbPassword).locations(LOC_BASE).target("7").load().migrate()
     }
 
     /** 빠른 기본값 m(`pg_attribute.attmissingval` — atthasmissing일 때만) */

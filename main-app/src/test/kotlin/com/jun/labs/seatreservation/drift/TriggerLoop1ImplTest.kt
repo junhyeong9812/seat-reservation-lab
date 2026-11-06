@@ -31,6 +31,7 @@ import kotlin.test.assertTrue
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        "seat.confirm.mode=current",
     ],
 )
 class TriggerLoop1ImplTest : DriftTestSupport() {
@@ -154,7 +155,7 @@ class TriggerLoop1ImplTest : DriftTestSupport() {
  * L1-3 · L1-20 — prepare(counter·quota 계열)는 마감 회차에 쿼터 행을 만들지 않는다(쿼터 행 전체 비교) ·
  * 마감 경계에서 남을 수 있는 cnt 0 행은 판정기·대조에서 빠지고 정리 ①이 지운다(무해).
  */
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter", "seat.confirm.mode=current"])
 class PrepareCloseImplTest : DriftTestSupport() {
     @Autowired lateinit var holdSeat: HoldSeatUseCase
     @Autowired lateinit var reconciler: CounterReconciler

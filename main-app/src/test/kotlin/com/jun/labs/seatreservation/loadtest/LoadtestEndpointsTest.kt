@@ -14,7 +14,7 @@ import kotlin.test.assertEquals
 
 // 매수 방식 none 고정(ADR-008): 판정기 단위 시험은 쿼터 행 없이 홀드·예약을 직접 넣고 배경 행도 시드한다 — counter 계열이면 v_counter_mismatch·배경 거부가 섞인다
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 @AutoConfigureMockMvc
 class LoadtestEndpointsTest : IntegrationTest() {
 
@@ -105,15 +105,6 @@ class LoadtestEndpointsTest : IntegrationTest() {
     }
 
     @Test
-    fun `같은 좌석의 CONFIRMED 2건 → 중복 확정`() {
-        sql("UPDATE product_seat SET status = 'RESERVED' WHERE id = 3")
-        confirmed(seatId = 3, userId = 1)
-        confirmed(seatId = 3, userId = 2)
-
-        assertEquals(mapOf("v_duplicate_confirmed_seats" to 1L), violations())
-    }
-
-    @Test
     fun `RESERVED 아닌 좌석의 CONFIRMED → 불일치`() {
         confirmed(seatId = 4, userId = 1)
 
@@ -180,5 +171,41 @@ class LoadtestEndpointsTest : IntegrationTest() {
             "INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, created_at) VALUES (1, ?, ?, 'pay', 'CONFIRMED', now())",
             seatId, userId,
         )
+    }
+}
+
+/**
+ * 판정기의 중복 확정 칸(v_duplicate_confirmed_seats)은 V12(ADR-015 확정 예약 부분 유니크 인덱스 — 기본 위치) 앞 스키마에서만 직접 INSERT로 만들 수 있다 —
+ * 기준선 재현 조건(ADR-015 Q7)으로 띄운다. target=7 = 기본 위치에서 V12 앞의 마지막 버전(기본 위치에는 V11이 없어 target=11은 Flyway가 거부한다).
+ * V12가 있는 스키마에서 같은 INSERT가 23505로 막히는 것은 Adr015UniqueIndexContractTest가 본다.
+ */
+@ActiveProfiles("loadtest")
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "spring.flyway.target=7", "seat.confirm.mode=current"])
+@AutoConfigureMockMvc
+class LoadtestEndpointsBeforeV12Test : IntegrationTest() {
+
+    @Autowired lateinit var mockMvc: MockMvc
+    @Autowired lateinit var loadtestDataService: LoadtestDataService
+
+    @BeforeEach
+    fun seed() {
+        mockMvc.post("/internal/reset?schedules=1&seatsPerSchedule=100").andExpect { status { isOk() } }
+    }
+
+    @Test
+    fun `같은 좌석의 CONFIRMED 2건 → 중복 확정`() {
+        jdbcTemplate.update("UPDATE product_seat SET status = 'RESERVED' WHERE id = 3")
+        repeat(2) { i ->
+            jdbcTemplate.update(
+                "INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, created_at) VALUES (1, 3, ?, 'pay', 'CONFIRMED', now())",
+                1L + i,
+            )
+        }
+
+        val violations = loadtestDataService.consistency(20)
+            .filterKeys { it.startsWith("v_") }
+            .mapValues { (it.value as Number).toLong() }
+            .filterValues { it != 0L }
+        assertEquals(mapOf("v_duplicate_confirmed_seats" to 1L), violations)
     }
 }

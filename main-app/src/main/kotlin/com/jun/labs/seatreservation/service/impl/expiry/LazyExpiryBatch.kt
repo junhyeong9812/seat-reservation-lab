@@ -179,18 +179,7 @@ class LazyExpiryBatch(
     }
 
     /** C3 · D2 — 후보 쌍 중 쿼터 행이 있는 쌍을 정렬 순서로 잠근다(기다림). 돌려받은 쌍 = P */
-    private fun lockPairs(pairs: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
-        if (pairs.isEmpty()) return emptyList()
-        return jdbc.query(
-            """
-            SELECT q.schedule_id, q.user_id FROM user_hold_quota q
-              JOIN unnest(?::bigint[], ?::bigint[]) AS c(schedule_id, user_id)
-                ON q.schedule_id = c.schedule_id AND q.user_id = c.user_id
-             ORDER BY q.schedule_id, q.user_id FOR UPDATE OF q
-            """.trimIndent(),
-            { rs, _ -> rs.getLong(1) to rs.getLong(2) }, pairs.map { it.first }.toTypedArray(), pairs.map { it.second }.toTypedArray(),
-        )
-    }
+    private fun lockPairs(pairs: List<Pair<Long, Long>>): List<Pair<Long, Long>> = lockQuotaPairs(jdbc, pairs)
 
     /** C4 · D4 첫 문장 — 잠근 쌍의 만료 홀드를 지우고 쌍별 행 수를 돌려준다(규칙 ②) */
     private fun deleteForPairs(lockedPairs: List<Pair<Long, Long>>, seats: Array<Long>?): Map<Pair<Long, Long>, Int> {
@@ -238,4 +227,21 @@ class LazyExpiryBatch(
         /** 틱당 청크 상한에 닿은 틱 수(CR14-2) */
         const val CHUNK_CAP_METRIC = "seat.hold.expiry.chunk_cap_reached"
     }
+}
+
+/**
+ * 쌍 잠금(ADR-014 §2.4 규칙 ① — C3 · D2 · ADR-015 A′ B2 공용): 후보 쌍 중 쿼터 행이 있는 쌍을 정렬 순서로 잠근다(기다림). 돌려받은 쌍 = P(잠근 쌍).
+ * 후보에 있는데 P에 없는 쌍 = MISSING(쿼터 행 없음).
+ */
+internal fun lockQuotaPairs(jdbc: JdbcTemplate, pairs: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
+    if (pairs.isEmpty()) return emptyList()
+    return jdbc.query(
+        """
+        SELECT q.schedule_id, q.user_id FROM user_hold_quota q
+          JOIN unnest(?::bigint[], ?::bigint[]) AS c(schedule_id, user_id)
+            ON q.schedule_id = c.schedule_id AND q.user_id = c.user_id
+         ORDER BY q.schedule_id, q.user_id FOR UPDATE OF q
+        """.trimIndent(),
+        { rs, _ -> rs.getLong(1) to rs.getLong(2) }, pairs.map { it.first }.toTypedArray(), pairs.map { it.second }.toTypedArray(),
+    )
 }

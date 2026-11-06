@@ -1,0 +1,1588 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+model: gpt-6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: high
+reasoning summaries: none
+session id: 01a1aa94-7234-74c3-becf-852f8a4baefe
+--------
+user
+Review commit 29e09aef (git show 29e09aef) in k6/ADR-015/scripts/plan15.py: k6 preAllocatedVUs sizing for constant-arrival-rate scenarios main/rehold (k6/ADR-015/scenarios/confirm-contention.js mainFlow/reholdFlow). Context: smoke had dropped_iterations only in rehold (conditional-extend race: mean concurrent ~980 vs pre 1000; current cost: rho=0 with pre=20 at 300/s). Check: (1) is the mean-concurrency model (rate x life x rho, life main=TTL+1, rehold=TTL+13, plus ext boundary longer=xb*110s) correct vs the actual flow code, (2) is 1.3 headroom + floor rate*1s sufficient for a no-drop guarantee across 30 reps, (3) any regression (PC load, k6_lead_s, GRACE, other consumers of pre_vus). Report concrete defects only, file:line, in Korean, max 10 lines.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+커밋 변경과 두 k6 흐름의 실제 대기 시간을 대조하고, VU 산식이 반복 실행에서 드롭을 막을 수 있는지 확인하겠습니다.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc 'rg -n "pre_vus|preAllocatedVUs|k6_lead_s|GRACE|mainFlow|reholdFlow|rho|xb|TTL|dropped_iterations" k6/ADR-015' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/compose.confirm.yml:9:#     seat.hold.expiry-mode = sweep(A — 새 모드의 기동 조건 규칙 1) · TTL · 배치 주기 · 좌석 전략 pessimistic-nowait(규칙 2 — 매수는 업무 앱 기본 counter-upsert-precheck) ·
+k6/ADR-015/compose.confirm.yml:35:                 "hold":{"expiry-mode":"sweep","ttl":"${HOLD_TTL:-30s}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
+k6/ADR-015/scenarios/warmup15.js:10:    hold: { executor: 'constant-arrival-rate', rate: 100, timeUnit: '1s', duration: '20s', preAllocatedVUs: 50, maxVUs: 200, exec: 'holdConfirm' },
+k6/ADR-015/scenarios/lib15.js:4:// keep-alive(ADR-014 §결정-3 · 06c): 생각 시간 ≥ 50초면 그 앞 요청을 Connection: close로(lib14 closeBeforeLongThink) — 이 측정의 생각 시간은 약 TTL(30초)이라
+k6/ADR-015/scenarios/lib15.js:5://   지금 값에서는 붙지 않지만, TTL을 늘려도 같은 EOF가 5xx 지표를 흐리지 않게 모든 '잠들기 앞' 요청에 건다(초안 측정-3.6).
+k6/ADR-015/scenarios/lib15.js:21://   xb(④ 경계 흐름 — payment-start가 준 연장 만료 e′ 기준으로 확정 · 리뷰 M15-5). 뽑는 순서는 앞 셋 뒤에 xb를 더했다(앞 셋의 값은 그대로 — fExtB 0이면 xb는 늘 거짓).
+k6/ADR-015/scenarios/lib15.js:26:  const rehold = r() < p.rho;
+k6/ADR-015/scenarios/lib15.js:27:  const xb = r() < (p.fExtB || 0);
+k6/ADR-015/scenarios/lib15.js:28:  return { c_ms, dup, rehold, xb };
+k6/ADR-015/scenarios/confirm-contention.js:5://          ④ 경계 흐름(xb 세션 — 비율 EXT_BOUNDARY_F · 리뷰 M15-5): payment-start 200이 준 연장 만료 e′ 기준으로 서버 시각 e′ + c에 확정(④에서도 경합 창이 열린다).
+k6/ADR-015/scenarios/confirm-contention.js:6://          xb가 아닌 ④ 세션은 e + c에 확정(연장이 지켜 주는가 — ext_then_lost). payment-start가 200이 아니면 xb 세션은 확정하지 않는다(pay 분포가 G-F로 드러낸다).
+k6/ADR-015/scenarios/confirm-contention.js:7://   rehold 같은 도착률 · 같은 세션 번호 — rehold 속성인 세션만: 그 세션의 좌석을 다른 사용자가 기준 만료(e · ④ xb는 e′ ≈ e + 창 − 리드) 둘레에서 선점 시도 —
+k6/ADR-015/scenarios/confirm-contention.js:9://          (201이면 멈추고 이탈 — 확정하지 않는다). 시작 시각을 main과 같게 두어 'e ≈ 반복 시작 + TTL'로 맞춘다(서버가 준 e는 main만 안다).
+k6/ADR-015/scenarios/confirm-contention.js:41:const TTL_S = N('TTL_S');
+k6/ADR-015/scenarios/confirm-contention.js:46:const P = { delayMs: DELAY_MS, marginMs: N('C_MARGIN_MS'), fDup: N('F_DUP'), rho: N('RHO'), fExtB: PAY_START ? N('EXT_BOUNDARY_F') : 0 };
+k6/ADR-015/scenarios/confirm-contention.js:59:const GRACE = `${N('GRACE_S')}s`;
+k6/ADR-015/scenarios/confirm-contention.js:63:    main: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_MAIN'), maxVUs: N('MAX_VUS_MAIN'), gracefulStop: GRACE, exec: 'mainFlow' },
+k6/ADR-015/scenarios/confirm-contention.js:64:    rehold: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_REHOLD'), maxVUs: N('MAX_VUS_REHOLD'), gracefulStop: GRACE, exec: 'reholdFlow' },
+k6/ADR-015/scenarios/confirm-contention.js:90:export function mainFlow() {
+k6/ADR-015/scenarios/confirm-contention.js:97:  const thinkMs = TTL_S * 1000 + a.c_ms;
+k6/ADR-015/scenarios/confirm-contention.js:103:  sess.add(1, { fl: PAY_START && a.xb ? 'x' : 'b', n: a.dup ? '2' : '1' });   // 계획 확정 수(흐름별 — 리뷰 M15-23)
+k6/ADR-015/scenarios/confirm-contention.js:109:    // xb 세션은 payment-start 뒤 약 창(2분)을 잔다 — 그 앞 요청에 Connection: close(keep-alive 처방 · 측정-1)
+k6/ADR-015/scenarios/confirm-contention.js:110:    const ps = send(closeBeforeLongThink(payStartReq(b.holdId, user), (a.xb ? PAY_WINDOW_MS : PAY_LEAD_MS) + a.c_ms));
+k6/ADR-015/scenarios/confirm-contention.js:111:    pay.add(1, { st: String(ps.status), code: ps.status === 200 ? 'OK' : codeOf(ps), fl: a.xb ? 'x' : 'b' });
+k6/ADR-015/scenarios/confirm-contention.js:114:      if (!Number.isFinite(extendedMs)) payBodyBad.add(1, { fl: a.xb ? 'x' : 'b' });   // 200 본문 계약 위반 — 무음으로 확정을 건너뛰지 않는다(리뷰 M15-23)
+k6/ADR-015/scenarios/confirm-contention.js:116:    if (a.xb) {
+k6/ADR-015/scenarios/confirm-contention.js:146:export function reholdFlow() {
+k6/ADR-015/scenarios/confirm-contention.js:154:  // 기준 만료 ≈ 반복 시작 + TTL(④ xb 세션은 e′ ≈ e − 리드 + 창 — payment-start가 e − 리드에 연장한다)
+k6/ADR-015/scenarios/confirm-contention.js:155:  const refMs = TTL_S * 1000 + (P.fExtB > 0 && a.xb ? PAY_WINDOW_MS - PAY_LEAD_MS : 0);
+k6/ADR-015/scenarios/confirm-contention.js:165:  data.adr015 = { rep: REP, rate: RATE, d_arr_s: D_ARR_S, ttl_s: TTL_S, delay_ms: DELAY_MS, plan_n: PLAN_N, pay_start: PAY_START, ext_boundary_f: P.fExtB,
+k6/ADR-015/scripts/run.sh:5:#   표본기(서버 · PC · 대기 · Hikari — 상태 · H4 표본은 이 측정에 없다) → 시작 대기(87초) → k6(confirm-contention) · 측정기 → 직후 → 수렴(TTL + 22초) →
+k6/ADR-015/scripts/run.sh:245:      --argjson lead "$PRE_K6_LEAD_S" --argjson pvus "$(P .k6.pre_vus_total)" \
+k6/ADR-015/scripts/run.sh:247:    lead_s: $lead, pre_vus_total: $pvus}' > "$DIR/pre-k6.json"
+k6/ADR-015/scripts/plan15.py:25:TTL_S = 30                                                                                # ADR-014 t30 셀 선례(plan14 MAIN a20-t30)
+k6/ADR-015/scripts/plan15.py:56:GRACE_S = TTL_S + REHOLD_UNTIL_S + 7                                                      # gracefulStop = TTL + 재선점 끝 + 여유 = 50초(창 끝에 시작한 세션이 끝날 시간)
+k6/ADR-015/scripts/plan15.py:57:GRACE_EXT_B_S = GRACE_S + PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S                         # ④ 경계 흐름이 있는 셀 = 50 + 110 = 160초(e′ ≈ e + 110초)
+k6/ADR-015/scripts/plan15.py:58:CONVERGE_EXTRA_S = 22                                                                     # 수렴 대기 = TTL + 22초(ADR-014 plan14 CONVERGE_EXTRA_S)
+k6/ADR-015/scripts/plan15.py:64:LIFE_S = {"main": TTL_S + 1, "rehold": TTL_S + REHOLD_UNTIL_S}                         # 흐름별 세션 수명(초) — main ≈ TTL + 1초 · rehold ≈ TTL + 재선점 끝 13초
+k6/ADR-015/scripts/plan15.py:69:K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37                                            # ADR-014 plan14 k6_lead_s 식 그대로
+k6/ADR-015/scripts/plan15.py:85:def k6_lead_s(pre_vus_total):
+k6/ADR-015/scripts/plan15.py:86:    return round(K6_LEAD_BASE_S + pre_vus_total * K6_LEAD_PER_VU_MS / 1000, 2)
+k6/ADR-015/scripts/plan15.py:131:    return GRACE_EXT_B_S if mode == "conditional-extend" and EXT_BOUNDARY_F[cell] > 0 else GRACE_S
+k6/ADR-015/scripts/plan15.py:139:def seed_of(c, grace=GRACE_S):
+k6/ADR-015/scripts/plan15.py:154:    xb = EXT_BOUNDARY_F[cell] if ext else 0.0
+k6/ADR-015/scripts/plan15.py:159:    longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
+k6/ADR-015/scripts/plan15.py:160:    rho = RHO[cell]
+k6/ADR-015/scripts/plan15.py:161:    pre = {f: math.ceil(PRE_VUS_HEADROOM * c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in LIFE_S.items()}
+k6/ADR-015/scripts/plan15.py:168:        "HOLD_TTL": f"{TTL_S}s", "EXPIRY_INTERVAL": f"{EXPIRY_INTERVAL_S}s", "FLYWAY_LOCATIONS": ",".join(flyway(mode)), "POOL_SIZE": str(POOL),
+k6/ADR-015/scripts/plan15.py:173:        "REP": str(rep), "RATE": str(c["rate"]), "D_ARR_S": str(d_arr), "GRACE_S": str(grace), "TTL_S": str(TTL_S),
+k6/ADR-015/scripts/plan15.py:174:        "DELAY_MS": str(c["delay_ms"]), "C_MARGIN_MS": str(C_MARGIN_MS), "F_DUP": str(F_DUP), "RHO": str(rho),
+k6/ADR-015/scripts/plan15.py:178:        "EXT_BOUNDARY_F": str(xb),
+k6/ADR-015/scripts/plan15.py:186:        "ttl_s": TTL_S, "expiry_interval_s": EXPIRY_INTERVAL_S, "delay_ms": c["delay_ms"], "rate": c["rate"], "d_arr_s": d_arr,
+k6/ADR-015/scripts/plan15.py:189:        "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense), "rho": rho,
+k6/ADR-015/scripts/plan15.py:191:        "k6": {"script": "k6/ADR-015/scenarios/confirm-contention.js", "duration_s": d_arr + grace, "pre_vus": pre, "max_vus": mx,
+k6/ADR-015/scripts/plan15.py:192:               "pre_vus_total": pre_total, "lead_s": k6_lead_s(pre_total), "env": k6env},
+k6/ADR-015/scripts/plan15.py:195:        "converge_s": TTL_S + CONVERGE_EXTRA_S,
+k6/ADR-015/scripts/plan15.py:209:        "seat.hold": {"expiryMode": "SWEEP", "ttl": f"PT{TTL_S}S", "expiryInterval": f"PT{EXPIRY_INTERVAL_S}S", "strategy": "PESSIMISTIC_NOWAIT",
+k6/ADR-015/scripts/plan15.py:272:            if p["delay_ms"] + C_MARGIN_MS > TTL_S * 1000:
+k6/ADR-015/scripts/plan15.py:273:                problems.append(f"{cell}: 오프셋 창이 TTL보다 길다")
+k6/ADR-015/scripts/plan15.py:318:            print(f"  race/④: 회차 약 {d['ext_race_min']}분(경계 흐름 — gracefulStop {GRACE_EXT_B_S}초) · 최대 VU {d['vus']}")
+k6/ADR-015/scripts/summarize.py:140:            elif m == "dropped_iterations":
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:48:  "rho": 0.5,
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:62:    "pre_vus_total": 3510,
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:68:      "GRACE_S": "160",
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/scripts/selftest.py:100:      pr_["k6"]["env"]["RHO"] == "0.5" and pc_["k6"]["env"]["RHO"] == "0.0" and pc_["k6"]["pre_vus"]["rehold"] == 300, f"{pr_['k6']['env']['RHO']} {pc_['k6']['env']['RHO']} {pc_['k6']['pre_vus']}")
+k6/ADR-015/scripts/selftest.py:103:      px_["k6"]["pre_vus"]["rehold"] >= 980 * 1.3 and px_["k6"]["pre_vus"]["main"] >= 20 * (31 + 55) * 1.3 and pr_["k6"]["pre_vus"]["rehold"] >= 20 * 43 * 0.5 * 1.3, json.dumps(px_["k6"]["pre_vus"]))
+k6/ADR-015/scripts/selftest.py:127:         row("rehold_ok", 103, 1, sc="rehold", extra="seat=7&k=3"), row("dropped_iterations", 105, 1, sc="rehold"),
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/app-config.json:248:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/k6-summary.json:29:    "dropped_iterations": {
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=conditional CONFIRM_DELAY=0ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/meta.json:16:  "k6_env": "REP=1 RATE=300 D_ARR_S=300 GRACE_S=50 TTL_S=30 DELAY_MS=0 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.0 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=0 REHOLD_DENSE_STEP_MS=0 REHOLD_DENSE_UNTIL_MS=0 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=3 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=12000 MAX_VUS_MAIN=18000 PRE_VUS_REHOLD=20 MAX_VUS_REHOLD=30",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/pre-k6.json:10:  "pre_vus_total": 1250
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=conditional-extend CONFIRM_DELAY=200ms PAYMENT_WINDOW=2m EXTEND_MIN_REMAINING=5s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/meta.json:16:  "k6_env": "REP=1 RATE=20 D_ARR_S=600 GRACE_S=160 TTL_S=30 DELAY_MS=200 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.5 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=-20 REHOLD_DENSE_STEP_MS=20 REHOLD_DENSE_UNTIL_MS=300 PAY_START=1 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.5 SEATS_PER_SCHEDULE=50000 SCHEDULES=1 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=1900 MAX_VUS_MAIN=2850 PRE_VUS_REHOLD=1000 MAX_VUS_REHOLD=1500",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=conditional CONFIRM_DELAY=200ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/meta.json:16:  "k6_env": "REP=1 RATE=20 D_ARR_S=600 GRACE_S=50 TTL_S=30 DELAY_MS=200 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.5 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=-20 REHOLD_DENSE_STEP_MS=20 REHOLD_DENSE_UNTIL_MS=300 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=1 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=800 MAX_VUS_MAIN=1200 PRE_VUS_REHOLD=450 MAX_VUS_REHOLD=675",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=current CONFIRM_DELAY=200ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/meta.json:16:  "k6_env": "REP=1 RATE=20 D_ARR_S=600 GRACE_S=50 TTL_S=30 DELAY_MS=200 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.5 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=-20 REHOLD_DENSE_STEP_MS=20 REHOLD_DENSE_UNTIL_MS=300 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=1 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=800 MAX_VUS_MAIN=1200 PRE_VUS_REHOLD=450 MAX_VUS_REHOLD=675",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=current CONFIRM_DELAY=0ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/meta.json:16:  "k6_env": "REP=1 RATE=300 D_ARR_S=300 GRACE_S=50 TTL_S=30 DELAY_MS=0 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.0 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=0 REHOLD_DENSE_STEP_MS=0 REHOLD_DENSE_UNTIL_MS=0 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=3 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=12000 MAX_VUS_MAIN=18000 PRE_VUS_REHOLD=20 MAX_VUS_REHOLD=30",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/pre-k6.json:10:  "pre_vus_total": 2900
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/pre-k6.json:10:  "pre_vus_total": 12020
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=optimistic CONFIRM_DELAY=200ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental,classpath:db/migration-confirm-version POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/meta.json:16:  "k6_env": "REP=1 RATE=20 D_ARR_S=600 GRACE_S=50 TTL_S=30 DELAY_MS=200 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.5 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=-20 REHOLD_DENSE_STEP_MS=20 REHOLD_DENSE_UNTIL_MS=300 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=1 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=800 MAX_VUS_MAIN=1200 PRE_VUS_REHOLD=450 MAX_VUS_REHOLD=675",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/pre-k6.json:10:  "pre_vus_total": 1250
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/pre-k6.json:10:  "pre_vus_total": 1250
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:48:  "rho": 0,
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:62:    "pre_vus_total": 12020,
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:68:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/cost/conditional/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/meta.json:14:  "app_env": "CONFIRM_MODE=pessimistic CONFIRM_DELAY=200ms PAYMENT_WINDOW=0s EXTEND_MIN_REMAINING=0s HOLD_TTL=30s EXPIRY_INTERVAL=10s FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental POOL_SIZE=10 TOMCAT_MAX_CONNECTIONS=20000 APP_NOFILE=65536 PG_PRELOAD=pg_stat_statements",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/meta.json:16:  "k6_env": "REP=1 RATE=20 D_ARR_S=600 GRACE_S=50 TTL_S=30 DELAY_MS=200 C_MARGIN_MS=300 F_DUP=0.1 RHO=0.5 REHOLD_FROM_MS=500 REHOLD_STEP_MS=1000 REHOLD_UNTIL_S=13 REHOLD_DENSE_FROM_MS=-20 REHOLD_DENSE_STEP_MS=20 REHOLD_DENSE_UNTIL_MS=300 PAY_START=0 PAY_START_BEFORE_E_S=10 PAY_WINDOW_S=120 EXT_BOUNDARY_F=0.0 SEATS_PER_SCHEDULE=50000 SCHEDULES=1 USER_MAIN=1000000 USER_REHOLD=4000000 PRE_VUS_MAIN=800 MAX_VUS_MAIN=1200 PRE_VUS_REHOLD=450 MAX_VUS_REHOLD=675",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:48:  "rho": 0.5,
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:62:    "pre_vus_total": 1250,
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:68:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/race/conditional/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:34:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:49:  "rho": 0.5,
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:55:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:63:    "pre_vus_total": 1250,
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:69:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/race/optimistic/rep1/plan.json:70:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:48:  "rho": 0.5,
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:62:    "pre_vus_total": 2900,
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:68:      "GRACE_S": "160",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:48:  "rho": 0,
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:62:    "pre_vus_total": 12020,
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:68:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:48:  "rho": 0.5,
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:62:    "pre_vus_total": 1250,
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:68:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/race/current/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/k6-summary.json:102:    "dropped_iterations": {
+k6/ADR-015/results/smoke15-20261105/cost/current/rep1/pre-k6.json:10:  "pre_vus_total": 12020
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/app-config.json:247:        "shutdown": "GRACEFUL",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:33:    "HOLD_TTL": "30s",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:48:  "rho": 0.5,
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:54:    "pre_vus": {
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:62:    "pre_vus_total": 1250,
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:68:      "GRACE_S": "50",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/plan.json:69:      "TTL_S": "30",
+k6/ADR-015/results/smoke15-20261105/race/pessimistic/rep1/pre-k6.json:10:  "pre_vus_total": 1250
+
+hook: PostToolUse
+exec
+/bin/bash -lc 'git show 29e09aef -- k6/ADR-015/scripts/plan15.py' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+commit 29e09aef397fb645266e91801a34f700aaf8ece4
+Author: junhyeong9812 <pickjog@gmail.com>
+Date:   Thu Nov 5 16:19:27 2026 +0900
+
+    fix(seat-reservation-lab): ADR-015 하네스 VU 크기 — 평균 동시 세션 × 1.3 · 최소 도착률 × 1초
+    
+    시작 조건 스모크에서 rehold 흐름 반복 누락(④ race 13 · current cost 29)이 났다.
+    rehold 미리 만든 VU 여유가 약 5%(④ race 평균 약 980 대 1000)였고 cost는 최소 20이었다.
+
+diff --git a/k6/ADR-015/scripts/plan15.py b/k6/ADR-015/scripts/plan15.py
+index e75f1f203..078741bf5 100644
+--- a/k6/ADR-015/scripts/plan15.py
++++ b/k6/ADR-015/scripts/plan15.py
+@@ -61,7 +61,10 @@ TOMCAT_MAX_CONNECTIONS, APP_NOFILE = 20000, 65536
+ FLYWAY = ["classpath:db/migration", "classpath:db/migration-updated-at-trigger", "classpath:db/migration-incremental"]   # 업무 앱 기본 위치(application.yml)
+ FLYWAY_V14 = "classpath:db/migration-confirm-version"                                     # ③만(V14 트리거 — 규칙 6)
+ USERS = {"main": 1_000_000, "rehold": 4_000_000}                                          # 흐름별 사용자 대역(세션 번호 + 대역)
+-PRE_VUS_PER_RATE = {"main": 40, "rehold": 45}                                             # 미리 만든 VU = 도착률 × 생각 시간(약 TTL) 보다 넉넉히 — main 세션 ≈ TTL + 1초 · rehold ≈ TTL + 13초 × ρ
++LIFE_S = {"main": TTL_S + 1, "rehold": TTL_S + REHOLD_UNTIL_S}                         # 흐름별 세션 수명(초) — main ≈ TTL + 1초 · rehold ≈ TTL + 재선점 끝 13초
++PRE_VUS_HEADROOM = 1.3                                                                   # 미리 만든 VU = 평균 동시 세션(도착률 × 수명 × ρ) × 1.3 — k6는 빈 VU가 없으면 그 반복을 버리고(dropped) VU를 새로 만든다.
++                                                                                          #   스모크 smoke15-20261105: rehold 45/도착률(여유 약 5%) → ④ race 평균 약 980 대 1000 · cost 최소 20 → 누락 13 · 29(G-H)
++PRE_VUS_MIN_S = 1                                                                        # 최소 = 도착률 × 1초(cost rehold는 ρ = 0이라 즉시 끝나도 k6 정지 순간 한 번에 몰린다)
+ MAX_VUS_FACTOR = 1.5
+ K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37                                            # ADR-014 plan14 k6_lead_s 식 그대로
+ PGSS_DEFAULT = 1                                                                          # D-4 — 기본 켬(초안 권장 · 다섯 모드 모두). fix1: ② 경합 표지(A′ B3 대기)와 #15 틱당 문장 수가 pgss를 읽는다
+@@ -155,8 +158,8 @@ def render(mode, cell, rep, knobs=None):
+     # 미리 만든 VU: ④ 경계 흐름 세션은 약 (창 − 리드)초 더 산다(main · rehold 둘 다)
+     longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
+     rho = RHO[cell]
+-    pre = {f: math.ceil(c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in PRE_VUS_PER_RATE.items()}
+-    pre = {f: max(v, 20) for f, v in pre.items()}
++    pre = {f: math.ceil(PRE_VUS_HEADROOM * c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in LIFE_S.items()}
++    pre = {f: max(v, 20, math.ceil(c["rate"] * PRE_VUS_MIN_S)) for f, v in pre.items()}
+     mx = {f: math.ceil(v * MAX_VUS_FACTOR) for f, v in pre.items()}
+     d_arr = c["d_arr_s"]
+     app_env = {
+
+hook: PostToolUse Completed
+hook: PostToolUse
+exec
+/bin/bash -lc 'git show --stat --oneline 29e09aef' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+29e09aef3 fix(seat-reservation-lab): ADR-015 하네스 VU 크기 — 평균 동시 세션 × 1.3 · 최소 도착률 × 1초
+ k6/ADR-015/scripts/plan15.py   | 9 ++++++---
+ k6/ADR-015/scripts/selftest.py | 7 +++++--
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scripts/run.sh | sed -n '190,320p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+   190	wait_health 240 || abort15 unhealthy
+   191	[[ "$(ctr_image seatlab-app-1)" == "$APP_ID" ]] || abort15 cond-image-mismatch
+   192	# 모드 혼합 금지(§3.5 · 15-08 OQ15-1): 이 DB에 붙은 앱 인스턴스 = seatlab 프로젝트의 app 컨테이너 1개뿐이어야 한다(+ DB 세션의 application_name 갈래)
+   193	remote "docker ps --filter label=com.docker.compose.project=seatlab --filter label=com.docker.compose.service=app --format '{{.Names}}'" < /dev/null > "$DIR/app-instances.txt" 2>>"$DIR/errors.log"
+   194	[[ "$(grep -c . "$DIR/app-instances.txt")" == 1 ]] || abort15 app-instances-not-one
+   195	reset_with_retry "$DIR" 2 10000 > /dev/null || abort15 reset-failed
+   196	BASE_URL="$BASE_URL" PAY_START="$(P .k6.env.PAY_START)" "$K6_BIN" run --quiet --out "csv=$DIR/warmup-requests.csv.gz" "$SCEN15/warmup15.js" > "$DIR/warmup.log" 2>&1 < /dev/null
+   197	WARM_RC=$?
+   198	python3 -I "$S14/summarize.py" --warmup-status "$DIR/warmup-requests.csv.gz" "$WARM_RC" > "$DIR/warmup-status.json" 2>>"$DIR/errors.log"
+   199	(( WARM_RC == 0 )) || abort15 warmup-failed
+   200	RESET_TIMEOUT=1800 reset_with_retry "$DIR" "$SEED_S" "$SEED_N" > "$DIR/seed.json" || abort15 seed-failed
+   201	SEED_T=$(now)
+   202	seed_check15 "$SEED_S" "$SEED_N" > "$DIR/seed-check.json" 2>>"$DIR/errors.log" < /dev/null || hreason seed-check-failed
+   203	db_state > "$DIR/db-state-seed.json" 2>>"$DIR/errors.log" < /dev/null
+   204	app_config15 "$DIR" 2>>"$DIR/errors.log" < /dev/null || hreason app-config-failed
+   205	limit_key_check seatlab-app-1 > "$DIR/limit-key.json" 2>>"$DIR/errors.log" < /dev/null || hreason limit-key-check-failed
+   206	pg_settings > "$DIR/pg-settings.json" 2>>"$DIR/errors.log" < /dev/null
+   207	bash "$S14/pccheck14.sh" > "$DIR/pc-check.json" 2>>"$DIR/errors.log" < /dev/null || echo "$(date -Is) pc-check: PC 다른 부하 — $(jq -c .why "$DIR/pc-check.json" 2>/dev/null)" >> "$DIR/errors.log"
+   208	if [[ "$PGSS" == 1 ]]; then pgss_prepare > "$DIR/pgss-prepare.json" 2>>"$DIR/errors.log" < /dev/null || hreason pgss-failed; fi
+   209	
+   210	# ---- 표본기(상태 · H4 표본 없음 — kind=cost로 넘겨 lib14가 띄우지 않게) ----------------------------------------------------------------
+   211	TAG15="$(echo "$CID" | tr '/' '_')-$CELL-$MODE-rep$REP-$(date +%Y%m%d%H%M%S)-$RANDOM"
+   212	SAMPLER_COPY="$REMOTE_BASE/$DEPLOY_ID/.samples/$TAG15.jsonl" B3W_COPY="$REMOTE_BASE/$DEPLOY_ID/.samples/$TAG15-b3wait.jsonl"
+   213	POLL_PIDS=$(start_pollers14 "$DIR" cost 1 | xargs)
+   214	if (( B3W_MS > 0 )); then   # ② 양성 대조 — B3가 지연 중인 ② 확정을 기다리는 표본(race 셀 다섯 모드 같게 · 리뷰 M15-26). 끝나면 1초 뒤 다시 연다(무음 공백 금지 — errors.log 한 줄)
+   215	  B3W_PID=$( ( while :; do
+   216	      b3wait_sampler "$B3W_COPY" "$B3W_MS" seatlab-harness-b3 2>/dev/null < /dev/null | while IFS= read -r line; do printf '%s\n' "$line" >> "$DIR/timeline-b3wait.jsonl"; done
+   217	      echo "$(date -Is) b3wait sampler ended — reopen in 1s" >> "$DIR/errors.log"; sleep 1
+   218	    done ) > /dev/null 2>&1 < /dev/null & echo $! )
+   219	  POLL_PIDS="$POLL_PIDS $B3W_PID"
+   220	fi
+   221	for _ in $(seq 1 30); do [[ -s "$DIR/timeline-locks.jsonl" ]] && break; sleep 0.5; done
+   222	[[ -s "$DIR/timeline-locks.jsonl" ]] || echo "$(date -Is) samples-before-load timeout: timeline-locks.jsonl 15s 동안 비어 있음" >> "$DIR/errors.log"
+   223	hold_left=$(awk -v s="$SEED_T" -v h="$PRE_K6_HOLD_S" -v n="$(now)" 'BEGIN { d = s + h - n; printf "%.3f", (d > 0 ? d : 0) }')
+   224	awk -v s="$SEED_T" -v h="$PRE_K6_HOLD_S" -v n="$(now)" 'BEGIN { exit !(n - s > h + 1) }' && abort15 pre-k6-overrun
+   225	sleep "$hold_left"
+   226	io_snapshot > "$DIR/io-before.json" 2>>"$DIR/errors.log" < /dev/null
+   227	table_stats > "$DIR/table-before.json" 2>>"$DIR/errors.log" < /dev/null || hreason table-stats-failed
+   228	drift_snap app > "$DIR/drift-before.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-snap-failed
+   229	snap15 before
+   230	if [[ "$PGSS" == 1 ]]; then pgss_prepare > "$DIR/pgss-reset.json" 2>>"$DIR/errors.log" < /dev/null || hreason pgss-failed; fi
+   231	app_db_clock > "$DIR/app-db-clock-before.json" 2>>"$DIR/errors.log" < /dev/null
+   232	awk -v n="$(now)" -v b="$SEED_T" -v t="$PRE_K6_TARGET_S" -v l="$PRE_K6_TOL_S" -v lead="$PRE_K6_LEAD_S" 'BEGIN { exit !((n - b) + lead > t + l) }' && abort15 pre-k6-overrun
+   233	probes_start14 "$DIR" "$(( $(P .k6.duration_s) + 180 ))"
+   234	topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$(now)" -v b="$SEED_T" -v lead="$PRE_K6_LEAD_S" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
+   235	sleep "$topup"
+   236	
+   237	# ---- k6 -----------------------------------------------------------------------------------------------------------------------------
+   238	CLK_BEFORE=$(clock_offset 2>>"$DIR/errors.log" < /dev/null)
+   239	OFF_MS=$(jq -r '(.offset_s // 0) * 1000 | round' <<< "${CLK_BEFORE:-null}" 2>/dev/null); [[ "$OFF_MS" =~ ^-?[0-9]+$ ]] || OFF_MS=0
+   240	K6_STARTED=$(date -Is); K6_T0=$(now)
+   241	( sleep "$(awk -v k="$K6_T0" -v w="$(P '.window.from_s + .window.len_s')" -v l="$WEND_LAG_S" -v lead="$PRE_K6_LEAD_S" -v n="$(now)" 'BEGIN { d = k + lead + w + l - n; printf "%.3f", (d > 0 ? d : 0) }')"
+   242	  snap15 window-end ) < /dev/null &
+   243	WEND_PID=$!
+   244	jq -n --argjson seed "$SEED_T" --argjson k6 "$K6_T0" --argjson hold "$PRE_K6_HOLD_S" --argjson target "$PRE_K6_TARGET_S" --argjson tol "$PRE_K6_TOL_S" --argjson topup "$topup" \
+   245	      --argjson lead "$PRE_K6_LEAD_S" --argjson pvus "$(P .k6.pre_vus_total)" \
+   246	  '{seed_done_epoch: $seed, k6_launch_epoch: $k6, seed_to_launch_s: (($k6 - $seed) * 1000 | round / 1000), hold_s: $hold, target_s: $target, tol_s: $tol, topup_s: $topup,
+   247	    lead_s: $lead, pre_vus_total: $pvus}' > "$DIR/pre-k6.json"
+   248	env $K6_ENV CLOCK_OFFSET_MS="$OFF_MS" BASE_URL="$BASE_URL" OUT_DIR="$DIR" "$K6_BIN" run --quiet --out "csv=$DIR/k6-requests.csv.gz" "$K6_TREE/$K6_SCRIPT" > "$DIR/k6-stdout.log" 2>&1 < /dev/null
+   249	K6_EXIT=$?; K6_END=$(now)
+   250	(( K6_EXIT == 0 )) || kill "$WEND_PID" 2>/dev/null
+   251	wait "$WEND_PID" || hreason app-snap-failed; WEND_PID=""
+   252	jq -n --arg s "$K6_STARTED" --arg e "$(date -Is)" --argjson t0 "$K6_T0" --argjson t1 "$K6_END" --argjson rc "$K6_EXIT" --argjson off "$OFF_MS" \
+   253	  '{k6_started: $s, k6_ended: $e, k6_t0_epoch: $t0, k6_end_epoch: $t1, exit: $rc, clock_offset_ms_given: $off}' > "$DIR/k6-window.json"
+   254	(( K6_EXIT == 0 )) || hreason "k6-exit-$K6_EXIT"
+   255	probes_stop14 "$DIR" "$K6_T0" "$K6_END"
+   256	CLK_AFTER=$(clock_offset 2>>"$DIR/errors.log" < /dev/null)
+   257	jq -n --argjson b "${CLK_BEFORE:-null}" --argjson a "${CLK_AFTER:-null}" '{before: $b, after: $a}' > "$DIR/clock-offset.json" 2>/dev/null || echo '{"before":null,"after":null}' > "$DIR/clock-offset.json"
+   258	
+   259	# ---- 직후 · 수렴 · 끝 판정 --------------------------------------------------------------------------------------------------------------
+   260	sleep "$(awk -v e="$K6_END" -v w="$IDLE_AFTER_K6_S" -v n="$(now)" 'BEGIN { d = e + w - n; print (d > 0 ? d : 0) }')"
+   261	table_stats > "$DIR/table-after.json" 2>>"$DIR/errors.log" < /dev/null || hreason table-stats-failed
+   262	io_snapshot > "$DIR/io-after.json" 2>>"$DIR/errors.log" < /dev/null
+   263	drift_snap app > "$DIR/drift-after-k6.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-snap-failed
+   264	snap15 after-k6
+   265	if [[ "$PGSS" == 1 ]]; then pgss_snapshot > "$DIR/pgss-after-k6.json" 2>>"$DIR/errors.log" < /dev/null || hreason pgss-failed; fi
+   266	CONV=$(P .converge_s)
+   267	sleep "$(awk -v e="$K6_END" -v c="$CONV" -v n="$(now)" 'BEGIN { d = e + c - n; print (d > 0 ? d : 0) }')"
+   268	table_stats > "$DIR/table-end.json" 2>>"$DIR/errors.log" < /dev/null || hreason table-stats-failed
+   269	CONSISTENCY_TIMEOUT=600 consistency 20 > "$DIR/consistency.json" 2>>"$DIR/errors.log" < /dev/null; crc=$?
+   270	(( crc == 0 )) || { rm -f "$DIR/consistency.json"; echo "$crc" > "$DIR/consistency.rc"; hreason "end-check-failed"; }
+   271	drift_snap app > "$DIR/drift-end.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-snap-failed
+   272	snap15 end
+   273	if [[ "$PGSS" == 1 ]]; then pgss_snapshot > "$DIR/pgss-end.json" 2>>"$DIR/errors.log" < /dev/null || hreason pgss-failed; fi
+   274	drift_db_dump v10 > "$DIR/drift-db.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-db-failed
+   275	app_db_clock > "$DIR/app-db-clock-after.json" 2>>"$DIR/errors.log" < /dev/null
+   276	
+   277	# ---- 수집 · 정리 ------------------------------------------------------------------------------------------------------------------------
+   278	stop_pollers14 $POLL_PIDS; POLL_PIDS=""
+   279	remote "pkill -f 'FROM pg_locks WHERE NOT granted' || true" > /dev/null 2>&1 < /dev/null
+   280	(( B3W_MS > 0 )) && psql_sampler_kill "$B3W_COPY" < /dev/null
+   281	if remote "cat '$SAMPLER_COPY'" > "$DIR/.sampler-remote.jsonl" 2>/dev/null < /dev/null && [[ -s "$DIR/.sampler-remote.jsonl" ]]; then
+   282	  nl=$(wc -l < "$DIR/timeline-locks.jsonl" 2>/dev/null || echo 0); nw=$(wc -l < "$DIR/timeline-waits.jsonl" 2>/dev/null || echo 0)
+   283	  rl=$(grep -c '"lock_waiting"' "$DIR/.sampler-remote.jsonl"); rw=$(grep -c '"waits"' "$DIR/.sampler-remote.jsonl")
+   284	  if (( rl > nl || rw > nw )); then grep '"lock_waiting"' "$DIR/.sampler-remote.jsonl" > "$DIR/timeline-locks.jsonl"; grep '"waits"' "$DIR/.sampler-remote.jsonl" > "$DIR/timeline-waits.jsonl"
+   285	    echo "$(date -Is) waits recovered-from-server locks $nl→$rl waits $nw→$rw" >> "$DIR/sampler-recovery.txt"
+   286	  else echo "$(date -Is) waits stream-complete" >> "$DIR/sampler-recovery.txt"; fi
+   287	else echo "$(date -Is) waits server-copy-unavailable" >> "$DIR/sampler-recovery.txt"; fi
+   288	rm -f "$DIR/.sampler-remote.jsonl"; remote "rm -f '$SAMPLER_COPY'" > /dev/null 2>&1 < /dev/null
+   289	(( B3W_MS > 0 )) && recover_copy "$DIR" "$B3W_COPY" timeline-b3wait.jsonl < /dev/null
+   290	for c in app db; do
+   291	  remote "docker logs --since '$STARTED' seatlab-$c-1 2>&1" < /dev/null | gzip > "$DIR/$c.log.gz"
+   292	  echo "$c pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$DIR/$c.log.gz" 2>/dev/null | wc -c)" >> "$DIR/logs-status.txt"
+   293	done
+   294	remote "docker exec seatlab-app-1 cat /dev/shm/gc.log" < /dev/null | gzip > "$DIR/gc.log.gz"
+   295	echo "app pipe=${PIPESTATUS[0]}/${PIPESTATUS[1]} bytes=$(zcat "$DIR/gc.log.gz" 2>/dev/null | wc -c)" >> "$DIR/gc-status.txt"
+   296	python3 "$LIB9_DIR/summarize.py" --gc "$DIR" > "$DIR/gc.json" 2>>"$DIR/errors.log" || echo "gc summary failed" >> "$DIR/errors.log"
+   297	python3 -I "$LIB9_DIR/tail.py" --probe-check "$DIR" > /dev/null 2>>"$DIR/errors.log"
+   298	gzip -f "$DIR/k6-stdout.log"
+   299	finish15
+
+hook: PostToolUse
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scripts/plan15.py | sed -n '1,335p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+     1	#!/usr/bin/env python3
+     2	"""ADR-015 계획의 단일 출처 — 모드 5 × 셀 2(race · cost) × 회차 3 = 30자리 · 회차 순서(회차 우선 · 셀 묶음 순서 · 모드 회전) · 공통 난수 씨앗 · 셀 렌더(앱 설정 ·
+     3	k6 환경 · 시드 · 판정 창) · 기대 설정(configprops 대조) · dry-run(자리 · 시간 추정 · 좌석 · 풀 점유 점검). run.sh · campaign.sh · summarize.py · selftest.py가 이 파일을 읽는다
+     4	(값을 두 곳에 두지 않는다 — ADR-014 plan14.py와 같은 구조). 기준: 측정 전 고정 규칙 초안(15-09 · scratchpad adr015-measure-draft.md → 메인이 ADR-015에 반영).
+     5	값 옆 '메인 결정 D-n'은 초안이 후보 2개 + 권장으로 둔 값이다(권장값을 기본으로 넣었다 — 메인이 바꾸면 여기 한 곳만 고친다).
+     6	
+     7	    plan15.py --order [--knobs <json>]                      → 30행 "순번 회차 셀 모드"(campaign.sh가 order.txt로 남기고 이어서 실행 때 다시 계산해 대조)
+     8	    plan15.py --render <모드> <셀> <회차> [--knobs <json>]  → 회차 계획 JSON(표준 출력 — run.sh가 plan.json으로)
+     9	    plan15.py --dry-run [--knobs <json>] [--json]            → 30자리 · 예상 시간 · 셀 점검(좌석 · 풀 점유 · 판정 창) — 문제 있으면 exit 1
+    10	    plan15.py --config-check <모드> <셀> <app-config.json>   → 기대 설정 대조 {"reasons":[…],"detail":[…]} · exit 0 일치 · 1 불일치 · 2 판정 불가
+    11	    plan15.py --v12 [--knobs <json>]                         → #5(V12 생성 시간) 단계 계획 JSON(v12-build.sh가 읽는다)
+    12	
+    13	knobs(캠페인 전에 한 번만 — plan.json에 고정): {"pgss": 0|1, "cost_rate": 100|300, "v12_rows": [1000000, 5000000], "note": "…"}
+    14	    pgss = pg_stat_statements(#15 — D-4) · cost_rate = 비용 셀 도착률(D-2) · v12_rows = #5 운영 크기 후보(D-5)."""
+    15	import json
+    16	import math
+    17	import sys
+    18	from pathlib import Path
+    19	
+    20	# ---- 고정값(측정 뒤 바꾸지 않는다 — 근거는 초안 측정-4 표) ----------------------------------------------------------------------------
+    21	MODES = ["current", "conditional", "pessimistic", "optimistic", "conditional-extend"]   # §설계-5 손잡이 값(SeatConfirmProperties.ConfirmMode)
+    22	MODE_ENUM = {m: m.upper().replace("-", "_") for m in MODES}                               # configprops 표기
+    23	NEW_MODES = MODES[1:]
+    24	SIMPLICITY = ["conditional", "pessimistic", "optimistic", "conditional-extend"]         # 4단 단순성(초안 측정-8 — ① > ② > ③ > ④)
+    25	TTL_S = 30                                                                                # ADR-014 t30 셀 선례(plan14 MAIN a20-t30)
+    26	EXPIRY_INTERVAL_S = 10                                                                    # application.yml expiry-interval 기본값 · ADR-014 측정-1 모든 셀 고정
+    27	POOL = 10                                                                                 # ADR-014 plan14 POOL
+    28	REPS = 3                                                                                  # ADR-010~014 선례(범위 비겹침의 최소 단위)
+    29	CELLS = {
+    30	    # race(경합 셀): 확정 지연 주입으로 '확인 뒤 · 첫 쓰기 앞' 창을 열어 만료 경계 경합을 만든다 — 판정 지표(5xx · 틱 실패 · 이중 결과)의 셀
+    31	    "race": {"rate": 20, "d_arr_s": 600, "delay_ms": 200},
+    32	    # cost(비용 셀): 지연 없음 — 모드별 확정 · 선점 · 배치 비용(p99 · DB CPU)의 셀. 도착률 = 메인 결정 D-2(권장 300 = ADR-014 맹목 300세션/초 선례)
+    33	    "cost": {"rate": 300, "d_arr_s": 300, "delay_ms": 0},
+    34	}
+    35	GROUPS = ["race", "cost"]                                                                 # 회차 안 셀 묶음 순서
+    36	COST_RATES = (100, 300)                                                                   # D-2 후보
+    37	C_MARGIN_MS = 300                                                                         # 확정 송신 오프셋 c ~ U[−(delay + 300ms), +300ms] (서버 만료 시각 e 기준)
+    38	F_DUP = 0.1                                                                               # 같은 홀드 이중 확정 비율(D-3 권장)
+    39	# 재선점 VU를 붙이는 세션 비율(D-3 사용자 결정 0.5) — 리뷰 M15-20(루프 2): **cost 셀만 0**. cost 셀은 경합 판정 몫이 없고(race가 맡는다 — 조밀 구간도 끈다)
+    40	#   ④만 연장 때문에 재선점이 13초 동안 409를 거듭 받아(다른 모드는 배치가 풀어 준 좌석에서 201로 이탈) 재선점 요청 수가 구조적으로 많다 → G3 비용이 모드가 아니라 부하 구성을 잰다
+    41	RHO = {"race": 0.5, "cost": 0.0}
+    42	REHOLD_FROM_MS, REHOLD_STEP_MS = 500, 1000                                                # 재선점 성긴 구간: e + 0.5초부터 1초 간격
+    43	REHOLD_UNTIL_S = EXPIRY_INTERVAL_S + 3                                                    # … e + 13초까지(배치 한 주기 + 여유 — 풀린 좌석을 놓치지 않는다)
+    44	# 재선점 조밀 구간(리뷰 M15-6): 경합 창 = 만료 e 직후 ~ 확정 쓰기(≤ e + delay — win 묶음 c ∈ [−delay, 0)) 안에 재선점이 들어가야 FM1 순서
+    45	#   '배치가 풀어 준 좌석을 재선점 201 → 그 세션 확정 쓰기'가 부하에서 생길 수 있다. e − 20ms부터 20ms 간격으로 e + delay + 100ms까지(확정 응답 끝 여유).
+    46	#   지연 0(cost)이면 창이 없다 — 조밀 구간을 끈다(재선점 요청이 비용 지표를 흐리지 않게).
+    47	REHOLD_DENSE_FROM_MS, REHOLD_DENSE_STEP_MS, REHOLD_DENSE_TAIL_MS = -20, 20, 100
+    48	PAYMENT_WINDOW, EXTEND_MIN_REMAINING = "2m", "5s"                                         # ④ — 설계-10 T6 테스트 값(D-6 권장)
+    49	PAYMENT_WINDOW_S = 120
+    50	PAY_START_BEFORE_E_S = 10                                                                 # ④ payment-start = e − 10초(> extend-min-remaining 5초 · < window)
+    51	# ④ 경계 흐름(리뷰 M15-4 · M15-5): race 셀 ④ 세션의 이 비율은 payment-start가 준 e′ 기준 e′ + c에 확정한다 — 연장 뒤에도 만료 경계 경합 창이 ④에서 열린다
+    52	#   (나머지는 e + c에 확정 — 연장이 홀드를 지키는가 · ext_then_lost). cost 셀은 0(세션이 약 2분 길어져 VU가 약 2만 늘어난다 — 비용 셀 VU 상한).
+    53	EXT_BOUNDARY_F = {"race": 0.5, "cost": 0.0}
+    54	SEATS_PER_SCHEDULE = 50000
+    55	SEAT_MARGIN = 1.05
+    56	GRACE_S = TTL_S + REHOLD_UNTIL_S + 7                                                      # gracefulStop = TTL + 재선점 끝 + 여유 = 50초(창 끝에 시작한 세션이 끝날 시간)
+    57	GRACE_EXT_B_S = GRACE_S + PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S                         # ④ 경계 흐름이 있는 셀 = 50 + 110 = 160초(e′ ≈ e + 110초)
+    58	CONVERGE_EXTRA_S = 22                                                                     # 수렴 대기 = TTL + 22초(ADR-014 plan14 CONVERGE_EXTRA_S)
+    59	OTHER_S = 200                                                                             # 회차 시간 = k6 + 200초(ADR-014 t30 셀 실측 — 초안 측정-2 · 수렴 52초 포함 · 다음 회차까지 간격 포함)
+    60	TOMCAT_MAX_CONNECTIONS, APP_NOFILE = 20000, 65536                                         # ADR-014 측정-1 R5 ① 그대로
+    61	FLYWAY = ["classpath:db/migration", "classpath:db/migration-updated-at-trigger", "classpath:db/migration-incremental"]   # 업무 앱 기본 위치(application.yml)
+    62	FLYWAY_V14 = "classpath:db/migration-confirm-version"                                     # ③만(V14 트리거 — 규칙 6)
+    63	USERS = {"main": 1_000_000, "rehold": 4_000_000}                                          # 흐름별 사용자 대역(세션 번호 + 대역)
+    64	LIFE_S = {"main": TTL_S + 1, "rehold": TTL_S + REHOLD_UNTIL_S}                         # 흐름별 세션 수명(초) — main ≈ TTL + 1초 · rehold ≈ TTL + 재선점 끝 13초
+    65	PRE_VUS_HEADROOM = 1.3                                                                   # 미리 만든 VU = 평균 동시 세션(도착률 × 수명 × ρ) × 1.3 — k6는 빈 VU가 없으면 그 반복을 버리고(dropped) VU를 새로 만든다.
+    66	                                                                                          #   스모크 smoke15-20261105: rehold 45/도착률(여유 약 5%) → ④ race 평균 약 980 대 1000 · cost 최소 20 → 누락 13 · 29(G-H)
+    67	PRE_VUS_MIN_S = 1                                                                        # 최소 = 도착률 × 1초(cost rehold는 ρ = 0이라 즉시 끝나도 k6 정지 순간 한 번에 몰린다)
+    68	MAX_VUS_FACTOR = 1.5
+    69	K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37                                            # ADR-014 plan14 k6_lead_s 식 그대로
+    70	PGSS_DEFAULT = 1                                                                          # D-4 — 기본 켬(초안 권장 · 다섯 모드 모두). fix1: ② 경합 표지(A′ B3 대기)와 #15 틱당 문장 수가 pgss를 읽는다
+    71	V12_ROWS_DEFAULT = [1_000_000, 5_000_000]                                                 # D-5 후보(ADR-002 규모 축 100만 · S5 상단 500만)
+    72	V12_BLOCK_MAX_MS = 2000                                                                   # #5 판정: 쓰기 차단 ≤ 2초면 트랜잭션 안 판 유지(ADR-013 lock_timeout 2초 선례 — D-5)
+    73	V12_REPS = 3
+    74	# 새 모드 양성 대조(리뷰 M15-26 — 서버 논리 증거): ①③④ 진 쪽 404가 '배치가 지연 중에 홀드를 지웠다'로 읽히려면 서버 :now < e여야 한다.
+    75	#   ①④는 :now 바로 뒤에 지연을 잔다(AtomicConfirmProcess.kt:41 · :69) → :now ≤ 응답 끝 − 지연. 응답 끝(k6 서버 시각 태그 te)을 시계 차 오차로 보정해
+    76	#   te + 오차 − 지연 + 여유 < e 이면 :now < e. 여유 20ms = ADR-014 측정-4 시계 오차 허용(:672 — 초안 측정-4 오프셋 행과 같은 값) · Thread.sleep ms 해상도 · 컨테이너 시계 흔들림 몫
+    77	EVIDENCE_MARGIN_MS = 20
+    78	# ② 양성 대조(리뷰 M15-26): A′ 배치 B3가 ② 확정(P2 뒤 지연 중 — 홀드 · 좌석 잠금 보유)을 기다리는 순간을 pg_stat_activity 표본으로 잡는다(scripts/b3wait-sampler.sh).
+    79	#   B3 대기 길이 w = 틱이 만난 순간 ②의 남은 지연(길이 편향 잔여 — 평균 약 delay/3) → 주기 p ms 표본이 한 대기를 잡을 확률 = E[min(1, w ÷ p)] — p = 20ms면 약 0.90 ·
+    80	#   ADR-009 대기 표본 500ms면 약 0.13(초안 측정-4 fix2 행 — .164 race 회차당 잡힌 에피소드 기대 약 20 대 약 2.9).
+    81	#   race 셀 다섯 모드 모두 같은 주기로 켠다(표본 질의 부하가 ②의 race 비용 지표에만 섞이지 않게) · cost 셀은 끈다(지연 0 — 잠금을 쥔 채 자지 않는다)
+    82	B3WAIT_PERIOD_MS = {"race": 20, "cost": 0}
+    83	
+    84	
+    85	def k6_lead_s(pre_vus_total):
+    86	    return round(K6_LEAD_BASE_S + pre_vus_total * K6_LEAD_PER_VU_MS / 1000, 2)
+    87	
+    88	
+    89	def load_knobs(path):
+    90	    if not path:
+    91	        return {}
+    92	    k = json.loads(Path(path).read_text()) if Path(path).exists() else json.loads(path)
+    93	    bad = []
+    94	    if k.get("pgss", PGSS_DEFAULT) not in (0, 1):
+    95	        bad.append(f"pgss={k.get('pgss')}(0 | 1)")
+    96	    if k.get("cost_rate", CELLS["cost"]["rate"]) not in COST_RATES:
+    97	        bad.append(f"cost_rate={k.get('cost_rate')}({COST_RATES})")
+    98	    rows = k.get("v12_rows", V12_ROWS_DEFAULT)
+    99	    if not (isinstance(rows, list) and rows and all(isinstance(x, int) and 1000 <= x <= 5_000_000 for x in rows)):
+   100	        bad.append(f"v12_rows={rows}(1,000 ~ 5,000,000 정수 목록)")
+   101	    extra = set(k) - {"pgss", "cost_rate", "v12_rows", "note"}
+   102	    if extra:
+   103	        bad.append(f"모르는 knobs 키 {sorted(extra)}")
+   104	    if bad:
+   105	        raise SystemExit("knobs 형식: " + " · ".join(bad))
+   106	    return k
+   107	
+   108	
+   109	def cell_of(cell, knobs):
+   110	    if cell not in CELLS:
+   111	        raise SystemExit(f"셀 {cell}")
+   112	    c = dict(CELLS[cell])
+   113	    if cell == "cost":
+   114	        c["rate"] = knobs.get("cost_rate", c["rate"])
+   115	    return c
+   116	
+   117	
+   118	def order(knobs=None):
+   119	    """회차 우선 · 묶음 순서 GROUPS · 묶음 g(0부터) · 회차 r(1부터)의 모드 = MODES를 (r + g) mod 5칸 회전(ADR-014 '균형 회전'과 같은 뜻 — 6묶음에서 모드마다 각 자리 1~2번)."""
+   120	    rows, seq = [], 0
+   121	    for r in range(1, REPS + 1):
+   122	        for g, cell in enumerate(GROUPS):
+   123	            rot = (r + g) % len(MODES)
+   124	            for m in MODES[rot:] + MODES[:rot]:
+   125	                seq += 1
+   126	                rows.append((seq, r, cell, m))
+   127	    return rows
+   128	
+   129	
+   130	def grace_of(mode, cell):
+   131	    return GRACE_EXT_B_S if mode == "conditional-extend" and EXT_BOUNDARY_F[cell] > 0 else GRACE_S
+   132	
+   133	
+   134	def rehold_dense(cell, delay_ms):
+   135	    # (from, step, until) ms — step 0 = 조밀 구간 없음(지연 0 셀)
+   136	    return (REHOLD_DENSE_FROM_MS, REHOLD_DENSE_STEP_MS, delay_ms + REHOLD_DENSE_TAIL_MS) if delay_ms > 0 else (0, 0, 0)
+   137	
+   138	
+   139	def seed_of(c, grace=GRACE_S):
+   140	    sessions = math.ceil(c["rate"] * (c["d_arr_s"] + grace) * SEAT_MARGIN)
+   141	    return {"schedules": max(1, math.ceil(sessions / SEATS_PER_SCHEDULE)), "seats": SEATS_PER_SCHEDULE, "sessions_max": sessions}
+   142	
+   143	
+   144	def flyway(mode):
+   145	    return FLYWAY + ([FLYWAY_V14] if mode == "optimistic" else [])
+   146	
+   147	
+   148	def render(mode, cell, rep, knobs=None):
+   149	    knobs = knobs or {}
+   150	    if mode not in MODES or rep not in range(1, REPS + 1):
+   151	        raise SystemExit(f"모드 {mode} · 회차 {rep}")
+   152	    c = cell_of(cell, knobs)
+   153	    ext = mode == "conditional-extend"
+   154	    xb = EXT_BOUNDARY_F[cell] if ext else 0.0
+   155	    grace = grace_of(mode, cell)
+   156	    seed = seed_of(c, grace)
+   157	    dense = rehold_dense(cell, c["delay_ms"])
+   158	    # 미리 만든 VU: ④ 경계 흐름 세션은 약 (창 − 리드)초 더 산다(main · rehold 둘 다)
+   159	    longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
+   160	    rho = RHO[cell]
+   161	    pre = {f: math.ceil(PRE_VUS_HEADROOM * c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in LIFE_S.items()}
+   162	    pre = {f: max(v, 20, math.ceil(c["rate"] * PRE_VUS_MIN_S)) for f, v in pre.items()}
+   163	    mx = {f: math.ceil(v * MAX_VUS_FACTOR) for f, v in pre.items()}
+   164	    d_arr = c["d_arr_s"]
+   165	    app_env = {
+   166	        "CONFIRM_MODE": mode, "CONFIRM_DELAY": f"{c['delay_ms']}ms",
+   167	        "PAYMENT_WINDOW": PAYMENT_WINDOW if ext else "0s", "EXTEND_MIN_REMAINING": EXTEND_MIN_REMAINING if ext else "0s",
+   168	        "HOLD_TTL": f"{TTL_S}s", "EXPIRY_INTERVAL": f"{EXPIRY_INTERVAL_S}s", "FLYWAY_LOCATIONS": ",".join(flyway(mode)), "POOL_SIZE": str(POOL),
+   169	        "TOMCAT_MAX_CONNECTIONS": str(TOMCAT_MAX_CONNECTIONS), "APP_NOFILE": str(APP_NOFILE),
+   170	        "PG_PRELOAD": "pg_stat_statements" if knobs.get("pgss", PGSS_DEFAULT) else "",
+   171	    }
+   172	    k6env = {
+   173	        "REP": str(rep), "RATE": str(c["rate"]), "D_ARR_S": str(d_arr), "GRACE_S": str(grace), "TTL_S": str(TTL_S),
+   174	        "DELAY_MS": str(c["delay_ms"]), "C_MARGIN_MS": str(C_MARGIN_MS), "F_DUP": str(F_DUP), "RHO": str(rho),
+   175	        "REHOLD_FROM_MS": str(REHOLD_FROM_MS), "REHOLD_STEP_MS": str(REHOLD_STEP_MS), "REHOLD_UNTIL_S": str(REHOLD_UNTIL_S),
+   176	        "REHOLD_DENSE_FROM_MS": str(dense[0]), "REHOLD_DENSE_STEP_MS": str(dense[1]), "REHOLD_DENSE_UNTIL_MS": str(dense[2]),
+   177	        "PAY_START": "1" if ext else "0", "PAY_START_BEFORE_E_S": str(PAY_START_BEFORE_E_S), "PAY_WINDOW_S": str(PAYMENT_WINDOW_S),
+   178	        "EXT_BOUNDARY_F": str(xb),
+   179	        "SEATS_PER_SCHEDULE": str(SEATS_PER_SCHEDULE), "SCHEDULES": str(seed["schedules"]),
+   180	        "USER_MAIN": str(USERS["main"]), "USER_REHOLD": str(USERS["rehold"]),
+   181	        "PRE_VUS_MAIN": str(pre["main"]), "MAX_VUS_MAIN": str(mx["main"]), "PRE_VUS_REHOLD": str(pre["rehold"]), "MAX_VUS_REHOLD": str(mx["rehold"]),
+   182	    }
+   183	    pre_total = pre["main"] + pre["rehold"]
+   184	    return {
+   185	        "mode": mode, "mode_enum": MODE_ENUM[mode], "cell": cell, "rep": rep, "crn_seed": rep, "kind": "main", "knobs": knobs,
+   186	        "ttl_s": TTL_S, "expiry_interval_s": EXPIRY_INTERVAL_S, "delay_ms": c["delay_ms"], "rate": c["rate"], "d_arr_s": d_arr,
+   187	        "flyway_locations": flyway(mode), "pool": POOL, "payment_window": PAYMENT_WINDOW if ext else None,
+   188	        "extend_min_remaining": EXTEND_MIN_REMAINING if ext else None, "pgss": int(bool(knobs.get("pgss", PGSS_DEFAULT))),
+   189	        "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense), "rho": rho,
+   190	        "b3wait_ms": B3WAIT_PERIOD_MS[cell] if c["delay_ms"] > 0 else 0, "evidence_margin_ms": EVIDENCE_MARGIN_MS,
+   191	        "k6": {"script": "k6/ADR-015/scenarios/confirm-contention.js", "duration_s": d_arr + grace, "pre_vus": pre, "max_vus": mx,
+   192	               "pre_vus_total": pre_total, "lead_s": k6_lead_s(pre_total), "env": k6env},
+   193	        # 판정 창 = [t0, t0 + D_arr)(ADR-014 측정-0 정의 그대로) — 요청 시각이 창 안인 응답만 센다. 창 끝 뒤 gracefulStop 동안 끝난 세션은 창 밖(설명 지표에만)
+   194	        "window": {"kind": "arrival", "from_s": 0, "len_s": d_arr},
+   195	        "converge_s": TTL_S + CONVERGE_EXTRA_S,
+   196	        "samplers": {"state": False, "h4": False},
+   197	        "est_s": d_arr + grace + OTHER_S,
+   198	        # 풀 점유 추정(지연이 트랜잭션 안에서 잔다 — 연결을 쥔다): 확정 도착률 × (1 + 이중 비율) × 지연
+   199	        "pool_busy_est": round(c["rate"] * (1 + F_DUP) * c["delay_ms"] / 1000, 2),
+   200	    }
+   201	
+   202	
+   203	def expected_config(mode, cell, knobs=None):
+   204	    p = render(mode, cell, 1, knobs)
+   205	    return {
+   206	        "seat.confirm": {"mode": MODE_ENUM[mode], "loadtest.delay": f"PT{p['delay_ms'] / 1000:g}S" if p["delay_ms"] else "PT0S",
+   207	                         "paymentWindow": "PT2M" if mode == "conditional-extend" else "PT0S",
+   208	                         "extendMinRemaining": "PT5S" if mode == "conditional-extend" else "PT0S"},
+   209	        "seat.hold": {"expiryMode": "SWEEP", "ttl": f"PT{TTL_S}S", "expiryInterval": f"PT{EXPIRY_INTERVAL_S}S", "strategy": "PESSIMISTIC_NOWAIT",
+   210	                      "limitStrategy": "COUNTER_UPSERT_PRECHECK"},
+   211	        "spring.flyway": {"locations": flyway(mode)},
+   212	        "server": {"tomcat.maxConnections": TOMCAT_MAX_CONNECTIONS},
+   213	    }
+   214	
+   215	
+   216	def _get(props, prefix, dotted):
+   217	    for b in props:
+   218	        if b.get("prefix") == prefix:
+   219	            cur = b.get("properties")
+   220	            for part in dotted.split("."):
+   221	                cur = cur.get(part) if isinstance(cur, dict) else None
+   222	            return cur
+   223	    return None
+   224	
+   225	
+   226	def _norm(v):
+   227	    """configprops 값 정규화 — enum은 대문자 · Duration은 ISO('PT0.2S') · 목록은 목록."""
+   228	    if isinstance(v, str):
+   229	        return v.upper().replace("-", "_") if not v.startswith(("PT", "classpath")) else v
+   230	    return v
+   231	
+   232	
+   233	def config_check(mode, cell, cfg_path, knobs=None):
+   234	    cfg = json.loads(Path(cfg_path).read_text()) if Path(cfg_path).exists() else None
+   235	    if not isinstance(cfg, dict) or not isinstance(cfg.get("configprops"), list):
+   236	        return 2, {"reasons": ["cond-config-missing"], "detail": ["app-config.json 없음·깨짐"]}
+   237	    props = cfg["configprops"]
+   238	    reasons, detail = set(), []
+   239	    for prefix, kv in expected_config(mode, cell, knobs).items():
+   240	        for k, want in kv.items():
+   241	            got = _get(props, prefix, k)
+   242	            if prefix == "spring.flyway" and isinstance(got, list):
+   243	                ok = list(got) == list(want)
+   244	            else:
+   245	                ok = _norm(got) == _norm(want) or (isinstance(want, int) and got == want)
+   246	            if not ok:
+   247	                reasons.add("confirm-mode-mismatch" if (prefix, k) == ("seat.confirm", "mode") else "cond-config-mismatch")
+   248	                detail.append(f"{prefix}.{k}: 기대 {want!r} · 실제 {got!r}")
+   249	    # 리뷰 M15-24: Hikari 풀 크기(실측 hikaricp.connections.max)를 계획값과 대조(ADR-014 plan14.py:310 선례) — 없음 · 숫자 아님도 불일치(무음 통과 금지)
+   250	    pool = cfg.get("hikaricp.connections.max")
+   251	    if not (isinstance(pool, list) and pool and isinstance(pool[0], (int, float)) and not isinstance(pool[0], bool) and pool[0] == POOL):
+   252	        reasons.add("cond-config-mismatch")
+   253	        detail.append(f"hikaricp.connections.max {pool!r} ≠ [{POOL}]")
+   254	    nf = cfg.get("app_nofile")
+   255	    if not (isinstance(nf, dict) and all(isinstance(nf.get(x), int) and nf[x] >= TOMCAT_MAX_CONNECTIONS + 1000 for x in ("soft", "hard"))):
+   256	        reasons.add("cond-config-mismatch")
+   257	        detail.append(f"app_nofile {nf!r} < {TOMCAT_MAX_CONNECTIONS + 1000}")
+   258	    return (1 if reasons else 0), {"reasons": sorted(reasons), "detail": detail}
+   259	
+   260	
+   261	def dry_run(knobs):
+   262	    rows = order(knobs)
+   263	    problems, cells = [], {}
+   264	    for cell in GROUPS:
+   265	        for mode in MODES:
+   266	            p = render(mode, cell, 1, knobs)
+   267	            cells[f"{cell}/{mode}"] = p
+   268	            if p["seed"]["sessions_max"] > p["seed"]["schedules"] * SEATS_PER_SCHEDULE:
+   269	                problems.append(f"{cell}/{mode}: 좌석 부족")
+   270	            if p["pool_busy_est"] > POOL * 0.5:
+   271	                problems.append(f"{cell}/{mode}: 지연 풀 점유 추정 {p['pool_busy_est']} > 풀 {POOL}의 50%")
+   272	            if p["delay_ms"] + C_MARGIN_MS > TTL_S * 1000:
+   273	                problems.append(f"{cell}: 오프셋 창이 TTL보다 길다")
+   274	            fr, st, un = p["rehold_dense_ms"]
+   275	            if p["delay_ms"] > 0 and not (st > 0 and fr <= 0 and un >= p["delay_ms"]):
+   276	                problems.append(f"{cell}/{mode}: 재선점 조밀 구간이 경합 창 [0, {p['delay_ms']}ms]을 덮지 않는다")
+   277	            if cell == "race" and not p["b3wait_ms"] > 0:
+   278	                problems.append(f"race/{mode}: B3 대기 표본 꺼짐(② 양성 대조를 낼 수 없다 — 리뷰 M15-26)")
+   279	            if mode == "conditional-extend" and cell == "race" and not p["ext_boundary_f"] > 0:
+   280	                problems.append("race/conditional-extend: ④ 경계 흐름 없음(④ race 양성 대조가 구조적으로 0)")
+   281	    if not cells["race/pessimistic"]["pgss"]:
+   282	        problems.append("pgss=0 — ② 경합 표지(A′ B3가 ②의 홀드 잠금을 기다림 · pg_stat_statements)를 낼 수 없어 ②는 늘 판정 불가 → 결론이 판정 불가로 간다(D-4)")
+   283	    est = sum(cells[f"{c}/{m}"]["est_s"] for _, _, c, m in rows)
+   284	    return {"n": len(rows), "est_hours": round(est / 3600, 2), "per_cell_min": {k: round(v["est_s"] / 60, 1) for k, v in cells.items() if k.endswith("/current")},
+   285	            "ext_race_min": round(cells["race/conditional-extend"]["est_s"] / 60, 1),
+   286	            "vus": {k: v["k6"]["max_vus"] for k, v in cells.items() if k.endswith(("/current", "/conditional-extend"))},
+   287	            "pool_busy_est": {k.split("/")[0]: v["pool_busy_est"] for k, v in cells.items() if k.endswith("/current")},
+   288	            "seed": {k.split("/")[0]: v["seed"] for k, v in cells.items() if k.endswith("/current")}, "problems": problems}
+   289	
+   290	
+   291	def v12_plan(knobs):
+   292	    return {"rows": knobs.get("v12_rows", V12_ROWS_DEFAULT), "reps": V12_REPS, "block_max_ms": V12_BLOCK_MAX_MS,
+   293	            "seats_per_schedule": 100000, "probe_after_ms": 50, "index": "uq_reservation_confirmed_seat",
+   294	            "statement": "CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'"}
+   295	
+   296	
+   297	def main(argv):
+   298	    args = argv[1:]
+   299	    knobs = {}
+   300	    if "--knobs" in args:
+   301	        i = args.index("--knobs")
+   302	        knobs = load_knobs(args[i + 1])
+   303	        del args[i:i + 2]
+   304	    if args[:1] == ["--order"]:
+   305	        print("\n".join(f"{s} {r} {c} {m}" for s, r, c, m in order(knobs)))
+   306	        return 0
+   307	    if args[:1] == ["--render"] and len(args) == 4:
+   308	        print(json.dumps(render(args[1], args[2], int(args[3]), knobs), ensure_ascii=False))
+   309	        return 0
+   310	    if args[:1] == ["--dry-run"]:
+   311	        d = dry_run(knobs)
+   312	        if "--json" in args:
+   313	            print(json.dumps(d, ensure_ascii=False))
+   314	        else:
+   315	            print(f"자리 {d['n']} · 예상 {d['est_hours']}시간(+ #5 V12 단계 · 재측정 · 스모크)")
+   316	            for k, v in d["per_cell_min"].items():
+   317	                print(f"  {k.split('/')[0]}: 회차 약 {v}분 · 시드 {d['seed'][k.split('/')[0]]} · 풀 점유 추정 {d['pool_busy_est'][k.split('/')[0]]}")
+   318	            print(f"  race/④: 회차 약 {d['ext_race_min']}분(경계 흐름 — gracefulStop {GRACE_EXT_B_S}초) · 최대 VU {d['vus']}")
+   319	            for p in d["problems"]:
+   320	                print(f"  문제: {p}")
+   321	        return 1 if d["problems"] else 0
+   322	    if args[:1] == ["--config-check"] and len(args) == 4:
+   323	        rc, out = config_check(args[1], args[2], args[3], knobs)
+   324	        print(json.dumps(out, ensure_ascii=False))
+   325	        return rc
+   326	    if args[:1] == ["--v12"]:
+   327	        print(json.dumps(v12_plan(knobs), ensure_ascii=False))
+   328	        return 0
+   329	    print(__doc__, file=sys.stderr)
+   330	    return 2
+   331	
+   332	
+   333	if __name__ == "__main__":
+   334	    sys.exit(main(sys.argv))
+
+hook: PostToolUse Completed
+hook: PostToolUse
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scenarios/confirm-contention.js | sed -n '1,190p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+     1	// ADR-015 시나리오 confirm-contention(§설계-8.2 · 측정 전 고정 규칙 초안 측정-3): 만료 경계 확정 + 같은 홀드 이중 확정 + 재선점 VU + (④) payment-start.
+     2	//   모든 값은 환경변수로 받는다(run.sh가 scripts/plan15.py --render의 k6.env를 그대로 넘긴다 — 기본값에 기대지 않는다). 시나리오 = 흐름(CSV scenario 열):
+     3	//   main   고정 도착률 RATE/s · D_ARR_S초 — 세션 sid: 자기 좌석 선점 → (④면 e − PAY_START_BEFORE_E_S에 payment-start) → 서버 시각 e + c에 확정
+     4	//          (dup 세션은 같은 홀드로 확정 두 개를 동시에 — http.batch). c ~ U[−(DELAY + C_MARGIN), +C_MARGIN] ms(공통 난수).
+     5	//          ④ 경계 흐름(xb 세션 — 비율 EXT_BOUNDARY_F · 리뷰 M15-5): payment-start 200이 준 연장 만료 e′ 기준으로 서버 시각 e′ + c에 확정(④에서도 경합 창이 열린다).
+     6	//          xb가 아닌 ④ 세션은 e + c에 확정(연장이 지켜 주는가 — ext_then_lost). payment-start가 200이 아니면 xb 세션은 확정하지 않는다(pay 분포가 G-F로 드러낸다).
+     7	//   rehold 같은 도착률 · 같은 세션 번호 — rehold 속성인 세션만: 그 세션의 좌석을 다른 사용자가 기준 만료(e · ④ xb는 e′ ≈ e + 창 − 리드) 둘레에서 선점 시도 —
+     8	//          ① 조밀 구간(REHOLD_DENSE_* — 경합 창 '만료 직후 ~ 확정 쓰기' 안 · 리뷰 M15-6) ② 성긴 구간(e + REHOLD_FROM부터 REHOLD_STEP 간격으로 e + REHOLD_UNTIL까지)
+     9	//          (201이면 멈추고 이탈 — 확정하지 않는다). 시작 시각을 main과 같게 두어 'e ≈ 반복 시작 + TTL'로 맞춘다(서버가 준 e는 main만 안다).
+    10	// 기록(요약기 입력 — CSV extra_tags):
+    11	//   conf{cb, dup, st, code, seat, fl, ts, te, e}  확정 응답마다 — cb = pre | win | post(lib15 cBucket — 계획 오프셋 · 기준 만료 대비 — 설명용) · dup = 0(단독) | 1 · 2(짝의 첫째 · 둘째) ·
+    12	//                                   code = 본문 code(상태 무관 — lib15 confirmCodeOf · 리뷰 M15-21) · fl = b(기준 e) | x(④ 경계 흐름 — e′) ·
+    13	//                                   ts · te = 송신 · 응답 끝 서버 시각(ms — PC 시각 + CLOCK_OFFSET_MS · 요약기가 clock-offset.json 오차로 보정) ·
+    14	//                                   e = 그 확정의 기준 만료(서버 expiresAt ms — 선점 201 · ④ 경계는 payment-start 200 — 요약기 양성 대조 · 잘못된 거부 · 리뷰 M15-26 · M15-19)
+    15	//   sess{fl, n}                     확정할 세션마다(선점 201 · 본문 정상 뒤 — fl = 계획 흐름 · n = 보낼 확정 수 1 | 2): 요약기가 흐름별 conf 수와 대조(리뷰 M15-23)
+    16	//   conf_skip{fl, n}                ④ 경계 흐름 세션이 연장을 못 받아 확정을 건너뜀(pay 비200 · 본문 결함 — 요약기: sess n 합 = conf 수 + conf_skip n 합 · 흐름별)
+    17	//   pay_body_bad{fl}                ④ payment-start 200인데 본문 expiresAt을 못 읽음(§3.4 200 {holdId, expiresAt} 계약 위반 — 요약기 G-F · 리뷰 M15-23)
+    18	//   rehold_ok{seat, k, ph, t}       재선점 201(k = 몇 번째 시도 · ph = d 조밀 | s 성긴 · t = 응답 끝 서버 시각 ms) — 요약기가 같은 좌석 확정 200과 짝지어 'API 수준 이중 결과'를,
+    19	//                                   같은 좌석 확정의 [ts, te] 안이면 'FM1 겹침'을 센다
+    20	//   pay{st, code, fl}               ④ payment-start 응답마다 · ext_then_lost(④: 연장 뒤 만료 − 1초 앞에 보낸 확정이 404 · 409 HOLD_EXPIRED — §3.4 · 기대 0)
+    21	//   hold_fail{st, code}             main 첫 선점이 201이 아닌 세션(요약기는 4xx · 본문 없음만 하네스 무효로 — 5xx · 시간 초과는 err의 hold 몫(모드 실패 G-F) · 리뷰 M15-12)
+    22	// 판정 창 = [t0, t0 + D_ARR_S) — t0 = setup 반환 직전 PC 시각(k6-summary setup_data.startedAt — ADR-014와 같은 정의)
+    23	import http from 'k6/http';
+    24	import { sleep } from 'k6';
+    25	import exec from 'k6/execution';
+    26	import { Counter } from 'k6/metrics';
+    27	import { TREND_STATS, writeSummary } from '../../ADR-009/scenarios/lib/common.js';
+    28	import {
+    29	  cBucket, closeBeforeLongThink, codeOf, confirmCodeOf, confirmReq, holdBody, holdReq, isoMs, payStartReq, recordSession, reholdOffsets, seatOf, send, sessionAttrs15, sleepUntilSrv, CLOCK_OFFSET_MS,
+    30	} from './lib15.js';
+    31	
+    32	const E = (k) => {
+    33	  const v = __ENV[k];
+    34	  if (v === undefined || v === '') throw new Error(`환경변수 ${k} 없음(run.sh가 plan15 --render k6.env를 넘긴다)`);
+    35	  return v;
+    36	};
+    37	const N = (k) => Number(E(k));
+    38	const REP = E('REP');
+    39	const RATE = N('RATE');
+    40	const D_ARR_S = N('D_ARR_S');
+    41	const TTL_S = N('TTL_S');
+    42	const DELAY_MS = N('DELAY_MS');
+    43	const PAY_START = E('PAY_START') === '1';
+    44	const PAY_LEAD_MS = N('PAY_START_BEFORE_E_S') * 1000;
+    45	const PAY_WINDOW_MS = N('PAY_WINDOW_S') * 1000;                     // ④ payment-window(연장 만료 e′ ≈ payment-start 시각 + 창 — 재선점 기준 · keep-alive 처방)
+    46	const P = { delayMs: DELAY_MS, marginMs: N('C_MARGIN_MS'), fDup: N('F_DUP'), rho: N('RHO'), fExtB: PAY_START ? N('EXT_BOUNDARY_F') : 0 };
+    47	const REHOLD = {
+    48	  from: N('REHOLD_FROM_MS'), step: N('REHOLD_STEP_MS'), untilMs: N('REHOLD_UNTIL_S') * 1000,
+    49	  denseFrom: N('REHOLD_DENSE_FROM_MS'), denseStep: N('REHOLD_DENSE_STEP_MS'), denseUntil: N('REHOLD_DENSE_UNTIL_MS'),
+    50	};
+    51	const REHOLD_OFFS = reholdOffsets(REHOLD);
+    52	const DENSE_N = REHOLD.denseStep > 0 ? REHOLD_OFFS.filter((o) => o <= REHOLD.denseUntil).length : 0;
+    53	const SEATS_PER = N('SEATS_PER_SCHEDULE');
+    54	const USER_MAIN = N('USER_MAIN');
+    55	const USER_REHOLD = N('USER_REHOLD');
+    56	// 세션 수 = round(D_arr × 도착률) — 끝 경계 반복은 요청 없이 끝낸다(ADR-014 s14-flow mainPlanN과 같은 처방 · 두 시나리오의 세션 번호가 갈리지 않게)
+    57	const PLAN_N = Math.round(D_ARR_S * RATE);
+    58	const durMs = Math.floor(D_ARR_S * 1000 - 500 / RATE);
+    59	const GRACE = `${N('GRACE_S')}s`;
+    60	
+    61	export const options = {
+    62	  scenarios: {
+    63	    main: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_MAIN'), maxVUs: N('MAX_VUS_MAIN'), gracefulStop: GRACE, exec: 'mainFlow' },
+    64	    rehold: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_REHOLD'), maxVUs: N('MAX_VUS_REHOLD'), gracefulStop: GRACE, exec: 'reholdFlow' },
+    65	  },
+    66	  summaryTrendStats: TREND_STATS,
+    67	};
+    68	
+    69	const conf = new Counter('conf');
+    70	const reholdOk = new Counter('rehold_ok');
+    71	const pay = new Counter('pay');
+    72	const extThenLost = new Counter('ext_then_lost');
+    73	const holdFail = new Counter('hold_fail');
+    74	const sess = new Counter('sess');
+    75	const payBodyBad = new Counter('pay_body_bad');
+    76	const confSkip = new Counter('conf_skip');
+    77	
+    78	export function setup() {
+    79	  return { startedAt: Date.now() };
+    80	}
+    81	
+    82	const srvNow = () => Date.now() + CLOCK_OFFSET_MS;
+    83	
+    84	// e = 그 확정의 기준 만료(경합 증거 · 오프셋 기준 — ④ 경계 흐름은 e′) · el = 그 확정 앞에 서버가 준 가장 늦은 expiresAt(잘못된 거부 기준 — 리뷰 M15-32:
+    85	//   ④ 기준 흐름은 payment-start 200이 연장한 e′ — 연장 전 e로 재면 e < te < e′ 사이의 거부를 놓친다 · 다른 모드는 e와 같다)
+    86	function confirmTags(res, cb, dup, seat, fl, ts, te, e, el) {
+    87	  return { cb, dup: String(dup), st: String(res.status), code: confirmCodeOf(res), seat: String(seat), fl, ts: String(ts), te: String(te), e: String(e), el: String(el) };
+    88	}
+    89	
+    90	export function mainFlow() {
+    91	  const sid = exec.scenario.iterationInTest;
+    92	  if (sid >= PLAN_N) return;
+    93	  const a = sessionAttrs15(REP, sid, P);
+    94	  recordSession('main', sid, { abandon: a.dup, revisit: a.rehold, think_ms: a.c_ms, delta_ms: 0, seatSeed: 0 });   // crn 해시(lib14 — 같은 이름 칸에 이 측정의 속성을 넣는다)
+    95	  const { schedule, seat } = seatOf(sid, SEATS_PER);
+    96	  const user = USER_MAIN + sid;
+    97	  const thinkMs = TTL_S * 1000 + a.c_ms;
+    98	  const h = send(closeBeforeLongThink(holdReq(schedule, seat, user, 'hold'), thinkMs));
+    99	  if (h.status !== 201) { holdFail.add(1, { st: String(h.status), code: codeOf(h) }); return; }
+   100	  const b = holdBody(h);
+   101	  if (!Number.isFinite(b.expMs) || !b.holdId) { holdFail.add(1, { st: 'body', code: 'NOBODY' }); return; }
+   102	  const cb = cBucket(a.c_ms, DELAY_MS);
+   103	  sess.add(1, { fl: PAY_START && a.xb ? 'x' : 'b', n: a.dup ? '2' : '1' });   // 계획 확정 수(흐름별 — 리뷰 M15-23)
+   104	  let extendedMs = NaN;
+   105	  let refMs = b.expMs;
+   106	  let fl = 'b';
+   107	  if (PAY_START) {
+   108	    sleepUntilSrv(b.expMs - PAY_LEAD_MS);
+   109	    // xb 세션은 payment-start 뒤 약 창(2분)을 잔다 — 그 앞 요청에 Connection: close(keep-alive 처방 · 측정-1)
+   110	    const ps = send(closeBeforeLongThink(payStartReq(b.holdId, user), (a.xb ? PAY_WINDOW_MS : PAY_LEAD_MS) + a.c_ms));
+   111	    pay.add(1, { st: String(ps.status), code: ps.status === 200 ? 'OK' : codeOf(ps), fl: a.xb ? 'x' : 'b' });
+   112	    if (ps.status === 200) {
+   113	      try { extendedMs = isoMs(ps.json('expiresAt')); } catch (e) { extendedMs = NaN; }
+   114	      if (!Number.isFinite(extendedMs)) payBodyBad.add(1, { fl: a.xb ? 'x' : 'b' });   // 200 본문 계약 위반 — 무음으로 확정을 건너뛰지 않는다(리뷰 M15-23)
+   115	    }
+   116	    if (a.xb) {
+   117	      // 연장이 없으면 경계 흐름이 성립하지 않는다 — 확정을 건너뛰되 무음이 아니다: pay 비200 · pay_body_bad(G-F)가 드러내고 conf_skip이 sess 대 conf 차를 맞춘다(리뷰 M15-23)
+   118	      if (!Number.isFinite(extendedMs)) { confSkip.add(1, { fl: 'x', n: a.dup ? '2' : '1' }); return; }
+   119	      refMs = extendedMs;
+   120	      fl = 'x';
+   121	    }
+   122	  }
+   123	  sleepUntilSrv(refMs + a.c_ms);
+   124	  const latestMs = Number.isFinite(extendedMs) ? Math.max(b.expMs, extendedMs) : b.expMs;
+   125	  const sentSrv = srvNow();
+   126	  if (a.dup) {
+   127	    const rs = http.batch([confirmReq(b.holdId, user, 'confirm'), confirmReq(b.holdId, user, 'confirm')]);
+   128	    const te = srvNow();
+   129	    rs.forEach((r, i) => conf.add(1, confirmTags(r, cb, i + 1, seat, fl, sentSrv, te, refMs, latestMs)));
+   130	    // 짝의 둘째 404는 N2(한 홀드는 한 번만 확정 — §설계-6)의 정상 결과다 — 짝 중 하나라도 200이면 홀드를 잃지 않았다(로컬 스모크 15-09: 짝 진 쪽 11건을 잃음으로 잘못 셌다)
+   131	    if (!rs.some((r) => r.status === 200)) lostCheck(rs[0], extendedMs, sentSrv);
+   132	  } else {
+   133	    const r = send(confirmReq(b.holdId, user, 'confirm'));
+   134	    conf.add(1, confirmTags(r, cb, 0, seat, fl, sentSrv, srvNow(), refMs, latestMs));
+   135	    lostCheck(r, extendedMs, sentSrv);
+   136	  }
+   137	}
+   138	
+   139	// ④: 연장이 준 만료 − 1초보다 앞에 보낸 확정이 404 · 409 HOLD_EXPIRED면 '연장을 잃음'(§3.4 클라이언트 쪽 — 서버 extension_lost와 교차 확인)
+   140	function lostCheck(r, extendedMs, sentSrv) {
+   141	  if (!PAY_START || !Number.isFinite(extendedMs) || sentSrv >= extendedMs - 1000) return;
+   142	  const code = r.status === 200 ? 'OK' : codeOf(r);
+   143	  if (r.status === 404 || code === 'HOLD_EXPIRED') extThenLost.add(1, { st: String(r.status), code });
+   144	}
+   145	
+   146	export function reholdFlow() {
+   147	  const sid = exec.scenario.iterationInTest;
+   148	  if (sid >= PLAN_N) return;
+   149	  const a = sessionAttrs15(REP, sid, P);
+   150	  if (!a.rehold) return;
+   151	  const { schedule, seat } = seatOf(sid, SEATS_PER);
+   152	  const user = USER_REHOLD + sid;
+   153	  const t0 = Date.now();
+   154	  // 기준 만료 ≈ 반복 시작 + TTL(④ xb 세션은 e′ ≈ e − 리드 + 창 — payment-start가 e − 리드에 연장한다)
+   155	  const refMs = TTL_S * 1000 + (P.fExtB > 0 && a.xb ? PAY_WINDOW_MS - PAY_LEAD_MS : 0);
+   156	  for (let k = 1; k <= REHOLD_OFFS.length; k++) {
+   157	    const wait = (t0 + refMs + REHOLD_OFFS[k - 1] - Date.now()) / 1000;
+   158	    if (wait > 0) sleep(wait);
+   159	    const r = send(holdReq(schedule, seat, user, 'rehold'));
+   160	    if (r.status === 201) { reholdOk.add(1, { seat: String(seat), k: String(k), ph: k <= DENSE_N ? 'd' : 's', t: String(srvNow()) }); return; }
+   161	  }
+   162	}
+   163	
+   164	export function handleSummary(data) {
+   165	  data.adr015 = { rep: REP, rate: RATE, d_arr_s: D_ARR_S, ttl_s: TTL_S, delay_ms: DELAY_MS, plan_n: PLAN_N, pay_start: PAY_START, ext_boundary_f: P.fExtB,
+   166	    rehold_offsets_ms: REHOLD_OFFS, rehold_dense_n: DENSE_N };
+   167	  return writeSummary(data);
+   168	}
+
+exec
+/bin/bash -lc "git show 29e09aef -- k6/ADR-015/scripts/selftest.py && rg -n 'pre_vus_total|PRE_VUS_|lead_s|vus' k6/ADR-015/scripts --glob '"'!plan15.py'"'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse
+hook: PostToolUse Completed
+ succeeded in 8ms:
+k6/ADR-015/scripts/selftest.py:100:      pr_["k6"]["env"]["RHO"] == "0.5" and pc_["k6"]["env"]["RHO"] == "0.0" and pc_["k6"]["pre_vus"]["rehold"] == 300, f"{pr_['k6']['env']['RHO']} {pc_['k6']['env']['RHO']} {pc_['k6']['pre_vus']}")
+k6/ADR-015/scripts/selftest.py:103:      px_["k6"]["pre_vus"]["rehold"] >= 980 * 1.3 and px_["k6"]["pre_vus"]["main"] >= 20 * (31 + 55) * 1.3 and pr_["k6"]["pre_vus"]["rehold"] >= 20 * 43 * 0.5 * 1.3, json.dumps(px_["k6"]["pre_vus"]))
+k6/ADR-015/scripts/run.sh:79:PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-$(P .k6.lead_s)}"
+k6/ADR-015/scripts/run.sh:245:      --argjson lead "$PRE_K6_LEAD_S" --argjson pvus "$(P .k6.pre_vus_total)" \
+k6/ADR-015/scripts/run.sh:247:    lead_s: $lead, pre_vus_total: $pvus}' > "$DIR/pre-k6.json"
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scenarios/lib15.js | sed -n '1,150p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+     1	// ADR-015 공통 — ADR-014 lib14.js(결정적 난수 · 세션 해시 · 선점/확정 호출 · 응답 분류 · keep-alive 처방)를 그대로 다시 내보내고, 이 측정에 필요한 것만 더한다:
+     2	//   ④ `POST /api/holds/{holdId}/payment-start`(§3.4 · PaymentStartController) 호출 · 세션 속성(확정 오프셋 c · 이중 확정 · 재선점 VU) · 좌석/사용자 대역 · 오프셋 묶음 이름.
+     3	// lib14.js는 고치지 않는다(동결 사본에서 import — ADR-014 하네스 수정 금지).
+     4	// keep-alive(ADR-014 §결정-3 · 06c): 생각 시간 ≥ 50초면 그 앞 요청을 Connection: close로(lib14 closeBeforeLongThink) — 이 측정의 생각 시간은 약 TTL(30초)이라
+     5	//   지금 값에서는 붙지 않지만, TTL을 늘려도 같은 EOF가 5xx 지표를 흐리지 않게 모든 '잠들기 앞' 요청에 건다(초안 측정-3.6).
+     6	export {
+     7	  BASE_URL, CLOCK_OFFSET_MS, KEEPALIVE_SAFE_MS, closeBeforeLongThink, closeConn, codeOf, confirmReq, crnH1, crnH2, crnN, fnv1a, holdBody, holdReq, isoMs,
+     8	  mulberry32, recordSession, send, sleepUntilSrv,
+     9	} from '../../ADR-014/scenarios/lib14.js';
+    10	import { BASE_URL, fnv1a, mulberry32 } from '../../ADR-014/scenarios/lib14.js';
+    11	
+    12	export function payStartReq(holdId, userId, name) {
+    13	  return {
+    14	    method: 'POST', url: `${BASE_URL}/api/holds/${holdId}/payment-start`, body: null,
+    15	    params: { headers: { 'X-User-Id': String(userId) }, tags: { name: name || 'pay_start' }, timeout: '30s' },
+    16	  };
+    17	}
+    18	
+    19	// 세션 속성(공통 난수 — 씨앗 (REP, 'adr015', 세션 번호)): main · rehold 두 시나리오가 같은 세션 번호로 같은 속성을 다시 뽑는다(재선점 VU가 그 세션의 좌석 · 짝 여부를 안다).
+    20	//   c_ms(확정 송신 = 서버 만료 e + c) ~ U[−(delay + margin), +margin] · dup(같은 홀드 이중 확정) · rehold(그 좌석을 노리는 재선점 VU 붙임) ·
+    21	//   xb(④ 경계 흐름 — payment-start가 준 연장 만료 e′ 기준으로 확정 · 리뷰 M15-5). 뽑는 순서는 앞 셋 뒤에 xb를 더했다(앞 셋의 값은 그대로 — fExtB 0이면 xb는 늘 거짓).
+    22	export function sessionAttrs15(rep, sid, p) {
+    23	  const r = mulberry32(fnv1a(`adr015|${rep}|${sid}`));
+    24	  const c_ms = Math.round(-(p.delayMs + p.marginMs) + r() * (p.delayMs + 2 * p.marginMs));
+    25	  const dup = r() < p.fDup;
+    26	  const rehold = r() < p.rho;
+    27	  const xb = r() < (p.fExtB || 0);
+    28	  return { c_ms, dup, rehold, xb };
+    29	}
+    30	
+    31	// 재선점 시도 오프셋(ms — 기준 만료 시각 e 또는 ④ 경계 흐름의 e′ 기준 · 리뷰 M15-6):
+    32	//   ① 조밀 구간 [denseFrom, denseUntil] denseStep 간격(경합 창 = 만료 직후 ~ 확정 쓰기 — 지연 폭 안 · step 0이면 없음) →
+    33	//   ② 성긴 구간 from부터 step 간격으로 untilMs까지(배치가 풀어 준 좌석을 노리는 경쟁자 — 앞 15-09 설계). 오름차순 · 중복 없음.
+    34	export function reholdOffsets(d) {
+    35	  const out = [];
+    36	  if (d.denseStep > 0) for (let o = d.denseFrom; o <= d.denseUntil; o += d.denseStep) out.push(o);
+    37	  const last = out.length ? out[out.length - 1] : -Infinity;
+    38	  for (let o = d.from; o <= d.untilMs; o += d.step) if (o > last) out.push(o);
+    39	  return out;
+    40	}
+    41	
+    42	// 확정 응답 분류(리뷰 M15-21 — ADR-015 §설계-3 공통 에러 계약 · N4): 200 = OK · 그 밖은 상태와 무관하게 본문 code를 읽는다(없으면 NOCODE).
+    43	//   ADR-009 errorCodeOf(lib14 codeOf)는 409만 본문을 읽어 404 · 403이 'HTTP404' · 'HTTP403'이 된다 — 엉뚱한 404(본문 없음 · 다른 code)도 계약 안으로 세던 것을 막는다.
+    44	//   요약기가 (HTTP 상태, code) 쌍을 허용 목록과 대조한다(st 태그와 짝). ADR-009 · ADR-014 파일은 고치지 않는다
+    45	export function confirmCodeOf(res) {
+    46	  if (res.status === 200) return 'OK';
+    47	  try {
+    48	    const c = res.json('code');
+    49	    if (c) return String(c);
+    50	  } catch (e) { /* 본문이 JSON이 아니다 */ }
+    51	  return 'NOCODE';
+    52	}
+    53	
+    54	// 오프셋 묶음(요약기가 응답 분포를 가르는 이름 — 초안 측정-5 · ④ 경계 흐름은 e′ 기준으로 같은 이름):
+    55	//   pre  = c < −delay(지연을 다 자도 만료 전에 쓴다 — 경합 창 밖)
+    56	//   win  = −delay ≤ c < 0(만료 전 확인 · 만료 뒤 쓰기 — 경합 창 · converted_after_expiry가 생기는 자리)
+    57	//   post = c ≥ 0(만료 뒤 보낸 확정 — 409 HOLD_EXPIRED 또는 404가 계약 · ④는 연장돼 200)
+    58	export function cBucket(c_ms, delayMs) {
+    59	  if (c_ms >= 0) return 'post';
+    60	  return c_ms < -delayMs ? 'pre' : 'win';
+    61	}
+    62	
+    63	// 좌석 = 세션마다 하나(겹치지 않음) — 회차 k = 1 + ⌊sid ÷ 회차당 좌석⌋ · 좌석 id = (k − 1) × 회차당 좌석 + (sid mod 회차당 좌석) + 1(LoadtestDataService.reset 좌석 id 규칙)
+    64	export function seatOf(sid, seatsPer) {
+    65	  const k = 1 + Math.floor(sid / seatsPer);
+    66	  return { schedule: k, seat: (k - 1) * seatsPer + (sid % seatsPer) + 1 };
+    67	}
+
+hook: PostToolUse
+hook: PostToolUse Completed
+exec
+/bin/bash -lc "rg -n 'pre-k6|lead_s|PRE_K6_LEAD|PRE_K6_TARGET|PRE_K6_TOL|vus_max|vus|dropped_iterations' k6/ADR-015/scripts/summarize.py k6/ADR-015/scripts/run.sh k6/ADR-015/scripts/campaign.sh | head -120" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/scripts/summarize.py:140:            elif m == "dropped_iterations":
+k6/ADR-015/scripts/summarize.py:329:    pk = inp.json("pre_k6", "pre-k6.json", nums=("seed_done_epoch",))
+k6/ADR-015/scripts/summarize.py:332:        if abs(M["seed_to_first_request_s"] - S14.PRE_K6_TARGET_S) > S14.PRE_K6_TOL_S:
+k6/ADR-015/scripts/summarize.py:333:            reasons.add("pre-k6-mismatch")
+k6/ADR-015/scripts/run.sh:35:PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-}"   # ADR-014 run.sh 그대로
+k6/ADR-015/scripts/run.sh:79:PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-$(P .k6.lead_s)}"
+k6/ADR-015/scripts/run.sh:107:  echo "시각: 시드 끝 → 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(k6 lead ${PRE_K6_LEAD_S}초) · k6 $(P .k6.duration_s)초 · 창 [0, $(P .window.len_s))초 · 수렴 $(P .converge_s)초 · 회차 추정 $(P .est_s)초"
+k6/ADR-015/scripts/run.sh:224:awk -v s="$SEED_T" -v h="$PRE_K6_HOLD_S" -v n="$(now)" 'BEGIN { exit !(n - s > h + 1) }' && abort15 pre-k6-overrun
+k6/ADR-015/scripts/run.sh:232:awk -v n="$(now)" -v b="$SEED_T" -v t="$PRE_K6_TARGET_S" -v l="$PRE_K6_TOL_S" -v lead="$PRE_K6_LEAD_S" 'BEGIN { exit !((n - b) + lead > t + l) }' && abort15 pre-k6-overrun
+k6/ADR-015/scripts/run.sh:234:topup=$(awk -v t="$PRE_K6_TARGET_S" -v n="$(now)" -v b="$SEED_T" -v lead="$PRE_K6_LEAD_S" 'BEGIN { d = t - lead - (n - b); printf "%.3f", (d > 0 ? d : 0) }')
+k6/ADR-015/scripts/run.sh:241:( sleep "$(awk -v k="$K6_T0" -v w="$(P '.window.from_s + .window.len_s')" -v l="$WEND_LAG_S" -v lead="$PRE_K6_LEAD_S" -v n="$(now)" 'BEGIN { d = k + lead + w + l - n; printf "%.3f", (d > 0 ? d : 0) }')"
+k6/ADR-015/scripts/run.sh:244:jq -n --argjson seed "$SEED_T" --argjson k6 "$K6_T0" --argjson hold "$PRE_K6_HOLD_S" --argjson target "$PRE_K6_TARGET_S" --argjson tol "$PRE_K6_TOL_S" --argjson topup "$topup" \
+k6/ADR-015/scripts/run.sh:245:      --argjson lead "$PRE_K6_LEAD_S" --argjson pvus "$(P .k6.pre_vus_total)" \
+k6/ADR-015/scripts/run.sh:247:    lead_s: $lead, pre_vus_total: $pvus}' > "$DIR/pre-k6.json"
+
+hook: PostToolUse
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scripts/plan15.py | sed -n '45,205p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+    45	#   '배치가 풀어 준 좌석을 재선점 201 → 그 세션 확정 쓰기'가 부하에서 생길 수 있다. e − 20ms부터 20ms 간격으로 e + delay + 100ms까지(확정 응답 끝 여유).
+    46	#   지연 0(cost)이면 창이 없다 — 조밀 구간을 끈다(재선점 요청이 비용 지표를 흐리지 않게).
+    47	REHOLD_DENSE_FROM_MS, REHOLD_DENSE_STEP_MS, REHOLD_DENSE_TAIL_MS = -20, 20, 100
+    48	PAYMENT_WINDOW, EXTEND_MIN_REMAINING = "2m", "5s"                                         # ④ — 설계-10 T6 테스트 값(D-6 권장)
+    49	PAYMENT_WINDOW_S = 120
+    50	PAY_START_BEFORE_E_S = 10                                                                 # ④ payment-start = e − 10초(> extend-min-remaining 5초 · < window)
+    51	# ④ 경계 흐름(리뷰 M15-4 · M15-5): race 셀 ④ 세션의 이 비율은 payment-start가 준 e′ 기준 e′ + c에 확정한다 — 연장 뒤에도 만료 경계 경합 창이 ④에서 열린다
+    52	#   (나머지는 e + c에 확정 — 연장이 홀드를 지키는가 · ext_then_lost). cost 셀은 0(세션이 약 2분 길어져 VU가 약 2만 늘어난다 — 비용 셀 VU 상한).
+    53	EXT_BOUNDARY_F = {"race": 0.5, "cost": 0.0}
+    54	SEATS_PER_SCHEDULE = 50000
+    55	SEAT_MARGIN = 1.05
+    56	GRACE_S = TTL_S + REHOLD_UNTIL_S + 7                                                      # gracefulStop = TTL + 재선점 끝 + 여유 = 50초(창 끝에 시작한 세션이 끝날 시간)
+    57	GRACE_EXT_B_S = GRACE_S + PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S                         # ④ 경계 흐름이 있는 셀 = 50 + 110 = 160초(e′ ≈ e + 110초)
+    58	CONVERGE_EXTRA_S = 22                                                                     # 수렴 대기 = TTL + 22초(ADR-014 plan14 CONVERGE_EXTRA_S)
+    59	OTHER_S = 200                                                                             # 회차 시간 = k6 + 200초(ADR-014 t30 셀 실측 — 초안 측정-2 · 수렴 52초 포함 · 다음 회차까지 간격 포함)
+    60	TOMCAT_MAX_CONNECTIONS, APP_NOFILE = 20000, 65536                                         # ADR-014 측정-1 R5 ① 그대로
+    61	FLYWAY = ["classpath:db/migration", "classpath:db/migration-updated-at-trigger", "classpath:db/migration-incremental"]   # 업무 앱 기본 위치(application.yml)
+    62	FLYWAY_V14 = "classpath:db/migration-confirm-version"                                     # ③만(V14 트리거 — 규칙 6)
+    63	USERS = {"main": 1_000_000, "rehold": 4_000_000}                                          # 흐름별 사용자 대역(세션 번호 + 대역)
+    64	LIFE_S = {"main": TTL_S + 1, "rehold": TTL_S + REHOLD_UNTIL_S}                         # 흐름별 세션 수명(초) — main ≈ TTL + 1초 · rehold ≈ TTL + 재선점 끝 13초
+    65	PRE_VUS_HEADROOM = 1.3                                                                   # 미리 만든 VU = 평균 동시 세션(도착률 × 수명 × ρ) × 1.3 — k6는 빈 VU가 없으면 그 반복을 버리고(dropped) VU를 새로 만든다.
+    66	                                                                                          #   스모크 smoke15-20261105: rehold 45/도착률(여유 약 5%) → ④ race 평균 약 980 대 1000 · cost 최소 20 → 누락 13 · 29(G-H)
+    67	PRE_VUS_MIN_S = 1                                                                        # 최소 = 도착률 × 1초(cost rehold는 ρ = 0이라 즉시 끝나도 k6 정지 순간 한 번에 몰린다)
+    68	MAX_VUS_FACTOR = 1.5
+    69	K6_LEAD_BASE_S, K6_LEAD_PER_VU_MS = 0.15, 0.37                                            # ADR-014 plan14 k6_lead_s 식 그대로
+    70	PGSS_DEFAULT = 1                                                                          # D-4 — 기본 켬(초안 권장 · 다섯 모드 모두). fix1: ② 경합 표지(A′ B3 대기)와 #15 틱당 문장 수가 pgss를 읽는다
+    71	V12_ROWS_DEFAULT = [1_000_000, 5_000_000]                                                 # D-5 후보(ADR-002 규모 축 100만 · S5 상단 500만)
+    72	V12_BLOCK_MAX_MS = 2000                                                                   # #5 판정: 쓰기 차단 ≤ 2초면 트랜잭션 안 판 유지(ADR-013 lock_timeout 2초 선례 — D-5)
+    73	V12_REPS = 3
+    74	# 새 모드 양성 대조(리뷰 M15-26 — 서버 논리 증거): ①③④ 진 쪽 404가 '배치가 지연 중에 홀드를 지웠다'로 읽히려면 서버 :now < e여야 한다.
+    75	#   ①④는 :now 바로 뒤에 지연을 잔다(AtomicConfirmProcess.kt:41 · :69) → :now ≤ 응답 끝 − 지연. 응답 끝(k6 서버 시각 태그 te)을 시계 차 오차로 보정해
+    76	#   te + 오차 − 지연 + 여유 < e 이면 :now < e. 여유 20ms = ADR-014 측정-4 시계 오차 허용(:672 — 초안 측정-4 오프셋 행과 같은 값) · Thread.sleep ms 해상도 · 컨테이너 시계 흔들림 몫
+    77	EVIDENCE_MARGIN_MS = 20
+    78	# ② 양성 대조(리뷰 M15-26): A′ 배치 B3가 ② 확정(P2 뒤 지연 중 — 홀드 · 좌석 잠금 보유)을 기다리는 순간을 pg_stat_activity 표본으로 잡는다(scripts/b3wait-sampler.sh).
+    79	#   B3 대기 길이 w = 틱이 만난 순간 ②의 남은 지연(길이 편향 잔여 — 평균 약 delay/3) → 주기 p ms 표본이 한 대기를 잡을 확률 = E[min(1, w ÷ p)] — p = 20ms면 약 0.90 ·
+    80	#   ADR-009 대기 표본 500ms면 약 0.13(초안 측정-4 fix2 행 — .164 race 회차당 잡힌 에피소드 기대 약 20 대 약 2.9).
+    81	#   race 셀 다섯 모드 모두 같은 주기로 켠다(표본 질의 부하가 ②의 race 비용 지표에만 섞이지 않게) · cost 셀은 끈다(지연 0 — 잠금을 쥔 채 자지 않는다)
+    82	B3WAIT_PERIOD_MS = {"race": 20, "cost": 0}
+    83	
+    84	
+    85	def k6_lead_s(pre_vus_total):
+    86	    return round(K6_LEAD_BASE_S + pre_vus_total * K6_LEAD_PER_VU_MS / 1000, 2)
+    87	
+    88	
+    89	def load_knobs(path):
+    90	    if not path:
+    91	        return {}
+    92	    k = json.loads(Path(path).read_text()) if Path(path).exists() else json.loads(path)
+    93	    bad = []
+    94	    if k.get("pgss", PGSS_DEFAULT) not in (0, 1):
+    95	        bad.append(f"pgss={k.get('pgss')}(0 | 1)")
+    96	    if k.get("cost_rate", CELLS["cost"]["rate"]) not in COST_RATES:
+    97	        bad.append(f"cost_rate={k.get('cost_rate')}({COST_RATES})")
+    98	    rows = k.get("v12_rows", V12_ROWS_DEFAULT)
+    99	    if not (isinstance(rows, list) and rows and all(isinstance(x, int) and 1000 <= x <= 5_000_000 for x in rows)):
+   100	        bad.append(f"v12_rows={rows}(1,000 ~ 5,000,000 정수 목록)")
+   101	    extra = set(k) - {"pgss", "cost_rate", "v12_rows", "note"}
+   102	    if extra:
+   103	        bad.append(f"모르는 knobs 키 {sorted(extra)}")
+   104	    if bad:
+   105	        raise SystemExit("knobs 형식: " + " · ".join(bad))
+   106	    return k
+   107	
+   108	
+   109	def cell_of(cell, knobs):
+   110	    if cell not in CELLS:
+   111	        raise SystemExit(f"셀 {cell}")
+   112	    c = dict(CELLS[cell])
+   113	    if cell == "cost":
+   114	        c["rate"] = knobs.get("cost_rate", c["rate"])
+   115	    return c
+   116	
+   117	
+   118	def order(knobs=None):
+   119	    """회차 우선 · 묶음 순서 GROUPS · 묶음 g(0부터) · 회차 r(1부터)의 모드 = MODES를 (r + g) mod 5칸 회전(ADR-014 '균형 회전'과 같은 뜻 — 6묶음에서 모드마다 각 자리 1~2번)."""
+   120	    rows, seq = [], 0
+   121	    for r in range(1, REPS + 1):
+   122	        for g, cell in enumerate(GROUPS):
+   123	            rot = (r + g) % len(MODES)
+   124	            for m in MODES[rot:] + MODES[:rot]:
+   125	                seq += 1
+   126	                rows.append((seq, r, cell, m))
+   127	    return rows
+   128	
+   129	
+   130	def grace_of(mode, cell):
+   131	    return GRACE_EXT_B_S if mode == "conditional-extend" and EXT_BOUNDARY_F[cell] > 0 else GRACE_S
+   132	
+   133	
+   134	def rehold_dense(cell, delay_ms):
+   135	    # (from, step, until) ms — step 0 = 조밀 구간 없음(지연 0 셀)
+   136	    return (REHOLD_DENSE_FROM_MS, REHOLD_DENSE_STEP_MS, delay_ms + REHOLD_DENSE_TAIL_MS) if delay_ms > 0 else (0, 0, 0)
+   137	
+   138	
+   139	def seed_of(c, grace=GRACE_S):
+   140	    sessions = math.ceil(c["rate"] * (c["d_arr_s"] + grace) * SEAT_MARGIN)
+   141	    return {"schedules": max(1, math.ceil(sessions / SEATS_PER_SCHEDULE)), "seats": SEATS_PER_SCHEDULE, "sessions_max": sessions}
+   142	
+   143	
+   144	def flyway(mode):
+   145	    return FLYWAY + ([FLYWAY_V14] if mode == "optimistic" else [])
+   146	
+   147	
+   148	def render(mode, cell, rep, knobs=None):
+   149	    knobs = knobs or {}
+   150	    if mode not in MODES or rep not in range(1, REPS + 1):
+   151	        raise SystemExit(f"모드 {mode} · 회차 {rep}")
+   152	    c = cell_of(cell, knobs)
+   153	    ext = mode == "conditional-extend"
+   154	    xb = EXT_BOUNDARY_F[cell] if ext else 0.0
+   155	    grace = grace_of(mode, cell)
+   156	    seed = seed_of(c, grace)
+   157	    dense = rehold_dense(cell, c["delay_ms"])
+   158	    # 미리 만든 VU: ④ 경계 흐름 세션은 약 (창 − 리드)초 더 산다(main · rehold 둘 다)
+   159	    longer = xb * (PAYMENT_WINDOW_S - PAY_START_BEFORE_E_S)
+   160	    rho = RHO[cell]
+   161	    pre = {f: math.ceil(PRE_VUS_HEADROOM * c["rate"] * (v + longer) * (rho if f == "rehold" else 1)) for f, v in LIFE_S.items()}
+   162	    pre = {f: max(v, 20, math.ceil(c["rate"] * PRE_VUS_MIN_S)) for f, v in pre.items()}
+   163	    mx = {f: math.ceil(v * MAX_VUS_FACTOR) for f, v in pre.items()}
+   164	    d_arr = c["d_arr_s"]
+   165	    app_env = {
+   166	        "CONFIRM_MODE": mode, "CONFIRM_DELAY": f"{c['delay_ms']}ms",
+   167	        "PAYMENT_WINDOW": PAYMENT_WINDOW if ext else "0s", "EXTEND_MIN_REMAINING": EXTEND_MIN_REMAINING if ext else "0s",
+   168	        "HOLD_TTL": f"{TTL_S}s", "EXPIRY_INTERVAL": f"{EXPIRY_INTERVAL_S}s", "FLYWAY_LOCATIONS": ",".join(flyway(mode)), "POOL_SIZE": str(POOL),
+   169	        "TOMCAT_MAX_CONNECTIONS": str(TOMCAT_MAX_CONNECTIONS), "APP_NOFILE": str(APP_NOFILE),
+   170	        "PG_PRELOAD": "pg_stat_statements" if knobs.get("pgss", PGSS_DEFAULT) else "",
+   171	    }
+   172	    k6env = {
+   173	        "REP": str(rep), "RATE": str(c["rate"]), "D_ARR_S": str(d_arr), "GRACE_S": str(grace), "TTL_S": str(TTL_S),
+   174	        "DELAY_MS": str(c["delay_ms"]), "C_MARGIN_MS": str(C_MARGIN_MS), "F_DUP": str(F_DUP), "RHO": str(rho),
+   175	        "REHOLD_FROM_MS": str(REHOLD_FROM_MS), "REHOLD_STEP_MS": str(REHOLD_STEP_MS), "REHOLD_UNTIL_S": str(REHOLD_UNTIL_S),
+   176	        "REHOLD_DENSE_FROM_MS": str(dense[0]), "REHOLD_DENSE_STEP_MS": str(dense[1]), "REHOLD_DENSE_UNTIL_MS": str(dense[2]),
+   177	        "PAY_START": "1" if ext else "0", "PAY_START_BEFORE_E_S": str(PAY_START_BEFORE_E_S), "PAY_WINDOW_S": str(PAYMENT_WINDOW_S),
+   178	        "EXT_BOUNDARY_F": str(xb),
+   179	        "SEATS_PER_SCHEDULE": str(SEATS_PER_SCHEDULE), "SCHEDULES": str(seed["schedules"]),
+   180	        "USER_MAIN": str(USERS["main"]), "USER_REHOLD": str(USERS["rehold"]),
+   181	        "PRE_VUS_MAIN": str(pre["main"]), "MAX_VUS_MAIN": str(mx["main"]), "PRE_VUS_REHOLD": str(pre["rehold"]), "MAX_VUS_REHOLD": str(mx["rehold"]),
+   182	    }
+   183	    pre_total = pre["main"] + pre["rehold"]
+   184	    return {
+   185	        "mode": mode, "mode_enum": MODE_ENUM[mode], "cell": cell, "rep": rep, "crn_seed": rep, "kind": "main", "knobs": knobs,
+   186	        "ttl_s": TTL_S, "expiry_interval_s": EXPIRY_INTERVAL_S, "delay_ms": c["delay_ms"], "rate": c["rate"], "d_arr_s": d_arr,
+   187	        "flyway_locations": flyway(mode), "pool": POOL, "payment_window": PAYMENT_WINDOW if ext else None,
+   188	        "extend_min_remaining": EXTEND_MIN_REMAINING if ext else None, "pgss": int(bool(knobs.get("pgss", PGSS_DEFAULT))),
+   189	        "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense), "rho": rho,
+   190	        "b3wait_ms": B3WAIT_PERIOD_MS[cell] if c["delay_ms"] > 0 else 0, "evidence_margin_ms": EVIDENCE_MARGIN_MS,
+   191	        "k6": {"script": "k6/ADR-015/scenarios/confirm-contention.js", "duration_s": d_arr + grace, "pre_vus": pre, "max_vus": mx,
+   192	               "pre_vus_total": pre_total, "lead_s": k6_lead_s(pre_total), "env": k6env},
+   193	        # 판정 창 = [t0, t0 + D_arr)(ADR-014 측정-0 정의 그대로) — 요청 시각이 창 안인 응답만 센다. 창 끝 뒤 gracefulStop 동안 끝난 세션은 창 밖(설명 지표에만)
+   194	        "window": {"kind": "arrival", "from_s": 0, "len_s": d_arr},
+   195	        "converge_s": TTL_S + CONVERGE_EXTRA_S,
+   196	        "samplers": {"state": False, "h4": False},
+   197	        "est_s": d_arr + grace + OTHER_S,
+   198	        # 풀 점유 추정(지연이 트랜잭션 안에서 잔다 — 연결을 쥔다): 확정 도착률 × (1 + 이중 비율) × 지연
+   199	        "pool_busy_est": round(c["rate"] * (1 + F_DUP) * c["delay_ms"] / 1000, 2),
+   200	    }
+   201	
+   202	
+   203	def expected_config(mode, cell, knobs=None):
+   204	    p = render(mode, cell, 1, knobs)
+   205	    return {
+
+exec
+/bin/bash -lc "jq '{metrics:{dropped_iterations:.metrics.dropped_iterations,vus:.metrics.vus,iteration_duration:.metrics.iteration_duration},adr015:.adr015}' k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/k6-summary.json" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+ exited 2 in 45ms:
+jq: error: Could not open file k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/k6-summary.json: No such file or directory
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+흐름 코드를 보면 xb 세션은 기준 만료보다 약 110초 더 기다리는 것이 맞습니다. 이제 산식이 평균값을 얼마나 벗어날 수 있는지와 실행기 상한이 그 변동을 받아낼 수 있는지 확인하겠습니다.
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "nl -ba k6/ADR-015/scripts/summarize.py | sed -n '115,150p;310,345p'; nl -ba k6/ADR-014/scenarios/lib14.js | sed -n '20,90p'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+   115	        i_ec = head.index("error_code") if "error_code" in head else None
+   116	        for r in rd:
+   117	            if not r:
+   118	                continue
+   119	            m = r[ix["metric_name"]]
+   120	            t = int(r[ix["timestamp"]])
+   121	            inwin = w0 <= t < w1 or int(w0) == t
+   122	            sc = r[ix["scenario"]]
+   123	            if m == "http_req_duration":
+   124	                name, st = r[ix["name"]], r[ix["status"]]
+   125	                inc(out["req"], name)
+   126	                inc(out["st_all"], f"{name}:{st}")
+   127	                if st == "0":
+   128	                    ec = r[i_ec] if i_ec is not None else ""
+   129	                    if ec == TIMEOUT_CODE:
+   130	                        inc(out["err"], name)
+   131	                        inc(out["timeout"], name)            # 시간 초과는 5xx와 따로(리뷰 M15-3a — 경합 증거 · G2(b)에 섞지 않는다)
+   132	                    else:
+   133	                        inc(out["code0_other"], f"{name}:{ec or '?'}")
+   134	                elif st.isdigit() and int(st) >= 500:
+   135	                    inc(out["err"], name)
+   136	                    inc(out["err5"], name)
+   137	                if inwin:
+   138	                    out["per_sec"][t] = out["per_sec"].get(t, 0) + 1
+   139	                    out["lat"].setdefault(f"{name}:{st}", []).append(float(r[ix["metric_value"]]))
+   140	            elif m == "dropped_iterations":
+   141	                out["dropped"][sc] = out["dropped"].get(sc, 0) + int(float(r[ix["metric_value"]]))
+   142	            elif m in ("crn_n", "crn_h1", "crn_h2"):
+   143	                c = out["crn"].setdefault(sc, {"n": 0, "h1": 0, "h2": 0})
+   144	                c[m[4:]] += int(float(r[ix["metric_value"]]))
+   145	            elif m in ("sess", "conf_skip"):
+   146	                tg = parse_tags(r[ix["extra_tags"]])
+   147	                fl = tg.get("fl", "?")
+   148	                out[m][fl] = out[m].get(fl, 0) + (int(tg["n"]) if str(tg.get("n", "")).isdigit() else 10 ** 9)   # n 없음 = 맞출 수 없음(대조가 어긋나게)
+   149	            elif m == "pay_body_bad":
+   150	                inc(out["pay_body_bad"], parse_tags(r[ix["extra_tags"]]).get("fl", "?"))
+   310	        plan = inp.miss("plan", f"plan.json 모드·셀이 계획에 없음({plan['mode']!r} · {plan['cell']!r})")
+   311	    if plan is None:
+   312	        return _write(d, {"status": "invalid:plan-missing", "reasons": ["plan-missing"]})
+   313	    mode, cell = plan["mode"], plan["cell"]
+   314	    new = mode in plan15.NEW_MODES
+   315	    if (d / "harness-reasons.txt").exists():
+   316	        reasons.update(x.strip() for x in (d / "harness-reasons.txt").read_text().splitlines() if x.strip())
+   317	    else:
+   318	        inp.miss("harness_reasons", "harness-reasons.txt 없음")
+   319	    ks = inp.json("k6_summary", "k6-summary.json", nums=("setup_data.startedAt",))
+   320	    clk = clock(inp)
+   321	    if clk and (clk["rtt_half_max"] > S14.CLOCK_RTT_HALF_MAX_S or clk["drift"] > S14.CLOCK_DRIFT_MAX_S):
+   322	        reasons.add("clock-offset-bad")
+   323	    off = clk["off"] if clk else None
+   324	    t0 = ks["setup_data"]["startedAt"] / 1000 if ks else None
+   325	    w0 = t0 + plan["window"]["from_s"] if t0 is not None else None
+   326	    w1 = w0 + plan["window"]["len_s"] if w0 is not None else None
+   327	    M = {"mode": mode, "cell": cell, "rep": plan["rep"], "t0_pc": t0, "window_pc": [w0, w1], "off_s": off}
+   328	    F = {}   # 모드 실패(G-F) — 유효 회차의 실패 자료
+   329	    pk = inp.json("pre_k6", "pre-k6.json", nums=("seed_done_epoch",))
+   330	    if pk and t0 is not None:
+   331	        M["seed_to_first_request_s"] = t0 - pk["seed_done_epoch"]
+   332	        if abs(M["seed_to_first_request_s"] - S14.PRE_K6_TARGET_S) > S14.PRE_K6_TOL_S:
+   333	            reasons.add("pre-k6-mismatch")
+   334	    # 설정(모드 · 지연 · ④ 키 · Flyway 위치) · 시드 · 스키마
+   335	    if (d / "app-config.json").exists():
+   336	        rc, cc = plan15.config_check(mode, cell, d / "app-config.json", plan.get("knobs") or {})
+   337	        reasons.update(cc["reasons"])
+   338	        M["config_detail"] = cc["detail"]
+   339	    else:
+   340	        inp.miss("app_config", "app-config.json 없음")
+   341	    wu = inp.json("warmup", "warmup-status.json", nums=("rc",))
+   342	    if wu is not None and wu["rc"] != 0:
+   343	        reasons.add("warmup-failed")
+   344	    sc = inp.json("seed_check", "seed-check.json", nums=("schedules", "want_schedules", "seats", "want_seats", "available", "holds", "reservations",
+   345	                                                          "quota_rows", "v12_valid", "v13_column", "v14_triggers"))
+    20	    h = Math.imul(h, 0x01000193) >>> 0;
+    21	  }
+    22	  return h >>> 0;
+    23	}
+    24	export function mulberry32(seed) {
+    25	  let a = seed >>> 0;
+    26	  return function next() {
+    27	    a = (a + 0x6d2b79f5) >>> 0;
+    28	    let t = a;
+    29	    t = Math.imul(t ^ (t >>> 15), t | 1);
+    30	    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    31	    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    32	  };
+    33	}
+    34	
+    35	// 세션 속성 — 응답과 무관하게 세션 시작에서 모두 뽑는다(쓰지 않게 된 속성도 기록 — 리뷰 MR-11).
+    36	//   abandon(이탈 여부) · revisit(재방문 여부 — 이탈한 세션에만 쓰인다) · think_ms(생각 시간) · delta_ms(재방문 δ ~ U[0, REVISIT_MAX_S]) · seatSeed(좌석 고르기 씨앗)
+    37	export function sessionAttrs(rep, flow, sid, p) {
+    38	  const r = mulberry32(fnv1a(`adr014|${rep}|${flow}|${sid}`));
+    39	  const abandon = r() < p.abandon;
+    40	  const revisit = r() < p.rho;
+    41	  const think_ms = Math.floor((p.thinkMin + r() * (p.thinkMax - p.thinkMin)) * 1000);
+    42	  const delta_ms = Math.floor(r() * p.revisitMax * 1000);
+    43	  const seatSeed = Math.floor(r() * 4294967296) >>> 0;
+    44	  return { abandon, revisit, think_ms, delta_ms, seatSeed };
+    45	}
+    46	
+    47	// 실제로 실행된 세션의 속성 해시(리뷰 MR-11 — 요약기가 씨앗에서 다시 계산한 열이 아니라 세션이 시작 직후 스스로 남긴 기록).
+    48	// (흐름, 세션 번호) 순 이어 붙임 대신 세션별 해시 두 개(20비트)를 흐름마다 더한다 — 합은 순서와 무관하게 '실행된 세션 집합 + 속성'의 함수이고(빠진·겹친 세션 · 다른 속성은 합을 바꾼다),
+    49	// 세션마다 Counter 행 3개라 시계열 수가 늘지 않는다(세션마다 태그를 달면 시계열이 수십만 개가 된다). 합 < 2^53(세션 ≤ 2^33개)이라 float64 합이 정확하다.
+    50	export const crnN = new Counter('crn_n');
+    51	export const crnH1 = new Counter('crn_h1');
+    52	export const crnH2 = new Counter('crn_h2');
+    53	export function recordSession(flow, sid, a) {
+    54	  const s = `${flow}|${sid}|${a.abandon ? 1 : 0}|${a.revisit ? 1 : 0}|${a.think_ms}|${a.delta_ms}|${a.seatSeed}`;
+    55	  crnN.add(1);
+    56	  crnH1.add(fnv1a(s) & 0xfffff);
+    57	  crnH2.add(fnv1a(s, 0x9dc5811c) & 0xfffff);
+    58	}
+    59	
+    60	// ---- 시각 ----------------------------------------------------------------------------------------------------------------
+    61	// 응답 expiresAt(Instant ISO — 'Z' · 소수 0~9자리)을 epoch ms(소수 포함)로. goja Date.parse가 3자리 넘는 소수를 못 읽을 수 있어 직접 푼다. 못 읽으면 NaN
+    62	export function isoMs(s) {
+    63	  const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?Z$/.exec(String(s || ''));
+    64	  if (!m) return NaN;
+    65	  const base = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    66	  const frac = m[7] ? Number(`0.${m[7]}`) * 1000 : 0;
+    67	  return base + frac;
+    68	}
+    69	// 서버 시각 targetSrvMs(epoch ms)까지 잔다(PC 시각 = 서버 − 시계 차). 이미 지났으면 바로 돌아온다
+    70	export function sleepUntilSrv(targetSrvMs) {
+    71	  const d = (targetSrvMs - CLOCK_OFFSET_MS - Date.now()) / 1000;
+    72	  if (d > 0) sleep(d);
+    73	}
+    74	
+    75	// ---- 호출 -----------------------------------------------------------------------------------------------------------------
+    76	// 원인 표지 집계(측정-5 M3 ③): 선점 409마다 헤더 값(rule · nowait · 없으면 missing · 그 밖 값은 other)을 세션 안에서 세고, 잠들기(생각 시간 · 재방문 대기) 전에
+    77	//   0이 아닌 갈래만 한 행씩(rej{cause}) 낸다 — gracefulStop이 잠든 세션을 끊어도 그 앞 409의 표지가 사라지지 않게(세션 끝에만 내면 TTL 30초 칸에서 끊긴 세션 몫이 빠진다).
+    78	//   다음 요청(맹목의 다른 좌석 선점 · 지도의 두 번째 좌석 맵) 전에도 낸다 — gracefulStop이 그 요청 도중의 반복을 끊으면 finally가 돌지 않아 앞 409 몫이 빠진다
+    79	//   (스모크 smoke14net-20261028 B: 지도 흐름 409 2,138 중 149가 rej에 없음 — 100Mbps에서 좌석 맵이 느려 끊긴 반복이 늘었다).
+    80	// 요약기가 k6 실행 전체 합을 앱 지표 seat.hold.rejected{cause} 증분과 대조한다(app-metric-missing — 409가 1건 이상인 회차만 · 리뷰 MR-17)
+    81	export const rej = new Counter('rej');
+    82	export function newTally() { return { rule: 0, nowait: 0, missing: 0, other: 0 }; }
+    83	export function flushTally(t) {   // 낸 갈래는 0으로 — 여러 번 불러도 두 번 세지 않는다
+    84	  for (const k of ['rule', 'nowait', 'missing', 'other']) if (t[k] > 0) { rej.add(t[k], { cause: k }); t[k] = 0; }
+    85	}
+    86	export function rejectCause(res) {
+    87	  const h = res.headers ? (res.headers[REJECT_HEADER] || res.headers[REJECT_HEADER.toLowerCase()]) : undefined;
+    88	  if (h === undefined || h === null || h === '') return 'missing';
+    89	  return h === 'rule' || h === 'nowait' ? h : 'other';
+    90	}
+
+hook: PostToolUse
+exec
+/bin/bash -lc "jq '{dropped:.metrics.dropped_iterations, vus:.metrics.vus, vus_max:.metrics.vus_max, iterations:.metrics.iterations, iteration_duration:.metrics.iteration_duration}' k6/ADR-015/results/smoke15-20261105/cost/current/rep1/k6-summary.json" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse Completed
+exec
+/bin/bash -lc 'find k6/ADR-015/results/smoke15b-20261105 -maxdepth 5 -type f | head -80' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/app-config.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/.stats.err
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/pgss-prepare.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/harness-reasons.txt
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/recovery.log
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/warmup.log
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/images.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/app-instances.txt
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/timeline-waits.jsonl
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/plan.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/timeline-b3wait.jsonl
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/db-state-seed.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/timeline-locks.jsonl
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/errors.log
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/pc-check.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/compose.log
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/warmup-status.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/warmup-requests.csv.gz
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/limit-key.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/seed-check.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/seed.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/pg-settings.json
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/timeline-hikari.jsonl
+k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/timeline-server.jsonl
+
+hook: PostToolUse
+exec
+/bin/bash -lc "jq '{dropped:.metrics.dropped_iterations, vus:.metrics.vus, vus_max:.metrics.vus_max, iterations:.metrics.iterations, iteration_duration:.metrics.iteration_duration}' k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/k6-summary.json" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+hook: PostToolUse Completed
+ succeeded in 87ms:
+{
+  "dropped": {
+    "contains": "default",
+    "values": {
+      "count": 29,
+      "rate": 0.08780431681936114
+    },
+    "type": "counter"
+  },
+  "vus": {
+    "type": "gauge",
+    "contains": "default",
+    "values": {
+      "value": 151,
+      "min": 0,
+      "max": 9147
+    }
+  },
+  "vus_max": {
+    "type": "gauge",
+    "contains": "default",
+    "values": {
+      "value": 12022,
+      "min": 3419,
+      "max": 12022
+    }
+  },
+  "iterations": {
+    "type": "counter",
+    "contains": "default",
+    "values": {
+      "count": 179971,
+      "rate": 544.904506975767
+    }
+  },
+  "iteration_duration": {
+    "type": "trend",
+    "contains": "time",
+    "values": {
+      "p(99)": 30289.389539699998,
+      "max": 31345.984847,
+      "count": 179971,
+      "min": 0.073565,
+      "med": 29699.536397,
+      "avg": 15004.081163973027,
+      "p(90)": 30181.941042,
+      "p(95)": 30242.280151
+    }
+  }
+}
+
+ succeeded in 40ms:
+{
+  "dropped": {
+    "type": "counter",
+    "contains": "default",
+    "values": {
+      "count": 13,
+      "rate": 0.017293781895457036
+    }
+  },
+  "vus": {
+    "type": "gauge",
+    "contains": "default",
+    "values": {
+      "value": 4,
+      "min": 0,
+      "max": 2739
+    }
+  },
+  "vus_max": {
+    "values": {
+      "max": 2913,
+      "value": 2913,
+      "min": 2750
+    },
+    "type": "gauge",
+    "contains": "default"
+  },
+  "iterations": {
+    "type": "counter",
+    "contains": "default",
+    "values": {
+      "count": 23987,
+      "rate": 31.9096881789483
+    }
+  },
+  "iteration_duration": {
+    "type": "trend",
+    "contains": "time",
+    "values": {
+      "avg": 66731.88023323,
+      "p(90)": 145502.328391,
+      "p(95)": 152501.7629573,
+      "p(99)": 152503.35438562,
+      "max": 152587.295418,
+      "count": 23987,
+      "min": 0.119888,
+      "med": 42500.945651
+    }
+  }
+}
+
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "node -e 'function fnv1a(s){let h=2166136261;for(let i=0;i<s.length;i++){h"'^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0}return h>>>0}function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6d2b79f5)>>>0;let t=a;t=Math.imul(t''^(t>>>15),t|1);t''^=t+Math.imul(t''^(t>>>7),t|61);return ((t''^(t>>>14))>>>0)/4294967296}}for(let rep=1;rep<=3;rep++){const ev=[];for(let sid=0;sid<12000;sid++){const r=rng(fnv1a(`adr015|${rep}|${sid}`));r();r();if(r()<.5){const xb=r()<.5;ev.push([sid*50,1],[sid*50+(xb?152500:42500),-1])}}ev.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);let n=0,m=0;for(const e of ev){n+=e[1];m=Math.max(m,n)}console.log(rep,m)}'"'" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 164ms:
+1 1035
+2 1033
+3 1009
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/bash -lc "jq '{seed_done_epoch,k6_launch_epoch,lead_s,pre_vus_total}' k6/ADR-015/results/smoke15-20261105/cost/current/rep1/pre-k6.json; jq '.setup_data' k6/ADR-015/results/smoke15-20261105/cost/current/rep1/k6-summary.json" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+exec
+/bin/bash -lc 'git status --short; git rev-parse HEAD; git log -1 --oneline' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+exec
+/bin/bash -lc "jq '{seed_done_epoch,k6_launch_epoch,lead_s,pre_vus_total}' k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/pre-k6.json; jq '.setup_data' k6/ADR-015/results/smoke15-20261105/race/conditional-extend/rep1/k6-summary.json" in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 97ms:
+{
+  "seed_done_epoch": 1793861851.8863292,
+  "k6_launch_epoch": 1793861934.8988001,
+  "lead_s": 4.6,
+  "pre_vus_total": 12020
+}
+{
+  "startedAt": 1793861938584
+}
+
+hook: PostToolUse
+ succeeded in 106ms:
+{
+  "seed_done_epoch": 1793860899.283481,
+  "k6_launch_epoch": 1793860985.718463,
+  "lead_s": 1.22,
+  "pre_vus_total": 2900
+}
+{
+  "startedAt": 1793860987020
+}
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+ succeeded in 277ms:
+?? .claude/
+?? k6/ADR-001/results/smoke-dbpoll/
+?? k6/ADR-001/results/smoke-final/
+?? k6/ADR-001/results/smoke-fix/
+?? k6/ADR-001/results/smoke-heavy/
+?? k6/ADR-001/results/smoke-poll/
+?? k6/ADR-001/results/smoke-postfix/
+?? k6/ADR-001/results/smoke-s1/
+?? k6/ADR-002/results/smoke-run-v3/
+?? k6/ADR-002/results/smoke-run/
+?? k6/ADR-002/results/smoke-s5-fix/
+?? k6/ADR-002/results/smoke-s5-v3/
+?? k6/ADR-002/results/smoke-s5/
+?? k6/ADR-007/results/dry-dc-b943/
+?? k6/ADR-007/results/dry-fs-x/
+?? k6/ADR-007/results/dry-rest-b943/
+?? k6/ADR-007/results/rotcheck-dryrun/
+?? k6/ADR-007/results/smoke-campaign-dryrun-pyfail/
+?? k6/ADR-007/results/smoke-campaign-dryrun/
+?? k6/ADR-007/results/smoke2-campaign-dryrun/
+?? k6/ADR-007/results/smoke3-campaign-dryrun/
+?? k6/ADR-009/results/adr012-ext-launch.log
+?? k6/ADR-009/results/adr012eff-launch.log
+?? k6/ADR-009/results/adr012r5-launch.log
+?? k6/ADR-009/results/adr012r8-launch.log
+?? k6/ADR-009/results/adr012s1-launch.log
+?? k6/ADR-009/results/adr012s2-launch.log
+?? k6/ADR-009/results/e1-launch.log
+?? k6/ADR-009/results/e1b-launch.log
+?? k6/ADR-009/results/e2-launch.log
+?? k6/ADR-009/results/e2b-launch.log
+?? k6/ADR-009/results/e3-launch.log
+?? k6/ADR-009/results/e3rc-launch.log
+?? k6/ADR-009/results/smoke-04b-default-unreachable.runner.log
+?? k6/ADR-009/results/smoke-04b-default-unreachable/
+?? k6/ADR-009/results/smoke-04b-default.runner.log
+?? k6/ADR-009/results/smoke-04b-default/
+?? k6/ADR-009/results/smoke-adr012r5-ae.runner.log
+?? k6/ADR-009/results/smoke-adr012r5-ae/
+?? k6/ADR-009/results/smoke-adr012r5-s2.runner.log
+?? k6/ADR-009/results/smoke-adr012r5-s2/
+?? k6/ADR-009/results/smoke-adr012s1-f.runner.log
+?? k6/ADR-009/results/smoke-adr012s1-f/
+?? k6/ADR-009/results/smoke-ai-mem-overrun/
+?? k6/ADR-009/results/smoke-ai-mem.runner.log
+?? k6/ADR-009/results/smoke-ai-mem/
+?? k6/ADR-009/results/smoke-ai-stmt-overrun/
+?? k6/ADR-009/results/smoke-ai-stmt.runner.log
+?? k6/ADR-009/results/smoke-ai-stmt/
+?? k6/ADR-009/results/smoke-ai-trg-overrun/
+?? k6/ADR-009/results/smoke-ai-trg.runner.log
+?? k6/ADR-009/results/smoke-ai-trg/
+?? k6/ADR-009/results/smoke-ax-stmt.runner.log
+?? k6/ADR-009/results/smoke-ax-stmt/
+?? k6/ADR-009/results/smoke-ax-trg.runner.log
+?? k6/ADR-009/results/smoke-ax-trg/
+?? k6/ADR-009/results/smoke-eff-trg-stopped.runner.log
+?? k6/ADR-009/results/smoke-eff-trg-stopped/
+?? k6/ADR-009/results/smoke-eff-trg.runner.log
+?? k6/ADR-009/results/smoke-eff-trg/
+?? k6/ADR-009/results/smoke-r8-group.runner.log
+?? k6/ADR-009/results/smoke-r8-group/
+?? k6/ADR-009/results/smoke-r8-split.runner.log
+?? k6/ADR-009/results/smoke-r8-split/
+?? k6/ADR-014/results/
+?? k6/ADR-015/results/
+b69c186c1e6ae55fe3be8ae1e9bf8b5b8582871f
+b69c186c1 docs(seat-reservation-lab): ADR-015 시작 조건 스모크 회수 · VU 크기 수정 기록
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/bash -lc 'cat k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/harness-reasons.txt; tail -20 k6/ADR-015/results/smoke15b-20261105/race/conditional-extend/rep1/errors.log' in /home/jun/project/lab/backend-labs-commerce/seat-reservation-lab
+ succeeded in 0ms:
+NOTICE:  extension "pg_stat_statements" already exists, skipping
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+[k6/ADR-015/scripts/plan15.py:161](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/scripts/plan15.py:161): **30회 무누락 보장은 성립하지 않습니다.** ④ race의 rehold는 평균으로 `pre=1,274`, `max=1,911` VU를 잡지만, 흐름상 가능한 동시 세션 상한은 약 `20/s × 152.5s = 3,050`입니다. 1.3배 여유는 누락 가능성을 낮출 뿐, 실행기 상한을 넘는 경우의 드롭을 막지 못합니다.
+hook: Stop
+hook: Stop Completed
+tokens used
+52,559
+[k6/ADR-015/scripts/plan15.py:161](/home/jun/project/lab/backend-labs-commerce/seat-reservation-lab/k6/ADR-015/scripts/plan15.py:161): **30회 무누락 보장은 성립하지 않습니다.** ④ race의 rehold는 평균으로 `pre=1,274`, `max=1,911` VU를 잡지만, 흐름상 가능한 동시 세션 상한은 약 `20/s × 152.5s = 3,050`입니다. 1.3배 여유는 누락 가능성을 낮출 뿐, 실행기 상한을 넘는 경우의 드롭을 막지 못합니다.

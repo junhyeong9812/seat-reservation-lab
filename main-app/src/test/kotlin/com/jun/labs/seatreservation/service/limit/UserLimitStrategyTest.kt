@@ -233,28 +233,28 @@ abstract class UserLimitStrategyTest(private val type: UserLimitStrategyType) : 
     }
 }
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class NoUserLimitTest : UserLimitStrategyTest(NONE)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory", "seat.confirm.mode=current"])
 class AdvisoryUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISORY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try", "seat.confirm.mode=current"])
 class AdvisoryTryUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISORY_TRY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try-early"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=advisory-try-early", "seat.confirm.mode=current"])
 class AdvisoryTryEarlyUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.ADVISORY_TRY_EARLY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait-early"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait-early", "seat.confirm.mode=current"])
 class QuotaNoWaitEarlyUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_NOWAIT_EARLY)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-lock"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-lock", "seat.confirm.mode=current"])
 class QuotaLockUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_LOCK)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=quota-nowait", "seat.confirm.mode=current"])
 class QuotaNoWaitUserLimitTest : UserLimitStrategyTest(UserLimitStrategyType.QUOTA_NOWAIT)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter", "seat.confirm.mode=current"])
 class CounterUserLimitTest : UserLimitStrategyTest(COUNTER) {
     /** 특성 테스트(PostgreSQL 동작): 이 동작 때문에 쿼터 행 준비를 'SELECT 먼저'로 했다(UserLimitStrategies.ensureQuotaRow). */
     @Test
@@ -325,7 +325,7 @@ abstract class CounterUpsertFamilyTest(type: UserLimitStrategyType) : UserLimitS
     }
 }
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=counter-upsert", "seat.confirm.mode=current"])
 class CounterUpsertUserLimitTest : CounterUpsertFamilyTest(UserLimitStrategyType.COUNTER_UPSERT) {
     /** 첫 요청이 좌석에서 져 롤백되면 그 INSERT(cnt = 1)도 되돌아가야 한다 — 기다리던 같은 사용자 요청이 그 뒤 정상으로 센다. */
     @Test
@@ -394,10 +394,10 @@ class CounterUpsertPrecheckUserLimitTest : CounterUpsertFamilyTest(UserLimitStra
     }
 }
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable", "seat.confirm.mode=current"])
 class SerializableUserLimitTest : UserLimitStrategyTest(SERIALIZABLE)
 
-@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable-retry"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.confirm.mode=current"])
 class SerializableRetryUserLimitTest : UserLimitStrategyTest(SERIALIZABLE_RETRY)
 
 /**
@@ -442,8 +442,8 @@ abstract class SerializableConflictTest(private val retry: Boolean) : Integratio
     }
 }
 
-@Props(properties = ["seat.hold.limit-strategy=serializable", "seat.hold.critical-section-delay=1s"])
+@Props(properties = ["seat.hold.limit-strategy=serializable", "seat.hold.critical-section-delay=1s", "seat.confirm.mode=current"])
 class SerializableNoRetryConflictTest : SerializableConflictTest(retry = false)
 
-@Props(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.hold.critical-section-delay=1s"])
+@Props(properties = ["seat.hold.limit-strategy=serializable-retry", "seat.hold.critical-section-delay=1s", "seat.confirm.mode=current"])
 class SerializableRetryConflictTest : SerializableConflictTest(retry = true)
