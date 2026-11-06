@@ -20,7 +20,7 @@ services:
     environment:
       DB_URL: jdbc:postgresql://db:5432/seat?ApplicationName=${SLOT_A_APPNAME:-seatlab-A}
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{${SLOT_A_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
+        {"seat":{"confirm":{"mode":"current"},"hold":{${SLOT_A_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "data":{"redis":{"host":"redis","port":6379}}}}
 
@@ -38,7 +38,7 @@ services:
       DB_USERNAME: seat
       DB_PASSWORD: seat
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{${SLOT_B_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
+        {"seat":{"confirm":{"mode":"current"},"hold":{${SLOT_B_SHADOW:+"counter-drift.reconcile.incremental.enabled":false,"counter-drift.reconcile.safety-net.enabled":false,}"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"${HOLD_STRATEGY:-pessimistic-nowait}","critical-section-delay":"0s"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "data":{"redis":{"host":"redis","port":6379}}}}
       JAVA_TOOL_OPTIONS: "${APP_JVM_OPTS:+${APP_JVM_OPTS} }${APP_JVM_OPTS2:+${APP_JVM_OPTS2} }${APP_JVM_OPTS3:+${APP_JVM_OPTS3} }${APP_JVM_OPTS4:+${APP_JVM_OPTS4} }-XX:MaxRAMPercentage=75 -Xlog:async -Xlog:gc*,safepoint:file=/dev/shm/gc.log:time,uptime,level,tags:filecount=0"

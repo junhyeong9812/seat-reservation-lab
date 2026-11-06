@@ -30,7 +30,7 @@ services:
     environment:
       # ADR-015(R15-5): 이 SHA부터 기본 위치에 V12(확정 유니크 인덱스) · V13(seat_hold.extended_at)이 있다 — 이 하네스의 기준선을 지키려고 Flyway target = 위치 집합의 V12 앞 마지막 버전 = 11(plan14 위치 4개 — 기본 + V9 트리거 + V10 + V11 seat-map · 위치를 주지 않으면 V11이 없어 기동 실패로 드러난다 · failOnMissingTarget — 그 버전이 위치에 있어야 한다 · ADR-015 T12)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"expiry-mode":"${EXPIRY_MODE:-sweep}","ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
+        {"seat":{"confirm":{"mode":"current"},"hold":{"expiry-mode":"${EXPIRY_MODE:-sweep}","ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"target":"${FLYWAY_TARGET:-11}","locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
                    "data":{"redis":{"host":"redis","port":6379}}},

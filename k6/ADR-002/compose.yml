@@ -40,7 +40,7 @@ services:
       # ADR-012 증분·안전망·탐지 모양도 옛 값 고정(ADR-012 기본값 교체 — 업무 앱 기본값이 증분 trigger 1초 · 안전망 · split · V9 트리거·V10 위치로 바뀌었다. 이 하네스는 그 축이 없던 측정이라 이전 실효 값을 명시 · Flyway 위치도 이전 기본 classpath:db/migration을 명시)
       # ADR-015(R15-5): 이 SHA부터 기본 위치에 V12(확정 유니크 인덱스) · V13(seat_hold.extended_at)이 있다 — 이 하네스의 기준선을 지키려고 Flyway target = 위치 집합의 V12 앞 마지막 버전 = 7(기본 위치만 — 인덱스 on의 기본값 · off = 1 · failOnMissingTarget — 그 버전이 위치에 있어야 한다 · ADR-015 T12)
       SPRING_APPLICATION_JSON: >-
-        {"seat":{"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","limit-strategy":"none","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false,"incremental":{"method":"none","enabled":false},"safety-net":{"enabled":false},"detect-shape":"one-shot"},"cleanup":{"mode":"none"}}}},
+        {"seat":{"confirm":{"mode":"current"},"hold":{"ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","limit-strategy":"none","counter-drift":{"expiry-repair":false,"reconcile":{"enabled":false,"incremental":{"method":"none","enabled":false},"safety-net":{"enabled":false},"detect-shape":"one-shot"},"cleanup":{"mode":"none"}}}},
          "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
                    "flyway":{"target":"${FLYWAY_TARGET:-7}","locations":"classpath:db/migration"}}}
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
