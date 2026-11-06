@@ -3,6 +3,9 @@ package com.jun.labs.seatreservation.adr015
 import com.jun.labs.seatreservation.expiry.EXPIRY_MODE
 import com.jun.labs.seatreservation.expiry.LAZY_CLEANUP_KEY
 import com.jun.labs.seatreservation.incremental.BootTestBase
+import com.jun.labs.seatreservation.incremental.INJECT
+import com.jun.labs.seatreservation.incremental.LOCS_TRG
+import com.jun.labs.seatreservation.incremental.incrementalProps
 import com.jun.labs.seatreservation.incremental.OLD_DEFAULTS
 import com.jun.labs.seatreservation.incremental.tableExists
 import com.jun.labs.seatreservation.service.ConfirmMode
@@ -75,6 +78,26 @@ class Adr015DefaultModeContractTest : BootTestBase() {
         assertRejectedNamingCurrent(freshDbUrl(), none, "none + 키 없음", "seat.hold.limit-strategy=counter-upsert-precheck")
         boot(freshDbUrl(), none + (MODE_KEY to "current")).use { ctx ->
             assertEquals(ConfirmMode.CURRENT, ctx.getBean(SeatConfirmProperties::class.java).mode, "none + current: 확정 모드")
+        }
+    }
+
+    @Test
+    fun `규칙 5 — 측정 주입(inject-app) + 확정 키 없음은 current 명시를 안내하며 거부 · current를 명시하면 뜬다`() {
+        val inject = incrementalProps("trigger", LOCS_TRG, "$INJECT.enabled" to "true", "spring.profiles.active" to "loadtest")
+        assertRejectedNamingCurrent(freshDbUrl(), inject, "inject-app + 키 없음", "seat.hold.loadtest.inject-app.enabled")
+        boot(freshDbUrl(), inject + (MODE_KEY to "current")).use { ctx ->
+            assertEquals(ConfirmMode.CURRENT, ctx.getBean(SeatConfirmProperties::class.java).mode, "inject-app + current: 확정 모드")
+        }
+    }
+
+    @Test
+    fun `규칙 7 — Flyway target 12 이하(V13 앞) + 확정 키 없음은 current 명시를 안내하며 마이그레이션 앞에서 거부 · current를 명시하면 뜬다`() {
+        listOf("7", "12").forEach { target ->   // 7 = V12 앞 마지막 기본 위치 버전(T12) · 12 = V13 앞
+            val pinned = mapOf<String, String?>("spring.flyway.target" to target)
+            assertRejectedNamingCurrent(freshDbUrl(), pinned, "target=$target + 키 없음", "spring.flyway.target")
+        }
+        boot(freshDbUrl(), mapOf<String, String?>("spring.flyway.target" to "7", MODE_KEY to "current")).use { ctx ->
+            assertEquals(ConfirmMode.CURRENT, ctx.getBean(SeatConfirmProperties::class.java).mode, "target=7 + current: 확정 모드")
         }
     }
 }

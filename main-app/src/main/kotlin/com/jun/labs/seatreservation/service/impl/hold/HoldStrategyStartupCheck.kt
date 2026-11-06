@@ -253,7 +253,7 @@ class HoldStrategyStartupCheck(
         }
 
         /**
-         * ADR-015 §설계-5 규칙 1~5 + §설계-10 T1 · T8 — 설정(바인딩 값 · 프로필)만으로 판정. 손잡이를 주지 않으면(current · 지연 0 · 키 false) 통과한다.
+         * ADR-015 §설계-5 규칙 1~5 + §설계-10 T1 · T8 — 설정(바인딩 값 · 프로필)만으로 판정. 손잡이를 주지 않으면 기본 conditional(ADR-015 §결정)이라 규칙 1 · 2 · 5를 받는다 — current를 명시하면(지연 0 · 키 false) 통과한다.
          * 거부는 [IllegalStateException] · 메시지에 위반한 키 이름(T3).
          */
         private fun checkConfirmConfig(properties: SeatHoldProperties, environment: Environment?, confirm: SeatConfirmProperties) {
@@ -306,7 +306,8 @@ class HoldStrategyStartupCheck(
         fun checkConfirmMigrationPlan(properties: SeatHoldProperties, confirm: SeatConfirmProperties, reachesV13: Boolean, v14Trigger: Boolean) {
             val mode = confirm.mode
             check(mode == ConfirmMode.CURRENT || reachesV13) {
-                "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 13 이상이어야 한다(V12 유니크 인덱스 · V13 extended_at 열) — target 12 이하는 current 기준선 재현 전용이다" +
+                "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 13 이상이어야 한다(V12 유니크 인덱스 · V13 extended_at 열) — target 12 이하는 current 기준선 재현 전용이다. " +
+                    "target을 풀거나 seat.confirm.mode=current로 띄워라" +
                     "(ADR-015 §설계-5 규칙 7 · §설계-10 T2)"
             }
             checkConfirmVersionTrigger(properties, confirm, v14Trigger, "내다본 스키마")
