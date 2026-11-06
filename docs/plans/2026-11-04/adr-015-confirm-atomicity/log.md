@@ -58,6 +58,7 @@
 | 11-06 12:14 | 사용자 '재측정이 의미가 있나?' → 메인 계산(rep-summary 원자료): 2단 ① race 5xx · 틱 [0, 0] → ④가 범위 비겹침으로 낮을 수 없다 · 3단 cost DB CPU ④ [28.94, 29.03, 28.02] 대 ① [24.64, 26.03, 25.86] 중앙값 비 1.119 > 1.10 ∧ 비겹침 → ④ ≫ ① → ④는 ①을 못 뺀다(①/④ 확정 p99 · 선점 p99 1.068) → ④ 결과와 무관하게 승자 ① · 사용자 '멈추고 그렇게 마무리' → override 러너 중지(attempt4 = invalid:k6-code0 rehold 1 · attempt5 진행 중 중단 → `rep3.attempt5-aborted`) · .164 seatlab down -v | **수동 판정 = 교체 — 새 기본값 ① conditional**(요약기 '판정 불가' 대체 · ADR §결과-3에 근거 · 받아들인 한계 기록) |
 | 11-06 12:40 | ADR-015 §실험 결과 · §결정 · 상태 줄 커밋 f455f695 · NEXT N00 · N00a(기본값 교체 커밋 · EOF 하네스 수정 · CONCURRENTLY · 요약기 undet_block 보강) · measurement-log 1행 · 결과 문서 듀얼 1패스(codex ∥ Opus) 시작 · CS 이슈 아카이브 = **보류**(study-note 쓰기는 이 작업 금지영역 — issue-archive §1 보류 경로) | 리뷰 회수 대기 |
 | 11-06 13:05 | 결과 문서 듀얼 1패스 회수: Opus — 수치 결함 없음(cost 15 범위 · 중앙값 비 1.119 · 1.068 · 무효 6 + attempt4 · V12 · eliminate 재계산 {② · ④} 빠짐 · {① · ③} 남음 · ② 탈락 = ① cost 확정 p99 ≫ 1.166) · M 1 · L 2 / codex — 3건(rep 순서 · 과장 · 관문 통과 표기) → RR15-1~4 fixed(fa3e511c) → codex post-fix 재점검: 이전 4건 해결 · 신규 1(RR15-5 — 순위 가정 한정) fixed | **결과 문서 리뷰 종료**(1패스 + 재점검 · 설계 문서 유형 상한) |
+| 11-06 13:20 | 완료 요약 작성(Opus 워커 — 실파일 복사 스니펫 4 · packet 회수) → log '## 완료 요약' · 마감 2단: ① NEXT N00 · N00a 갱신(b0ffd994) ② CS 이슈 아카이브 보류(study-note 금지영역) · measurement-log 1행 · DEBT 0 | push · PR은 사용자 확인 대기 · 기본값 교체 커밋은 NEXT N00a(사용자 결정 필요 — 다른 만료 방식 조합) |
 
 ## 리뷰 ledger (中↑ — 듀얼 리뷰가 돈 작업 필수)
 
@@ -178,4 +179,115 @@
 
 ## 완료 요약 (마감 시)
 
-- (미작성)
+### 목표 대비 결과
+
+- **명세 목표(§1)**: A(sweep — 주기 배치로 만료 홀드를 지우는 방식) 확정 경로에 확인·전환을 원자적으로 만드는 네 모드(①~④)와 A′(A 만료 배치 최소 수정판) · V12 · V13 · V14를 손잡이 `seat.confirm.mode`(기본 `current`)로 넣고 → 재현 테스트에서 대조군 이중 결과 ≥ 1 · 새 모드 0 → .164(측정 서버) 확정 경합 부하로 다섯 모드 비교 → 측정 전 고정 규칙으로 기본값 결정 → ADR-015(설계 결정 기록) §실험 결과 · §결정.
+- **실제**:
+  - 구현: ① `conditional`(조건부 DELETE/UPDATE) · ② `pessimistic`(`FOR UPDATE`) · ③ `optimistic`(좌석 버전 — V14 트리거) · ④ `conditional-extend`(새 API `POST /api/holds/{id}/payment-start` + ①) · A′ 배치(`SweepConditionalBatch`) · V12(확정 예약 부분 유니크 인덱스) · V13(`seat_hold.extended_at` 연장 표지 열) · V14(선택 위치 트리거) · 기동 검사 규칙 1~7(마이그레이션 앞 관문) · 유니크 위반 매핑(409 + 지표) · ADR-013 runbook outOfOrder 1회 · V12 R0/R1/R2 운영 SQL(`ops/confirm-unique-v12/`).
+  - 재현: 스모크 #1에서 load-bearing 가정 1은 부분 성립(결과 = 0행 DELETE → 예외 → 롤백 → 500 · 이중 결과 0 — 맞음 / flush 순서는 좌석 UPDATE → 홀드 DELETE로 추정과 반대), 가정 2(EPQ — 잠긴 행을 기다린 뒤 최신 버전으로 조건 재평가)는 성립(log 11-04 23:47). blind 테스트(구현 diff를 보지 않은 워커의 계약 테스트) 146칸에서 current 'V12 없음'과 대조 4칸(FM1 · FM2 · FM3 · FM5)이 green이었다. 하네스가 이중 결과를 실제로 만든다는 뜻이고, 그린 위장 점검을 통과했다(log 11-05 00:20).
+  - 측정: .164 캠페인 30자리 중 유효 29 · ①②③ 성공 · ④ race 판정 불가(유효 2/3 — 선점 EOF(연결 끊김)) · current 양성 대조 25 · 27 · 25(ADR §결과-1·2).
+  - **결정 = 사용자 결정으로 ① `conditional`**. 고정 규칙 요약기의 결론은 '판정 불가'(측정-8 ⓒ)였다. 그런데 ④가 어떤 값이어도 ①을 빼지 못한다(cost DB CPU 중앙값 비 ④/① 1.119 > 1.10 · 범위 비겹침). 이를 같은 규칙의 계산으로 보인 뒤 사용자가 정했다 — 자동 통과가 아니다(ADR §결과-3 · log 11-06 12:14). **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초).
+  - **기본값 교체 커밋은 아직 하지 않았다** — 측정-8 '별도 커밋'에 따라 별도로 한다(지금 `application.yml:36` `mode: current` · `SeatConfirmProperties.kt:13` `ConfirmMode.CURRENT`).
+- 범위: 커밋 57개(e5556bcc..a54ece38) · 실행물 56파일 +7665/−90(`main-app` · `ops` · `k6/ADR-015/scripts`).
+
+### 핵심 diff (before = `git show e5556bcc:<path>` · after = 작업 트리 a54ece38)
+
+**1. 확정 진입 — current는 그대로 두고 새 모드만 분기**
+`main-app/src/main/kotlin/com/jun/labs/seatreservation/service/impl/ConfirmReservationService.kt` before :39-47
+```kotlin
+    override fun confirm(command: ConfirmReservationCommand): ConfirmReservationResult {
+        if (properties.expiryMode != ExpiryMode.SWEEP) return lazyConfirm.confirm(command)
+        // ADR-009 L2-4: counter-trigger만 트리거 기준 시각(앱 Clock)을 이 트랜잭션에 넣는다 — 다른 매수 방식은 아무 문장도 보내지 않는다
+        userLimit.strategy.beforeConfirm()
+        val now = clock.instant()
+        val seat = productSeatRepository.findByHoldsId(command.holdId)
+            ?: throw SeatReservationException(ErrorCode.HOLD_NOT_FOUND)
+
+        seat.confirm(command.holdId, command.userId, now)
+```
+after :56-59
+```kotlin
+    override fun confirm(command: ConfirmReservationCommand): ConfirmReservationResult {
+        if (properties.expiryMode != ExpiryMode.SWEEP) return lazyConfirm.confirm(command)
+        // ADR-015 새 모드(①~④) — 같은 트랜잭션에서 JDBC 문장으로(기동 검사 규칙 2가 기본 조합을 보장하므로 beforeConfirm은 부르지 않는다 — §설계-3 공통 규칙)
+        if (confirmProperties.mode != ConfirmMode.CURRENT) return atomicConfirm.confirm(confirmProperties.mode, command)
+```
+(current에 더한 것은 두 가지다. `:83-86` 예약 INSERT의 V12 위반을 409로 매핑하고, `:87-91` `converted_after_expiry{clock=app}`을 커밋 뒤에 센다.)
+
+**2. ① 조건부 확정 — WHERE가 곧 확인, 영향 행 수로 판정** (새 파일)
+`main-app/src/main/kotlin/com/jun/labs/seatreservation/service/impl/AtomicConfirmProcess.kt:71-82`
+```kotlin
+        val c1 = jdbc.query(
+            """
+            DELETE FROM seat_hold WHERE id = ? AND user_id = ? AND expires_at > ?
+            RETURNING seat_id, schedule_id, expires_at, $LATE_MICROS
+            """.trimIndent(),
+            { rs, _ -> Converted(rs.getLong(1), rs.getLong(2), rs.getTimestamp(3).toInstant(), rs.getLong(4)) },
+            command.holdId, command.userId, Timestamp.from(now),
+        ).singleOrNull() ?: throw diagnoseHold(command, now)
+        // C2 좌석 전환 = 확인(HELD) — 0행이면 409(C1도 함께 롤백)
+        if (jdbc.update("UPDATE product_seat SET status = 'RESERVED' WHERE id = ? AND status = 'HELD'", c1.seatId) == 0) {
+            throw SeatReservationException(ErrorCode.SEAT_NOT_HELD)
+        }
+```
+
+**3. A 만료 배치 — JPA 고아 삭제 → A′ 조건부 DELETE(current 밖에서만)**
+`main-app/src/main/kotlin/com/jun/labs/seatreservation/service/impl/ExpireHoldsService.kt` before :39-41
+```kotlin
+                    val now = clock.instant()
+                    val expired = productSeatRepository.findDistinctByHoldsExpiresAtLessThanEqual(now)
+                        .flatMap { it.expireHolds(now) }
+```
+after :48-50 → `main-app/src/main/kotlin/com/jun/labs/seatreservation/service/impl/expiry/SweepConditionalBatch.kt:58-63`(새 파일 — B3 만료 재확인)
+```kotlin
+                    if (confirmProperties.mode != ConfirmMode.CURRENT) {
+                        return@execute conditionalBatch.expireInTx(now).also { sweepMetrics = it.recordAfterCommit }.deleted
+                    }
+```
+```kotlin
+            deleted += jdbc.query(
+                """
+                DELETE FROM seat_hold h USING unnest(?::bigint[], ?::bigint[]) AS p(schedule_id, user_id)
+                 WHERE h.expires_at <= ? AND h.schedule_id = p.schedule_id AND h.user_id = p.user_id
+                RETURNING h.seat_id, h.schedule_id, h.user_id, h.extended_at IS NOT NULL AS extended, h.expires_at > ? AS lost
+```
+
+**4. 최후 방어선 V12 + 손잡이** (새 파일 — e5556bcc에는 없음)
+`main-app/src/main/resources/db/migration/V12__reservation_confirmed_seat_unique.sql:6`
+```sql
+CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED';
+```
+`main-app/src/main/kotlin/com/jun/labs/seatreservation/service/SeatConfirmProperties.kt:10-13`
+```kotlin
+@ConfigurationProperties("seat.confirm")
+data class SeatConfirmProperties(
+    /** 확정 방식. 모르는 값은 바인딩 실패(조용히 current로 돌지 않는다). `mode`는 A 만료 배치도 고른다(current = JPA 배치 · 그 밖 = A′ — Q15) */
+    val mode: ConfirmMode = ConfirmMode.CURRENT,
+```
+
+### 검증 요약
+
+- **전체 테스트**: `./gradlew test --continue` EXIT 0 · 메인 교차 확인 XML(테스트 결과 파일) **1110/0/0/20**(실행/실패/오류/건너뜀 · 코드 커밋 8bd5f387 · log 11-05 07:30). 측정 SHA까지 앱 · 빌드 파일 diff는 0이다(8bd5f387..29e09aef · log 11-05 16:46). 루프별 추이: 1085(11-05 05:20) → 1108(06:25) → 1110.
+- **재현 · blind**: 스모크 #1 4/4 green(log 11-04 23:47) · blind 146칸은 처음에 66 red(새 모드 칸)였다가 구현 뒤 green이 됐다. 대조군 칸은 계속 green이었다(log 11-05 00:20).
+- **운영 절차**: `ops/online-v9/test-local.sh` EXIT 0(ok 45 → 50 · log 11-05 05:20 · 06:25).
+- **측정 하네스 selftest(하네스 자체 단위 점검)**: **161 EXIT 0**(29e09aef — VU 크기 수정 · log 11-05 16:20 '기준 160 + 1'). (log 11-05 10:30의 167은 출력 전체 줄 수 기준 — 16:20의 160 · 161은 `ok` 항목 수 기준이라 세는 법이 다르다)
+- **구현 diff 듀얼 리뷰 루프 3회**(codex ∥ Opus · stakes 높음): R15-1~18 + OQ15-1~15. 채택분은 전부 fixed(b9ee9c65 · 6f5dfaf4 · 8bd5f387)이고, 범위 밖(측정 몫)은 R15-4 · 14 · 17 · 18이다. 루프 3 뒤 `review unresolved`를 보고했고, **user override**로 R15-16(A′ · payment-start 지표가 커밋 전에 증가)을 상한을 넘겨 고쳤다. 이어 codex 타깃 재점검 PF15-1 1건은 기각했다(도달 경로 없음 · log 11-05 07:00 · 07:30).
+- **측정 설계 리뷰 루프 3회**: M15-1~35(M15-16 기각 · M15-26은 감사로 재설계 채택). 루프 3 수정은 **user override**(3+ · 86ffbcd1)였고, 타깃 재점검 PF-m1 1건은 기각했다(log 11-05 10:30). 측정 전 고정 규칙 커밋은 774cb308.
+- **하네스 VU 수정 1패스**: VU-1 결함 없음 · VU-2 기각(결정적 시드의 최대 동시 세션 근거 · log 11-05 16:46).
+- **결과 문서 듀얼 1패스 + 재점검**(설계 문서 유형 상한): RR15-1~4 fixed(fa3e511c) → post-fix 재점검 신규 RR15-5 fixed(a54ece38 · log 11-06 13:05).
+- **그 밖의 user override · 사용자 결정**:
+  - ④ race rep3을 재측정 상한을 넘겨 다시 쟀다(attempt4 무효 · attempt5 중단 · log 11-06 11:52).
+  - 수동 판정으로 ①을 골랐다(11-06 12:14).
+  - 닫힌 ADR-013 수정을 되돌렸다(11-05 06:10).
+  - OQ15-12(마감 회차 연장 수용)와 OQ15-13(구체화로 처리 — 명세 §11)을 정했다.
+- **정합(측정)**: 판정기(끝 정합 검사 뷰) 이중 결과 0 · 40P01(교착) 0 · 새 모드 race 확정 5xx와 틱 실패 [0, 0]. 정리 ①을 켠 교착 짝 22칸도 40P01 0이다(R15-12).
+
+### 남은 것 · 빚
+
+- **DEBT 0**(긴급 수정으로 생략한 검증 없음 — log `## 생략한 검증` '없음').
+- **후속 = `docs/plans/NEXT.md` N00a**:
+  - 기본값 교체 커밋: `current → conditional`. B · C · D 조합을 기동 거부할지 자동 후퇴할지는 사용자가 결정해야 한다.
+  - 선점 · 재선점 EOF 하네스 수정: keep-alive 유휴 한도 가설 · 재현 먼저.
+  - V12 CONCURRENTLY 판.
+  - 이월: OQ15-4 · 8 · 10 · 14 · 요약기 `undet_block` 보강.
+- CS 이슈 아카이브는 **보류**다(study-note 쓰기가 이 작업의 금지영역 — log 11-06 12:40). push · PR은 아직 하지 않았다(사용자 확인 대상).
