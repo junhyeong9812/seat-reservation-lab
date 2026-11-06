@@ -480,7 +480,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 |---|---|---|---|
 | Q2 | ②의 잠금 순서 | **홀드 행 → 좌석 행**(초안 '좌석 → 홀드' 대신 — 새 모드의 짝인 A′ 배치 순서와 같게 · 정정 15-02: JPA 배치는 좌석 → 홀드지만 Q15로 새 모드와 짝지어지지 않는다) · '좌석 → 홀드'는 대조 테스트로만 | 사용자(§인터뷰: 권장안으로 둠) |
 | Q3 | ③의 버전 올리기 | **(나) 상태 변경 트리거 — 번호 V14 · 선택 위치 `db/migration-confirm-version`**(③ 셀만 · 짝 검사는 마이그레이션 앞 — §설계-5 규칙 6) — `@Version` 매핑은 기각 | 사용자(권장안으로 둠) |
-| Q9 | 손잡이 이름 · 값 | **`seat.confirm.mode` = current · conditional · pessimistic · optimistic · conditional-extend**(기본 current — 배치도 함께 고른다) · `payment-window` · `extend-min-remaining` · `loadtest.delay` · `unique-index-optional` | 메인 |
+| Q9 | 손잡이 이름 · 값 | **`seat.confirm.mode` = current · conditional · pessimistic · optimistic · conditional-extend**(기본 current — 배치도 함께 고른다 · **§결정(2026-11-06)으로 기본 conditional** — 범위 밖 구성은 current 명시) · `payment-window` · `extend-min-remaining` · `loadtest.delay` · `unique-index-optional` | 메인 |
 | Q11 | 같은 홀드 이중 확정의 두 번째 응답 | **404 HOLD_NOT_FOUND 그대로**(새 모드) — `current` + V12는 409 SEAT_NOT_HELD(매핑)로 갈린다는 점을 기록만. 같은 `paymentUid` 재시도의 멱등 응답은 ADR-016 · NEXT 몫 | 사용자(권장안으로 둠) |
 | Q12 | 지연 주입 방식 | **재현 테스트 = 래치(L-C · L-B · L-B′ · L-E — §설계-8.1) · 부하 = `seat.confirm.loadtest.delay`(loadtest 프로필 전용 · 기본 0 · 자리 '확인 뒤 · 첫 쓰기 앞')** | 메인 |
 | Q13 | 적용 조합 | **기본 조합만**(3b + counter-upsert-precheck · `expiry-mode = sweep`) — 그 밖은 기동 거부(§설계-5) | 사용자(권장안으로 둠) |

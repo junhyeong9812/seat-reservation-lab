@@ -37,6 +37,7 @@
    psql -X -v ON_ERROR_STOP=1 -f ops/expiry-mode-cutover/02-verify.sql
    ```
 4. 손잡이(`seat.hold.expiry-mode`)를 바꿔 앱을 올린다. B(lazy)는 정리 ①(`seat.hold.counter-drift.cleanup.mode=schedule`)이 켜져 있어야 뜬다(코드 리뷰 CR14-1 — 업무 앱만. reconciler 프로필(F — 대조 전용 · 정리 끔)은 이 검사를 받지 않는다 · CR14-26).
+   - **B · C · D로 바꿀 때는 `seat.confirm.mode=current`를 함께 지정한다**(ADR-015 결정 2026-11-06 — 확정 기본값 `conditional`은 A sweep + 기본 조합에서만 기동한다 · 자동 후퇴 없음 · 키가 없으면 기동 검사가 '규칙 1'로 거부한다). A로 되돌릴 때는 그 키를 빼면 기본값 `conditional`로 뜬다(옛 JPA 확정을 유지하려면 `current`를 남긴다).
 
 `01-cleanup.sql`은 정지 상태에서 다시 돌려도 된다 — T1은 그 사이 새로 만료된 홀드만 지우고 지운 만큼 내리며, T2는 같은 결과를 다시 쓴다.
 
