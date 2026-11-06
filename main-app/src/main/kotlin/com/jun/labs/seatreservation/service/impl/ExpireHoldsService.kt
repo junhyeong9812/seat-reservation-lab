@@ -2,7 +2,10 @@ package com.jun.labs.seatreservation.service.impl
 
 import com.jun.labs.seatreservation.domain.repository.ProductSeatRepository
 import com.jun.labs.seatreservation.service.ExpireHoldsUseCase
+import com.jun.labs.seatreservation.service.ExpiryMode
+import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.impl.drift.ExpiryCounters
+import com.jun.labs.seatreservation.service.impl.expiry.LazyExpiryBatch
 import com.jun.labs.seatreservation.service.impl.limit.ActiveUserLimit
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.stereotype.Service
@@ -13,6 +16,7 @@ import java.time.Clock
  * ADR-000 기준선: 만료 배치(sweep). 만료 시각과 배치 실행 사이 좌석은 HELD로 남는다 — ADR-014(홀드 만료)에서 관측(번호 이동 전 ADR-004).
  * 틱 하나 = 트랜잭션 하나(지금과 같다). ADR-009: 틱 결과를 지표 `seat.hold.expiry.tick{outcome=ok|failed}`로 남기고,
  * 롤백되면 후보 A가 이 틱에 복구를 시도한 쌍을 독립 트랜잭션으로 skipped 기록한다(예외는 그대로 올린다).
+ * ADR-014: 만료 방식이 sweep(A)이 아니면 [LazyExpiryBatch](C·D 청크 배치 · B는 할 일 없음)로 간다 — sweep이면 아래 경로 그대로다.
  */
 @Service
 class ExpireHoldsService(
@@ -22,9 +26,12 @@ class ExpireHoldsService(
     private val counters: ExpiryCounters,
     private val tx: TransactionTemplate,
     private val meters: MeterRegistry,
+    private val properties: SeatHoldProperties,
+    private val lazyBatch: LazyExpiryBatch,
 ) : ExpireHoldsUseCase {
 
     override fun expire(): Int {
+        if (properties.expiryMode != ExpiryMode.SWEEP) return lazyBatch.expire()
         counters.beginTick()
         try {
             val count = try {

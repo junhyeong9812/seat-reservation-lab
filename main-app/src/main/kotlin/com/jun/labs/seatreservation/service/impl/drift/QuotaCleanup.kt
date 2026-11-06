@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.service.impl.drift
 
+import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
@@ -45,6 +46,7 @@ data class CleanupRun(
  * ① schedule — 마감 회차(starts_at <= now) 중 쿼터 행이 남은 회차마다 한 트랜잭션: 회차 행 `FOR UPDATE`(선점의 마감 판정 `FOR SHARE`와 직렬화 —
  *   진행 중 선점이 있으면 그 커밋을 기다린다) → 새 문장으로 홀드 존재 확인 → 없으면 **그 회차의 쿼터 행 전부**(확정 쌍 포함 — 판정기·대조가 마감 회차를 빼므로
  *   어긋남이 아니다) 삭제 → 기록. 홀드가 남은 회차는 지우지 않는다(남은 홀드의 만료 감소에 행이 있어야 한다).
+ *   ADR-014 B(lazy — 주기 배치 없음)는 마감 회차의 만료 홀드 행을 먼저 지운다([cleanLazySchedule] — §설계-3.4 B1~B3).
  * ② zero — 모든 회차의 cnt = 0 행을 청크마다 한 문장으로 지운다. 진행 중 upsert가 같은 행을 1로 올리는 중이면 DELETE가 그 행을 기다렸다가
  *   새 버전으로 `cnt = 0`을 다시 보고(EvalPlanQual) 건너뛴다. 홀드·확정 예약이 있는 쌍은 NOT EXISTS로 남긴다.
  * 커넥션 빌림마다 `seat.hold.counter.cleanup.borrows` +1(대조와 같은 규칙).
@@ -126,6 +128,7 @@ class QuotaCleanup(
             return null
         }
         val t1 = System.nanoTime()
+        if (properties.expiryMode == ExpiryMode.LAZY) return cleanLazySchedule(scheduleId, waitedMs, t1)
         // 잠금 뒤 새 문장(READ COMMITTED) — 그 사이 커밋된 홀드가 보인다
         val holds = jdbc.queryForObject(
             "SELECT EXISTS (SELECT 1 FROM seat_hold WHERE schedule_id = ?)", Boolean::class.java, scheduleId,
@@ -133,6 +136,47 @@ class QuotaCleanup(
         val deleted = if (holds) 0 else jdbc.update("DELETE FROM user_hold_quota WHERE schedule_id = ?", scheduleId)
         val record = CleanupRecord(
             mode = MODE_SCHEDULE, scheduleId = scheduleId, holdsSeen = if (holds) 1 else 0, rowsDeleted = deleted,
+            waitedMs = waitedMs, stmtMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t1),
+        )
+        insertRecord(record)
+        return record
+    }
+
+    /**
+     * ADR-014 B(lazy)의 정리 ①(§설계-3.4 B1~B3 · Q7 · 선검증 DS14-3) — 회차 행 `FOR UPDATE`·마감 재확인 뒤(위 [cleanSchedule] 그대로).
+     * B는 주기 배치가 없어 마감 회차의 남은 만료 홀드 때문에 쿼터 행이 영영 안 지워진다 → 활성 홀드가 없으면 그 회차의 만료 홀드 행을 지우고,
+     * 홀드 행이 하나도 남지 않았을 때만 쿼터 행을 같은 트랜잭션에서 지운다(마감 회차는 카운터를 쓰지 않으므로 감소 없음 — 명세(ADR-009) §10).
+     * 홀드 삭제는 `FOR UPDATE SKIP LOCKED`로 고른 행만 — 확정 K3가 쥔 행을 기다리면 그 확정의 예약 INSERT FK 검사(이 회차 행 — 위 FOR UPDATE)와 고리가 생긴다(40P01).
+     * 건너뛴 행이 남으면 쿼터 행 삭제를 다음 실행으로 미룬다(대상 = 마감 + 쿼터 행 남음이라 다음 실행에 다시 든다). 기록 holds_seen = 1은 지금과 같은 뜻(홀드가 남아 지우지 않음).
+     */
+    private fun cleanLazySchedule(scheduleId: Long, waitedMs: Long, t1: Long): CleanupRecord {
+        // B1 활성 홀드가 있으면 이 회차는 건너뛴다(DB now() — 만료 판정 단일 규칙)
+        val active = jdbc.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM seat_hold WHERE schedule_id = ? AND expires_at > now())", Boolean::class.java, scheduleId,
+        ) == true
+        var holdsLeft = active
+        if (!active) {
+            // B2 만료 홀드 삭제 — 다른 트랜잭션이 쥔 행(확정 K3 · 회수 H4)은 건너뛴다
+            val holdsDeleted = jdbc.queryForList(
+                """
+                DELETE FROM seat_hold WHERE id IN (
+                  SELECT id FROM seat_hold WHERE schedule_id = ? AND expires_at <= now() FOR UPDATE SKIP LOCKED)
+                RETURNING id
+                """.trimIndent(),
+                scheduleId,
+            ).size
+            // B3 잠금 뒤 새 문장으로 남은 홀드 확인 — 남았으면(건너뛴 행 · 그 사이 커밋) 쿼터 행 삭제를 다음 실행으로 미룬다
+            val left = jdbc.queryForMap(
+                "SELECT count(*) AS total, count(*) FILTER (WHERE expires_at <= now()) AS expired FROM seat_hold WHERE schedule_id = ?", scheduleId,
+            )
+            holdsLeft = (left["total"] as Number).toInt() > 0
+            meters.counter(EXPIRED_HOLDS_DELETED_METRIC).increment(holdsDeleted.toDouble())
+            meters.counter(EXPIRED_HOLDS_SKIPPED_METRIC).increment((left["expired"] as Number).toDouble())
+            if (holdsDeleted > 0 || holdsLeft) log.info("정리 ①(lazy): 회차 {} 만료 홀드 {}행 삭제 · 남은 홀드 {}행", scheduleId, holdsDeleted, left["total"])
+        }
+        val deleted = if (holdsLeft) 0 else jdbc.update("DELETE FROM user_hold_quota WHERE schedule_id = ?", scheduleId)
+        val record = CleanupRecord(
+            mode = MODE_SCHEDULE, scheduleId = scheduleId, holdsSeen = if (holdsLeft) 1 else 0, rowsDeleted = deleted,
             waitedMs = waitedMs, stmtMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t1),
         )
         insertRecord(record)
@@ -187,6 +231,9 @@ class QuotaCleanup(
         const val BORROWS_METRIC = "seat.hold.counter.cleanup.borrows"
         const val DELETED_METRIC = "seat.hold.counter.cleanup.deleted"
         const val ERRORS_METRIC = "seat.hold.counter.cleanup.errors"
+        /** ADR-014 B 정리 ①이 지운 마감 회차 만료 홀드 행 수 · SKIP LOCKED로 건너뛰어 남은 만료 홀드 행 수(§설계-8.2) */
+        const val EXPIRED_HOLDS_DELETED_METRIC = "seat.hold.counter.cleanup.expired_holds_deleted"
+        const val EXPIRED_HOLDS_SKIPPED_METRIC = "seat.hold.counter.cleanup.expired_holds_skipped"
         const val MODE_SCHEDULE = "schedule"
         const val MODE_ZERO = "zero"
 

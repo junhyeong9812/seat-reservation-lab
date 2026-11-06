@@ -276,8 +276,8 @@ class CounterUpsertUserLimit(
     override fun onHoldsExpired(expired: List<SeatHold>) = counters.decrement(expired)
 }
 
-/** 한 문장 upsert — true = 올렸다(통과), false = 상한(0행). counter-upsert·counter-upsert-precheck 공용. */
-private fun upsertQuota(jdbc: JdbcTemplate, sql: String, command: HoldSeatCommand, maxPerUser: Int): Boolean =
+/** 한 문장 upsert — true = 올렸다(통과), false = 상한(0행). counter-upsert·counter-upsert-precheck 공용(ADR-014 B·C·D 선점 H6도 이 문장 그대로). */
+internal fun upsertQuota(jdbc: JdbcTemplate, sql: String, command: HoldSeatCommand, maxPerUser: Int): Boolean =
     jdbc.update(sql, command.scheduleId, command.userId, maxPerUser) == 1
 
 private val UPSERT_SQL = """
@@ -293,7 +293,7 @@ private val UPSERT_STMT_SQL = """
     WHERE user_hold_quota.cnt + 1 <= ?
 """.trimIndent()
 
-private fun upsertSqlFor(properties: SeatHoldProperties) =
+internal fun upsertSqlFor(properties: SeatHoldProperties) =
     if (properties.counterDrift.reconcile.incremental.method == IncrementalMethod.STMT) UPSERT_STMT_SQL else UPSERT_SQL
 
 private const val COUNTER_INC_SQL = "UPDATE user_hold_quota SET cnt = cnt + 1 WHERE schedule_id = ? AND user_id = ? AND cnt + 1 <= ?"

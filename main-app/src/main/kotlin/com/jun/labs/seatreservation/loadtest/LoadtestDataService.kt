@@ -180,7 +180,7 @@ class LoadtestDataService(
             """.trimIndent(),
             graceSeconds.toDouble(), limit,
         )
-        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result
+        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result + expiryStates()
         // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
         if (properties.limitStrategy !in COUNTER_STRATEGIES) return base
         // ADR-009 판정기 v2(명세 §10): 마감 회차(starts_at <= 앱 Clock now)는 카운터를 쓰지 않는다 — 그 회차의 쌍은 빼고, 뺀 회차·쌍 수를 함께 낸다.
@@ -209,6 +209,29 @@ class LoadtestDataService(
         )
         return base + counter
     }
+
+    /**
+     * ADR-014 §설계-8.3 방식별 상태 항목 — 활성 = `expires_at > DB now()`(B·C·D의 만료 판정 단일 규칙 · 측정-5 상태 표본과 같은 정의).
+     * 기대값이 방식마다 달라(§8.3 표) `v_` 접두어를 붙이지 않는다 — `v_*`는 모든 방식에서 기대값 0인 기존 위반 항목이고, 그 정의는 바꾸지 않는다
+     * (A·B·C·D 공통 기대 0인 이중 판매 행도 기존 `v_*` 합계 규칙에 섞지 않게 같은 이름 규칙을 쓴다). 기대값 대조는 하네스(요약기) 몫이다.
+     * - double_sold_seats: 좌석당 (활성 홀드 + 확정) ≥ 2(1행 — 모든 방식 0) · multi_active_seats: 좌석당 활성 홀드 > 1(4행의 방식별 정의 — 0)
+     * - held_no_active: HELD 저장인데 활성 홀드 없음(5행 — A 묶임 · B·C 거짓 HELD · D 0) · active_not_held: 활성 홀드가 있는데 HELD 아님(7행 — A·B·C 0 · D 제외)
+     * - active_on_reserved_seats: 활성 홀드 + RESERVED(상태 표본 `active_on_reserved`와 같은 정의 — 0) · expired_hold_rows: 남은 만료 홀드 행(8행 — B만 > 0)
+     */
+    private fun expiryStates(): Map<String, Any?> = linkedMapOf<String, Any?>("expiry_mode" to properties.expiryMode.name.lowercase().replace('_', '-')) +
+        jdbcTemplate.queryForMap(
+            """
+            WITH a AS (SELECT seat_id, count(*) AS n FROM seat_hold WHERE expires_at > now() GROUP BY seat_id),
+            c AS (SELECT seat_id, count(*) AS n FROM reservation WHERE status = 'CONFIRMED' GROUP BY seat_id)
+            SELECT
+              (SELECT count(*) FROM a FULL JOIN c USING (seat_id) WHERE coalesce(a.n, 0) + coalesce(c.n, 0) >= 2)       AS double_sold_seats,
+              (SELECT count(*) FROM a WHERE n > 1)                                                                      AS multi_active_seats,
+              (SELECT count(*) FROM product_seat s WHERE s.status = 'HELD' AND NOT EXISTS (SELECT 1 FROM a WHERE a.seat_id = s.id)) AS held_no_active,
+              (SELECT count(*) FROM a JOIN product_seat s ON s.id = a.seat_id WHERE s.status <> 'HELD')                 AS active_not_held,
+              (SELECT count(*) FROM a JOIN product_seat s ON s.id = a.seat_id WHERE s.status = 'RESERVED')              AS active_on_reserved_seats,
+              (SELECT count(*) FROM seat_hold WHERE expires_at <= now())                                                AS expired_hold_rows
+            """.trimIndent(),
+        )
 
     /**
      * 부하 중 가벼운 폴링용 — 전체 판정(consistency)은 조인·반조인이 많아 부하 중 DB와 경합한다(실측: L1에서 58s).

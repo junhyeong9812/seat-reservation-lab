@@ -34,6 +34,13 @@ seat:
     ttl: 5m
     max-per-user: 2
     expiry-interval: 10s
+    # 홀드 만료 방식(ADR-014). 기본 = sweep(A — 지금 코드 그대로). lazy(B)·lazy-sweep(C)·derived(D)는 기본 조합(pessimistic-nowait + counter-upsert-precheck)에서만 — 기동 검사가 거부한다.
+    #   방식 사이 전환은 멈추고 바꾸기만(§설계-7). 좌석 맵 인덱스(V11)는 선택 위치 classpath:db/migration-seat-map — 기본 위치 목록에 넣지 않는다(DS14-OQ1)
+    expiry-mode: sweep
+    # C·D 만료 배치 청크(C = 후보 좌석 · D = 후보 쌍). 배치 주기는 expiry-interval을 A·C·D가 같이 쓴다
+    expiry-batch-size: 500
+    # C·D 만료 배치의 틱당 청크 상한 — 닿으면 남은 후보는 다음 틱이 커서를 이어받아 본다(지표 seat.hold.expiry.chunk_cap_reached)
+    expiry-max-chunks-per-tick: 100
     # 같은 좌석 경합 제어 방식(ADR-003). 기본 = ADR-003 결정 pessimistic-nowait(none = ADR-000 기준선)
     strategy: pessimistic-nowait
     # 같은 사용자 동시 요청의 매수 제어(ADR-005). 기본 = ADR-008 결정 counter-upsert-precheck(none = 조회 후 비교, ADR-000 기준선)

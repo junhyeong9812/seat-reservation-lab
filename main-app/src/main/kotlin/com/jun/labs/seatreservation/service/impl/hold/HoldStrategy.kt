@@ -17,3 +17,6 @@ interface HoldStrategy {
 }
 
 internal fun seatTaken(): Nothing = throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE)
+
+/** NOWAIT 패배(55P03) — 응답은 [seatTaken]과 같고, 측정 프로필의 거절 원인 표지만 `nowait`다(ADR-014 측정-5 M3) */
+internal fun seatLockNotAvailable(): Nothing = throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE, lockNotAvailable = true)

@@ -1,0 +1,36 @@
+# ADR-014 측정 오버레이(측정-1 · 측정-3.6 '조건 렌더') — k6/ADR-009/compose.yml + compose.tmpfs.yml 위에 얹는다(lb 없음 · 앱 1대 — 측정-1):
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml -f k6/ADR-009/compose.tmpfs.yml -f k6/ADR-014/compose.expiry.yml …   (lib14.sh compose14)
+#   경로는 첫 파일(k6/ADR-009)의 폴더 기준 — 이 파일은 경로를 쓰지 않는다.
+# 사본을 두지 않고 오버레이로 쓰는 이유: db·redis·앱 자원·JVM 옵션·ApplicationName=seatlab-app(대기 표본 by_src의 app 갈래)·tmpfs·서버 측정기(compose.probe.yml)가
+#   ADR-009 정의 그대로여야 ADR-009·012·013 결과와 측정 조건이 같다 — 바꾸는 것은 앱 SPRING_APPLICATION_JSON · 이미지 고정 · 앱 nofile 한도뿐이다.
+# 앱(app):
+#   image = seatlab-app:<APP_TAG>(측정 SHA 8자 — run.sh --prepare-image로 캠페인 전에 한 번 빌드·태그 · 이미지 ID는 plan에 고정 · ADR-013 DS-11 선례) ·
+#   build 절을 지우고 pull_policy: never — 회차 안 재빌드·받기 없음(네 방식이 같은 이미지에서 손잡이만 다르다 — 측정-1).
+#   SPRING_APPLICATION_JSON을 통째로 바꾼다(ADR-009 compose.yml의 조건 조각은 쓰지 않는다): 만료 방식 손잡이(seat.hold.expiry-mode — Q9) · TTL · 배치 주기 10초(모든 셀) ·
+#   좌석 전략(pessimistic-nowait — 기본값과 같다) · 임계 구역 지연 0 · 풀 10 · Flyway 위치(업무 앱 기본 위치 + classpath:db/migration-seat-map — V11 · 모든 셀 같게) ·
+#   Tomcat 연결 상한(server.tomcat.max-connections 20,000 — 명세 §10 R5 ① · 측정에서만 · 네 방식 · 모든 셀 같게 · 앱 application*.yml은 그대로라 앱 기본값은 Tomcat 기본 8,192).
+#     까닭: 확인 스모크(k6/ADR-014/results/confirm14-20261030 a50-t300 D)에서 동시 VU 최대 9,254가 VU마다 keep-alive 연결을 쥐어 기본 상한 8,192를 넘었다 —
+#     k6 첫 30초 새 연결 8,153 직후부터 앱이 연결을 받지 못했다(그 회차 app-config.json configprops server.tomcat.maxConnections = 8192).
+#     다른 Tomcat 키(accept-count 100 · threads.max 200 · max-keep-alive-requests 100 · keep-alive-timeout)는 바꾸지 않는다.
+#   카운터 구성 키(counter-drift.* · limit-strategy)는 넣지 않는다 — 업무 앱 기본값 그대로(측정-1 · application.yml:49-61), 적용 값은 configprops로 대조(plan14.py --config-check).
+#   ulimits nofile(명세 R5 ① '앱 컨테이너 파일 기술자 한도'): 연결 20,000 + DB 풀 · Redis · jar · 로그 여유 → 65,536(soft = hard). 서버 데몬 기본값에 기대지 않고 정한다
+#     (.164 기본값은 확인하지 않았다 — 확인 스모크는 8,192 연결까지 받았으니 그만큼은 됐다는 것만 안다). JVM(PID 1 — Dockerfile ENTRYPOINT java)이 soft를 hard까지 올린다.
+#     적용 값은 회차마다 /proc/1/limits로 수집해 대조한다(lib14.sh app_config14 app_nofile → plan14.config_check).
+#   변수 기본값은 실패하지 않는 값이다(서버 측정기 기동 `up probe`도 이 파일을 함께 읽는다 — lib.sh probe_server_up) — 잘못 뜬 방식·TTL은 configprops 대조가 잡는다.
+#   연결 상한 · nofile의 기본값은 측정 값과 같다(변수 없이 렌더해도 20,000 · 65,536 — selftest R5 ①).
+services:
+  app:
+    image: seatlab-app:${APP_TAG:-none}
+    pull_policy: never
+    build: !reset null
+    ulimits:
+      nofile:
+        soft: ${APP_NOFILE:-65536}
+        hard: ${APP_NOFILE:-65536}
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"hold":{"expiry-mode":"${EXPIRY_MODE:-sweep}","ttl":"${HOLD_TTL:-5m}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration}"},
+                   "data":{"redis":{"host":"redis","port":6379}}},
+         "server":{"tomcat":{"max-connections":${TOMCAT_MAX_CONNECTIONS:-20000}}}}
