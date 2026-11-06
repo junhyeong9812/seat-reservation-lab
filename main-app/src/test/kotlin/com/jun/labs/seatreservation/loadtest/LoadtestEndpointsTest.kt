@@ -14,7 +14,7 @@ import kotlin.test.assertEquals
 
 // 매수 방식 none 고정(ADR-008): 판정기 단위 시험은 쿼터 행 없이 홀드·예약을 직접 넣고 배경 행도 시드한다 — counter 계열이면 v_counter_mismatch·배경 거부가 섞인다
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 @AutoConfigureMockMvc
 class LoadtestEndpointsTest : IntegrationTest() {
 
@@ -180,7 +180,7 @@ class LoadtestEndpointsTest : IntegrationTest() {
  * V12가 있는 스키마에서 같은 INSERT가 23505로 막히는 것은 Adr015UniqueIndexContractTest가 본다.
  */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "spring.flyway.target=7"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "spring.flyway.target=7", "seat.confirm.mode=current"])
 @AutoConfigureMockMvc
 class LoadtestEndpointsBeforeV12Test : IntegrationTest() {
 

@@ -4,13 +4,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 /**
- * ADR-015 확정 원자성 손잡이(`seat.confirm.*` — §설계-5). 키를 하나도 주지 않으면 지금과 같다(`current` = JPA 확정 + JPA 배치).
+ * ADR-015 확정 원자성 손잡이(`seat.confirm.*` — §설계-5). 기본 = `conditional`(ADR-015 §결정 2026-11-06). `current`(JPA 확정 + JPA 배치)는 명시해야 쓴다.
  * 조합 규칙(규칙 1~7 · §설계-10 T1 · T2 · T8)은 기동 검사(HoldStrategyStartupCheck)가 본다 — 조합 밖이면 마이그레이션 앞에서 거부한다.
  */
 @ConfigurationProperties("seat.confirm")
 data class SeatConfirmProperties(
     /** 확정 방식. 모르는 값은 바인딩 실패(조용히 current로 돌지 않는다). `mode`는 A 만료 배치도 고른다(current = JPA 배치 · 그 밖 = A′ — Q15) */
-    val mode: ConfirmMode = ConfirmMode.CURRENT,
+    val mode: ConfirmMode = ConfirmMode.CONDITIONAL,
     /** ④ 연장 뒤 남는 시간. 기본 0 — ④는 이 키를 명시해야 기동한다(규칙 4 · T6 — 앱 기본값은 측정 task가 고정) */
     val paymentWindow: Duration = Duration.ZERO,
     /** ④ 연장을 받는 최소 남은 시간(0 ≤ 값 < payment-window — 규칙 4) */
@@ -31,9 +31,9 @@ data class SeatConfirmProperties(
 
 /** ADR-015 확정 방식(§설계-3) — `seat.confirm.mode` */
 enum class ConfirmMode {
-    /** 지금 코드 그대로(JPA 확정 · JPA 배치) — 기본 */
+    /** 옛 코드 그대로(JPA 확정 · JPA 배치) — 되돌림 · 비교용(B·C·D · 기본 밖 조합 · V12 앞 기준선은 이것을 명시) */
     CURRENT,
-    /** ① 조건부 문장 */
+    /** ① 조건부 문장 — 기본(ADR-015 §결정) */
     CONDITIONAL,
     /** ② 비관락(FOR UPDATE 뒤 확인 · 전환) */
     PESSIMISTIC,

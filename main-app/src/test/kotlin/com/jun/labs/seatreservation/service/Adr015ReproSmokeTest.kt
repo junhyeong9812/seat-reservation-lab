@@ -104,6 +104,8 @@ class Adr015SqlLatch : StatementInspector {
         "seat.hold.expiry-scheduler-enabled=false",
         // L-B(JPA) 이음새가 불리는 조건(ExpiryCounters.kt — expiry-repair=true · 가드 감소 1행)
         "seat.hold.counter-drift.expiry-repair=true",
+        // 이 스모크는 current(옛 JPA 확정 · JPA 배치) 기준선을 재현한다 — ADR-015 §결정 뒤 기본이 conditional이라 명시한다
+        "seat.confirm.mode=current",
         PIN_C_OFF, PIN_CLEANUP_OFF, PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE,
         "spring.jpa.properties.hibernate.session_factory.statement_inspector=com.jun.labs.seatreservation.service.Adr015SqlLatch",
         "logging.level.org.hibernate.SQL=DEBUG",

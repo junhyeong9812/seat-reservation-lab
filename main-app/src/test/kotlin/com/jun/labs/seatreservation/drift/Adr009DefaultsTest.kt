@@ -286,7 +286,7 @@ class Adr009DefaultBootTest {
 
     @Test
     fun `K4 none + 키 없음 — 기동 검사가 거부하고 끌 키(A·정리·증분·안전망·method·위치)를 안내한다(기본값을 조용히 끄지 않는다)`() {
-        val msg = assertBootFails("카운터를 유지하는 매수 방식", "--seat.hold.limit-strategy=none")
+        val msg = assertBootFails("카운터를 유지하는 매수 방식", "--seat.hold.limit-strategy=none", "--seat.confirm.mode=current")
         listOf(
             "expiry-repair=false", "cleanup.mode=none", "incremental.enabled=false", "safety-net.enabled=false", "incremental.method=none",
             "spring.flyway.locations=classpath:db/migration",
@@ -296,7 +296,7 @@ class Adr009DefaultBootTest {
     @Test
     fun `K4 none + 안내한 키 명시 — 뜬다(ADR-001~008 하네스·none 고정 테스트의 경로) · V9·V10 없음`() {
         boot(
-            "--seat.hold.limit-strategy=none", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none",
+            "--seat.hold.limit-strategy=none", "--seat.confirm.mode=current", "--seat.hold.counter-drift.expiry-repair=false", "--seat.hold.counter-drift.cleanup.mode=none",
             "--seat.hold.counter-drift.reconcile.incremental.enabled=false", "--seat.hold.counter-drift.reconcile.safety-net.enabled=false",
             "--seat.hold.counter-drift.reconcile.incremental.method=none", "--spring.flyway.locations=classpath:db/migration",
         ).use { ctx ->
@@ -312,10 +312,10 @@ class Adr009DefaultBootTest {
     @Test
     fun `K5 counter-trigger + A 미지정 — A·B 함께 금지로 거부(증분 끔 안내 포함), A·증분 끔 명시면 정리 ①·안전망 기본값 그대로 뜬다`() {
         val trigger = "--spring.flyway.locations=$APP_DEFAULT_LOCATIONS,classpath:db/migration-trigger"
-        val msg = assertBootFails("함께 쓰지 않는다", "--seat.hold.limit-strategy=counter-trigger", trigger)
+        val msg = assertBootFails("함께 쓰지 않는다", "--seat.hold.limit-strategy=counter-trigger", "--seat.confirm.mode=current", trigger)
         assertTrue(msg.contains("expiry-repair=false") && msg.contains("incremental.enabled=false"), "A·증분 끄라는 안내가 없다: $msg")
         boot(
-            "--seat.hold.limit-strategy=counter-trigger", trigger, "--seat.hold.counter-drift.expiry-repair=false",
+            "--seat.hold.limit-strategy=counter-trigger", "--seat.confirm.mode=current", trigger, "--seat.hold.counter-drift.expiry-repair=false",
             "--seat.hold.counter-drift.reconcile.incremental.enabled=false",
         ).use { ctx ->
             val p = ctx.getBean(SeatHoldProperties::class.java)
@@ -327,9 +327,9 @@ class Adr009DefaultBootTest {
 
     @Test
     fun `counter + 키 없음 — 정리 ①이 거부되고 안내는 정리만 끄라고 한다(A·증분·안전망은 허용)`() {
-        val msg = assertBootFails("쿼터 행 정리", "--seat.hold.limit-strategy=counter")
+        val msg = assertBootFails("쿼터 행 정리", "--seat.hold.limit-strategy=counter", "--seat.confirm.mode=current")
         assertTrue(msg.contains("cleanup.mode=none") && !msg.contains("expiry-repair=false"), "정리만 끄라는 안내가 아니다: $msg")
-        boot("--seat.hold.limit-strategy=counter", "--seat.hold.counter-drift.cleanup.mode=none").close()   // 안내대로 하면 A·증분·안전망 켠 채 뜬다
+        boot("--seat.hold.limit-strategy=counter", "--seat.confirm.mode=current", "--seat.hold.counter-drift.cleanup.mode=none").close()   // 안내대로 하면 A·증분·안전망 켠 채 뜬다
     }
 
     @Test

@@ -71,7 +71,7 @@ class DefaultLimitStartupCheckTest {
     fun `limit-strategy 미지정 + 좌석 전략 pessimistic(3b 아님) — 기동 검사가 앱을 띄우지 않는다`() {
         assumeTrue(System.getenv("SEAT_HOLD_LIMIT_STRATEGY") == null)
         val error = try {
-            boot("--seat.hold.strategy=pessimistic").close()
+            boot("--seat.hold.strategy=pessimistic", "--seat.confirm.mode=current").close()
             fail("기본 매수 방식(precheck)과 좌석 전략 pessimistic 조합인데 앱이 떴다")
         } catch (e: Throwable) {
             if (e is AssertionError) throw e
@@ -89,7 +89,7 @@ class DefaultLimitStartupCheckTest {
     @Test
     fun `limit-strategy=none 명시 + 좌석 전략 pessimistic — 뜬다`() {
         // 업무 앱 기본값이 켠 것도 끔 명시(A·정리 ①·증분·안전망 켬 — none과는 기동 검사가 거부한다. 이 테스트의 의미 = 전환 전 none 기준선)
-        boot("--seat.hold.strategy=pessimistic", "--seat.hold.limit-strategy=none", *adr009OffArgs).use { ctx ->
+        boot("--seat.hold.strategy=pessimistic", "--seat.confirm.mode=current", "--seat.hold.limit-strategy=none", *adr009OffArgs).use { ctx ->
             val props = ctx.getBean(SeatHoldProperties::class.java)
             assertEquals(UserLimitStrategyType.NONE, props.limitStrategy)
         }

@@ -108,7 +108,7 @@ class HoldStrategyStartupCheck(
     private val redis: StringRedisTemplate,
     /** 프로필·만료 스케줄러 키 확인용. 직접 생성(테스트)할 때 없으면 그 두 확인은 기본값(프로필 없음·스케줄러 켬)으로 본다 */
     private val environment: Environment? = null,
-    /** ADR-015 확정 손잡이. 직접 생성(테스트)할 때 없으면 기본값(current) */
+    /** ADR-015 확정 손잡이. 직접 생성(테스트)할 때 없으면 기본값(conditional — ADR-015 §결정) */
     private val confirm: SeatConfirmProperties = SeatConfirmProperties(),
 ) : ApplicationRunner {
 

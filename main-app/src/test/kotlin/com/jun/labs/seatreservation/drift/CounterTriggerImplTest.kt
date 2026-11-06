@@ -4,11 +4,13 @@ import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.loadtest.LoadtestDataService
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
 import com.jun.labs.seatreservation.service.ExpireHoldsUseCase
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.HoldSeatUseCase
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import com.jun.labs.seatreservation.support.IntegrationTest
@@ -29,6 +31,7 @@ import kotlin.test.assertTrue
     properties = [
         "seat.hold.limit-strategy=counter-trigger",
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
+        "seat.confirm.mode=current",
     ],
 )
 class CounterTriggerImplTest : IntegrationTest() {
@@ -81,13 +84,13 @@ class CounterTriggerImplTest : IntegrationTest() {
 
     @Test
     fun `기동 검사 — 트리거가 있는데 다른 카운터 방식이면 거부 · A와 B 조합 거부`() {
-        val other = HoldStrategyStartupCheck(properties.copy(limitStrategy = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK), jdbcTemplate, redis)
+        val other = HoldStrategyStartupCheck(properties.copy(limitStrategy = UserLimitStrategyType.COUNTER_UPSERT_PRECHECK), jdbcTemplate, redis, confirm = SeatConfirmProperties(mode = ConfirmMode.CURRENT))
         assertThrows<IllegalStateException> { other.run(DefaultApplicationArguments()) }
         val ab = HoldStrategyStartupCheck(
-            properties.copy(counterDrift = properties.counterDrift.copy(expiryRepair = true)), jdbcTemplate, redis,
+            properties.copy(counterDrift = properties.counterDrift.copy(expiryRepair = true)), jdbcTemplate, redis, confirm = SeatConfirmProperties(mode = ConfirmMode.CURRENT),
         )
         assertThrows<IllegalStateException> { ab.run(DefaultApplicationArguments()) }
-        HoldStrategyStartupCheck(properties, jdbcTemplate, redis).run(DefaultApplicationArguments()) // 지금 설정은 통과
+        HoldStrategyStartupCheck(properties, jdbcTemplate, redis, confirm = SeatConfirmProperties(mode = ConfirmMode.CURRENT)).run(DefaultApplicationArguments()) // 지금 설정은 통과
     }
 }
 
@@ -97,7 +100,7 @@ class StartupCheckAndJudgeImplTest : IntegrationTest() {
     @Autowired lateinit var redis: StringRedisTemplate
 
     private fun check(p: SeatHoldProperties, env: MockEnvironment? = null) =
-        HoldStrategyStartupCheck(p, jdbcTemplate, redis, env).run(DefaultApplicationArguments())
+        HoldStrategyStartupCheck(p, jdbcTemplate, redis, env, SeatConfirmProperties(mode = ConfirmMode.CURRENT)).run(DefaultApplicationArguments())
 
     @Test
     fun `트리거 없는 counter-trigger · quota 방식 아닌 정리 · 마감 끈 정리 ① · F 프로필에 만료 스케줄러 켬 — 모두 거부`() {

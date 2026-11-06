@@ -183,7 +183,7 @@ class MemoryCommitTimingTest : MemoryScenarioBase() {
 
 /** 테스트 3 '자동 커밋 경로(쿼터 행 준비)도 등록된다' — counter 방식은 트랜잭션 밖에서 cnt 0 행을 만든다(UserLimitStrategies ensureQuotaRow). */
 // (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
-@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, "seat.hold.limit-strategy=counter"])
+@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, "seat.hold.limit-strategy=counter", "seat.confirm.mode=current"])
 class MemoryAutocommitPathTest : MemoryScenarioBase() {
 
     @Test

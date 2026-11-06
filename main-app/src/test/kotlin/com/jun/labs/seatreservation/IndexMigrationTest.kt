@@ -25,7 +25,7 @@ class IndexMigrationTest : IntegrationTest() {
     @Nested
     // 기준선 재현(ADR-015 Q7): V12 앞 스키마 — ADR-001·003 조건(같은 좌석 CONFIRMED 2건이 들어가야 이중 확정이 판정기에 드러난다).
     // target=7 = 기본 위치에서 V12 앞의 마지막 버전(target=11은 기본 위치에 V11이 없어 Flyway가 거부 — 위 머리말)
-    @TestPropertySource(properties = ["spring.flyway.target=7"])
+    @TestPropertySource(properties = ["spring.flyway.target=7", "seat.confirm.mode=current"])
     inner class BeforeV12 : IntegrationTest() {
 
         @Autowired lateinit var jdbc: JdbcTemplate
@@ -49,7 +49,7 @@ class IndexMigrationTest : IntegrationTest() {
 
     @Nested
     // ADR-009 기동 검사: target=1 스키마에는 쿼터 테이블이 없어 기본 매수 방식(counter 계열)으로는 뜨지 않는다 — 기준선(none)을 명시한다
-    @TestPropertySource(properties = ["spring.flyway.target=1", "seat.hold.limit-strategy=none"])
+    @TestPropertySource(properties = ["spring.flyway.target=1", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
     inner class WithoutIndexes : IntegrationTest() {
 
         @Autowired lateinit var jdbc: JdbcTemplate

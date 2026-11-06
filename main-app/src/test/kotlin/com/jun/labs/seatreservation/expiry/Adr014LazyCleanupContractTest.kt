@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  *   B3 남은 홀드가 있으면(건너뛴 행) 쿼터 행 삭제를 다음 실행으로 미룬다 · 없으면 그 회차 쿼터 행을 같은 트랜잭션에서 지운다.
  * 진입점은 이미 있는 QuotaCleanup.runOnce()(ADR-009 — cleanup.mode=schedule). 마감 판정은 앱 Clock 그대로(§2.1 표 '바꾸지 않는다').
  */
-@TestPropertySource(properties = ["$EXPIRY_MODE=lazy", "seat.hold.counter-drift.cleanup.mode=schedule"])
+@TestPropertySource(properties = ["$EXPIRY_MODE=lazy", "seat.hold.counter-drift.cleanup.mode=schedule", "seat.confirm.mode=current"])
 class Adr014LazyCleanupContractTest : IntegrationTest() {
 
     @Autowired lateinit var cleanup: QuotaCleanup

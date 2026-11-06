@@ -2,11 +2,13 @@ package com.jun.labs.seatreservation.drift
 
 import com.jun.labs.seatreservation.domain.SeatStatus
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
+import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
 import com.jun.labs.seatreservation.service.ExpireHoldsUseCase
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.HoldSeatUseCase
 import com.jun.labs.seatreservation.service.SeatHoldProperties
+import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.impl.drift.CounterReconciler
 import com.jun.labs.seatreservation.service.impl.drift.CounterRepairProbe
@@ -46,6 +48,7 @@ private fun sqlStateOf(e: Throwable): String? = generateSequence(e) { it.cause }
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        "seat.confirm.mode=current",
     ],
 )
 class TriggerLoop2ImplTest : DriftTestSupport() {
@@ -132,7 +135,7 @@ class TriggerLoop2ImplTest : DriftTestSupport() {
 
     @Test
     fun `L2-0 — counter-trigger + 판매 마감 끔은 기동 거부`() {
-        val off = HoldStrategyStartupCheck(properties.copy(salesClose = SeatHoldProperties.SalesClose(enabled = false)), jdbcTemplate, redis)
+        val off = HoldStrategyStartupCheck(properties.copy(salesClose = SeatHoldProperties.SalesClose(enabled = false)), jdbcTemplate, redis, confirm = SeatConfirmProperties(mode = ConfirmMode.CURRENT))
         val e = assertThrows<IllegalStateException> { off.run(DefaultApplicationArguments()) }
         assertTrue(e.message.orEmpty().contains("판매 마감"), e.message)
         assertEquals(UserLimitStrategyType.COUNTER_TRIGGER, properties.limitStrategy)

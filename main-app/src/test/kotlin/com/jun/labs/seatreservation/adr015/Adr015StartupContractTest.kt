@@ -83,15 +83,15 @@ class Adr015StartupContractTest : BootTestBase() {
     // ── 허용 ─────────────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `허용 — 손잡이 없음 · current는 뜨고 V12 유효 · V13 열이 기본 위치로 생긴다 · V14 트리거 없음`() {
+    fun `허용 — 손잡이 없음(기본 conditional) · current 명시는 뜨고 V12 유효 · V13 열이 기본 위치로 생긴다 · V14 트리거 없음`() {
         val failures = mutableListOf<String>()
         listOf<Map<String, String?>>(emptyMap(), mapOf(MODE_KEY to "current")).forEach { p ->
             val url = freshDbUrl()
-            if (bootsOrRecord("current $p", url, p, failures)) {
+            if (bootsOrRecord("mode $p", url, p, failures)) {
                 val db = jdbcFor(url)
-                if (!db.v12Valid()) failures += "current $p: $V12_INDEX 없음/INVALID(V12 기본 위치)"
-                if (!db.columnExists("seat_hold", "extended_at")) failures += "current $p: seat_hold.extended_at 없음(V13 기본 위치)"
-                if (db.seatTriggers() != 0) failures += "current $p: product_seat 트리거가 있다(V14는 선택 위치)"
+                if (!db.v12Valid()) failures += "mode $p: $V12_INDEX 없음/INVALID(V12 기본 위치)"
+                if (!db.columnExists("seat_hold", "extended_at")) failures += "mode $p: seat_hold.extended_at 없음(V13 기본 위치)"
+                if (db.seatTriggers() != 0) failures += "mode $p: product_seat 트리거가 있다(V14는 선택 위치)"
             }
         }
         check(failures)

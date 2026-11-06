@@ -72,6 +72,7 @@ abstract class TriggerScenario : IntegrationTest() {
     properties = [
         "seat.hold.limit-strategy=counter-trigger",
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
+        "seat.confirm.mode=current",
     ],
 )
 class CounterTriggerTest : TriggerScenario() {
@@ -203,6 +204,7 @@ class CounterTriggerTest : TriggerScenario() {
         "spring.flyway.locations=classpath:db/migration,classpath:db/migration-trigger",
         "seat.hold.counter-drift.reconcile.enabled=true",
         "seat.hold.counter-drift.reconcile.interval=1h",
+        "seat.confirm.mode=current",
     ],
 )
 class CounterTriggerWithReconcileTest : TriggerScenario() {

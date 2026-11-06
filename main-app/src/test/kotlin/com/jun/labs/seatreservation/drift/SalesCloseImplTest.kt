@@ -59,7 +59,7 @@ class SalesCloseImplTest : IntegrationTest() {
  * 명세 §11 N2 — 판정 순서 마감 → 좌석 → 매수가 실제 호출 경로에서 지켜지는가.
  * 좌석 전략: 전략 빈을 직접 부른다(매수 none). 매수 방식: 실제 HoldSeatService(트랜잭션 밖 prepare·around) + 3b를 방식마다 조립한다.
  */
-@TestPropertySource(properties = ["seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class SalesCloseOrderImplTest : IntegrationTest() {
     @Autowired lateinit var strategies: List<HoldStrategy>
     @Autowired lateinit var limits: List<UserLimitStrategy>
@@ -124,7 +124,7 @@ class SalesCloseOrderImplTest : IntegrationTest() {
 
 /** Redis 선점 관문(트랜잭션을 열기 전에 '진 것'이 나는 경로)도 마감이 먼저 — RedisHoldStrategyTest와 같은 설정(컨텍스트 공유). */
 @Import(RedisTestcontainersConfiguration::class)
-@TestPropertySource(properties = ["seat.hold.strategy=redis-nx", "seat.hold.limit-strategy=none"])
+@TestPropertySource(properties = ["seat.hold.strategy=redis-nx", "seat.hold.limit-strategy=none", "seat.confirm.mode=current"])
 class RedisSalesCloseOrderImplTest : IntegrationTest() {
     @Autowired lateinit var strategies: List<HoldStrategy>
     @Autowired lateinit var redis: StringRedisTemplate

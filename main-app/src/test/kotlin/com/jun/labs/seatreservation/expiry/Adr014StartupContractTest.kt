@@ -1,6 +1,7 @@
 package com.jun.labs.seatreservation.expiry
 
 import com.jun.labs.seatreservation.incremental.BootTestBase
+import com.jun.labs.seatreservation.incremental.CONFIRM_CURRENT
 import com.jun.labs.seatreservation.incremental.INJECT
 import com.jun.labs.seatreservation.incremental.LOCS_TRG
 import com.jun.labs.seatreservation.incremental.LOC_BASE
@@ -20,6 +21,7 @@ import kotlin.test.fail
  * 기동을 거부하고 스키마를 바꾸지 않는다(설정 검사 = 마이그레이션 앞 · checkConfig) · Q13: inject-app과 함께 켜면 거부 · 손잡이를 주지 않으면 지금과 같다.
  * 기동은 BootTestBase(실제 SpringApplication · 부팅마다 새 DB · 옛 동작 고정 키 OLD_DEFAULTS). 거부 판정은 assertStartupFailure(IllegalStateException ·
  * 메시지에 키워드 — E1 `expiry-mode`). '스키마 무변경' = 새 DB에 flyway_schema_history가 생기지 않았다(V1조차 적용되지 않음).
+ * ADR-015 §결정(나): 이 클래스의 기동은 모두 기본 확정 모드의 범위 밖(B·C·D · 기본 밖 조합 · inject-app)이라 `seat.confirm.mode=current`를 명시한다(CONFIRM_CURRENT).
  */
 class Adr014StartupContractTest : BootTestBase() {
 
@@ -46,7 +48,7 @@ class Adr014StartupContractTest : BootTestBase() {
         val failures = mutableListOf<String>()
         nonDefaultCombos.forEach { (name, props) ->
             listOf(null, "sweep").forEach { mode ->
-                val err = bootFailure(freshDbUrl(), props + (EXPIRY_MODE to mode))
+                val err = bootFailure(freshDbUrl(), CONFIRM_CURRENT + props + (EXPIRY_MODE to mode))
                 if (err != null) failures += "$name + expiry-mode=$mode: ${causesOf(err).map { it.message?.take(200) }}"
             }
         }
@@ -60,7 +62,7 @@ class Adr014StartupContractTest : BootTestBase() {
             nonDefaultCombos.forEach { (name, props) ->
                 val url = freshDbUrl()
                 val why = "$name + expiry-mode=$mode"
-                val r = runCatching { assertStartupFailure(bootFailure(url, props + (EXPIRY_MODE to mode)), why, listOf("expiry-mode")) }
+                val r = runCatching { assertStartupFailure(bootFailure(url, CONFIRM_CURRENT + props + (EXPIRY_MODE to mode)), why, listOf("expiry-mode")) }
                 r.exceptionOrNull()?.let { failures += "$why: ${it.message?.take(300)}" }
                 if (r.isSuccess && !noSchema(url)) failures += "$why: 거부된 기동이 스키마를 바꿨다(flyway_schema_history가 생겼다 — 거부가 마이그레이션 뒤)"
             }
@@ -70,7 +72,7 @@ class Adr014StartupContractTest : BootTestBase() {
 
     @Test
     fun `Q13 — expiry-mode ≠ sweep + 측정 주입(inject-app)은 거부한다 · sweep + 주입은 뜬다(대조)`() {
-        val inject = incrementalProps("trigger", LOCS_TRG, "$INJECT.enabled" to "true", "spring.profiles.active" to "loadtest")
+        val inject = CONFIRM_CURRENT + incrementalProps("trigger", LOCS_TRG, "$INJECT.enabled" to "true", "spring.profiles.active" to "loadtest")
         boot(freshDbUrl(), inject + (EXPIRY_MODE to "sweep")).use { }
         val failures = mutableListOf<String>()
         modes.forEach { mode ->
@@ -89,7 +91,7 @@ class Adr014StartupContractTest : BootTestBase() {
             // 메인 수정(코드 리뷰 CR14-1): B(lazy)는 정리 ①이 켜져 있어야 뜬다 — 옛 동작 고정 키(정리 끔)에는 정리 ①만 더한다(업무 앱 기본값은 이미 schedule)
             val old = if (mode == "lazy") mapOf<String, String?>(LAZY_CLEANUP_KEY to "schedule") else emptyMap()
             listOf("옛 동작 고정" to old, "업무 앱 기본값" to OLD_DEFAULTS.mapValues { null }).forEach { (name, base) ->
-                bootFailure(freshDbUrl(), base + (EXPIRY_MODE to mode))?.let { failures += "$name + $mode: ${causesOf(it).map { e -> e.message?.take(200) }}" }
+                bootFailure(freshDbUrl(), base + CONFIRM_CURRENT + (EXPIRY_MODE to mode))?.let { failures += "$name + $mode: ${causesOf(it).map { e -> e.message?.take(200) }}" }
             }
         }
         if (failures.isNotEmpty()) fail(failures.joinToString("\n"))

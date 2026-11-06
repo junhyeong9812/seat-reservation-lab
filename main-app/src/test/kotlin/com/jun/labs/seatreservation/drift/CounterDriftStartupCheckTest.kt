@@ -2,6 +2,7 @@ package com.jun.labs.seatreservation.drift
 
 import com.jun.labs.seatreservation.SeatReservationApplication
 import com.jun.labs.seatreservation.api.HoldExpiryScheduler
+import com.jun.labs.seatreservation.incremental.CONFIRM_CURRENT
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.support.causesOf
@@ -119,18 +120,18 @@ class CounterDriftStartupCheckTest {
     @ParameterizedTest
     @ValueSource(strings = ["counter", "counter-upsert", "counter-upsert-precheck", "quota-lock", "quota-nowait", "quota-nowait-early"])
     fun `쿼터 테이블 없음(Flyway target 3 — V5 전) + 쿼터 테이블을 쓰는 방식 — 기동 실패`(limit: String) {
-        assertBootFails(mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to limit), "쿼터 테이블 없이 $limit", keyword = "쿼터 테이블(user_hold_quota")
+        assertBootFails(CONFIRM_CURRENT + mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to limit), "쿼터 테이블 없이 $limit", keyword = "쿼터 테이블(user_hold_quota")
     }
 
     @Test
     fun `쿼터 테이블 없음 + 매수 방식 미지정(기본 counter-upsert-precheck) — 기동 실패`() {
-        assertBootFails(mapOf("spring.flyway.target" to "3"), "기본 매수 방식인데 쿼터 테이블 없음", keyword = "쿼터 테이블(user_hold_quota")
+        assertBootFails(CONFIRM_CURRENT + mapOf("spring.flyway.target" to "3"), "기본 매수 방식인데 쿼터 테이블 없음", keyword = "쿼터 테이블(user_hold_quota")
     }
 
     @Test
     fun `쿼터 테이블 없음 + counter-trigger(트리거 위치 포함) — 기동 실패`() {
         assertBootFails(
-            mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to "counter-trigger", "spring.flyway.locations" to trigger),
+            CONFIRM_CURRENT + mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to "counter-trigger", "spring.flyway.locations" to trigger),
             "쿼터 테이블 없이 counter-trigger",
             keyword = "쿼터 테이블(user_hold_quota",
         )
@@ -138,7 +139,7 @@ class CounterDriftStartupCheckTest {
 
     @Test
     fun `쿼터 테이블 없음 + none — 뜬다`() {
-        assertBoots(mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to "none")) {
+        assertBoots(CONFIRM_CURRENT + mapOf("spring.flyway.target" to "3", "seat.hold.limit-strategy" to "none")) {
             assertEquals(UserLimitStrategyType.NONE, it.getBean(SeatHoldProperties::class.java).limitStrategy)
         }
     }
@@ -147,20 +148,22 @@ class CounterDriftStartupCheckTest {
 
     @Test
     fun `counter-trigger + 트리거 위치 — 뜬다(아래 실패 단언들의 양성 대조)`() {
-        assertBoots(mapOf("seat.hold.limit-strategy" to "counter-trigger", "spring.flyway.locations" to trigger)) {
+        assertBoots(CONFIRM_CURRENT + mapOf("seat.hold.limit-strategy" to "counter-trigger", "spring.flyway.locations" to trigger)) {
             assertEquals(UserLimitStrategyType.COUNTER_TRIGGER, it.getBean(SeatHoldProperties::class.java).limitStrategy)
         }
     }
 
     @Test
     fun `counter-trigger인데 트리거가 없다(위치 미포함) — 기동 실패`() {
-        assertBootFails(mapOf("seat.hold.limit-strategy" to "counter-trigger"), "트리거 없이 counter-trigger", keyword = "카운터 트리거")
+        assertBootFails(CONFIRM_CURRENT + mapOf("seat.hold.limit-strategy" to "counter-trigger"), "트리거 없이 counter-trigger", keyword = "카운터 트리거")
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["counter-upsert-precheck", "counter-upsert", "none"])
     fun `트리거가 있는데 counter-trigger가 아니다 — 기동 실패(앱 증감과 트리거가 겹치거나 측정 조건이 섞인다)`(limit: String) {
-        assertBootFails(mapOf("seat.hold.limit-strategy" to limit, "spring.flyway.locations" to trigger), "트리거 + $limit", keyword = "카운터 트리거")
+        // 기본 조합(precheck)은 기본 확정 모드 그대로 — 그 밖은 current 명시(ADR-015 §결정(나))
+        val confirm = if (limit == "counter-upsert-precheck") emptyMap() else CONFIRM_CURRENT
+        assertBootFails(confirm + mapOf("seat.hold.limit-strategy" to limit, "spring.flyway.locations" to trigger), "트리거 + $limit", keyword = "카운터 트리거")
     }
 
     // ---- 후보 × 매수 방식 조합 ----------------------------------------------------------------------------------------
@@ -168,7 +171,7 @@ class CounterDriftStartupCheckTest {
     @Test
     fun `카운터를 유지하지 않는 매수 방식(none) + A(expiry-repair) — 기동 실패`() {
         assertBootFails(
-            mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.expiry-repair" to "true"),
+            CONFIRM_CURRENT + mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.expiry-repair" to "true"),
             "none에는 고칠 카운터 감소가 없다",
             keyword = "카운터를 유지하는 매수 방식",
         )
@@ -177,7 +180,7 @@ class CounterDriftStartupCheckTest {
     @Test
     fun `카운터를 유지하지 않는 매수 방식(none) + C(reconcile) — 기동 실패`() {
         assertBootFails(
-            mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.reconcile.enabled" to "true"),
+            CONFIRM_CURRENT + mapOf("seat.hold.limit-strategy" to "none", "seat.hold.counter-drift.reconcile.enabled" to "true"),
             "none에는 대조할 카운터가 없다",
             keyword = "카운터를 유지하는 매수 방식",
         )

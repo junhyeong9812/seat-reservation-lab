@@ -112,21 +112,21 @@ private const val INJ_PATHS = "$INJECT.paths=hold,expiry"
 private const val TRACK_ON = "$INC.track-inject=true"
 
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON])
+@TestPropertySource(properties = [A_ON, M_MEM, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_V10, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON, "seat.confirm.mode=current"])
 class AppPathInjectMemoryTest : AppPathInjectScenario(SRC_MEM)
 
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON, "seat.confirm.mode=current"])
 class AppPathInjectTriggerTest : AppPathInjectScenario(SRC_TRG)
 
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_STMT, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_STMT, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON])
+@TestPropertySource(properties = [A_ON, M_STMT, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_STMT, INJ_ON, INJ_EVERY1, INJ_PATHS, TRACK_ON, "seat.confirm.mode=current"])
 class AppPathInjectStmtTest : AppPathInjectScenario(SRC_STMT)
 
 /** track-inject=false — 열은 NULL이고 후보 시각 UPDATE가 나가지 않는다(counter_app_inject를 ACCESS EXCLUSIVE로 쥔 채 틱이 막힘 없이 끝난다). */
 @ActiveProfiles("loadtest")
 // (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "seat.confirm.mode=current"])
 class AppPathInjectNoTrackTest : IncrementalTestBase() {
     @Test
     fun `18 — track-inject=false — first_candidate 열 NULL · 문장 없음 · 그래도 증분이 고친다`() {
@@ -166,7 +166,7 @@ class AppPathInjectOffTest : IncrementalTestBase() {
 /** max-pairs — 상한 수만큼만 주입한다(원자적 개수). 이 클래스는 주입을 한 테스트에서만 만든다(개수가 컨텍스트에 쌓인다). */
 @ActiveProfiles("loadtest")
 // (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=2"])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=2", "seat.confirm.mode=current"])
 class AppPathInjectMaxPairsTest : IncrementalTestBase() {
     @Test
     fun `18 — max-pairs=2 — 세 쌍 선점에 주입 2행`() {
@@ -178,7 +178,7 @@ class AppPathInjectMaxPairsTest : IncrementalTestBase() {
 /** every — 고른 쌍만((s × 31 + u) mod every == 0). */
 @ActiveProfiles("loadtest")
 // (rv43 M3 — 증분만 켜는 조합 금지 · 안전망은 켜되 돌지 않게)
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, "$INJECT.every=50", INJ_PATHS])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, "$INJECT.every=50", INJ_PATHS, "seat.confirm.mode=current"])
 class AppPathInjectEveryTest : IncrementalTestBase() {
     @Test
     fun `18 — every=50 — 선택식에 맞는 쌍만 주입된다`() {
@@ -194,7 +194,7 @@ class AppPathInjectEveryTest : IncrementalTestBase() {
  * 예열이 max-pairs를 다 써도 초기화 뒤 측정의 주입 수는 0부터 센다. (상한 3 — 상한 2인 AppPathInjectMaxPairsTest와 컨텍스트를 나눈다: 같은 손잡이면 캐시된 컨텍스트의 개수를 이어받는다)
  */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=3"])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "$INJECT.max-pairs=3", "seat.confirm.mode=current"])
 class AppPathInjectSeedResetTest : IncrementalTestBase() {
 
     @Autowired lateinit var loadtestData: LoadtestDataService
@@ -218,7 +218,7 @@ class AppPathInjectSeedResetTest : IncrementalTestBase() {
 
 /** rv44 RG-1 (b) — 예열 사용자 대역(k6 warmup.js — 900000 + [0, 100000))은 고르지 않는다. 대역 바로 아래(899999)는 고른다(대조). */
 @ActiveProfiles("loadtest")
-@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS])
+@TestPropertySource(properties = [A_ON, M_TRG, INC_ON, INC_1H, SAFE_ON, SAFE_1H, SAMPLE_1H, FW_TRG, INJ_ON, INJ_EVERY1, INJ_PATHS, "seat.confirm.mode=current"])
 class AppPathInjectWarmupRangeTest : IncrementalTestBase() {
 
     @Test
