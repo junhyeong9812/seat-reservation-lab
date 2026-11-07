@@ -178,7 +178,7 @@ ADR-015 ① `conditional`은 늦은 확정을 **명확한 거부**로 바꿨다(
 - **응답에 보장 여부**: `200 {holdId, expiresAt, payBy, extended}` — ①은 `extended = false`(확인만 · 200 ≠ 보장) · ④는 연장했거나 이미 연장이면 true(RD16-11).
 - **① 결과 지표**: `seat.confirm.pay_start{result = ok | insufficient | expired | not_found | not_owned}` — 결제 전 거부의 서버 교차 확인(RD16-13).
 - **바뀌는 기존 계약**: `Adr015RaceScenarios.kt:228-235`('conditional-extend가 아니면 404')는 ①에서 200으로 바뀐다 — 구현 task가 이 테스트를 ADR-016 계약으로 옮긴다. ADR-015 요약기 `summarize.py:42` CONTRACT_PAIRS는 새 코드를 모른다 — race 셀 재사용 때 하네스가 함께 고친다(RD16-5).
-- **거부 코드(Q8 — 사용자 재확인 2026-11-07: 'HOLD_EXPIRED 유지')**: ① θ 미만 거부도 409 `HOLD_EXPIRED` — ADR-015 인터뷰 결정('새 에러 코드를 두지 않는다' — ADR-015 :27 · :221)을 지킨다. '만료'와 '시간 부족'의 구분은 서버 지표 `pay_start{result=insufficient}`와 응답의 남은 초로 한다 · ④ too_late · ADR-015 요약기 CONTRACT_PAIRS 무변경(RD16-5).
+- **거부 코드(Q8 — 사용자 재확인 2026-11-07: 'HOLD_EXPIRED 유지')**: ① θ 미만 거부도 409 `HOLD_EXPIRED` — ADR-015 인터뷰 결정('새 에러 코드를 두지 않는다' — ADR-015 :27 · :221)을 지킨다. 클라이언트는 둘을 구분하지 않아도 된다(어느 쪽이든 '결제를 시작하지 않는다' — 같은 행동) · 구분은 서버 지표 `pay_start{result=insufficient | expired}`로만 한다(오류 본문 필드 추가 없음 — post-fix RD16-post-1) · ④ too_late · ADR-015 요약기 CONTRACT_PAIRS 무변경(RD16-5).
 - 재시도: ④ `already`(이미 연장 — θ 검사 없음 · :71-74)는 그대로 200 — 연장된 만료 안의 재결제는 허용. 모형은 1회 시도를 가정한다(설명 · RD16-OQ1).
 
 ### 9.3 ⓒ payBy

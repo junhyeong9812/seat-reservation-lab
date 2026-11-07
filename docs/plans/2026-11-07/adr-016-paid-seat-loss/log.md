@@ -77,3 +77,4 @@
 | RD16-OQ3 | opus OQ3 · codex OQ | payBy 범위 · 시계 차 | 채택 — ①·④만 · payWithinSeconds | fixed(9.3) |
 | RD16-OQ2 | codex OQ2 | payment-start 필수 호출? | 사용자 '권고로 둠' | closed |
 | 11-07 | 사용자 재확인: 목표 0.1% 유지 + 비용 보고 · Q8 HOLD_EXPIRED 유지(ADR-015 결정 보존) · payment-start 권고 → 설계-9 반영 | post-fix 재점검 |
+| 11-07 | post-fix 타깃 재점검(codex medium · 설계-9 diff + 전문 · 미러 갱신): 새 finding 1 — RD16-post-1(중간): '응답의 남은 초로 구분'인데 남은 초는 200에만 있고 오류 본문은 code · message뿐(ApiExceptionHandler.kt:64) → **채택** · 고침: 클라이언트는 구분 불필요(같은 행동 — 결제 안 함) · 구분은 서버 지표로만(본문 필드 추가 없음) | 설계 루프 1 마감 — 채택 전부 fixed · 미해소 0 |
