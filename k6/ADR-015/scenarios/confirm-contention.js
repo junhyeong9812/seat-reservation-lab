@@ -64,6 +64,10 @@ export const options = {
     rehold: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_REHOLD'), maxVUs: N('MAX_VUS_REHOLD'), gracefulStop: GRACE, exec: 'reholdFlow' },
   },
   summaryTrendStats: TREND_STATS,
+  // 반복 사이 연결 재사용 끔(ADR-016 설계-5 · 재현 `results/_evidence-20261107/16-eof-repro/`): 반복을 마친 VU가 다음 반복까지 서버 유휴 한도(Tomcat 60초)를
+  //   넘게 쉬면 그 연결 위 첫 요청(선점 · 재선점)이 EOF로 끊겼다(ADR-015 결과-4 · 무효 6). 반복 끝에 연결을 닫아 모든 종료 경로(조기 종료 · 재선점 201 포함)를 덮는다.
+  //   반복 안 재사용은 그대로(긴 생각 시간 앞은 closeBeforeLongThink). 대가: 반복 첫 요청은 늘 새 연결 — 선점 p99에 연결 수립이 들어간다(대조군도 같은 하네스로 다시 잰다).
+  noVUConnectionReuse: true,
 };
 
 const conf = new Counter('conf');
