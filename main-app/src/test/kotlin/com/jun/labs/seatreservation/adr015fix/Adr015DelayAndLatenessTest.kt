@@ -71,7 +71,7 @@ class Adr015DelayAndLatenessTest : BootTestBase() {
         val failures = mutableListOf<String>()
         listOf("current", "conditional", "pessimistic", "optimistic", "conditional-extend").forEach { mode ->
             val url = freshDbUrl()
-            val extra = if (mode == "conditional-extend") mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "5s") else emptyMap()
+            val extra = if (mode == "conditional-extend") mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "5s") else emptyMap()
             boot(url, props(mode, delay) + extra).use { ctx ->
                 val db = jdbcFor(url)
                 val (hold, seat) = db.heldSeat(ttlMs = 300_000)

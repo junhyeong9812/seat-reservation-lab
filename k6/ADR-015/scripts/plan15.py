@@ -45,9 +45,9 @@ REHOLD_UNTIL_S = EXPIRY_INTERVAL_S + 3                                          
 #   '배치가 풀어 준 좌석을 재선점 201 → 그 세션 확정 쓰기'가 부하에서 생길 수 있다. e − 20ms부터 20ms 간격으로 e + delay + 100ms까지(확정 응답 끝 여유).
 #   지연 0(cost)이면 창이 없다 — 조밀 구간을 끈다(재선점 요청이 비용 지표를 흐리지 않게).
 REHOLD_DENSE_FROM_MS, REHOLD_DENSE_STEP_MS, REHOLD_DENSE_TAIL_MS = -20, 20, 100
-PAYMENT_WINDOW, EXTEND_MIN_REMAINING = "2m", "5s"                                         # ④ — 설계-10 T6 테스트 값(D-6 권장)
+PAYMENT_WINDOW, PAYMENT_MIN_REMAINING = "2m", "5s"                                         # ④ — 설계-10 T6 테스트 값(D-6 권장)
 PAYMENT_WINDOW_S = 120
-PAY_START_BEFORE_E_S = 10                                                                 # ④ payment-start = e − 10초(> extend-min-remaining 5초 · < window)
+PAY_START_BEFORE_E_S = 10                                                                 # ④ payment-start = e − 10초(> payment-min-remaining 5초 · < window)
 # ④ 경계 흐름(리뷰 M15-4 · M15-5): race 셀 ④ 세션의 이 비율은 payment-start가 준 e′ 기준 e′ + c에 확정한다 — 연장 뒤에도 만료 경계 경합 창이 ④에서 열린다
 #   (나머지는 e + c에 확정 — 연장이 홀드를 지키는가 · ext_then_lost). cost 셀은 0(세션이 약 2분 길어져 VU가 약 2만 늘어난다 — 비용 셀 VU 상한).
 EXT_BOUNDARY_F = {"race": 0.5, "cost": 0.0}
@@ -164,7 +164,7 @@ def render(mode, cell, rep, knobs=None):
     d_arr = c["d_arr_s"]
     app_env = {
         "CONFIRM_MODE": mode, "CONFIRM_DELAY": f"{c['delay_ms']}ms",
-        "PAYMENT_WINDOW": PAYMENT_WINDOW if ext else "0s", "EXTEND_MIN_REMAINING": EXTEND_MIN_REMAINING if ext else "0s",
+        "PAYMENT_WINDOW": PAYMENT_WINDOW if ext else "0s", "PAYMENT_MIN_REMAINING": PAYMENT_MIN_REMAINING if ext else "0s",
         "HOLD_TTL": f"{TTL_S}s", "EXPIRY_INTERVAL": f"{EXPIRY_INTERVAL_S}s", "FLYWAY_LOCATIONS": ",".join(flyway(mode)), "POOL_SIZE": str(POOL),
         "TOMCAT_MAX_CONNECTIONS": str(TOMCAT_MAX_CONNECTIONS), "APP_NOFILE": str(APP_NOFILE),
         "PG_PRELOAD": "pg_stat_statements" if knobs.get("pgss", PGSS_DEFAULT) else "",
@@ -185,7 +185,7 @@ def render(mode, cell, rep, knobs=None):
         "mode": mode, "mode_enum": MODE_ENUM[mode], "cell": cell, "rep": rep, "crn_seed": rep, "kind": "main", "knobs": knobs,
         "ttl_s": TTL_S, "expiry_interval_s": EXPIRY_INTERVAL_S, "delay_ms": c["delay_ms"], "rate": c["rate"], "d_arr_s": d_arr,
         "flyway_locations": flyway(mode), "pool": POOL, "payment_window": PAYMENT_WINDOW if ext else None,
-        "extend_min_remaining": EXTEND_MIN_REMAINING if ext else None, "pgss": int(bool(knobs.get("pgss", PGSS_DEFAULT))),
+        "payment_min_remaining": PAYMENT_MIN_REMAINING if ext else None, "pgss": int(bool(knobs.get("pgss", PGSS_DEFAULT))),
         "seed": seed, "app_env": app_env, "grace_s": grace, "ext_boundary_f": xb, "rehold_dense_ms": list(dense), "rho": rho,
         "b3wait_ms": B3WAIT_PERIOD_MS[cell] if c["delay_ms"] > 0 else 0, "evidence_margin_ms": EVIDENCE_MARGIN_MS,
         "k6": {"script": "k6/ADR-015/scenarios/confirm-contention.js", "duration_s": d_arr + grace, "pre_vus": pre, "max_vus": mx,
@@ -205,7 +205,7 @@ def expected_config(mode, cell, knobs=None):
     return {
         "seat.confirm": {"mode": MODE_ENUM[mode], "loadtest.delay": f"PT{p['delay_ms'] / 1000:g}S" if p["delay_ms"] else "PT0S",
                          "paymentWindow": "PT2M" if mode == "conditional-extend" else "PT0S",
-                         "extendMinRemaining": "PT5S" if mode == "conditional-extend" else "PT0S"},
+                         "paymentMinRemaining": "PT5S" if mode == "conditional-extend" else "PT0S", "payByMargin": "PT0S"},
         "seat.hold": {"expiryMode": "SWEEP", "ttl": f"PT{TTL_S}S", "expiryInterval": f"PT{EXPIRY_INTERVAL_S}S", "strategy": "PESSIMISTIC_NOWAIT",
                       "limitStrategy": "COUNTER_UPSERT_PRECHECK"},
         "spring.flyway": {"locations": flyway(mode)},

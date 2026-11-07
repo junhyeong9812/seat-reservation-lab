@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy
+import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.env.Environment
@@ -271,8 +272,22 @@ class HoldStrategyStartupCheck(
                 "seat.confirm.unique-index-optional=true는 $TEST_PROFILE · $LOADTEST_PROFILE 프로필에서만 받는다(재현 테스트의 'V12 없음' 판 — ADR-015 §설계-10 T1) — " +
                     "현재 프로필 $profiles"
             }
+            // ADR-016 설계-9.4(N16-6 — 모드 무관): θ 옛 키는 새 키로 바뀌었다 — Spring은 모르는 키를 조용히 무시하므로 남아 있으면 θ가 0으로 무음 후퇴한다
+            check(environment == null || !Binder.get(environment).bind(OLD_MIN_REMAINING_KEY, String::class.java).isBound) {
+                "$OLD_MIN_REMAINING_KEY 는 더 쓰지 않는다 — seat.confirm.payment-min-remaining(θ · ① 결제 시작 확인과 ④ 연장이 함께 쓴다)으로 바꿔라(ADR-016 설계-9.4)"
+            }
+            val theta = confirm.paymentMinRemaining
+            val margin = confirm.payByMargin
+            check(!theta.isNegative) { "seat.confirm.payment-min-remaining는 0 이상이어야 한다(현재 $theta)" }
+            check(!margin.isNegative) { "seat.confirm.pay-by-margin는 0 이상이어야 한다(현재 $margin)" }
             if (mode == ConfirmMode.CURRENT) return
             val key = "seat.confirm.mode=${mode.key()}"
+            // ADR-016 설계-9.3: payBy = expiresAt − M — 결제 시작 200은 남은 시간 > θ일 때만 나가므로 M ≤ θ면 payBy가 그 :now 뒤다
+            if (mode == ConfirmMode.CONDITIONAL || mode == ConfirmMode.CONDITIONAL_EXTEND) {
+                check(margin <= theta) {
+                    "$key 는 seat.confirm.pay-by-margin ≤ seat.confirm.payment-min-remaining여야 한다 — 현재 pay-by-margin=$margin · payment-min-remaining=$theta(ADR-016 설계-9.3)"
+                }
+            }
             // 규칙 1: B·C·D는 확정 첫머리에서 LazyConfirmProcess로 가므로 손잡이가 조용히 무시된다
             check(properties.expiryMode == ExpiryMode.SWEEP) {
                 "$key 는 seat.hold.expiry-mode=sweep(A)에서만 쓴다 — 현재 ${properties.expiryMode}(B·C·D 확정은 ADR-014 최소 가드 그대로). " +
@@ -286,10 +301,9 @@ class HoldStrategyStartupCheck(
             // 규칙 4: ④ 연장 창
             if (mode == ConfirmMode.CONDITIONAL_EXTEND) {
                 val window = confirm.paymentWindow
-                val min = confirm.extendMinRemaining
-                check(window > java.time.Duration.ZERO && !min.isNegative && min < window) {
-                    "$key 는 seat.confirm.payment-window > 0 · 0 ≤ seat.confirm.extend-min-remaining < payment-window여야 한다 " +
-                        "— 현재 payment-window=$window · extend-min-remaining=$min(두 키를 명시하라 — ADR-015 §설계-5 규칙 4 · §설계-10 T6)"
+                check(window > java.time.Duration.ZERO && theta < window) {
+                    "$key 는 seat.confirm.payment-window > 0 · 0 ≤ seat.confirm.payment-min-remaining < payment-window여야 한다 " +
+                        "— 현재 payment-window=$window · payment-min-remaining=$theta(두 키를 명시하라 — ADR-015 §설계-5 규칙 4 · §설계-10 T6 · 키 이름 ADR-016 설계-9.4)"
                 }
             }
             // 규칙 5: 주입 이음새(afterExpiryDecrement)는 JPA 배치의 가드 감소에만 있다 — A′와 함께 켜면 주입이 조용히 빠진다
@@ -527,6 +541,8 @@ class HoldStrategyStartupCheck(
         }
 
         const val LOADTEST_PROFILE = "loadtest"
+        /** ADR-016 설계-9.4 — θ 옛 키(있으면 기동 거부 · N16-6) */
+        const val OLD_MIN_REMAINING_KEY = "seat.confirm.extend-min-remaining"
         /** 테스트 실행 프로필(main-app 테스트 클래스패스 config/application.properties가 spring.profiles.include로 더한다) — ADR-015 T1 */
         const val TEST_PROFILE = "test"
         /** ADR-015 V12 — 확정 예약 부분 유니크 인덱스(기본 위치) */

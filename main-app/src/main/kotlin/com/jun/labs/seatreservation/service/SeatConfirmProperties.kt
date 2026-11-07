@@ -13,8 +13,13 @@ data class SeatConfirmProperties(
     val mode: ConfirmMode = ConfirmMode.CONDITIONAL,
     /** ④ 연장 뒤 남는 시간. 기본 0 — ④는 이 키를 명시해야 기동한다(규칙 4 · T6 — 앱 기본값은 측정 task가 고정) */
     val paymentWindow: Duration = Duration.ZERO,
-    /** ④ 연장을 받는 최소 남은 시간(0 ≤ 값 < payment-window — 규칙 4) */
-    val extendMinRemaining: Duration = Duration.ZERO,
+    /**
+     * θ — 결제 시작을 받는 최소 남은 시간(ADR-016 설계-9.4 · 옛 키 `extend-min-remaining`을 대신한다 — 옛 키가 있으면 기동 거부).
+     * ① payment-start 확인(`expires_at − :now ≤ θ`면 409)과 ④ 연장(too_late)이 같은 값을 쓴다. 0 ≤ 값(④는 < payment-window — 규칙 4). 기본 0 — 값은 측정 뒤 별도 커밋
+     */
+    val paymentMinRemaining: Duration = Duration.ZERO,
+    /** M — 결제 마감 여유(ADR-016 설계-3.3 · 9.3): `payBy = expiresAt − M`. 0 ≤ M ≤ θ(① · ④). 기본 0 */
+    val payByMargin: Duration = Duration.ZERO,
     /** 측정 전용 장치 — loadtest 프로필에서만(규칙 3 · T8 모드 무관) */
     val loadtest: Loadtest = Loadtest(),
     /**

@@ -30,7 +30,7 @@ class Adr015StartupContractTest : BootTestBase() {
 
     private val kw = listOf("confirm")
     private val locOpt = "$LOC_BASE,$LOC_CONFIRM_VERSION"
-    private val windowKeys = mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "5s")
+    private val windowKeys = mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "5s")
 
     /** 새 모드 넷의 '허용' 기본 키(기본 조합 · sweep · ③ 위치 · ④ window) */
     private val newModes: Map<String, Map<String, String?>> = mapOf(
@@ -182,11 +182,11 @@ class Adr015StartupContractTest : BootTestBase() {
     fun `규칙 4 — conditional-extend는 window 0 초과 · 0 ≤ min-remaining 미만 window`() {
         val failures = mutableListOf<String>()
         val base = mapOf<String, String?>(MODE_KEY to "conditional-extend")
-        rejectFresh("window=0s", base + mapOf("seat.confirm.payment-window" to "0s", "seat.confirm.extend-min-remaining" to "0s"), failures)
-        rejectFresh("min = window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "2m"), failures)
-        rejectFresh("min > window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "3m"), failures)
-        rejectFresh("min < 0", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "-1s"), failures)
-        bootsOrRecord("대조 min=0 · window=2m", freshDbUrl(), base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "0s"), failures)
+        rejectFresh("window=0s", base + mapOf("seat.confirm.payment-window" to "0s", "seat.confirm.payment-min-remaining" to "0s"), failures)
+        rejectFresh("min = window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "2m"), failures)
+        rejectFresh("min > window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "3m"), failures)
+        rejectFresh("min < 0", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "-1s"), failures)
+        bootsOrRecord("대조 min=0 · window=2m", freshDbUrl(), base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "0s"), failures)
         check(failures)
     }
 

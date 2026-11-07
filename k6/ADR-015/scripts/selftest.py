@@ -70,7 +70,7 @@ def fake_cfg(mode, delay="PT0.2S", nofile=65536, locs=None, pool=(10,)):
     ext = mode == "conditional-extend"
     return {"configprops": [
         {"prefix": "seat.confirm", "properties": {"mode": plan15.MODE_ENUM[mode], "loadtest": {"delay": delay}, "paymentWindow": "PT2M" if ext else "PT0S",
-                                                  "extendMinRemaining": "PT5S" if ext else "PT0S"}},
+                                                  "paymentMinRemaining": "PT5S" if ext else "PT0S", "payByMargin": "PT0S"}},
         {"prefix": "seat.hold", "properties": {"expiryMode": "SWEEP", "ttl": "PT30S", "expiryInterval": "PT10S", "strategy": "PESSIMISTIC_NOWAIT",
                                                "limitStrategy": "COUNTER_UPSERT_PRECHECK"}},
         {"prefix": "spring.flyway", "properties": {"locations": locs or plan15.flyway(mode)}},
