@@ -58,7 +58,7 @@
 | RD16-2 | codex F2 | 설계-8.1 · 8.5 | 채택 — G-목표를 관측 + 신뢰 상한으로 · 불일치 규칙 | fixed(9.6) |
 | RD16-3 | codex F3 · opus F10 | 8.4 Q13 · HoldExpiryScheduler.kt:15 | 채택 — 1/10은 경합 재현만 | fixed(9.6) |
 | RD16-4 | codex F4 | confirm-contention.js:132-138 | 채택 — 세션(paymentUid) 단위 | fixed(9.1) |
-| RD16-5 | opus F5 · codex F6 일부 | ADR-015 :27 · :221 · summarize.py:42 · Adr015RaceScenarios.kt:228 | 채택 — Q8이 ADR-015 사용자 결정을 뒤집음 → 사용자 재확인 · 테스트 · 요약기 범위 명시 | open(⏳ 사용자) |
+| RD16-5 | opus F5 · codex F6 일부 | ADR-015 :27 · :221 · summarize.py:42 · Adr015RaceScenarios.kt:228 | 채택 — 사용자 재확인 'HOLD_EXPIRED 유지' · ① 404 단언 테스트만 바뀜 | fixed |
 | RD16-6 | codex F6 · opus N16-2 | PaymentStartService.kt:44 · :75 | 채택 — θ 경계 `≤ θ` 거부로 통일 | fixed(9.2) |
 | RD16-7 | codex F7 · opus N16-3 | SeatConfirmProperties.kt · 규칙 4 | 채택 — M 기동 검사 | fixed(9.3) |
 | RD16-8 | codex F8 · opus N16-1 | 8.5 n_tup_upd | 채택 — readOnly 트랜잭션 + 행 대조 | fixed(9.2) |
@@ -75,4 +75,5 @@
 | RD16-19 | opus F8 | 3.3 · 8.1 | 채택 — record-level 대조 · ⓒ 셀 뜻 한정 | fixed(9.1 · 9.3) |
 | RD16-OQ1 | opus OQ1 | PaymentStartService.kt:71-74 | 기록 — already 재시도 허용 · 모형 1회 | — |
 | RD16-OQ3 | opus OQ3 · codex OQ | payBy 범위 · 시계 차 | 채택 — ①·④만 · payWithinSeconds | fixed(9.3) |
-| RD16-OQ2 | codex OQ2 | payment-start 필수 호출? | open — 확정이 확인하지 않음(강제하려면 ①에 쓰기 필요 — N16-1과 충돌) → 계약 문구 '권고'로 · 사용자 보고 | — |
+| RD16-OQ2 | codex OQ2 | payment-start 필수 호출? | 사용자 '권고로 둠' | closed |
+| 11-07 | 사용자 재확인: 목표 0.1% 유지 + 비용 보고 · Q8 HOLD_EXPIRED 유지(ADR-015 결정 보존) · payment-start 권고 → 설계-9 반영 | post-fix 재점검 |
