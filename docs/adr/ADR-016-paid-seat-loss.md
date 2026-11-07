@@ -182,7 +182,7 @@ ADR-015 ① `conditional`은 늦은 확정을 **명확한 거부**로 바꿨다(
 - 재시도: ④ `already`(이미 연장 — θ 검사 없음 · :71-74)는 그대로 200 — 연장된 만료 안의 재결제는 허용. 모형은 1회 시도를 가정한다(설명 · RD16-OQ1).
 
 ### 9.3 ⓒ payBy
-- 기동 검사: `M ≥ 0` · `M < θ`(①) · `M < W`(④) — 어기면 거부(RD16-7).
+- 기동 검사: `M ≥ 0` · ~~`M < θ`(①) · `M < W`(④)~~ → **`M ≤ θ`(① · ④)**(구현 명세 2026-11-07 — 200은 남은 시간 > θ일 때만 나가므로 `M ≤ θ`면 `payBy > :now`가 보장된다 · `M < θ`면 기본 θ = M = 0으로 기동 불가 · ④는 규칙 4의 θ < W와 합쳐 M < W도 성립) — 어기면 거부(RD16-7).
 - 붙이는 곳: ① · ④ 모드의 선점 201 · payment-start 200(둘 다 A sweep · 앱 Clock — B · C · D는 current 명시가 강제돼 이 기능 밖 · RD16-OQ3).
 - 클라이언트 시계 차: 절대 시각만 주면 클라이언트 시계로 계산된다 → **상대값 `payWithinSeconds`(= payBy − 서버 :now)를 함께 준다**(RD16-OQ3).
 - ⓒ 셀의 억울 ≈ 0은 하네스가 확정을 보내지 않아 생기는 값이라 서버 증거가 아니다 — ⓒ 셀이 검증하는 것은 'M이 δ + 시계 차를 덮는가'뿐(RD16-19).
@@ -237,6 +237,18 @@ ADR-015 ① `conditional`은 늦은 확정을 **명확한 거부**로 바꿨다(
 | Q13 | paid-flow 시간 눈금 | 1/10(TTL 30초 · 배치 1초 · D · T도 1/10) — 억울 판정은 만료 비교라 눈금 무관 · 실제 눈금 1회를 대조로 |
 | Q14 | 목표 · 상한 | 억울 ≤ 0.1%(1,000명 중 1명) · 결제 전 거부 + 결제 실패 ≤ 5% — 기준 분포에서 |
 | Q15 | 생각 시간 `T` 분포 | 근거 없음 → U[30, 240]초 기준 + 민감도(U[30, 120] · U[60, 270]) — **결정**(사용자) |
+
+## 구현 (2단계 — 2026-11-07 · 작업 폴더 `docs/plans/2026-11-07/adr-016-payment-start/`)
+
+- 범위: 앱 코드 + ADR-015 하네스 키 맞춤(측정 · k6/ADR-016 하네스는 다음 명세). 커밋 ea020de4(기능) · a7b2aacb(계약 테스트) · 7e3f046e · 1c2d8d5b · a271bb92(리뷰 반영).
+- 계약(설계-9를 구현한 그대로):
+  - 손잡이 `seat.confirm.payment-min-remaining`(θ · ① 확인과 ④ too_late 공통 · 기본 0) · `seat.confirm.pay-by-margin`(M · 기본 0). 옛 키 `extend-min-remaining`은 프로퍼티 · 환경 변수 어느 형태든 기동 거부(Flyway 앞). θ · M 음수 거부(모드 무관) · `M ≤ θ`(① · ④ — `ConfirmMode.paymentStartEnabled` 한 곳).
+  - ① payment-start = 읽기 전용 트랜잭션의 잠금 없는 SELECT 한 번(`PaymentStartService.check`) · 404 → 403 → 409 expired → 409 insufficient(둘 다 HOLD_EXPIRED) → 200 · 지표 `seat.confirm.pay_start{result}`(200은 커밋 뒤).
+  - 응답: payment-start 200 `{holdId, expiresAt, payBy, payWithinSeconds, extended}` · ① · ④ 선점 201에 `payBy · payWithinSeconds`(current · ② · ③은 키 3개 그대로). `payWithinSeconds = max(0, ⌊(payBy − 응답 시각)/1초⌋)`.
+  - 확정 지표: `seat.confirm.rejected{code}`(처리기가 고른 상태 그대로 나간 도메인 거부) · `seat.confirm.failed{status}`(그 밖 비2xx · 미처리 예외 500 · 오류 본문을 못 쓴 거부 포함) — 확정 핸들러가 선택된 요청만(핸들러 매핑 전 405 · 컨테이너 파싱 400은 앱 밖).
+- `:now`(① 판정 시각)는 연결을 얻은 뒤의 앱 Clock — 설계-9.1의 δ 정의와 같다(④ E1 · 확정 C1과 같은 규칙).
+- 검증: 기존 전체 테스트(1,161 · 실패 0) · blind 계약 테스트 40 + fix 테스트 · 변이 3건(θ 경계 · rejected 증가 제거 · 거부 판정 옛 식)이 모두 테스트에 잡힘 · 로컬 기동 스모크(① · ④ · current · 옛 키). 리뷰 ledger = 작업 폴더 log.
+- 측정 전 정할 것(이 단계 밖): θ < TTL 기동 검사 여부(θ ≥ TTL이면 ①은 모두 insufficient · ④는 모두 too_late — RC16-OQ1) · k6 대조에서 핸들러 매핑 전 비2xx를 어떻게 셀지(RC16-OQ2).
 
 ## 실험 결과
 
