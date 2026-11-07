@@ -16,7 +16,7 @@ V12(`main-app/src/main/resources/db/migration/V12__reservation_confirmed_seat_un
 ## 순서
 
 1. **운영 크기 사본에서 먼저**(ADR-013 원칙): R0 → (0행이 아니면 2~4) → R2 → V12 적용 시간 측정(`[구현 검증]` #5 — `reservation` SHARE 락 길이).
-2. **R0이 0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다.** 중복 확정 1건 = 결제한 사용자 둘이다. 어느 예약을 남길지는 사업 결정이고, 취소되는 쪽은 ADR-016 보상 대상이다(결제 uid는 취소한 예약 행에 남는다 — 행을 지우지 않는다).
+2. **R0이 0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다.** 중복 확정 1건 = 결제한 사용자 둘이다. 어느 예약을 남길지는 사업 결정이고, 취소되는 쪽은 ADR-017 보상 대상이다(결제 uid는 취소한 예약 행에 남는다 — 행을 지우지 않는다).
 3. 좌석마다 R1 **미리보기**(기본 — 끝에서 ROLLBACK):
    `psql -X -v ON_ERROR_STOP=1 -v keep=<남길 id> -v drop='{<취소할 id>,…}' -f ops/confirm-unique-v12/r1-repair-template.sql`
    출력(잠근 쌍 · 고른 예약 행 · 다시 센 cnt)을 확인한 뒤 같은 명령에 `-v commit=1`을 더해 적용한다.
