@@ -40,7 +40,7 @@ class PaymentStartService(
         val window = confirmProperties.paymentWindow
         val minRemaining = confirmProperties.paymentMinRemaining
         // E1 첫 연장 — 내 것 · 활성 · 아직 연장 안 함 · 연장이 실제로 늘리는 경우만(조건이 모두 홀드 행 자신의 열 — 동시 호출은 행 잠금 뒤 EPQ가 다시 본다)
-        val extended = jdbc.query(
+        val extendedExpiresAt = jdbc.query(
             """
             UPDATE seat_hold
                SET expires_at = ?, extended_at = ?
@@ -54,9 +54,9 @@ class PaymentStartService(
             Timestamp.from(now.plus(window)), Timestamp.from(now), holdId, userId,
             Timestamp.from(now.plus(minRemaining)), Timestamp.from(now.plus(window)),
         ).singleOrNull()
-        if (extended != null) {
+        if (extendedExpiresAt != null) {
             countAfterCommit(RESULT_EXTENDED)
-            return PaymentStartResult(holdId, extended, extended = true)
+            return PaymentStartResult(holdId, extendedExpiresAt, extended = true)
         }
         return diagnose(holdId, userId, now)
     }
