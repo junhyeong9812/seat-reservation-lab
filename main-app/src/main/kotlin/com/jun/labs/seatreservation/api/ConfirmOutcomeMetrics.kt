@@ -28,12 +28,13 @@ class ConfirmOutcomeMetrics(
 
     override fun afterCompletion(request: HttpServletRequest, response: HttpServletResponse, handler: Any, ex: Exception?) {
         if (handler !is HandlerMethod || handler.beanType != ReservationController::class.java || handler.method.name != CONFIRM_METHOD) return
+        val status = if (ex != null) 500 else response.status
+        // 표지가 있어도 응답이 실제 도메인 거부 상태로 나갔을 때만 rejected — 오류 본문을 못 쓴 경우(406 · 500 등)는 failed(겹치지 않음 · N16-5)
         val code = request.getAttribute(REJECTED_CODE_ATTR) as String?
-        if (code != null) {
+        if (code != null && ex == null && status in DOMAIN_REJECT_STATUSES) {
             meters.counter(REJECTED_METRIC, "code", code).increment()
             return
         }
-        val status = if (ex != null) 500 else response.status
         if (status !in 200..299) meters.counter(FAILED_METRIC, "status", status.toString()).increment()
     }
 
@@ -43,5 +44,7 @@ class ConfirmOutcomeMetrics(
         /** [ApiExceptionHandler]가 도메인 거부 코드를 남기는 요청 속성 */
         const val REJECTED_CODE_ATTR = "seatlab.domainRejectedCode"
         private const val CONFIRM_METHOD = "confirm"
+        /** 확정 도메인 거부의 응답 상태(ApiExceptionHandler 매핑 — 404 · 403 · 409) */
+        private val DOMAIN_REJECT_STATUSES = setOf(403, 404, 409)
     }
 }

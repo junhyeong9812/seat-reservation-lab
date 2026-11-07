@@ -283,7 +283,7 @@ class HoldStrategyStartupCheck(
             if (mode == ConfirmMode.CURRENT) return
             val key = "seat.confirm.mode=${mode.key()}"
             // ADR-016 설계-9.3: payBy = expiresAt − M — 결제 시작 200은 남은 시간 > θ일 때만 나가므로 M ≤ θ면 payBy가 그 :now 뒤다
-            if (mode == ConfirmMode.CONDITIONAL || mode == ConfirmMode.CONDITIONAL_EXTEND) {
+            if (mode.paymentStartEnabled) {
                 check(margin <= theta) {
                     "$key 는 seat.confirm.pay-by-margin ≤ seat.confirm.payment-min-remaining여야 한다 — 현재 pay-by-margin=$margin · payment-min-remaining=$theta(ADR-016 설계-9.3)"
                 }

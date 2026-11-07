@@ -38,7 +38,8 @@ class PaymentStartController(
     ): PaymentStartResponse {
         val result = when (confirmProperties.mode) {
             ConfirmMode.CONDITIONAL_EXTEND -> paymentStartService.paymentStart(holdId, userId)
-            else -> paymentStartService.check(holdId, userId) // 등록 조건상 ① 뿐
+            ConfirmMode.CONDITIONAL -> paymentStartService.check(holdId, userId)
+            else -> error("payment-start는 ${ConfirmMode::paymentStartEnabled.name} 모드에서만 등록된다 — 현재 ${confirmProperties.mode}")
         }
         val deadline = payBy.of(result.expiresAt)
         return PaymentStartResponse(
@@ -53,8 +54,7 @@ class PaymentStartController(
      */
     class PaymentStartModes : Condition {
         override fun matches(context: ConditionContext, metadata: AnnotatedTypeMetadata): Boolean =
-            Binder.get(context.environment).bind("seat.confirm.mode", ConfirmMode::class.java).orElse(SeatConfirmProperties().mode) in
-                setOf(ConfirmMode.CONDITIONAL, ConfirmMode.CONDITIONAL_EXTEND)
+            Binder.get(context.environment).bind("seat.confirm.mode", ConfirmMode::class.java).orElse(SeatConfirmProperties().mode).paymentStartEnabled
     }
 }
 

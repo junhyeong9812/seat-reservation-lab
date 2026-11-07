@@ -32,6 +32,7 @@ import kotlin.test.assertTrue
  * - RC16-2: ① `seat.confirm.pay_start{result=ok}`는 커밋 뒤에만 센다(명세 §1-3) — 바깥 트랜잭션 롤백이면 그대로 · 커밋되면 +1.
  * - RC16-3: 확정 커밋 실패(5xx)는 `seat.confirm.failed{status=500}`로 세고 `rejected`는 그대로(명세 §1-5 · N16-5).
  * - OQ-2 고정: 확정 경로 POST는 인자 변환이 실패해도 핸들러가 선택된 뒤라 `failed{status=400}`으로 센다(매핑에 consumes · params · headers 제약 없음).
+ * - RC2-1(루프 2): 도메인 거부 표지가 있어도 오류 본문을 못 쓰면(Accept: text/html) 실제 응답 상태로 센다 — rejected와 failed 중 정확히 하나 · 상태와 맞는 쪽.
  * 컨텍스트 키는 Adr016ReadOnlyProbeTest와 같다(캐시 재사용).
  */
 @SpringBootTest(
@@ -86,5 +87,25 @@ class Adr016MetricsFixTest : Adr016Base() {
         assertEquals(400, r.status, "$r")
         assertEquals(f0 + 1, cnt("seat.confirm.failed", "status", "400"))
         assertEquals(rej0, tot("seat.confirm.rejected"))
+    }
+
+    @Test
+    fun `RC2-1 거부 표지 뒤 본문을 못 써도 실제 응답 상태로 하나만 센다(Accept text-html)`() {
+        val rej0 = tot("seat.confirm.rejected")
+        val fail0 = tot("seat.confirm.failed")
+        val req = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:$port/api/holds/9999999/confirm"))
+            .timeout(java.time.Duration.ofSeconds(60))
+            .header(com.jun.labs.seatreservation.api.USER_ID_HEADER, x.toString())
+            .header("Content-Type", "application/json").header("Accept", "text/html")
+            .POST(java.net.http.HttpRequest.BodyPublishers.ofString("""{"paymentUid":"p"}""")).build()
+        val status = http.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()).statusCode()
+        val dRej = tot("seat.confirm.rejected") - rej0
+        val dFail = tot("seat.confirm.failed") - fail0
+        assertEquals(1.0, dRej + dFail, "정확히 하나만 센다(status=$status · rejected +$dRej · failed +$dFail)")
+        if (status in setOf(403, 404, 409)) assertEquals(1.0, dRej, "도메인 거부 상태로 나갔으면 rejected(status=$status)")
+        else {
+            assertEquals(1.0, dFail, "본문을 못 써 $status 로 나갔으면 failed")
+            assertTrue(cnt("seat.confirm.failed", "status", status.toString()) >= 1.0, "failed{$status} 태그로 센다")
+        }
     }
 }

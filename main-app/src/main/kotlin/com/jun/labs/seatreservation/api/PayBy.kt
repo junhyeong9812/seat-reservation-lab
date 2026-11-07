@@ -1,6 +1,5 @@
 package com.jun.labs.seatreservation.api
 
-import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import org.springframework.stereotype.Component
 import java.time.Clock
@@ -18,7 +17,7 @@ class PayBy(
     private val confirm: SeatConfirmProperties,
     private val clock: Clock,
 ) {
-    val enabled: Boolean get() = confirm.mode == ConfirmMode.CONDITIONAL || confirm.mode == ConfirmMode.CONDITIONAL_EXTEND
+    val enabled: Boolean get() = confirm.mode.paymentStartEnabled
 
     fun of(expiresAt: Instant): Deadline {
         val payBy = expiresAt.minus(confirm.payByMargin)

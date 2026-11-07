@@ -46,4 +46,11 @@ enum class ConfirmMode {
     OPTIMISTIC,
     /** ④ 결제 중 홀드 연장 + ① */
     CONDITIONAL_EXTEND,
+    ;
+
+    /**
+     * ADR-016 결제 시작 모드(설계-9.2 · 9.3) — payment-start 등록 · 선점 201의 결제 마감 필드 · 기동 검사 `M ≤ θ`가 모두 이 집합으로 갈린다(한 곳에서만 정한다).
+     * current · ② · ③은 밖(N16-7).
+     */
+    val paymentStartEnabled: Boolean get() = this == CONDITIONAL || this == CONDITIONAL_EXTEND
 }
