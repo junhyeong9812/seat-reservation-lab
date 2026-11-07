@@ -47,3 +47,32 @@
 | 11-07 | 조사 회수(워커 · 103k 토큰 · 51 도구 · 354초): 결제 시간 분위 1차 자료 없음 · 평균 37초(3DS · 중) · PG 상한 10분(토스 · 이니시스 · 3DS) · 멜론 5분 선점 · Stripe · Adyen 승인/매입 · 로그정규 간접 근거 · 메인 원문 대조 2건(멜론 · 토스) 일치 | 설계-7 |
 | 11-07 | 모형 계산 예시(메인 · python 표본 30만~40만 · 시드 1 · 2): ① 억울 m45 σ0.94 = 11.47% · ⓑ θ2분 = 4.64%/거부 28.5% · ④ W 2·3·5·10분 = 8.80·5.68·1.91·0% · ⓒ M10초 = 0%/실패 13.62% → 설계-8(두 부분 · 분포 · 셀 · 고르는 규칙 초안) · Q13~Q15 | 사용자 보고 |
 | 11-07 | 사용자 답: Q15 생각 시간 U[30,240] + 민감도 · Q14 억울 ≤ 0.1% · 거부+실패 ≤ 5% · Q7 두 부분 · Q13 1/10 + 실제 눈금 1회 · 나머지 Q8~Q12 권장안 · 함의: 계산상 통과 후보 = ④ W≈10분뿐 | 설계 리뷰(설계 선검증 + 듀얼 1패스) 착수 |
+| 11-07 | 설계 리뷰 착수(설계 문서형 — 설계 선검증 + 듀얼 1패스 · 상한 = 中 변형) · 미러 scratchpad/mir16d.pxJj(k6/*/results · ledger 제외) · OUT rv16d.FGW5 · 보안 스캔 0 · codex(medium) ∥ Opus | — |
+| 11-07 | 회수: codex(높음 3 · 중간 5 · OQ 3) · Opus(199k 토큰 · 25 도구 · 381초 — 높음 4 · 중간 7 · 낮음 2 · OQ 7 · Grep 없이 Read만 — 테스트 미열람) · 메인 확인: `Adr015RaceScenarios.kt:228-235` 비④ payment-start 404 단언 · `summarize.py:42` CONTRACT_PAIRS · 토스 '결제 유효 시간 30분' 원문(앞 대조) · 최소 W 모형 계산(시드 3) | 종합 아래 ledger · ADR 설계-9 |
+
+## 리뷰 ledger — 설계 루프 1(ADR-016 설계 · 中 변형)
+
+| id | source | 근거 | disposition | status |
+|---|---|---|---|---|
+| RD16-1 | codex F1 | 설계-2 · AtomicConfirmProcess.kt:41 · :67-78 | 채택 — 억울 조건에 δ(서버 :now 지연) | fixed(설계-9.1) |
+| RD16-2 | codex F2 | 설계-8.1 · 8.5 | 채택 — G-목표를 관측 + 신뢰 상한으로 · 불일치 규칙 | fixed(9.6) |
+| RD16-3 | codex F3 · opus F10 | 8.4 Q13 · HoldExpiryScheduler.kt:15 | 채택 — 1/10은 경합 재현만 | fixed(9.6) |
+| RD16-4 | codex F4 | confirm-contention.js:132-138 | 채택 — 세션(paymentUid) 단위 | fixed(9.1) |
+| RD16-5 | opus F5 · codex F6 일부 | ADR-015 :27 · :221 · summarize.py:42 · Adr015RaceScenarios.kt:228 | 채택 — Q8이 ADR-015 사용자 결정을 뒤집음 → 사용자 재확인 · 테스트 · 요약기 범위 명시 | open(⏳ 사용자) |
+| RD16-6 | codex F6 · opus N16-2 | PaymentStartService.kt:44 · :75 | 채택 — θ 경계 `≤ θ` 거부로 통일 | fixed(9.2) |
+| RD16-7 | codex F7 · opus N16-3 | SeatConfirmProperties.kt · 규칙 4 | 채택 — M 기동 검사 | fixed(9.3) |
+| RD16-8 | codex F8 · opus N16-1 | 8.5 n_tup_upd | 채택 — readOnly 트랜잭션 + 행 대조 | fixed(9.2) |
+| RD16-9 | codex F5 · opus N16-5 | ApiExceptionHandler.kt:25 · ConfirmReservationService.kt:134 | 채택 — N16-5 범위를 도메인 거부로 · failed 따로 | fixed(9.5) |
+| RD16-10 | opus F4 | SeatConfirmProperties.kt:17 · HoldStrategyStartupCheck.kt:287-294 · plan15.py:167 · :208 | 채택 — 옛 키 무음 무시 → 기동 거부 · 하네스 함께 | fixed(9.4) |
+| RD16-11 | opus F11 | PaymentStartController.kt:19-23 | 채택 — `extended` 필드 | fixed(9.2) |
+| RD16-12 | opus F12 | 설계-4 문장 | 채택 — 사실 정정 | fixed |
+| RD16-13 | opus F13 | 결제 전 거부 서버 지표 없음 | 채택 — pay_start 지표 | fixed(9.2) |
+| RD16-14 | opus F1 | 설계-7 E2 · 8.2 · 8.3 | 채택 — CAP 오독(10분 = 인증 뒤 승인 창) → {10, 30} 민감도 · W 규칙 분리 | fixed(9.6) + ⏳ 목표 재확인 |
+| RD16-15 | opus F9 | AtomicConfirmProcess.kt:73-82 | 채택 — SEAT_NOT_HELD 뜻 정정 | fixed(9.1) |
+| RD16-16 | opus F2 · F3 | plan15.py:48-53 · 8.5 | 채택 — 비용 셀 실제 수명 · 다른 사용자 비용 지표 | fixed(9.6) |
+| RD16-17 | opus F6 · F7 | 8.5 규칙 5 · G-모형 | 채택 — W 선택 규칙 · 순서표 · p=0 셀 · 최소 n | fixed(9.6) |
+| RD16-18 | opus F10 | plan15.py:26 | 채택(RD16-3과 묶음) | fixed |
+| RD16-19 | opus F8 | 3.3 · 8.1 | 채택 — record-level 대조 · ⓒ 셀 뜻 한정 | fixed(9.1 · 9.3) |
+| RD16-OQ1 | opus OQ1 | PaymentStartService.kt:71-74 | 기록 — already 재시도 허용 · 모형 1회 | — |
+| RD16-OQ3 | opus OQ3 · codex OQ | payBy 범위 · 시계 차 | 채택 — ①·④만 · payWithinSeconds | fixed(9.3) |
+| RD16-OQ2 | codex OQ2 | payment-start 필수 호출? | open — 확정이 확인하지 않음(강제하려면 ①에 쓰기 필요 — N16-1과 충돌) → 계약 문구 '권고'로 · 사용자 보고 | — |
