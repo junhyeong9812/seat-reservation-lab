@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.adr015
 
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.sql.Timestamp
@@ -229,7 +230,7 @@ abstract class Adr015RaceScenarios(val mode: String, val v12: Boolean) : Adr015B
      */
     @Test
     fun `payment-start API — conditional · conditional-extend가 아니면 없다(404)`() {
-        if (mode == "conditional-extend" || mode == "conditional") return
+        assumeTrue(mode != "conditional-extend" && mode != "conditional", "[$mode] payment-start가 있는 모드 — 계약은 ADR-015 ④ · ADR-016 ① 테스트가 본다")
         val seat = createSeat(1).id!!
         val hold = holdOk(seat, x)
         clock.set(NOW.plus(Duration.ofMinutes(4)))
