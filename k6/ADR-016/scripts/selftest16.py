@@ -952,6 +952,15 @@ _, s = synth("paid", "ext", ext_value_bad)
 check("L3-1 ④ 연장 만료 값이 정책식 구간 밖 → extend_value_mismatch(G-정합 실패 자료 · 예측과 따로)", s["fail"].get("extend_value_mismatch") == 1, str(s["fail"]))
 
 
+def ext_value_bad_bd(L):   # ④ 경계 흐름(ed)의 연장 응답 만료가 정책식 구간 밖(+5초) — 재점검 L4-1: 경계 분기 앞에서 검사해야 잡힌다
+    r = first(L, lambda x: x.get("fl") == "ed" and x["p"] and x["p"]["st"] == 200 and x["p"].get("ext"))
+    r["p"]["exp"] += 5000
+
+
+_, s = synth("paid", "ext", ext_value_bad_bd)
+check("L4-1 ④ 경계 흐름 ed의 연장 만료 값이 구간 밖 → extend_value_mismatch(경계 흐름도 검사)", s["fail"].get("extend_value_mismatch") == 1, str(s["fail"]))
+
+
 def pay_hid_bad(L):   # payment-start 200이 다른 홀드 ID를 돌려줌(k6 ok 판정도 false)
     r = first(L, lambda x: x["fl"] == "b" and x["p"] and x["p"]["st"] == 200 and x["c"] and x["c"]["st"] == 200)
     r["p"].update(hid=r["p"]["hid"] + 1, ok=False)
