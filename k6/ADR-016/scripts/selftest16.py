@@ -260,7 +260,9 @@ ok, lst = S.g_model([("success", False, "success"), ("wronged", True, "success")
 check("g_model — 띠 안 불일치 허용", ok and any(x["kind"] == "허용" for x in lst))
 check("g_model — 띠 밖 불일치 1건 → False", not S.g_model([("success", False, "wronged")])[0])
 ok, lst = S.g_model([("success", False, "mode_fail:confirm-5xx")])
-check("g_model — 관측이 4갈래 밖 → False · 사유", not ok and lst[0]["kind"] == "판정 밖")
+check("g_model — 4갈래 밖 관측만 → None(판정 가능 행 0) · '판정 밖' 사유(L4-4)", ok is None and lst[0]["kind"] == "판정 밖")
+ok, lst = S.g_model([("success", False, "success"), ("success", False, "integrity:200-without-reservation")])
+check("g_model — 4갈래 밖 관측은 결과를 False로 만들지 않는다(G-정합이 다룬다 · L4-4)", ok is True and any(x["kind"] == "판정 밖" for x in lst))
 check("g_model — 행 없음 → None(검출력 없음 · 결함 아님 — L3-4)", S.g_model([])[0] is None)
 check("n16_5 — k6 ≤ 서버 ≤ k6 + status0", S.n16_5({"rejected:HOLD_EXPIRED": 3}, 1, {"rejected:HOLD_EXPIRED": 4})[0]
       and not S.n16_5({"rejected:HOLD_EXPIRED": 3}, 1, {"rejected:HOLD_EXPIRED": 5})[0] and not S.n16_5({"rejected:HOLD_EXPIRED": 3}, 0, {"rejected:HOLD_EXPIRED": 2})[0])
@@ -333,7 +335,7 @@ def gen_sessions(plan, delta_ms=5.0, net_ms=1.0, ek=20.0):
                "h": {"st": 201, "code": "NOCODE", "ec": 0, "ts": arr, "tr": arr + 2 * net_ms, "hid": hid, "exp": e0, "pb": pb,
                      "pws": math.floor((pb - h_srv) / 1000), "ext": None, "ok": True}}
         if a["rehold"]:
-            rh.append({"k": "r", "sid": sid, "n": 3, "got": True, "t": e0 + 2000})
+            rh.append({"k": "r", "sid": sid, "n": 3, "got": True, "t": e0 + 2000, "t1": e0 + plan16.REHOLD_FROM_MS + 5})
         row["th"] = row["h"]["tr"] + a["T"] * 1000
         src, tp, e = (row["h"]["tr"], row["h"]["pws"], pb), row["th"], e0
         if f["b"] or mode == O.MODE_EXT:
@@ -603,8 +605,9 @@ def paybody_c(L):   # ⓒ 흐름 payment-start 200 본문 결함(서버는 ok를
 
 _, s = synth("paid", "cond", pay5xx_c)
 gb = s["metrics"].get("g_model", {}).get("bc", {})
-check("L1-1 ⓒ 흐름 payment-start 5xx → 요약기가 죽지 않음 · mode_fail:pay-5xx · G-모형 bc 판정 밖 False", s["status"] == "ok" and "mode_fail:pay-5xx" in (s["fail"].get("mode_fail") or {})
-      and gb.get("ok") is False and any(x.get("kind") == "판정 밖" for x in gb.get("bad", [])), f"{s['status']} {s['fail']} {gb}")
+check("L1-1 · L4-4 ⓒ 흐름 payment-start 5xx → 요약기가 죽지 않음 · mode_fail:pay-5xx(G-F) · G-모형 bc는 '판정 밖' 표기(False 아님)", s["status"] == "ok"
+      and "mode_fail:pay-5xx" in (s["fail"].get("mode_fail") or {}) and gb.get("ok") is True and any(x.get("kind") == "판정 밖" for x in gb.get("bad", [])),
+      f"{s['status']} {s['fail']} {gb}")
 _, s = synth("paid", "cond", paybody_c)
 check("L1-1 ⓒ 흐름 payment-start 200 본문 결함 → mode_fail:pay-body-bad(회차 유효)", s["status"] == "ok" and "mode_fail:pay-body-bad" in (s["fail"].get("mode_fail") or {}),
       f"{s['status']} {s['fail']}")
@@ -787,7 +790,7 @@ check("L2-6 paid-flow.js OUT_DIR 필수(E('OUT_DIR'))", "E('OUT_DIR')" in (REPO 
 # ==== 캠페인 판정(합성 rep-summary) ====
 
 
-def fake_campaign(bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
+def fake_campaign(weak_grid=False, mode_fail_cond=False, bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
     root = Path(tempfile.mkdtemp())
     for cell in plan16.CELLS:
         for g in plan16.CONFIGS[cell]:
@@ -813,7 +816,9 @@ def fake_campaign(bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=Fal
                             cl = {"success": 1100 - wr_ext, "wronged": wr_ext}
                         M_["flows"][fl] = {"planned": 1100, "classified": cl}
                     M_["g_model"] = {fl: {"ok": paid_ok} for fl in M_["flows"]}
-                    M_["boundary"] = {fl: {"rows": [[True, "wronged" if (bad_bcd and fl == "bcd") else "success"], [False, "pay_fail"]]}
+                    M_["boundary"] = {fl: {"rows": [[True, "wronged" if (bad_bcd and fl == "bcd") else "success"], [False, "pay_fail"]],
+                                           "grid": {"0": {"planned": 10, "sent_before": 3 if (weak_grid and fl == "nd") else 10, "wronged_before": 0},
+                                                    "-200": {"planned": 10, "sent_before": 0, "wronged_before": 0}}}
                                       for fl, (b, c, bd) in fls.items() if bd}
                     M_["delta"] = {"values": [0.004, 0.006]}
                     M_["rehold_by_flow"] = {fl: {"never_ratio": (0.9 if g == "ext" else 0.0) + r * 0.001} for fl in M_["flows"]}
@@ -823,6 +828,8 @@ def fake_campaign(bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=Fal
                 if drop_cost_metric and cell == "cost" and g == "ext" and r == 1:
                     M_.pop(drop_cost_metric)
                 fail = {"n16_5": ["x"]} if fail_cost and cell == "cost" and g == "ext" else {}
+                if mode_fail_cond and cell == "paid" and g == "cond":
+                    fail = {"mode_fail": {"mode_fail:confirm-5xx": 1}}
                 (dd / "rep-summary.json").write_text(json.dumps({"status": "ok", "metrics": M_, "fail": fail}))
     return root
 
@@ -977,6 +984,65 @@ check("L3-6 model16.choose — δ̂ 또는 err 결측 → M · W · θ_cond · �
       all(x[k] is None for x in (ch, ch2) for k in ("M", "theta_cond", "theta_cond_rates")) and ch["W"] is None, f"{ch} {ch2}")
 pc_ = subprocess.run([sys.executable, "-I", str(HERE / "model16.py"), "--choose", "-n", "100"], capture_output=True, text=True)
 check("L3-6 model16 --choose — --delta · --err 없이 거부(rc ≠ 0)", pc_.returncode != 0 and "--delta" in pc_.stderr, pc_.stderr[-200:])
+
+
+# ---- 리뷰 루프 4 사례(L4-2 · 3 · 4) ----
+def late_wake_near(L):   # 경계 흐름 nd: 마감 직전 격자 x = 0 · 50 · 100ms가 모두 늦게 깨어 안 보냄(lw) — 먼 격자만 성공
+    for r in L["sess"]:
+        if r["fl"] == "nd" and r["gx"] in (0, 50, 100) and r["c"] is not None:
+            if r["uid"] in L["confirmed"]:
+                L["confirmed"].remove(r["uid"])
+            else:
+                L["conf_rej"][r["c"]["code"]] -= 1
+            r.update(c=None, pf="deadline", lw=True)
+
+
+d, s = synth("paid", "cond", late_wake_near)
+bn = s["metrics"]["boundary"]["nd"]
+check("L4-2 x=0 · 50 · 100 전부 늦게 깨어 안 보냄 + 먼 격자 성공 → 회차 유효 · boundary_ok True지만 grid_ok None(검출력 부족)", s["status"] == "ok" and bn["ok"] is True
+      and bn["grid_ok"] is None and {"0", "50", "100"} <= set(bn["grid_weak"]) and bn["grid"]["0"]["late_wake"] > 0, f"{s['status']} {bn.get('grid_ok')} {bn.get('grid_weak')}")
+_, s = synth("paid", "cond")
+check("L4-2 마감 직전 격자 표본 충분 · 거부 0 → grid_ok True(nd · bcd)", all(s["metrics"]["boundary"][f]["grid_ok"] is True for f in ("nd", "bcd")),
+      str({f: s["metrics"]["boundary"][f]["grid_weak"] for f in ("nd", "bcd")}))
+check("L4-2 boundary_grid_ok — 마감 전 송신 억울 → False · 계획 대비 송신 부족 → None · 충분 → True",
+      S.boundary_grid_ok({"0": {"planned": 10, "sent_before": 10, "wronged_before": 1}})[0] is False
+      and S.boundary_grid_ok({"0": {"planned": 10, "sent_before": 7, "wronged_before": 0}})[0] is None
+      and S.boundary_grid_ok({"0": {"planned": 10, "sent_before": 8, "wronged_before": 0}, "-200": {"planned": 9, "sent_before": 0, "wronged_before": 0}})[0] is True)
+
+
+def lw_coff(L):   # lw 표지인데 확정을 보냈다(모순) → 결제 실패 표지 대조 실패
+    r = first(L, lambda x: x["fl"] == "nd" and x["c"] is not None)
+    r["lw"] = True
+    r["pf"] = "deadline"
+
+
+_, s = synth("paid", "cond", lw_coff)
+check("L4-2 lw인데 확정을 보냄 → session-payfail-mismatch", "session-payfail-mismatch" in s["reasons"], s["status"])
+r = S.campaign(fake_campaign(weak_grid=True), write=False)
+check("L4-2 캠페인 — nd 격자 검출력 부족 → cond+c boundary None(판정 불가) · ed는 True", r["candidates"]["cond+c"]["boundary_ok"] is None
+      and r["candidates"]["ext+c"]["boundary_ok"] is True)
+
+
+def rh_late(L):
+    for x in L["rh"][: max(2, len(L["rh"]) // 50)]:
+        x["t1"] += 5000
+
+
+def rh_no_t1(L):
+    L["rh"][0].pop("t1")
+
+
+_, s = synth("paid", "cond", rh_late)
+check("L4-3 재선점 첫 시도 지연 > 허용인 행 > 1% → rehold-schedule-late", "rehold-schedule-late" in s["reasons"] and s["metrics"]["rehold_schedule"]["late"] >= 2, s["status"])
+_, s = synth("paid", "cond", lambda L: L["rh"][0].__setitem__("t1", L["rh"][0]["t1"] + 5000))
+check("L4-3 지연 행 1건(≤ 1%) → 무효 아님 · 계수 기록", "rehold-schedule-late" not in s["reasons"] and s["metrics"]["rehold_schedule"]["late"] == 1, s["status"])
+_, s = synth("paid", "cond", rh_no_t1)
+check("L4-3 t1 없음 → rehold-schedule-missing(0으로 채우지 않음)", "rehold-schedule-missing" in s["reasons"], s["status"])
+check("L4-3 paid-flow.js 재선점 행에 t1", "got, t, t1 }" in (REPO / "k6/ADR-016/scenarios/paid-flow.js").read_text())
+r = S.campaign(fake_campaign(mode_fail_cond=True), write=False)
+check("L4-4 캠페인 — paid ① 회차 mode_fail → ① 후보 g_consistency False(탈락) · ④+ⓒ 통과 → status pick(판정 불가 아님)",
+      all(r["candidates"][n]["g_consistency"] is False for n in ("cond+c", "cond+b+c", "cond+b")) and r["decision"]["pick"] == "ext+c"
+      and r["decision"]["status"] == "pick" and not any(x.startswith("원인 조사") for x in r["decision"]["report"]), json.dumps(r["decision"], ensure_ascii=False)[:300])
 
 # ==== 캠페인 루프(선택) ====
 if "--campaign" in sys.argv:

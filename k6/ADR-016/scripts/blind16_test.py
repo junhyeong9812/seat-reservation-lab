@@ -592,10 +592,14 @@ class TestGModel(unittest.TestCase):
         self.assertTrue(any("허용" in str(x) for x in lst), f"띠 안 불일치는 '허용' 표기 · 실제 {lst}")
 
     def test_non_category_observed(self):
+        # 계약 정정(2026-11-08 리뷰 루프 4 R4-1 · 메인): 4갈래 밖 관측은 '판정 밖'으로 목록에 남기되 ok를 False로 만들지 않는다
+        # (그 세션은 G-정합 · G-F가 실패 자료로 다룬다) · 판정 가능한 행이 0이면 None
         for obs in ("invalid:hold-fail", "mode_fail:pay-5xx", "integrity:confirm-200-no-reservation"):
             ok, lst = S.g_model([("success", False, "success"), ("success", True, obs)])
-            self.assertFalse(ok, f"관측 {obs}(4갈래 밖) → False")
+            self.assertTrue(ok, f"관측 {obs}(4갈래 밖) → 판정 밖 · 나머지 일치면 True")
             self.assertTrue(lst, f"관측 {obs} — 무시하지 말고 사유로 돌려줘야 함")
+            ok, lst = S.g_model([("success", True, obs)])
+            self.assertIsNone(ok, f"관측 {obs}뿐(판정 가능한 행 0) → None")
 
 
 class TestN16_5(unittest.TestCase):
