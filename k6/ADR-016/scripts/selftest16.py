@@ -790,7 +790,7 @@ check("L2-6 paid-flow.js OUT_DIR 필수(E('OUT_DIR'))", "E('OUT_DIR')" in (REPO 
 # ==== 캠페인 판정(합성 rep-summary) ====
 
 
-def fake_campaign(weak_grid=False, mode_fail_cond=False, bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
+def fake_campaign(weak_grid=False, no_send_nd=False, mode_fail_cond=False, bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
     root = Path(tempfile.mkdtemp())
     for cell in plan16.CELLS:
         for g in plan16.CONFIGS[cell]:
@@ -816,8 +816,10 @@ def fake_campaign(weak_grid=False, mode_fail_cond=False, bad_bcd=False, paid_ok=
                             cl = {"success": 1100 - wr_ext, "wronged": wr_ext}
                         M_["flows"][fl] = {"planned": 1100, "classified": cl}
                     M_["g_model"] = {fl: {"ok": paid_ok} for fl in M_["flows"]}
-                    M_["boundary"] = {fl: {"rows": [[True, "wronged" if (bad_bcd and fl == "bcd") else "success"], [False, "pay_fail"]],
-                                           "grid": {"0": {"planned": 10, "sent_before": 3 if (weak_grid and fl == "nd") else 10, "wronged_before": 0},
+                    M_["boundary"] = {fl: {"rows": ([[False, "pay_fail"], [False, "pay_fail"]] if (no_send_nd and fl == "nd") else
+                                                    [[True, "wronged" if (bad_bcd and fl == "bcd") else "success"], [False, "pay_fail"]]),
+                                           "grid": {"0": {"planned": 10, "sent_before": 0 if (no_send_nd and fl == "nd") else (3 if (weak_grid and fl == "nd") else 10),
+                                                          "wronged_before": 0},
                                                     "-200": {"planned": 10, "sent_before": 0, "wronged_before": 0}}}
                                       for fl, (b, c, bd) in fls.items() if bd}
                     M_["delta"] = {"values": [0.004, 0.006]}
@@ -1036,6 +1038,17 @@ _, s = synth("paid", "cond", rh_late)
 check("L4-3 재선점 첫 시도 지연 > 허용인 행 > 1% → rehold-schedule-late", "rehold-schedule-late" in s["reasons"] and s["metrics"]["rehold_schedule"]["late"] >= 2, s["status"])
 _, s = synth("paid", "cond", lambda L: L["rh"][0].__setitem__("t1", L["rh"][0]["t1"] + 5000))
 check("L4-3 지연 행 1건(≤ 1%) → 무효 아님 · 계수 기록", "rehold-schedule-late" not in s["reasons"] and s["metrics"]["rehold_schedule"]["late"] == 1, s["status"])
+def rh_early(L):   # 재점검 L4-R3: 재선점 반복이 일찍 시작해 첫 시도가 계획보다 5초 이르다(> 1%)
+    for x in L["rh"][: max(2, len(L["rh"]) // 50)]:
+        x["t1"] -= 5000
+
+
+_, s = synth("paid", "cond", rh_early)
+check("L4-R3 재선점 첫 시도가 계획보다 이른 행 > 1% → rehold-schedule-late(양방향)", "rehold-schedule-late" in s["reasons"] and s["metrics"]["rehold_schedule"]["late"] >= 2, s["status"])
+r = S.campaign(fake_campaign(no_send_nd=True), write=False)
+check("L4-R2 캠페인 — nd 마감 전 송신 0(전부 늦게 깨어 안 보냄) → cond+c boundary None(검출력 없음 · 탈락 아님)", r["candidates"]["cond+c"]["boundary_ok"] is None,
+      str(r["candidates"]["cond+c"].get("boundary_ok")))
+check("L4-R1 paid-flow.js 경계 흐름 — 송신 시각을 한 번 재서 검사 · 기록(call(creq, tsc))", "call(creq, tsc)" in (REPO / "k6/ADR-016/scenarios/paid-flow.js").read_text())
 _, s = synth("paid", "cond", rh_no_t1)
 check("L4-3 t1 없음 → rehold-schedule-missing(0으로 채우지 않음)", "rehold-schedule-missing" in s["reasons"], s["status"])
 check("L4-3 paid-flow.js 재선점 행에 t1", "got, t, t1 }" in (REPO / "k6/ADR-016/scenarios/paid-flow.js").read_text())
