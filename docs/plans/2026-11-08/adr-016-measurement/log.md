@@ -43,11 +43,21 @@
 | 11-08 | 루프 3 수정 codex 타깃 재점검: 신규 1(L4-1 연장 응답 만료 대조가 경계 흐름 continue 뒤 — ed 미검사) → 메인 수정(검사를 경계 분기 앞으로) + 회귀 사례 · selftest16 --campaign 199 · blind 109 | 커밋 5936dcd5 · 7f3c7b96 |
 | 11-08 | 앱 전체 테스트(θ < TTL 반영 · --rerun-tasks · 44분) | 213클래스 · 1165 · 실패 0 · 오류 0 · 건너뜀 24(이전 1161 + Adr016ThetaTtlStartupTest 4) |
 | 11-08 | 리뷰 상태: 3루프 + 재점검 — 루프 3에 신규 채택 6 · 재점검 신규 1(고침) → **최대 3루프 도달 · 형식상 review unresolved · 미해소 open 0** · 남은 자리표시(PROBE_HOLDS · ALLOWED_WRITES · 탐침 대기 12초 · θ · W · M · 도착률 · 경계 격자 · 창)는 .164 스모크 뒤 측정 전 고정 커밋 대상 | 사용자 판단 대기 |
+| 11-08 | 사용자 판단: '루프 4 더 · 스모크와 병행'(리뷰) · '.164 아직 안 됨' → 루프 4만(상한 초과 · 사용자 승인) · 스모크는 리뷰 뒤 다시 확인 | 루프 4 packet: base 218ed2d5a · HEAD 7f3c7b96 · 루프 3 수정 diff 참고 · OUT `scratchpad/rvm16d-*` · 스캔 0 |
+| 11-08 | 루프 4 회수: codex 높음 1 · 중간 1(F1 경계 흐름 — 먼 격자 하나만 성공해도 통과 · F2 재선점이 실제 만료가 아니라 반복 시작 기준) · Opus 중간 1 · 낮음 1(R4-1 결함 사유 세션이 g_model False → L3-4 덮어쓰기로 탈락이 판정 불가로 — 루프 3 수정이 만든 경로(재현) · R4-2 x=0 격자는 늘 늦게 깨어 마감 뒤 송신) · OQ(console-output 형식 — 로컬 실데이터 2회차 깨진 줄 0으로 확인 · 닫음 · 모형 net 0 — 고르기용이라 유지) → L4-2~4 채택 · 인터페이스 C절 g_model 정의 정정 · 수정 위임 | fixed L4 |
+| 11-08 | 루프 4 수정 회수(구현 워커 · 누적 토큰 639,795): L4-2~4 반영 · selftest16 --campaign 210 · ADR-015 selftest 0 · blind 1건 실패(test_non_category_observed — 정정 전 계약 고정) → 메인이 정정된 계약으로 사례 수정(판정 밖 → True · 판정 가능 0 → None) · blind 109 통과 · 로컬 실데이터 2회차 paid_rep: 실패 자료 0 · G-모형 · 경계 격자 True · 옛 데이터라 t1 없음 → rehold-schedule-missing(새 하네스는 늘 기록) | 커밋 5feb9fa0 · f0be345f |
+| 11-08 | 루프 4 수정 codex 타깃 재점검: L4-4 해소 · 신규 중간 3(L4-R1 경계 송신 검사 시각 ≠ 기록 시각 · L4-R2 송신 표본 0이 False로 탈락 · L4-R3 재선점 이른 시작 미검사) → 메인 직접 수정(작고 범위 명확) + 회귀 사례 3 · selftest16 --campaign 통과 · blind 109 | 커밋(fix · test) · **리뷰 상태: 4루프 + 재점검 — 매 루프 새 실결함(감소 추세 16 → 10 → 6 → 4 → 재점검 3) · 미해소 open 0 · 형식상 review unresolved — 사용자 판단** |
 
 ## 리뷰 ledger
 
 | ID | 출처 | 위치 | 처리 | 상태 |
 |---|---|---|---|---|
+| L4-R1 | 재점검 · codex | paid-flow.js:143-145 | 채택(중간) — 송신 시각 한 번 재서 검사 · 기록 | fixed(메인) |
+| L4-R2 | 재점검 · codex | summarize16.py:1101-1103 | 채택(중간) — 송신 표본 0 = None | fixed(메인) |
+| L4-R3 | 재점검 · codex | summarize16.py:842-849 | 채택(중간) — 재선점 일정 양방향 | fixed(메인) |
+| L4-2 | codex F1 · opus R4-2 | summarize16.py:173 · paid-flow.js:130-145 | 채택(높음) — 경계 격자별 유효 표본 · 늦게 깨면 안 보냄(lw) · 부족하면 None | fixed L4 |
+| L4-3 | codex F2 | paid-flow.js:148-165 | 채택(중간) — 재선점 첫 시도 vs 실제 만료 대조 · rehold-schedule-late | fixed L4 |
+| L4-4 | opus R4-1 | summarize16.py:766-768 · :146-149 · :227-238 | 채택(중간) — 판정 밖 행은 g_model False 아님 · 원인 조사는 띠 밖만 | fixed L4 |
 | L4-1 | 재점검 · codex | summarize16.py:750 | 채택(높음) — 연장 응답 만료 대조를 경계 분기 앞으로 | fixed(5936dcd5) |
 | L3-1 | codex F1 | outcome16.py:142 · summarize16.py:757-761 | 채택(높음) — ④ 예측은 정책 구간 · 응답 만료는 별도 대조(extend_value_mismatch) | fixed L3 |
 | L3-2 | opus R3-2 | summarize16.py:754-761 · outcome16.py:150 | 채택(중간) — 마감 입력 없으면 PAID · 요약기 예외 방지 | fixed L3 |
