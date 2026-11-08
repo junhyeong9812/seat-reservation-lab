@@ -6,7 +6,9 @@
 #   race 셀은 이 파일이 아니라 ADR-015 run.sh(--results-root)가 돈다(campaign16.sh). 계획 = plan16.py · 라이브러리 = ADR-015 lib15.sh → lib14.sh → ADR-009 lib.sh(동결 사본 source).
 #
 #   scripts/run16.sh --sha <SHA> --images <images.json> --cell paid|cost --config cond|cond+b|ext --rep <k> --id <캠페인 id> [--attempt n]
-#       [--k6-bin k6] [--probe-k6-bin <경로>] [--worktree] [--results-root <폴더>] [--dry-run] [--simulate]
+#       [--k6-bin k6] [--probe-k6-bin <경로>] [--worktree] [--results-root <폴더>] [--dry-run] [--simulate] [--smoke [--cost-rate 100|300]]
+#     --smoke = .164 스모크(task 06 — 측정 전 고정 값을 정하려고 자리표시 값으로 돈다 · 판정 미사용): FIXED 관문 예외 · id는 smoke16-로 시작 · 캠페인 안에서는 거부 ·
+#       --cost-rate = 가정 1 도착률 실측(스모크 전용 — 계획 JSON의 rate · seed · VU가 이 값으로 렌더된다).
 #     결과 = <results-root 기본 k6/ADR-016/results>/<id>/<셀>/<구성>/rep<k>/ · --attempt n(>1)은 앞 시도를 rep<k>.attempt<n−1>로 옮긴다.
 #   status: ok · invalid:<사유,…>. plan16.py FIXED가 False면 실제 실행을 거부한다(--dry-run · --simulate만).
 set -uo pipefail
@@ -31,7 +33,7 @@ set +e
 C16="k6/ADR-016/compose.paid16.yml"
 COMPOSE_EXTRA="$COMPOSE_EXTRA -f $C16"   # lib15(tmpfs · ADR-015 오버레이) 뒤에 M 오버레이 — compose14 · probe_compose가 호출 때 읽는다
 
-SHA="" IMAGES="" CELL="" CONFIG="" REP="" CID="" ATTEMPT=1 WORKTREE=0 K6_BIN=k6 RESULTS_ROOT=""
+SHA="" IMAGES="" CELL="" CONFIG="" REP="" CID="" ATTEMPT=1 WORKTREE=0 K6_BIN=k6 RESULTS_ROOT="" SMOKE=0 COST_RATE_ARG=""
 PROBE_K6_BIN="$HOME/.local/opt/k6-v2.2.0/k6" PROBE_IMAGE="${PROBE_IMAGE:-grafana/k6:2.2.0}" PROBE_RATE=50
 PRE_K6_HOLD_S="${PRE_K6_HOLD_S:-70}" PRE_K6_TARGET_S="${PRE_K6_TARGET_S:-87}" PRE_K6_TOL_S="${PRE_K6_TOL_S:-5}" PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-}"   # ADR-015 run.sh 그대로
 IDLE_AFTER_K6_S=11 WEND_LAG_S=3 TW_EVERY_S=2
@@ -40,6 +42,7 @@ while (( $# )); do
     --sha) SHA="$2"; shift 2 ;; --images) IMAGES="$2"; shift 2 ;; --cell) CELL="$2"; shift 2 ;; --config) CONFIG="$2"; shift 2 ;;
     --rep) REP="$2"; shift 2 ;; --id) CID="$2"; shift 2 ;; --attempt) ATTEMPT="$2"; shift 2 ;; --worktree) WORKTREE=1; shift ;;
     --k6-bin) K6_BIN="$2"; shift 2 ;; --probe-k6-bin) PROBE_K6_BIN="$2"; shift 2 ;; --results-root) RESULTS_ROOT="$2"; shift 2 ;;
+    --smoke) SMOKE=1; shift ;; --cost-rate) COST_RATE_ARG="$2"; shift 2 ;;
     --dry-run|--simulate) shift ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
@@ -59,9 +62,15 @@ now() { date +%s.%N; }
 # ---- 인자 · 계획 ---------------------------------------------------------------------------------------------------------------------
 [[ "$CELL" =~ ^(paid|cost)$ && "$CONFIG" =~ ^(cond|cond\+b|ext)$ && "$REP" =~ ^[1-3]$ && "$ATTEMPT" =~ ^[1-9]$ && -n "$CID" ]] \
   || { echo "--cell paid|cost --config cond|cond+b|ext --rep 1..3 --id <id> 필수(race는 ADR-015 run.sh)" >&2; exit 2; }
-PLAN_JSON="$(python3 -I "$S16/plan16.py" --render --cell "$CELL" --config "$CONFIG" --rep "$REP")" || exit 2
+if (( SMOKE )); then   # 스모크 관문: 캠페인 밖 · smoke16- id만(캠페인 결과와 섞이지 않게)
+  [[ "${CAMPAIGN16:-0}" != 1 ]] || { echo "--smoke는 캠페인 안에서 쓸 수 없다" >&2; exit 2; }
+  [[ "$CID" == smoke16-* ]] || { echo "--smoke의 --id는 smoke16-로 시작해야 한다" >&2; exit 2; }
+fi
+[[ -z "$COST_RATE_ARG" ]] || { (( SMOKE )) && [[ "$CELL" == cost ]]; } || { echo "--cost-rate는 --smoke cost 회차 전용" >&2; exit 2; }
+PLAN_JSON="$(python3 -I "$S16/plan16.py" --render --cell "$CELL" --config "$CONFIG" --rep "$REP" ${COST_RATE_ARG:+--cost-rate "$COST_RATE_ARG"})" || exit 2
+(( SMOKE )) && PLAN_JSON="$(jq -c '. + {smoke: true}' <<< "$PLAN_JSON")"
 P() { jq -r "$1" <<< "$PLAN_JSON"; }
-if (( ! DRY && ! SIM )) && [[ "$(P .fixed)" != true ]]; then   # SHA · 서버보다 먼저(리뷰 L1-2 — 거부는 어떤 원격 · git 동작보다 앞)
+if (( ! DRY && ! SIM && ! SMOKE )) && [[ "$(P .fixed)" != true ]]; then   # SHA · 서버보다 먼저(리뷰 L1-2 — 거부는 어떤 원격 · git 동작보다 앞)
   echo "plan16.py FIXED = False — 측정 전 고정 커밋 전이라 실제 실행을 거부한다(--dry-run · --simulate만)" >&2; exit 2
 fi
 SHA="$(short "${SHA:-HEAD}")"; [[ -n "$SHA" ]] || { echo "SHA 해석 실패" >&2; exit 2; }

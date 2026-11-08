@@ -280,15 +280,19 @@ def seed_of(sessions):
 _RENDER_CACHE = {}
 
 
-def render(cell, config, rep):
-    """회차 계획(같은 인자 = 같은 값 — 결정적 일정 계산이 무거워 프로세스 안에서 기억한다 · 돌려줄 때 사본)."""
-    key = (cell, config, rep, FIXED, M_S, THETA_COND_S, THETA_EXT_S, W_S, COST_RATE)
+def render(cell, config, rep, cost_rate=None):
+    """회차 계획(같은 인자 = 같은 값 — 결정적 일정 계산이 무거워 프로세스 안에서 기억한다 · 돌려줄 때 사본).
+    cost_rate = .164 스모크 전용 cost 도착률(COST_RATES 안 · run16.sh --smoke만 넘긴다 — 가정 1 '300/s 우선' 실측) · None = COST_RATE."""
+    if cost_rate is not None and cost_rate not in COST_RATES:
+        raise SystemExit(f"cost 도착률 {cost_rate} ∉ {COST_RATES}")
+    rate = COST_RATE if cost_rate is None else cost_rate
+    key = (cell, config, rep, FIXED, M_S, THETA_COND_S, THETA_EXT_S, W_S, rate)
     if key not in _RENDER_CACHE:
-        _RENDER_CACHE[key] = json.dumps(_render(cell, config, rep))
+        _RENDER_CACHE[key] = json.dumps(_render(cell, config, rep, rate))
     return json.loads(_RENDER_CACHE[key])
 
 
-def _render(cell, config, rep):
+def _render(cell, config, rep, cost_rate=COST_RATE):
     if cell not in CELLS or config not in CONFIGS.get(cell, []) or rep not in range(1, REPS + 1):
         raise SystemExit(f"셀 {cell} · 구성 {config} · 회차 {rep}")
     if cell == "race":   # ADR-015 race 셀 그대로(plan15 값 · TTL 30초 — 명세 §1-3) — ① · ④만
@@ -297,7 +301,7 @@ def _render(cell, config, rep):
     mode = MODE_OF[config]
     k = knobs_of(config)
     ext = mode == O.MODE_EXT
-    rate = PAID_RATE if cell == "paid" else COST_RATE
+    rate = PAID_RATE if cell == "paid" else cost_rate
     flows = FLOWS[(cell, config)]
     cyc = flow_cycle(cell, config)
     if cell == "paid":
@@ -468,7 +472,8 @@ def main(argv):
         if not {"--cell", "--config", "--rep"} <= set(kv):
             print(__doc__, file=sys.stderr)
             return 2
-        print(json.dumps(render(kv["--cell"], kv["--config"], int(kv["--rep"])), ensure_ascii=False))
+        cr = int(kv["--cost-rate"]) if "--cost-rate" in kv else None
+        print(json.dumps(render(kv["--cell"], kv["--config"], int(kv["--rep"]), cr), ensure_ascii=False))
         return 0
     if a[:1] == ["--dry-run"]:
         d = dry_run()
