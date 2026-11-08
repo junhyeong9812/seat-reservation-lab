@@ -15,11 +15,61 @@
 | 11-08 | 사용자 재합의 DV-1~4(전부 권장안): W = CAP + M + 여유 · G-모형 세션별 예측 대조 · ⓒ 경계 흐름 · 흐름당 회차 1,100 · 분모 전체 · 5% 점추정 → 명세 §0 Q/A 3 · §1-2~5 · §2 보강(DV-5~14 포함) | 명세 수정 |
 | 11-08 | 사용자 요청 "푸시해놓고 다음 순차적으로 진행하자" → `git push -u origin feat/adr-016-paid-seat-loss`(새 원격 브랜치 · 커밋 22 · attribution 0 확인 · PR 없음) | push 완료 |
 | 11-08 | 명세 수정 post-fix 재점검(codex · 1회): 신규 3(DV16-R1 ⓒ 마감이 수신 + 상대값이면 서버 payBy 뒤 · R2 ④ extend 지표는 진단 404 · 403 · 만료를 안 셈(PaymentStartService.kt:107 확인) · R3 G-모형 θ 경계 띠 없음) | 셋 다 채택 → 명세 반영 · 설계 문서 재점검 1회 상한이라 메인 대조로 확인 후 종료 |
+| 11-08 | task 02 outcome16.py(분류 · 마감 · decide · predict — 단일 정의) · model16.py → 설계-8.3 표 21칸 재현(허용 4σ · 불일치 0 · 예: ① σ0.94 11.41% 대 설계 11.47%) · 고르기 시험(δ 합성 50ms · err 20ms): M 1 · W 611 · θ_cond 69(①+ⓑ 억울 10.0% — 목표 밖 · 설계 예상과 같음) | 커밋 7b03c549 |
+| 11-08 | 사용자 질문 "측정하고 머지하는 게 맞나" → 권고: 측정 · 결정 뒤 한 PR(ADR-014 #13 · ADR-015 #14 선례 · 캠페인은 브랜치 SHA 동결이라 main 불필요 · 기본 모드 공개 API 변경이 결정 전 main에 들어가지 않게) · ADR-015 EOF 수정만 따로 올리는 안 제시 | 답 대기 없이 진행 |
+| 11-08 | 인터페이스 계약 고정(`scratchpad/interface16.md` — outcome16 · model16 · summarize16 C절 · plan16 D절) → task 03 구현 워커(Opus · 메인 트리 · 커밋 금지) ∥ task 04 blind 워커(Opus · worktree · 구현 파일 열람 금지) 병렬 | 회수 대기 |
+| 11-08 | task 04 blind 회수(토큰 119,983): blind16_test.py 109사례(worktree 커밋 35744d7f) · outcome16 62 · model16 6 통과 · summarize16 41은 모듈 없음 import 오류(의도) · 계약 공백 2(ⓒ 짝 키 · classified 모양 · simulate 입력 모양) → 구현 워커에 계약 보충 전달 | summarize16 뒤 재실행 |
+| 11-08 | task 03 구현 워커 회수(토큰 419,987 · 77 도구 · 40분): plan16 · paid-flow.js · lib16.js · run16 · campaign16 · summarize16 · actsnap16 · hhash16 · compose.paid16 · selftest16(111 · --campaign 124 통과) · ADR-015 selftest --campaign 0 · dry-run 21회차 9.33시간 · **가정 1**: 잠자는 VU 0.27~0.30 MiB/VU → cost 300/s 미리 7만 VU(20GiB · 가용 21 − 하한 4 넘음) · 100/s 2.3만(6.5GiB) → **100/s** 권고(스모크에서 RSS 재확인) | 커밋 df2efaf1(하네스) · d714749c(테스트) |
+| 11-08 | 메인 대조: 구현 워커 지적 'predict c_send 없음 → (WRONGED, 띠 안)'은 잘못된 결제 전 거부 · 마감 오판을 G-모형이 넘기는 그린 위장 → outcome16에 PAID(4갈래 밖) 반환으로 고침 · selftest16에 'G-모형 띠 밖 불일치' 점검 추가 · blind16_test 109 통과(summarize16 포함) · selftest16 112 통과 | 같은 커밋에 포함 |
+| 11-08 | task 05 로컬 회차 착수: 실제 앱(bootTestRun · loadtest · 실제 눈금 TTL 5분 · θ 69 · M 1) + paid-flow.js 2/s × 60초(120세션) · 스크립트 `scratchpad/lr16/lr16.sh` | 실행 중 |
+| 11-08 | 코드 리뷰 루프 1 packet: base 218ed2d5a · HEAD d714749c · 16파일 +4005 · untracked 0 · OUT=`scratchpad/rvm16-jNOo` · 미러=`scratchpad/mirm16-pE98` · 보안 스캔 redact 후 0 · codex ∥ Opus | 실행 중 |
+| 11-08 | 루프 1 codex 회수: 높음 2(F1 selftest가 FIXED=False를 영구 기대 · F2 G-비용 결측이 '보고 없음'으로) · 중간 4(F3 ss 실패 0 · 포트 미제한 · F4 sid→흐름 배정 미검증 · F5 재선점 행 수 미대조 · F6 pgss가 'UPDATE seat_hold' 시작만 셈) · OQ 2 | Opus 대기 |
+| 11-08 | 루프 1 Opus 회수(토큰 미회수 — 알림 대기): 높음 1(F1 ⓒ 흐름 payment-start 5xx면 요약기 TypeError — 재현) · 중간 2(F2 race 양성 대조 없음 · F3 paid 환경 점검 창이 도착 구간뿐) · 낮음 6 · OQ 5 → 종합 L1-1~14(codex F1~6과 합침 · 겹침 2) · 확정 띠 OQ는 코드가 맞음(서버 :now ∈ [송신, 수신] — 명세 식 정리만) · 수정은 구현 워커 재개로 위임 | fixed L1 |
+| 11-08 | 루프 1 codex 종합 감사: 이견 5 — 새 구멍 1(ⓒ 끔 흐름 pf='deadline'을 검증 없이 결제 실패로 → 억울 과소) · L1-4 상향 · cost 창 근거 부족 · L1-9 경로 귀속 불가 · 재선점 행 완전성 → L1-15 · L1-16 신설 · L1-4 · 8 · 9 조정 · 워커에 추가 전달 · Opus 토큰 256,455 | fixed L1 |
+| 11-08 | task 05 로컬 ① 회차 1차: 내 스크립트 결함(env 파일을 셸로 읽어 FLOWS JSON 따옴표 소실 → k6 시작 실패 rc 107) — 하네스 결함 아님(run16은 배열로 넘김) · shlex 인용으로 고쳐 재실행 | 재실행 |
+| 11-08 | task 05 로컬 ① 회차(실제 앱 · 실제 눈금 · 2/s × 60초 · 120세션 · k6 447초 · 커밋 d714749c 요약기 paid_rep로 분류): 무효 사유 0 · 결측 0 · 흐름 n 29(성공 28 · 억울 1) · nc 28(성공 20 · 결제 실패 8) · b 28(성공 22 · 결제 전 거부 2 · 억울 4) · bc 28(성공 25 · 실패 3) · nd 7(마감 전 5 거부 0) · **G-모형 4흐름 모두 일치(띠 안 허용 0)** · 서버 pay_start 56 = k6 200 54 + 409 2 · rejected 5 = k6 비2xx 5 · CONFIRMED 100 = 성공 100 · 판정기 0 · δ̂ p99 15ms · max 192ms | 앱 ↔ 시나리오 계약 확인 |
+| 11-08 | task 05 로컬 ④ 회차 시작(같은 방식 · W 611 · 흐름 e 54 · ec 53 · ed 13 · 커밋 사본 `scratchpad/lrsum-8CTq`) | 실행 중(약 30분) |
+| 11-08 | 루프 1 수정 회수(구현 워커 · 토큰 누적 507,560): L1-1~16 반영 · outcome16 무변경(L1-1은 요약기에서) · selftest16 --campaign 163 · blind 109 · ADR-015 selftest --campaign 0 · 메인 결정 2(paid TIME_WAIT 결측은 무효 아님 — cost 지표 · ④ cost 창 시작 = 홀드 99% 도달 500초 → 캠페인 9.4시간) · 새 요약기를 로컬 ① 실데이터에 재실행 → 무효 0 · 새 대조(흐름 배정 · pf 재계산 · 확정 송신 · 재선점 행) 불일치 0 | 커밋(fix · test) |
+| 11-08 | 루프 2 packet: base 218ed2d5a · HEAD 0ed184f2 · 루프 1 수정 diff 참고 · untracked 1(repo 루트 k6-summary.json — 내 로컬 회차가 cwd에 남긴 산출물 · packet 밖 · 리뷰 프롬프트에 run16의 k6-summary 경로 확인 추가) · OUT=`scratchpad/rvm16b-Gdhr` · 미러=`scratchpad/mirm16b-gL8N` · 스캔 0 | codex ∥ Opus 실행 중 |
+| 11-08 | task 05 로컬 ④ 회차(실제 앱 · W 611 · θ 1 · M 1 · 120세션 · k6 813초 · 새 요약기): 무효 0 · e 54 성공 54 · ec 53(성공 51 · 결제 실패 2) · ed 13(마감 전 10 거부 0) · **억울 0(W = CAP + M + 여유 — 구조적)** · G-모형 2흐름 일치 · extend{extended} 120 = k6 200 120 · CONFIRMED 115 = 성공 115 · 판정기 0 · δ̂ p99 26ms · 재선점 never_ratio 1.0(④ 연장이 좌석을 쥔다 — 다른 사용자 비용) | 앱 ↔ 시나리오 계약 확인(④) |
+| 11-08 | repo 루트 k6-summary.json = 내 로컬 스크립트가 OUT_DIR을 안 넘겨 cwd에 쓴 산출물(codex 루프 2가 run16 → OUT_DIR=$DIR → common.js:83 → 요약기 회차 폴더 읽기 연결 확인) · 미추적 · 삭제 | 정리 |
+| 11-08 | 루프 2 codex: 중간 3(F1 N16-1 경로 쓰기 직접 검사 아님 · F2 campaign16 --id 없이 같은 날 · SHA면 기존 캠페인 재개 · F3 selftest가 자리표시 W 611을 단정) · OQ 1(ⓒ 경계 흐름이 ① ⓑ 없는 경로만 — payment-start 출처 마감은?) | Opus 대기 |
+| 11-08 | 루프 2 Opus 회수(토큰 315,722): 높음 1(R2-1 g_model False를 탈락으로 → 결함 증거가 묻힘 · 명세는 '원인 조사 · 판정 불가' — 내 인터페이스 계약 C절이 명세와 어긋났고 blind 사례도 그것을 따름) · 중간 1(R2-2 cost 선점 5xx는 유효+실패 · paid는 무효 · race는 None — 셀마다 다름) · 낮음 4(R2-3 pgss 필터 · 절단 · R2-4 10시간 관문 없음 · R2-5 확정 띠 식 명세 ↔ 구현 · R2-6 OUT_DIR 기본값) · OQ 4 → 종합: 채택 R2-1~6 + codex F2 · F3 · 기각 codex F1(세 겹 판정 — L1-9 감사 결론) · 경계 흐름 OQ 기각(④ ed가 payment-start 출처 마감 · 같은 PayBy · 같은 deadline 식) · 인터페이스 C절 정정(g_model False = 판정 불가 + 원인 조사) | 수정 위임 |
+| 11-08 | 루프 2 codex 종합 감사: 이견 2 — L2-9 잘못 기각(경로별 쓰기 증거 없음 — 높음) · L2-10 잘못 기각(①+ⓑ+ⓒ 마감 출처 = payment-start · nd는 선점 201 — 중간) → 둘 다 채택으로 뒤집음: 격리 탐침(예열 뒤 payment-start만 P회 · 앞뒤 pgss · 표 통계 증분 0) · conditional 경계 흐름 bcd 추가 · 명세 문구 정정 2건(확정 띠 식 · 세션 행 파일) | 워커에 추가 전달 |
 
 ## 리뷰 ledger
 
 | ID | 출처 | 위치 | 처리 | 상태 |
 |---|---|---|---|---|
+| L2-1 | opus R2-1 | summarize16.py:170-190 · :947 · interface C절 · blind16_test.py:735-744 | 채택(높음) — g_model False = 판정 불가 + 원인 조사(명세 §1-3) · 인터페이스 정정 · blind 사례는 정정된 계약으로 수정(사례 결함 아님 — 계약 결함) | 수정 중 |
+| L2-2 | opus R2-2 | summarize16.py:567-571 · :798-829 · :887-905 | 채택(중간) — cost 선점 5xx · 시간 초과 = hold-fail 무효 · 재선점 5xx · 시간 초과 = None(race 규칙) | 수정 중 |
+| L2-3 | opus R2-3 | lib15.sh:62-65 ↔ summarize16.py:45-56 · :552-558 | 채택(낮음) — ADR-016 전용 pgss 덤프(필터 · 절단 없음) · selftest 입력을 실제 덤프 모양으로 | 수정 중 |
+| L2-4 | opus R2-4 | plan16.py:432-443 | 채택(낮음) — est_hours > 10이면 dry-run problem | 수정 중 |
+| L2-5 | opus R2-5 · L1-OQa | 명세 δ̂ 절 | 채택(문서) — 명세 식을 구현 식 [송신 − err, 수신 + err]로 정정 | fixed(명세) |
+| L2-6 | opus R2-6 | paid-flow.js:374-377 · common.js:8 | 채택(낮음) — OUT_DIR 필수(없으면 throw) | 수정 중 |
+| L2-7 | codex F2 | campaign16.sh:74 | 채택(중간) — 자동 ID 결과 폴더가 있으면 중단 · --id 요구 | 수정 중 |
+| L2-8 | codex F3 | selftest16.py:67 | 채택(중간) — W 고정값 단정 → W = CAP + M + 배치 + 여유 관계식 | 수정 중 |
+| L2-9 | codex F1 | summarize16.py:548 | 채택(높음 · 감사로 뒤집음) — 격리 탐침(payment-start만 P회 · 앞뒤 pgss · 표 통계 증분 0) · 세 겹은 보조 | 수정 중 |
+| L2-10 | codex OQ · opus OQ2 | plan16.py:76 · summarize16.py:959 | 채택(중간 · 감사로 뒤집음) — conditional 경계 흐름 bcd 추가(cond+b+c 판정용) | 수정 중 |
+| L2-11 | opus OQ1 · OQ3 · OQ4 | summarize16.py:209 · :42 · paid-flow.js:9 | 기록 — none = 판정 불가 문구(L2-1과 함께) · ④ 재선점 ≫는 의도(사용자 '비용 보고') · 세션 행 별도 파일(시계열 폭증 방지 — 명세 문구 정정) | 수정 중 · 메인 |
+| L1-1 | opus F1 | summarize16.py:633-640 | 채택(높음) — ⓒ 흐름 payment-start 결함이면 요약기 예외 → G-F 증거가 재측정으로 버려짐 | fixed L1 |
+| L1-2 | codex F1 | selftest16.py:45 · :616 | 채택(높음) — FIXED=True면 selftest 깨짐 | fixed L1 |
+| L1-3 | codex F2 · opus F6 | summarize16.py:825-835 | 채택(높음) — G-비용 결측 → 조용한 '보고 없음' | fixed L1 |
+| L1-4 | opus F2 | summarize16.py:754-807 | 채택(높음 · 감사 상향) — race 양성 대조 · A 규칙 → None | fixed L1 |
+| L1-5 | opus F3 | summarize16.py:259-394 · plan16.py:269 | 채택(중간) — paid 환경 점검 창 k6 끝까지 | fixed L1 |
+| L1-6 | codex F3 · opus F4 | run16.sh:150-155 · summarize16.py:490 | 채택(중간) — ss 실패 0 · 포트 필터 | fixed L1 |
+| L1-7 | codex F4 | summarize16.py:583 · :643 | 채택(중간) — sid → 흐름 배정 검증 | fixed L1 |
+| L1-8 | codex F5 | summarize16.py:687 · paid-flow.js:145 | 채택(중간 · 감사 확장) — 재선점 대상 sid마다 결과 행 정확히 하나 | fixed L1 |
+| L1-9 | codex F6 · opus OQ1 | summarize16.py:519-521 | 채택(중간 · 감사 조정) — 경로 귀속 불가 → n_tup_upd 0 + 허용 밖 쓰기 0 + payment-start 5xx 0(readOnly가 쓰기를 오류로) | fixed L1 |
+| L1-10 | opus F5 | summarize16.py:707-729 | 채택(낮음~중간) — cost 결정표 갈래 · CONFIRMED 대조 | fixed L1 |
+| L1-11 | opus F7 | summarize16.py:596-601 · :688-691 | 채택(낮음) — 경계 흐름 제외 · 같은 흐름 비교 | fixed L1 |
+| L1-12 | opus F8 · codex OQ2 | model16.py:145-147 · summarize16.py:788 · :845 | 채택(낮음) — 결측 0 채움 제거 | fixed L1 |
+| L1-13 | opus OQ4 | run16.sh:238 | 채택(낮음) — offset 실패 0 채움 → abort | fixed L1 |
+| L1-14 | opus F9 | selftest16.py:453-527 | 채택(테스트) — G-정합 음성 사례 · 결정표 빠진 갈래 | fixed L1 |
+| L1-15 | 감사 · codex | summarize16.py:569 | 채택(높음) — pf 재계산 대조 · ⓒ 끔 확정 송신 수 = 결제 성공 수 | fixed L1 |
+| L1-16 | 감사 · codex | plan16.py:54 · :229 | 채택(중간) — cost 창 시작을 홀드 수명 기준 잔여 비율로 보고 · 창 길이는 고정 커밋에서 | fixed L1 |
+| L1-OQa | codex OQ1 | outcome16.py:158 | 기각(코드 유지) — 확정 띠 [송신 − err, 수신 + err]가 맞다 · 명세 식 정리 | closed |
+| L1-OQb | opus OQ2 · OQ3 · OQ5 | k6 console-output · err 드리프트 · cost 창 시작 | 기록 — 스모크에서 확인(OQ2) · M 산정이 덮음(OQ3) · 영향은 L1-16으로 재계산(감사 — 0.3% 근거 부족) | 스모크 확인 |
 | DV16-R1 | 재점검 · codex | 명세 §1-2 ⓒ 마감 | 채택(높음) — 마감 = min(수신 + payWithinSeconds, 절대 payBy − err_ms) | fixed |
 | DV16-R2 | 재점검 · codex | 명세 G-정합 ④ 교차 | 채택(중간) — extend 지표가 세는 결과만 대조 | fixed |
 | DV16-R3 | 재점검 · codex | 명세 G-모형 | 채택(중간) — payment-start θ 띠 추가 | fixed |
