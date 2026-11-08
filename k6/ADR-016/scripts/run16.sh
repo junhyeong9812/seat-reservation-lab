@@ -59,12 +59,12 @@ now() { date +%s.%N; }
 # ---- 인자 · 계획 ---------------------------------------------------------------------------------------------------------------------
 [[ "$CELL" =~ ^(paid|cost)$ && "$CONFIG" =~ ^(cond|cond\+b|ext)$ && "$REP" =~ ^[1-3]$ && "$ATTEMPT" =~ ^[1-9]$ && -n "$CID" ]] \
   || { echo "--cell paid|cost --config cond|cond+b|ext --rep 1..3 --id <id> 필수(race는 ADR-015 run.sh)" >&2; exit 2; }
-SHA="$(short "${SHA:-HEAD}")"; [[ -n "$SHA" ]] || { echo "SHA 해석 실패" >&2; exit 2; }
 PLAN_JSON="$(python3 -I "$S16/plan16.py" --render --cell "$CELL" --config "$CONFIG" --rep "$REP")" || exit 2
 P() { jq -r "$1" <<< "$PLAN_JSON"; }
-if (( ! DRY && ! SIM )) && [[ "$(P .fixed)" != true ]]; then
+if (( ! DRY && ! SIM )) && [[ "$(P .fixed)" != true ]]; then   # SHA · 서버보다 먼저(리뷰 L1-2 — 거부는 어떤 원격 · git 동작보다 앞)
   echo "plan16.py FIXED = False — 측정 전 고정 커밋 전이라 실제 실행을 거부한다(--dry-run · --simulate만)" >&2; exit 2
 fi
+SHA="$(short "${SHA:-HEAD}")"; [[ -n "$SHA" ]] || { echo "SHA 해석 실패" >&2; exit 2; }
 PRE_K6_LEAD_S="${PRE_K6_LEAD_S:-$(P .k6.lead_s)}"
 mapfile -t HPATHS < <(bash "$S16/hhash16.sh" --paths)
 HARNESS="sha:$SHA" DEPLOY_ID="$SHA"
@@ -147,10 +147,17 @@ SELECT json_build_object('t', clock_timestamp(), 'holds', (SELECT count(*) FROM 
 SQL
 }
 # PC TIME_WAIT 표본기(설계-9 R16-2 · 명세 cost 지표): 2초마다 이 PC의 TIME_WAIT 소켓 — 전체 · 서버(SERVER_HOST:8101) 대상
+# ss가 실패하면 0으로 세지 않고 그 표본에 err를 남긴다(요약기 → tw-missing · 리뷰 L1-6). 서버 대상 = dst <IP> dport = :8101(호스트 이름이면 IPv4로 풀어 둔다)
+TW_IP="$SERVER_HOST"; [[ "$TW_IP" =~ ^[0-9.]+$ ]] || TW_IP="$(getent ahostsv4 "$SERVER_HOST" 2>/dev/null | awk 'NR == 1 { print $1 }')"
 tw_sampler() {   # 인자: 회차폴더 → 백그라운드 PID
   ( while :; do
-      a=$(ss -Htan state time-wait 2>/dev/null | wc -l); s=$(ss -Htan state time-wait dst "$SERVER_HOST" 2>/dev/null | wc -l)
-      echo "{\"t\":\"$(date -Is)\",\"t_ms\":$(date +%s%3N),\"tw_all\":$a,\"tw_server\":$s}" >> "$1/timeline-tw.jsonl"
+      a=$(ss -Htan state time-wait 2>/dev/null); ra=$?
+      s=$( [[ -n "$TW_IP" ]] && ss -Htan state time-wait dst "$TW_IP" dport = :8101 2>/dev/null ); rs=$?; [[ -n "$TW_IP" ]] || rs=99
+      if (( ra == 0 && rs == 0 )); then
+        echo "{\"t\":\"$(date -Is)\",\"t_ms\":$(date +%s%3N),\"tw_all\":$(grep -c . <<< "$a"),\"tw_server\":$(grep -c . <<< "$s")}" >> "$1/timeline-tw.jsonl"
+      else
+        echo "{\"t\":\"$(date -Is)\",\"t_ms\":$(date +%s%3N),\"err\":\"ss rc $ra/$rs\"}" >> "$1/timeline-tw.jsonl"
+      fi
       sleep "$TW_EVERY_S"
     done ) > /dev/null 2>&1 < /dev/null & echo $!
 }
@@ -235,7 +242,9 @@ sleep "$topup"
 
 # ---- k6 -----------------------------------------------------------------------------------------------------------------------------
 CLK_BEFORE=$(clock_offset 2>>"$DIR/errors.log" < /dev/null)
-OFF_MS=$(jq -r '(.offset_s // 0) * 1000 | round' <<< "${CLK_BEFORE:-null}" 2>/dev/null); [[ "$OFF_MS" =~ ^-?[0-9]+$ ]] || OFF_MS=0
+# 시계 차를 못 읽으면 0으로 채우지 않고 회차를 시작하지 않는다(리뷰 L1-13)
+OFF_MS=$(jq -r 'if (.offset_s | type) == "number" then (.offset_s * 1000 | round) else "" end' <<< "${CLK_BEFORE:-null}" 2>/dev/null)
+[[ "$OFF_MS" =~ ^-?[0-9]+$ ]] || abort16 clock-offset-bad
 # ⓒ 마감 계산 err(ms) = 직전 표본 왕복/2 올림 + 여유(plan16 CLOCK_ERR_MARGIN_MS). 표본이 없으면 시계 차를 모른다 → 회차를 시작하지 않는다(0으로 채우지 않음)
 ERR_MS=$(jq -r --argjson m "$(P .k6.env.CLOCK_ERR_MARGIN_MS)" 'if (.rtt_s | type) == "number" then ((.rtt_s * 500 | ceil) + $m) else "" end' <<< "${CLK_BEFORE:-null}" 2>/dev/null)
 [[ "$ERR_MS" =~ ^[0-9]+$ ]] || abort16 clock-offset-bad

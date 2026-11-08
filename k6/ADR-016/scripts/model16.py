@@ -142,9 +142,10 @@ def table_check(rows, n=N_DEFAULT):
 
 def sweep(deltas=None, err=0.0, picked=None, n=N_DEFAULT, seed=1):
     picked = picked or choose(deltas, err, n=n, seed=seed)
-    th_c = picked["theta_cond"] or 0.0
-    m = picked["M"] or 0.0
-    w = picked["W"] or (BASE["cap"] + BATCH)
+    missing = [k for k in ("theta_cond", "M", "W") if picked.get(k) is None]
+    if missing:   # 결측을 0으로 채워 계산하지 않는다(리뷰 L1-12) — δ̂가 없으면 M · W를 세울 수 없다
+        return {"picked": picked, "delta": "missing", "missing": missing, "results": None}
+    th_c, m, w = picked["theta_cond"], picked["M"], picked["W"]
     pols = {
         "cond": pol(O.MODE_COND, False, False, theta=th_c),
         "cond+c": pol(O.MODE_COND, False, True, theta=th_c, margin=m),

@@ -51,6 +51,7 @@ REHOLD_FROM_MS, REHOLD_STEP_MS = -1000, 1000   # 재선점 시도: 원래 만료
 REHOLD_UNTIL_S = BATCH_S + 3                  # … e + 13초까지(배치 한 주기 + 여유 — ADR-015 plan15와 같은 꼴)
 CLOCK_ERR_MARGIN_MS = 20   # k6의 ⓒ 마감 계산 err = k6 직전 시계 차 표본 왕복/2 + 이 값(ADR-015 EVIDENCE_MARGIN_MS 20ms 선례 · 자리표시)
 COST_WINDOW_LEN_S = 300    # cost 판정 창 길이(ADR-015 cost d_arr 300초 선례 · 자리표시)
+COST_HOLD_STEADY = 0.99   # cost 창 시작의 동시 홀드 수 ≥ 정상 상태의 99%(리뷰 L1-16)
 COST_STEADY_TAIL = 0.01    # cost 창 시작 = 남은 수명 꼬리(∫_t^∞ S) ≤ 평균 수명의 1%가 되는 첫 t(정상 상태 — 명세 '앞 구간 버림')
 GRACE_MARGIN_S = 30        # gracefulStop = 세션 수명 최대(T 최대 + max(CAP, 경계 대기)) + 여유
 CONVERGE_MARGIN_S = 22     # 수렴 = max(TTL, W) + 배치 + 여유(ADR-014 CONVERGE_EXTRA_S 22초 선례)
@@ -58,6 +59,14 @@ OTHER_S = 150              # 회차 시간 = k6 + 수렴 + 이 값(배포 · 기
 PRE_VUS_HEADROOM, PRE_VUS_PAD, MAX_VUS_FACTOR = 1.15, 20, 1.5   # 미리 만든 VU = 결정적 일정의 최대 동시 세션 × 1.15 + 20
 SEATS_PER_SCHEDULE, SEAT_MARGIN = plan15.SEATS_PER_SCHEDULE, plan15.SEAT_MARGIN
 USERS = {"main": 1_000_000, "rehold": 4_000_000}
+# N16-1 (b) 허용 쓰기 문장(리뷰 L1-9 — 자리표시 · FIXED 대상): pg_stat_statements의 쓰기 문장(INSERT · UPDATE · DELETE · WITH … 쓰기)을 (동사, 표) 쌍으로 접어
+#   이 목록 밖이면 G-정합 실패 자료. 지금 값 = main-app 코드의 쓰기 문장(선점 · 확정 C1/C2 · A′ 배치 · 쿼터)을 grep으로 모은 (동사, 표) — 측정 전 고정 커밋에서
+#   .164 스모크 pgss 실측 문장으로 바꿔 확정한다. ④만 UPDATE seat_hold(E1 연장)를 허용한다(① = 0 — N16-1 (a)도 따로 본다).
+ALLOWED_WRITES = {
+    "conditional": [("insert", "seat_hold"), ("delete", "seat_hold"), ("update", "product_seat"), ("insert", "reservation"),
+                    ("insert", "user_hold_quota"), ("update", "user_hold_quota"), ("delete", "user_hold_quota")],
+}
+ALLOWED_WRITES["conditional-extend"] = ALLOWED_WRITES["conditional"] + [("update", "seat_hold")]
 
 # ---- 셀 · 구성 · 흐름 ------------------------------------------------------------------------------------------------------------
 CELLS = ["paid", "race", "cost"]       # 회차 안 묶음 순서(명세 '셀 순서' — paid → race → cost)
@@ -201,6 +210,25 @@ def session_life(cell, config, flow, a):
     return t + a["D"] if out in (O.SUCCESS, O.WRONGED) else t
 
 
+def hold_life(cell, config, flow, a):
+    """홀드 수명(초 · 선점 → 행이 사라질 때 — 리뷰 L1-16): 결제 성공 = T + D(확정이 지운다) · 그 밖(억울 · 결제 전 거부 · 결제 실패) = 만료 + 배치 한 주기 —
+    ④ 연장된 홀드는 T + W까지 산다(세션 수명과 다르다 · 재선점 0인 cost 기준)."""
+    b, c, _bd = FLOWS[(cell, config)][flow]
+    mode, k, t = MODE_OF[config], knobs_of(config), a["T"]
+    out = O.decide(mode=mode, b=bool(b), c=bool(c), theta=k["theta"], window=k["window"], margin=k["margin"], cap=CAP_S, ttl=TTL_S, think=t, pay=a["D"], delta=0.0)
+    if out == O.SUCCESS:
+        return t + a["D"]
+    e = TTL_S
+    if out != O.PRE_REJECT and mode == O.MODE_EXT and TTL_S - t < k["window"]:
+        e = t + k["window"]
+    return e + BATCH_S
+
+
+def hold_ratio(lives, t):
+    """도착 시작 t초 뒤 살아 있는 홀드 수 ÷ 정상 상태 홀드 수(도착률 × 평균 홀드 수명) = E[min(L, t)] ÷ E[L]."""
+    return sum(min(x, t) for x in lives) / sum(lives)
+
+
 def schedule(cell, config, rep, rate, n_total):
     """결정적 일정(도착 = 세션 번호 ÷ 도착률) → 흐름별 최대 동시 세션 · 마지막 끝 시각 · 수명 목록."""
     cyc = flow_cycle(cell, config)
@@ -268,11 +296,18 @@ def _render(cell, config, rep):
         d_arr = n_total / rate
         window = {"kind": "arrival", "from_s": 0, "len_s": d_arr}
     else:
-        probe = [session_life(cell, config, cyc[0], session_attrs(rep, sid, RHO[cell])) for sid in range(20000)]
-        from_s = steady_from(probe)
+        attrs = [session_attrs(rep, sid, RHO[cell]) for sid in range(20000)]
+        probe = [session_life(cell, config, cyc[0], a) for a in attrs]
+        hl = [hold_life(cell, config, cyc[0], a) for a in attrs]
+        # 창 시작 = 세션 수명(VU) 기준 정상 상태와 홀드 수명 기준 99% 도달(리뷰 L1-16 · 메인 결정 2026-11-08) 중 늦은 쪽
+        from_s = max(steady_from(probe), next(t for t in range(0, 4000, 10) if hold_ratio(hl, t) >= COST_HOLD_STEADY))
         d_arr = from_s + COST_WINDOW_LEN_S
         n_total = round(d_arr * rate)
-        window = {"kind": "steady", "from_s": from_s, "len_s": COST_WINDOW_LEN_S}
+        # 홀드 수명 기준 정상 상태 도달 비율(리뷰 L1-16 — 창 시작 · 끝에서 동시 홀드 수가 정상 상태의 몇 %인가 · 창을 늘릴지는 측정 전 고정 때 정한다)
+        window = {"kind": "steady", "from_s": from_s, "len_s": COST_WINDOW_LEN_S,
+                  "hold_ratio": {"from": round(hold_ratio(hl, from_s), 4), "end": round(hold_ratio(hl, from_s + COST_WINDOW_LEN_S), 4),
+                                 "mean_hold_s": round(sum(hl) / len(hl), 1), "max_hold_s": round(max(hl), 1),
+                                 "from_for_99": next(t for t in range(0, 4000, 10) if hold_ratio(hl, t) >= 0.99)}}
     peak, end, lives = schedule(cell, config, rep, rate, n_total)
     bd_wait = max((W_S if ext else TTL_S) - M_S, CAP_S)
     grace = math.ceil(max(T_RANGE[1] + max(CAP_S, bd_wait), max(lives)) + GRACE_MARGIN_S)
@@ -434,7 +469,9 @@ def main(argv):
                 print(f"  {k}: 회차 약 {v['est_min']}분 · 도착 {v['d_arr_s']:g}초 · k6 약 {v['k6_est_s']}초 · grace {v['grace_s']}초 · 수렴 {v['converge_s']:g}초 · "
                       f"세션 {v['n_total']} · VU 미리 {v['pre_vus']} 최대 {v['max_vus']} · 시드 {v['seed']['schedules']}×{v['seed']['seats']}"
                       + (f" · 기동 검사 M {st['M']:g} ≤ θ {st['theta']:g} < {st['limit']:g} {'통과' if st['ok'] else '위반'}" if st else "")
-                      + (f" · 창 {v['window']['kind']} {v['window']['from_s']:g}+{v['window']['len_s']:g}초" if k.startswith("cost") else "")
+                      + (f" · 창 {v['window']['kind']} {v['window']['from_s']:g}+{v['window']['len_s']:g}초 · 홀드 정상 상태 도달 창 시작 "
+                         f"{v['window']['hold_ratio']['from']:.1%} 끝 {v['window']['hold_ratio']['end']:.1%}(99% = {v['window']['hold_ratio']['from_for_99']}초 · "
+                         f"홀드 수명 평균 {v['window']['hold_ratio']['mean_hold_s']}초)" if k.startswith("cost") else "")
                       + (f" · 수명 평균 {v['life']['mean_s']}초 최대 {v['life']['max_s']}초" if v.get("life") else ""))
             for p in d["problems"]:
                 print(f"  문제: {p}")

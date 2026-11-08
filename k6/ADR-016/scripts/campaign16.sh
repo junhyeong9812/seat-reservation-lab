@@ -11,6 +11,7 @@
 #   scripts/campaign16.sh --check <캠페인 결과 폴더>
 # 시작 조건(--start-conditions JSON): ⓪ 하네스 동결 · 이미지 고정 ① .164 스모크(paid · race · cost 각 1회 축소판) smoke.done ② 캠페인 스모크 campaign_smoke.done
 #   ③ dry-run(plan16.py --dry-run exit 0) ④ k6 PC 점검(pc_check.done + pccheck14.sh) ⑤ 측정 전 고정(plan16 FIXED = True) ⑥ 측정 SHA 전체 테스트 green tests_green.done · sha
+# exit: 1 시작 조건 · 2 인자 · 동결 · 3 연속 무효 5회 · 5 해시 · 6 계획 대 실행 · 7 끝 집계 · 8 요약기 예외(사용자 보고)
 # sim-plan 줄: "<회차>:<셀>:<구성 — race는 ADR-015 모드 이름>:<시도>=<status>"
 set -uo pipefail
 if [[ "${1:-}" == --check ]]; then CHECK_ONLY="${2:?--check <결과 폴더>}"; fi
@@ -135,6 +136,10 @@ run_one() {   # 인자: rep cell config attempt
       --k6-bin "$K6_BIN" --results-root "$(dirname "$ROOT")" "${RUN_MODE[@]}" "${PROBE_ARG[@]}" < /dev/null >> "$ROOT/runner.log" 2>&1
   fi
   echo "$(date -Is) END rep$1 $2 $3 attempt$4 $(st_of "$1" "$2" "$3" || true)" >> "$LOG"
+  # 요약기 예외(리뷰 L1-1): 재측정 대상 하네스 무효로 세지 않는다 — 실패 자료가 요약기 결함에 가려졌을 수 있다 → 멈추고 사용자 보고(회차 폴더 rep-summary.json error · traceback)
+  if [[ "$(st_of "$1" "$2" "$3")" == *summarize-failed* ]]; then
+    echo "멈춤: rep$1 $2 $3 요약기 예외(summarize-failed) — 사용자 보고 대상(재측정하지 않는다)" | tee -a "$LOG" >&2; exit 8
+  fi
 }
 streak=0
 while read -r seq k c g; do
