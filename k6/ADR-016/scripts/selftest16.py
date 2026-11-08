@@ -42,7 +42,13 @@ check("셀 순서 paid → race → cost(회차마다)", all([c for _, rr, c, _ 
 r15 = [m for _, r, c, m in plan16.plan15.order() if c == "race" and m in ("conditional", "conditional-extend")]
 check("race 순서 = plan15 race 회전에서 ① · ④만", [plan16.RACE_MODE[g] for _, _, c, g in rows if c == "race"] == r15)
 check("cost 회전 — 구성마다 서로 다른 자리 3", all(len({grp[(r, 'cost')].index(g) for r in (1, 2, 3)}) == 3 for g in plan16.CONFIGS["cost"]))
-check("FIXED = False(자리표시) → --fixed exit 1", plan16.main(["x", "--fixed"]) == 1)
+_fx = plan16.FIXED
+for v in (False, True):   # 두 상태 모두(리뷰 L1-2 — 고정 커밋으로 FIXED = True가 돼도 selftest가 깨지지 않는다)
+    plan16.FIXED = v
+    check(f"FIXED = {v} → --fixed exit {0 if v else 1} · render fixed 표지", plan16.main(["x", "--fixed"]) == (0 if v else 1)
+          and plan16.render("paid", "ext", 1)["fixed"] is v)
+plan16.FIXED = _fx
+check("plan16 FIXED 값 = 파일의 표지(True | False)", isinstance(plan16.FIXED, bool))
 for c in ("paid", "cost"):
     for g in plan16.CONFIGS[c]:
         p = plan16.render(c, g, 1)
@@ -161,6 +167,8 @@ cases = [
     ({"hold": H, "confirm": {"st": 0, "err": 1050}}, "mode_fail:confirm-timeout"), ({"hold": H, "confirm": {"st": 0, "err": 1000}}, "invalid:confirm-code0"),
     ({"hold": H, "confirm": {"st": 500}}, "mode_fail:confirm-5xx"), ({"hold": H}, "invalid:confirm-missing"),
     ({"hold": H, "pay": {"st": 200, "ok_body": True}, "confirm": {"st": 200}, "reserved": True}, O.SUCCESS),
+    ({"hold": H, "pay": {"st": 409, "code": "HOLD_EXPIRED"}, "confirm": {"st": 200}}, "invalid:confirm-after-pre-reject"),
+    ({"hold": H, "pay_fail": "deadline", "confirm": {"st": 200}}, "invalid:confirm-after-pay-fail"),
 ]
 check(f"결정표 {len(cases)}갈래", all(O.classify(r) == w for r, w in cases), str([(w, O.classify(r)) for r, w in cases if O.classify(r) != w]))
 
@@ -353,7 +361,7 @@ def gen_sessions(plan, delta_ms=5.0, net_ms=1.0, ek=20.0):
     return out, rh, confirmed, pay_n, conf_rej
 
 
-def synth(cell, config, mutate=None):
+def synth(cell, config, mutate=None, post=None):
     plan = plan16.render(cell, config, 1)
     d = Path(tempfile.mkdtemp()) / cell / config / "rep1"
     d.mkdir(parents=True)
@@ -362,7 +370,8 @@ def synth(cell, config, mutate=None):
     (d / "k6-summary.json").write_text(json.dumps({"setup_data": {"startedAt": T0 * 1000}}))
     (d / "pre-k6.json").write_text(json.dumps({"seed_done_epoch": T0 - 87}))
     (d / "clock-offset.json").write_text(json.dumps({"before": {"offset_s": 0.0, "rtt_s": 0.002}, "after": {"offset_s": 0.001, "rtt_s": 0.002}}))
-    (d / "k6-window.json").write_text(json.dumps({"exit": 0, "clock_offset_ms_given": 0, "clock_err_ms_given": 21}))
+    k6_end = T0 + plan["d_arr_s"] + 600 if cell == "paid" else T0 + plan["d_arr_s"] + 400
+    (d / "k6-window.json").write_text(json.dumps({"exit": 0, "clock_offset_ms_given": 0, "clock_err_ms_given": 21, "k6_end_epoch": k6_end}))
     (d / "app-config.json").write_text(json.dumps(fake_cfg(config)))
     (d / "warmup-status.json").write_text(json.dumps({"rc": 0}))
     sch = plan["seed"]["schedules"] * 50000
@@ -374,14 +383,15 @@ def synth(cell, config, mutate=None):
     (d / "logs-status.txt").write_text("app pipe=0/0 bytes=10\ndb pipe=0/0 bytes=10\n")
     (d / "timeline-waits.jsonl").write_text(json.dumps({"t": "2027-01-15T08:00:00+00:00", "waits": {}}) + "\n")
     w0, w1 = T0 + plan["window"]["from_s"], T0 + plan["window"]["from_s"] + plan["window"]["len_s"]
+    wend = k6_end if cell == "paid" else w1   # 환경 점검 창 끝(리뷰 L1-5 — paid = k6 끝)
     iso = lambda t: __import__("datetime").datetime.fromtimestamp(t, __import__("datetime").timezone.utc).isoformat()   # noqa: E731
-    (d / "timeline-client.jsonl").write_text("".join(json.dumps({"t": iso(t), "mem_avail_kb": 20_000_000}) + "\n" for t in range(int(w0) - 5, int(w1) + 6, 5)))
+    (d / "timeline-client.jsonl").write_text("".join(json.dumps({"t": iso(t), "mem_avail_kb": 20_000_000}) + "\n" for t in range(int(w0) - 5, int(wend) + 6, 5)))
     srv = ""
-    for t in range(int(w0) - 10, int(w1) + 11, 5):
+    for t in range(int(w0) - 10, int(wend) + 11, 5):
         srv += json.dumps({"t": iso(t), "load": "1 1 1"}) + "\n" + json.dumps({"Name": "seatlab-db-1", "CPUPerc": "12.0%", "MemUsage": "1GiB / 14GiB"}) + "\n"
         srv += json.dumps({"Name": "seatlab-app-1", "CPUPerc": "30.0%", "MemUsage": "900MiB / 2GiB"}) + "\n"
     (d / "timeline-server.jsonl").write_text(srv)
-    (d / "timeline-tw.jsonl").write_text("".join(json.dumps({"t": iso(t), "t_ms": t * 1000, "tw_all": 50, "tw_server": 40}) + "\n" for t in range(int(T0), int(w1) + 2, 2)))
+    (d / "timeline-tw.jsonl").write_text("".join(json.dumps({"t": iso(t), "t_ms": t * 1000, "tw_all": 50, "tw_server": 40}) + "\n" for t in range(int(T0), int(wend) + 2, 2)))
     with gzip.open(d / "gc.log.gz", "wt") as g:
         g.write("[2027-01-15T08:00:00.000+0000][info][gc,init] Using The Z Garbage Collector\n")
     (d / "consistency.json").write_text(json.dumps({c: 0 for c in S.S15.CONS_ZERO}))
@@ -413,19 +423,24 @@ def synth(cell, config, mutate=None):
             o = "cap" if a["D"] > 600 else "conf:200:OK"
             outs[o] = outs.get(o, 0) + 1
         fl = plan["flow_cycle"][0]
+        n_res = [None]
+        if mutate:
+            mutate(locals())
         lines += [csvrow("s16", int(T0), n, extra=f"fl={fl}&out={o}") for o, n in outs.items()]
         if plan["mode"] == O.MODE_EXT:
             act1["extend"]["not_needed"] = plan["n_total"]   # 흉내: 모두 200(④ — 연장 여부는 대조 밖)
         elif any(v["b"] for v in plan["flows"].values()):
             act1["pay_start"]["ok"] = plan["n_total"]
         (d / "hold-rows-wend.json").write_text(json.dumps({"holds": 20000, "held_seats": 20000}))
-        if mutate:
-            mutate(locals())
+        n200 = n_res[0] if n_res[0] is not None else sum(n for o, n in outs.items() if o.startswith("conf:200"))
+        (d / "reservations.json").write_text(json.dumps({"rows": [{"u": f"u{i}", "s": "CONFIRMED"} for i in range(n200)]}))
     (d / "table-end.json").write_text(json.dumps(tabs(0 if plan["mode"] == O.MODE_COND else 500)))
     (d / "act16-before.json").write_text(json.dumps(act0))
     (d / "act16-end.json").write_text(json.dumps(act1))
     with gzip.open(d / "k6-requests.csv.gz", "wt") as g:
         g.write("\n".join(lines) + "\n")
+    if post:
+        post(d)
     return d, S.rep_summary(d)
 
 
@@ -435,7 +450,7 @@ check("합성 paid ① 회차 → ok · 실패 자료 없음", s["status"] == "o
 check("합성 paid ① — 흐름 5 · 계획 = 분류 · G-모형 흐름 4 모두 True", set(m["flows"]) == {"n", "nc", "b", "bc", "nd"}
       and all(v["ok"] for v in m["g_model"].values()) and len(m["g_model"]) == 4, json.dumps(m["g_model"], ensure_ascii=False)[:400])
 check("합성 paid ① — ⓒ 경계 흐름 통과(마감 전 송신 > 0 · 억울 0)", m["boundary"]["ok"] and m["boundary"]["sent_before"] > 0, str({k: v for k, v in m["boundary"].items() if k != "rows"}))
-check("합성 paid ① — N16-1 증거 0 · N16-5 · 서버 교차 통과", m["n16_1"] == {"seat_hold_n_tup_upd": 0, "update_seat_hold_calls": 0} and m["n16_5"]["ok"] and m["pay_start_cross"]["ok"],
+check("합성 paid ① — N16-1 증거 0 · N16-5 · 서버 교차 통과", m["n16_1"] == {"seat_hold_n_tup_upd": 0, "update_seat_hold_calls": 0, "pay_start_5xx": 0} and m["n16_5"]["ok"] and m["pay_start_cross"]["ok"],
       json.dumps([m.get("n16_1"), m.get("n16_5"), m.get("pay_start_cross")], ensure_ascii=False)[:300])
 check("합성 paid ① — δ̂ 분포 · 재선점 · 점유 시간 값", m["delta"]["n"] > 0 and abs(m["delta"]["p50"] - 0.01) < 1e-9 and m["rehold"]["never_ratio"] == 0 and m["occupancy"]["mean_s"] > 0)
 fl_n = m["flows"]["n"]["classified"]
@@ -527,10 +542,189 @@ d = Path(tempfile.mkdtemp())
 (d / "plan.json").write_text(json.dumps(plan16.plan15.render("conditional", "race", 1)))
 check("ADR-015 계획 폴더 → plan-missing(셀 혼동 금지)", S.rep_summary(d)["status"] == "invalid:plan-missing")
 
+
+# ---- 리뷰 루프 1 회귀 사례(L1-1 · 5 · 6 · 7 · 8 · 9 · 10 · 14 · 15) ----
+def first(L, pred):
+    return next(x for x in L["sess"] if pred(x))
+
+
+def pay5xx_c(L):   # ⓒ 흐름 payment-start 5xx(서버는 ok를 세지 않는다)
+    r = first(L, lambda x: x["fl"] == "bc" and x["p"] and x["p"]["st"] == 200 and x["c"])
+    r["p"] = {"st": 503, "code": "NOCODE", "ec": 0, "ts": r["p"]["ts"], "tr": r["p"]["tr"]}
+    r.update(c=None, dl=None, pf=None, tp=None)
+    if r["uid"] in L["confirmed"]:
+        L["confirmed"].remove(r["uid"])
+    else:
+        code = next(k for k in L["conf_rej"])
+        L["conf_rej"][code] -= 1
+    L["pay_n"]["200"] -= 1
+
+
+def paybody_c(L):   # ⓒ 흐름 payment-start 200 본문 결함(서버는 ok를 센다)
+    r = first(L, lambda x: x["fl"] == "bc" and x["p"] and x["p"]["st"] == 200 and x["c"] and x["c"]["st"] == 200)
+    r["p"].update(ok=False, pb=None, pws=None)
+    r.update(c=None, dl=None, pf=None)
+    L["confirmed"].remove(r["uid"])
+
+
+_, s = synth("paid", "cond", pay5xx_c)
+gb = s["metrics"].get("g_model", {}).get("bc", {})
+check("L1-1 ⓒ 흐름 payment-start 5xx → 요약기가 죽지 않음 · mode_fail:pay-5xx · G-모형 bc 판정 밖 False", s["status"] == "ok" and "mode_fail:pay-5xx" in (s["fail"].get("mode_fail") or {})
+      and gb.get("ok") is False and any(x.get("kind") == "판정 밖" for x in gb.get("bad", [])), f"{s['status']} {s['fail']} {gb}")
+_, s = synth("paid", "cond", paybody_c)
+check("L1-1 ⓒ 흐름 payment-start 200 본문 결함 → mode_fail:pay-body-bad(회차 유효)", s["status"] == "ok" and "mode_fail:pay-body-bad" in (s["fail"].get("mode_fail") or {}),
+      f"{s['status']} {s['fail']}")
+d, _ = synth("paid", "cond")
+rows_ = [json.loads(json.loads(x)["msg"]) for x in gzip.open(d / "sessions16.log.gz", "rt")]
+del rows_[0]["D"]   # 요약기 안쪽 예외를 일부러 낸다
+with gzip.open(d / "sessions16.log.gz", "wt") as g:
+    g.write("".join(json.dumps({"msg": json.dumps(r)}) + "\n" for r in rows_))
+import io, contextlib
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    rc_ = S.main(["x", "--rep", str(d)])
+sm_ = json.loads((d / "rep-summary.json").read_text())
+check("L1-1 요약기 예외 → status invalid:summarize-failed · 추적 · 사용자 보고 표지(죽지 않음)", rc_ == 0 and buf.getvalue().strip().endswith("invalid:summarize-failed")
+      and sm_.get("report_to_user") and "KeyError" in sm_.get("error", ""), buf.getvalue()[-200:])
+
+
+def flow_tamper(L):
+    L["sess"][7]["fl"] = "nd" if L["sess"][7]["fl"] != "nd" else "n"
+
+
+def pf_deadline_coff(L):   # ⓒ 끔 흐름(n)에 pf = deadline
+    r = first(L, lambda x: x["fl"] == "n" and x["c"] and x["c"]["st"] == 200)
+    r.update(pf="deadline", c=None)
+    L["confirmed"].remove(r["uid"])
+
+
+def pf_cap_small(L):   # D ≤ CAP인데 pf = cap
+    r = first(L, lambda x: x["fl"] == "b" and x["c"] and x["c"]["st"] == 200 and x["D"] <= 600)
+    r.update(pf="cap", c=None)
+    L["confirmed"].remove(r["uid"])
+
+
+def no_send(L):   # 결제 성공(pf 없음)인데 확정을 보내지 않음 — 억울 0이 '확정 안 보냄'으로 생기는 그린 위장
+    r = first(L, lambda x: x["fl"] == "n" and x["c"] and x["c"]["st"] != 200)
+    code = r["c"]["code"]
+    r["c"] = None
+    L["conf_rej"][code] -= 1
+
+
+def rh_drop(L):
+    L["rh"].pop(0)
+
+
+def rh_dup(L):
+    L["rh"].append(dict(L["rh"][0]))
+
+
+def rh_extra(L):
+    tgt = {x["sid"] for x in L["rh"]}
+    L["rh"].append({"k": "r", "sid": next(i for i in range(10 ** 6) if i not in tgt), "n": 1, "got": True, "t": 0})
+
+
+def seat_not_held(L):
+    r = first(L, lambda x: x["c"] and x["c"]["st"] == 409 and x["c"]["code"] == "HOLD_EXPIRED")
+    r["c"]["code"] = "SEAT_NOT_HELD"
+    L["conf_rej"]["HOLD_EXPIRED"] -= 1
+    L["conf_rej"]["SEAT_NOT_HELD"] = L["conf_rej"].get("SEAT_NOT_HELD", 0) + 1
+
+
+def orphan(L):
+    L["confirmed"].append("pay-9999999-1")
+
+
+def pay_cross(L):   # 서버 pay_start ok 지표와 k6 200 수가 어긋남
+    L["pay_n"]["200"] += 3
+
+
+def boundary_bad(L):   # 경계 흐름: 마감 전에 보냈는데 거부(억울)
+    r = first(L, lambda x: x["fl"] == "nd" and x["c"] and x["c"]["st"] == 200)
+    r["c"].update(st=409, code="HOLD_EXPIRED")
+    L["confirmed"].remove(r["uid"])
+    L["conf_rej"]["HOLD_EXPIRED"] = L["conf_rej"].get("HOLD_EXPIRED", 0) + 1
+
+
+for fn, want, name in ((flow_tamper, "flow-assign-mismatch", "L1-7 흐름 배정 ≠ 바퀴[sid mod 길이] → flow-assign-mismatch"),
+                       (pf_deadline_coff, "session-payfail-mismatch", "L1-15 ⓒ 끔 흐름에 pf=deadline → session-payfail-mismatch"),
+                       (pf_cap_small, "session-payfail-mismatch", "L1-15 D ≤ CAP인데 pf=cap → session-payfail-mismatch"),
+                       (no_send, "confirm-send-mismatch", "L1-15 결제 성공인데 확정 안 보냄 → confirm-send-mismatch"),
+                       (rh_drop, "rehold-count-mismatch", "L1-8 재선점 행 누락 → rehold-count-mismatch"),
+                       (rh_dup, "rehold-count-mismatch", "L1-8 재선점 행 중복 → rehold-count-mismatch"),
+                       (rh_extra, "rehold-count-mismatch", "L1-8 대상 밖 재선점 행 → rehold-count-mismatch")):
+    _, s = synth("paid", "cond", fn)
+    check(name, want in s["reasons"], s["status"])
+for fn, key, name in ((seat_not_held, "seat_not_held", "L1-14 409 SEAT_NOT_HELD → G-정합 실패 자료"), (orphan, "reservation_orphan", "L1-14 세션 밖 CONFIRMED 예약 → reservation_orphan"),
+                      (pay_cross, "pay_start_mismatch", "L1-14 pay_start 지표 ≠ k6 → pay_start_mismatch")):
+    _, s = synth("paid", "cond", fn)
+    check(name, s["status"] == "ok" and key in s["fail"], f"{s['status']} {s['fail']}")
+_, s = synth("paid", "cond", boundary_bad)
+check("L1-14 경계 흐름 마감 전 송신 억울 → boundary ok False", s["metrics"]["boundary"]["ok"] is False and s["metrics"]["boundary"]["wronged_before"] >= 1)
+PG_UPD = {"rows": [{"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 2}, {"q": "DELETE FROM seat_hold WHERE id = $1 AND user_id = $2", "calls": 9}]}
+_, s = synth("paid", "cond", post=lambda d: (d / "pgss-end.json").write_text(json.dumps(PG_UPD)))
+check("L1-9 · L1-14 ① pgss UPDATE seat_hold > 0 → n16_1 실패 + 허용 밖 쓰기(write_unknown)", "n16_1" in s["fail"] and "write_unknown" in s["fail"], str(s["fail"]))
+PG_UNK = {"rows": [{"q": "INSERT INTO counter_cleanup_run (at, mode) VALUES ($1, $2)", "calls": 1},
+                   {"q": "WITH x AS (UPDATE product_seat SET status = $1 RETURNING id) SELECT * FROM x", "calls": 1},
+                   {"q": "SELECT status FROM product_seat WHERE id = $1 FOR UPDATE", "calls": 5}]}
+_, s = synth("paid", "ext", post=lambda d: (d / "pgss-end.json").write_text(json.dumps(PG_UNK)))
+wu = s["fail"].get("write_unknown") or []
+check("L1-9 허용 밖 쓰기(INSERT counter_cleanup_run) 1건만 · WITH 안 허용 쓰기 · SELECT FOR UPDATE는 쓰기 아님", len(wu) == 1 and "counter_cleanup_run" in wu[0], str(wu))
+_, s = synth("paid", "ext", post=lambda d: (d / "pgss-end.json").write_text(json.dumps({"rows": [{"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 4}]})))
+check("L1-9 ④ UPDATE seat_hold(E1 연장)는 허용", "write_unknown" not in s["fail"], str(s["fail"]))
+
+
+def tw_err(d):
+    with open(d / "timeline-tw.jsonl", "a") as f:
+        f.write(json.dumps({"t": "2027-01-15T08:00:00+00:00", "t_ms": 1, "err": "ss rc 1/0"}) + "\n")
+
+
+_, s = synth("cost", "cond", post=tw_err)
+check("L1-6 cost TIME_WAIT ss 실패 표본 → tw-missing(0으로 세지 않음)", "tw-missing" in s["reasons"], s["status"])
+# paid는 TIME_WAIT를 판정에 쓰지 않는다(cost 지표 — 메인 결정 2026-11-08): 결측이면 값 None · 회차는 무효가 아니다 · 0으로 세지도 않는다
+_, s = synth("paid", "cond", post=tw_err)
+check("L1-6 paid TIME_WAIT ss 실패 표본 → 무효 아님 · 값 None(0 아님)", "tw-missing" not in s["reasons"] and s["metrics"].get("tw_server_max") is None, f"{s['status']} {s['metrics'].get('tw_server_max')}")
+
+
+def client_short(d):   # PC 메모리 표본이 도착 창 끝에서 멈춤(k6 끝까지 덮지 못함)
+    w1 = T0 + plan16.render("paid", "cond", 1)["d_arr_s"]
+    rows = [json.loads(x) for x in (d / "timeline-client.jsonl").read_text().splitlines()]
+    (d / "timeline-client.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows if S.ts(r["t"]) <= w1 + 5))
+
+
+d, s = synth("paid", "cond")
+pp = plan16.render("paid", "cond", 1)
+check("L1-5 paid 환경 점검 창 = [t0, min(t0 + d_arr + grace, k6 끝)]", s["metrics"]["env_window_pc"] == [T0, T0 + pp["d_arr_s"] + 600], str(s["metrics"]["env_window_pc"]))
+_, s = synth("paid", "cond", post=client_short)
+check("L1-5 PC 메모리 표본이 도착 창까지만 → pc-mem-missing(창을 k6 끝까지 넓혔다)", "pc-mem-missing" in s["reasons"], s["status"])
+
+
+def cost_bad(L):
+    L["outs"]["conf:403:HOLD_NOT_OWNED"] = 2
+    L["outs"]["conf:200:OK"] -= 2
+    L["outs"]["pay:200:body"] = 1
+    L["outs"]["conf:200:OK"] -= 1
+
+
+_, s = synth("cost", "cond+b", cost_bad)
+mf = s["fail"].get("mode_fail") or {}
+check("L1-10 cost out 계수 → 결정표 갈래(확정 403 계약 밖 · payment-start 200 본문 결함 → mode_fail)",
+      "mode_fail:confirm-noncontract-403-HOLD_NOT_OWNED" in mf and "mode_fail:pay-body-bad" in mf and "integrity" not in s["fail"], str(s["fail"]))
+_, s = synth("cost", "cond", lambda L: L["n_res"].__setitem__(0, 5))
+check("L1-10 cost 확정 200 합 ≠ CONFIRMED 행 수 → integrity", "integrity" in s["fail"], str(s["fail"]))
+pk_ = plan16.render("cost", "ext", 1)["window"]["hold_ratio"]
+check("L1-16 cost 창 — 홀드 수명 기준 정상 상태 비율(④ 창 시작 < 100% · 99% 도달 시각)", 0 < pk_["from"] < 1 and pk_["from_for_99"] > 0, str(pk_))
+check("L1-13 run16 — 시계 차 파싱 실패를 0으로 채우지 않는다(OFF_MS=0 없음 · abort clock-offset-bad)",
+      "|| OFF_MS=0" not in (HERE / "run16.sh").read_text() and "|| abort16 clock-offset-bad" in (HERE / "run16.sh").read_text())
+import model16
+sw = model16.sweep(picked={"M": None, "W": None, "theta_cond": 69.0}, n=10)
+check("L1-12 model16 sweep — M · W 결측이면 계산하지 않음(delta missing · 0 채움 없음)", sw["results"] is None and sw["delta"] == "missing" and "M" in sw["missing"])
+check("L1-12 model_cap30 — δ̂ 또는 err 없으면 None", S.model_cap30([], 0.003) is None and S.model_cap30([0.01], None) is None)
+
 # ==== 캠페인 판정(합성 rep-summary) ====
 
 
-def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False):
+def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
     root = Path(tempfile.mkdtemp())
     for cell in plan16.CELLS:
         for g in plan16.CONFIGS[cell]:
@@ -539,7 +733,9 @@ def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False):
                 dd.mkdir(parents=True)
                 (dd / "status").write_text("ok\n")
                 if cell == "race":
-                    (dd / "rep-summary.json").write_text(json.dumps({"status": "ok", "metrics": {"mode": plan16.RACE_MODE[g]}, "fail": {}}))
+                    rf = race_fail if (g == "ext" and race_fail) else {}
+                    (dd / "rep-summary.json").write_text(json.dumps({"status": "ok", "metrics": {"mode": plan16.RACE_MODE[g], "rep": r,
+                                                                                               "contention_evidence": race_ev if g == "ext" else 3}, "fail": rf}))
                     continue
                 M_ = {"cell": cell, "config": g, "rep": r, "p99": {"confirm_200": 10 + (5 if g == "ext" else 0) + r, "hold_201": 5 + r, "pay_start_200": 4},
                       "db_cpu": 10 + (5 if g == "ext" else 0) + r * 0.1, "hold_rows_wend": 20000 + r, "tw_server_max": 100 + r, "clock_err_ms": 3}
@@ -556,8 +752,12 @@ def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False):
                     M_["g_model"] = {fl: {"ok": paid_ok} for fl in M_["flows"]}
                     M_["boundary"] = {"rows": [[True, "success"], [False, "pay_fail"]]}
                     M_["delta"] = {"values": [0.004, 0.006]}
-                    M_["rehold"] = {"never_ratio": 0.9 if g == "ext" else 0.0}
-                    M_["occupancy"] = {"mean_s": 300 + r if g == "ext" else 150 + r}
+                    M_["rehold_by_flow"] = {fl: {"never_ratio": (0.9 if g == "ext" else 0.0) + r * 0.001} for fl in M_["flows"]}
+                    M_["occupancy_by_flow"] = {fl: {"mean_s": 300 + r if g == "ext" else 150 + r} for fl in M_["flows"]}
+                    if drop_paid_flow_metric and g == "ext":
+                        M_["rehold_by_flow"]["e"]["never_ratio"] = None
+                if drop_cost_metric and cell == "cost" and g == "ext" and r == 1:
+                    M_.pop(drop_cost_metric)
                 fail = {"n16_5": ["x"]} if fail_cost and cell == "cost" and g == "ext" else {}
                 (dd / "rep-summary.json").write_text(json.dumps({"status": "ok", "metrics": M_, "fail": fail}))
     return root
@@ -565,7 +765,7 @@ def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False):
 
 r = S.campaign(fake_campaign(), write=False)
 check("캠페인 — ④ 두 흐름 억울 0 · ① 후보 목표 미달 → 순서상 ext+c · G-비용 보고(db_cpu · 재선점)", r["decision"]["pick"] == "ext+c" and r["decision"]["status"] == "pick"
-      and "cost/db_cpu" in r["candidates"]["ext+c"]["cost_report"] and "paid/rehold.never_ratio" in r["candidates"]["ext"]["cost_report"], json.dumps(r["decision"], ensure_ascii=False))
+      and "cost/db_cpu" in r["candidates"]["ext+c"]["cost_report"] and "paid/rehold.never_ratio[e:n]" in r["candidates"]["ext"]["cost_report"], json.dumps(r["decision"], ensure_ascii=False))
 check("캠페인 — ① 후보는 목표 미달(억울 120/1100)", r["candidates"]["cond+c"]["g_target"] is False and r["candidates"]["cond+b"]["g_target"] is False)
 r = S.campaign(fake_campaign(wr_ext=1), write=False)
 check("캠페인 — ④ 억울 3/3300(상한 > 0.1%) → ④ 탈락", r["candidates"]["ext"]["g_target"] is False, str(r["candidates"]["ext"]))
@@ -577,6 +777,32 @@ r = S.campaign(fake_campaign(fail_cost=True), write=False)
 check("캠페인 — cost ④ 정합 실패(N16-5) → ④ 탈락", r["candidates"]["ext"]["g_consistency"] is False)
 md = S.render_md(S.campaign(fake_campaign(), write=False))
 check("RESULT.md — CAP 30분 모형 · ⓒ 조건 병기", "cap30" in md and "결제 쪽이 마감" in md)
+
+# ---- 리뷰 루프 1 캠페인 사례(L1-3 · 4 · 11 · 12) ----
+r = S.campaign(fake_campaign(race_ev=0), write=False)
+check("L1-4 race ④ 회차 양성 대조 0 → ④ 후보 g_consistency None(판정 불가)", r["candidates"]["ext"]["g_consistency"] is None and r["candidates"]["cond"]["g_consistency"] is True)
+r = S.campaign(fake_campaign(race_fail={"timeout": {"hold": 1}}), write=False)
+check("L1-4 race 'A도 같은 문턱' 대상(시간 초과) → None(False 아님)", r["candidates"]["ext"]["g_consistency"] is None)
+r = S.campaign(fake_campaign(race_fail={"integrity": {"v_duplicate_confirmed_seats": 1}}), write=False)
+check("L1-4 race 정합 위반 → False", r["candidates"]["ext"]["g_consistency"] is False)
+r = S.campaign(fake_campaign(drop_cost_metric="db_cpu"), write=False)
+check("L1-3 cost 지표 결측 → '판정 불가:cost/db_cpu' · 그 후보 판정 불가(조용히 빠지지 않음)", "판정 불가:cost/db_cpu" in r["candidates"]["ext+c"]["cost_report"]
+      and r["decision"]["state"]["ext+c"] == "undetermined", json.dumps(r["decision"], ensure_ascii=False)[:300])
+check("L1-3 cost payment-start p99는 기준(① cost)이 없어 비교에서 뺀다", not any("pay_start" in x for x in r["candidates"]["ext"]["cost_report"]))
+r = S.campaign(fake_campaign(drop_paid_flow_metric=True), write=False)
+check("L1-8 · L1-11 paid 재선점 비율 결측 → '판정 불가:paid/rehold.never_ratio[e:n]'", "판정 불가:paid/rehold.never_ratio[e:n]" in r["candidates"]["ext"]["cost_report"],
+      str(r["candidates"]["ext"]["cost_report"]))
+check("L1-3 decide — cost_report '판정 불가:'가 있으면 통과 후보도 판정 불가", dc({"ext": {"g_target": T_, "cost_report": ["판정 불가:cost/db_cpu"]}})["status"] == "undetermined")
+fc = fake_campaign()
+for f_ in fc.glob("paid/*/rep*/rep-summary.json"):
+    j = json.loads(f_.read_text())
+    j["metrics"]["delta"] = {"values": []}
+    f_.write_text(json.dumps(j))
+r = S.campaign(fc, write=False)
+md = S.render_md(r)
+check("L1-12 δ̂ 결측 캠페인 → 모형 계산 안 함 · RESULT.md 'δ̂ 결측 — 계산 안 함' · N16-1 세 겹 · 짝 메모", r["model"] is None and "δ̂ 결측 — 계산 안 함" in md
+      and "readOnly" in md and "paid e 대 ① n" in md)
+
 
 # ==== 캠페인 루프(선택) ====
 if "--campaign" in sys.argv:
@@ -613,12 +839,33 @@ if "--campaign" in sys.argv:
                        stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
     check("연속 무효 5회 → 멈춤(exit 3)", p.returncode == 3, f"rc={p.returncode}")
     shutil.rmtree(sim, ignore_errors=True)
-    # FIXED = False → 실제 실행 거부(서버 접속 전)
-    p = subprocess.run(["bash", str(HERE / "campaign16.sh"), "--sha", "HEAD"], stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
-    check("campaign16 실제 실행 — FIXED False → 거부(exit 2)", p.returncode == 2 and "FIXED" in p.stderr, p.stderr[-300:])
-    p = subprocess.run(["bash", str(HERE / "run16.sh"), "--cell", "paid", "--config", "cond", "--rep", "1", "--id", "x", "--images", "/dev/null"],
+    # FIXED 두 상태(리뷰 L1-2 — 고정 커밋 뒤에도 깨지지 않게): FIXED를 바꿔 끼운 하네스 사본(git 밖 — SHA 해석에서 멈춰 원격 · git 동작이 없다)으로
+    #   False = FIXED 문구로 거부 · True = FIXED 관문을 지나 다음 관문(SHA 해석)에서 멈춤
+    hp = subprocess.run(["bash", str(HERE / "hhash16.sh"), "--paths"], capture_output=True, text=True).stdout.split()
+    for fixed in (False, True):
+        tree = Path(tempfile.mkdtemp())
+        subprocess.run(f"tar -C {REPO} --exclude=k6/ADR-016/results --exclude=k6/ADR-015/results --exclude=__pycache__ -cf - {' '.join(hp)} | tar -x -C {tree}",
+                       shell=True, check=True)
+        pf_ = tree / "k6/ADR-016/scripts/plan16.py"
+        pf_.write_text(re.sub(r"^FIXED = (True|False)$", f"FIXED = {fixed}", pf_.read_text(), count=1, flags=re.M))
+        sc = tree / "k6/ADR-016/scripts"
+        pc_ = subprocess.run(["bash", str(sc / "campaign16.sh"), "--sha", "HEAD"], stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=tree)
+        pr_ = subprocess.run(["bash", str(sc / "run16.sh"), "--cell", "paid", "--config", "cond", "--rep", "1", "--id", "x", "--images", "/dev/null"],
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=tree)
+        if fixed:
+            check("FIXED True 사본 — campaign16 · run16이 FIXED 관문을 지난다(다음 관문 SHA 해석에서 멈춤)", "FIXED" not in pc_.stderr and "FIXED" not in pr_.stderr
+                  and "SHA 해석 실패" in pc_.stderr + pr_.stderr, (pc_.stderr + pr_.stderr)[-300:])
+        else:
+            check("FIXED False 사본 — campaign16 · run16 실제 실행 거부(exit 2 · FIXED)", pc_.returncode == 2 and "FIXED" in pc_.stderr and pr_.returncode == 2
+                  and "FIXED" in pr_.stderr, (pc_.stderr + pr_.stderr)[-300:])
+        shutil.rmtree(tree, ignore_errors=True)
+    # 요약기 예외 → 멈춤 · 사용자 보고(exit 8 — 재측정하지 않는다 · 리뷰 L1-1)
+    sim = Path(tempfile.mkdtemp())
+    (sim / "plan.txt").write_text("1:paid:ext:1=invalid:summarize-failed\n")
+    p = subprocess.run(["bash", str(HERE / "campaign16.sh"), "--simulate", "--worktree", "--results-root", str(sim), "--id", "t", "--sim-plan", str(sim / "plan.txt")],
                        stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
-    check("run16 실제 실행 — FIXED False → 거부(exit 2)", p.returncode == 2 and "FIXED" in p.stderr, p.stderr[-300:])
+    check("summarize-failed → 멈춤 exit 8 · 재측정 없음", p.returncode == 8 and not list((sim / "t/paid/ext").glob("rep1.attempt*")), f"rc={p.returncode}")
+    shutil.rmtree(sim, ignore_errors=True)
     p = subprocess.run(["bash", str(HERE / "run16.sh"), "--cell", "cost", "--config", "ext", "--rep", "2", "--id", "x", "--dry-run"],
                        stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
     check("run16 --dry-run exit 0(기동 검사 · 시각 · VU 출력)", p.returncode == 0 and "기동 검사" in p.stdout and "VU" in p.stdout, p.stderr[-300:])
