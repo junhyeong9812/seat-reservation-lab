@@ -8,9 +8,9 @@
 //   paid 셀 — 세션 결과 행(요약기 입력): console.log(JSON 한 줄) → run16.sh가 `--log-format=json --console-output=<회차>/sessions16.log`로 파일에 받는다.
 //     k6 지표(Counter 태그)로 세션마다 시각 · 값을 달면 태그 조합마다 시계열이 생겨 k6 메모리 · CSV가 세션 수만큼 커진다 → 지표 밖 파일로 뺀다(handleSummary에 묶지 않음 —
 //     반복이 끊겨도 그때까지의 행이 남고, 요약기가 흐름별 계획 세션 수와 대조해 누락을 무효로 잡는다).
-//     행(k='s'): fl · sid · T · D(초) · gx(경계 x ms) · uid(paymentUid) · ek(마감 계산 err ms) · dl(하네스 마감 ms) · pf(cap | deadline) · th(생각 끝) · tp(결제 시작) ·
+//     행(k='s'): fl · sid · T · D(초) · gx(경계 x ms) · uid(paymentUid) · ek(마감 계산 err ms) · dl(하네스 마감 ms) · pf(cap | deadline) · lw(경계 흐름이 늦게 깨어 마감 뒤라 안 보냄) · th(생각 끝) · tp(결제 시작) ·
 //       h · p · c = 선점 · payment-start · 확정 응답 {st, code, ec(error_code), ts(송신), tr(수신) — 서버 시계 ms(PC + CLOCK_OFFSET_MS), exp · pb · pws · hid · ext · ok(본문)}
-//     행(k='r'): 재선점 sid · n(보낸 시도) · got(201) · t(201 수신 ms)
+//     행(k='r'): 재선점 sid · n(보낸 시도) · got(201) · t(201 수신 ms) · t1(첫 시도 송신 ms)
 //   cost 셀 — 세션 행 없음 · 집계 계수만: Counter s16{fl, out}(out = hold:<st>:<code> · pay:<st>:<code> · cap · dl · conf:<st>:<code> — 낮은 기수) · r16{got}.
 // 연결: 50초 이상 쉬기 앞 요청은 Connection: close(lib14 closeBeforeLongThink) · 확정 · 재선점 마지막 시도 = 반복 끝 요청 close · noVUConnectionReuse(ADR-016 설계-5 처방).
 // 판정 창 t0 = setup 반환 직전 PC 시각(k6-summary setup_data.startedAt — ADR-014 · 015와 같은 정의).
@@ -140,6 +140,8 @@ export function mainFlow() {
     sendAt = tp + a.D * 1000;
   }
   sleepUntilSrv(sendAt);
+  // ⓒ 경계 흐름(격자 x ≥ 0): 늦게 깨어 송신 직전 시각이 이미 하네스 마감을 넘었으면 보내지 않는다(마감 뒤 송신 금지 계약 — 리뷰 L4-2 · lw = late wake)
+  if (f.bd && srvNow() > row.dl) { row.pf = 'deadline'; row.lw = true; finish(row, 'dl'); return; }
   const cc = call(closeConn(confirmReq(hb.hid, user, 'confirm')));   // 반복 끝 요청 — 서버가 먼저 닫는다
   row.c = brief(cc, false);
   finish(row, `conf:${row.c.st}:${row.c.code}`);
@@ -155,15 +157,17 @@ export function reholdFlow() {
   const t0 = Date.now();
   let got = false;
   let t = null;
+  let t1 = null;   // 첫 시도 송신 서버 시각(요약기가 원래 만료 e와 대조 — 재선점 일정 지연 · 리뷰 L4-3)
   let k = 0;
   for (k = 1; k <= REHOLD_OFFS.length; k++) {
     const wait = (t0 + TTL_MS + REHOLD_OFFS[k - 1] - Date.now()) / 1000;
     if (wait > 0) sleep(wait);
     const req = holdReq(schedule, seat, user, 'rehold');
+    if (k === 1) t1 = srvNow();
     const r = send(k === REHOLD_OFFS.length ? closeConn(req) : req);
     if (r.status === 201) { got = true; t = srvNow(); break; }
   }
-  if (PAID) console.log(JSON.stringify({ k: 'r', sid, n: Math.min(k, REHOLD_OFFS.length), got, t }));
+  if (PAID) console.log(JSON.stringify({ k: 'r', sid, n: Math.min(k, REHOLD_OFFS.length), got, t, t1 }));
   else r16.add(1, { got: got ? '1' : '0' });
 }
 

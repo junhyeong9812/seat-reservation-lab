@@ -46,7 +46,10 @@ N_PER_FLOW = 1100     # paid 흐름당 회차 세션(DV-4 · 3회 합 3,300 — 
 FLOW_WEIGHT, BOUNDARY_WEIGHT = 4, 1   # 교차 배정 한 바퀴 = 흐름마다 4세션 + 경계 1세션 → 경계 흐름 = 1,100 × 1/4 = 275세션(명세 '수백' 자리)
 # ⓒ 경계 흐름 격자 x(ms): 확정 송신 = 하네스 마감 − x. x < 0 = 마감 뒤 — 보내지 않고 결제 실패(대조 계수)로 센다(명세 §1-3 DV-3)
 BOUNDARY_GRID_MS = (3000, 2000, 1500, 1000, 700, 500, 300, 200, 100, 50, 0, -200, -1000)
-RHO = {"paid": 0.5, "cost": 0.0}          # 재선점 비율(명세 Q/A 2 · cost = 0 — ADR-015 M15-20)
+RHO = {"paid": 0.5, "cost": 0.0}
+BOUNDARY_MIN_FRAC = 0.8     # ⓒ 경계 판정 검출력: 격자 x ≥ 0 각 점의 '마감 전 실제 송신' 수 ≥ 그 점 계획 수 × 이 값이어야 판정(아니면 None — 리뷰 L4-2 · 자리표시)
+REHOLD_LAG_TOL_MS = 2000    # 재선점 첫 시도 지연 허용(실제 (t1 − e) − 계획 첫 오프셋) — 넘는 행이 재선점 대상의 1% 초과면 무효(리뷰 L4-3 · 자리표시)
+REHOLD_LAG_MAX_FRAC = 0.01          # 재선점 비율(명세 Q/A 2 · cost = 0 — ADR-015 M15-20)
 REHOLD_FROM_MS, REHOLD_STEP_MS = -1000, 1000   # 재선점 시도: 원래 만료 e − 1초부터 1초 간격(e 둘레 — 자리표시)
 REHOLD_UNTIL_S = BATCH_S + 3                  # … e + 13초까지(배치 한 주기 + 여유 — ADR-015 plan15와 같은 꼴)
 CLOCK_ERR_MARGIN_MS = 20   # k6의 ⓒ 마감 계산 err = k6 직전 시계 차 표본 왕복/2 + 이 값(ADR-015 EVIDENCE_MARGIN_MS 20ms 선례 · 자리표시)

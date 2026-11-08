@@ -137,22 +137,24 @@ def g_target(wronged, n, pre_reject, pay_fail):
 
 
 def g_model(rows):
-    """G-모형 세션 대조: rows = [(predicted, in_band, observed)]. observed가 4갈래 밖 = 판정 밖(목록에 사유 · 결과 False) ·
-    띠 밖 불일치 1건이면 False · 띠 안 불일치는 허용('허용'으로 표기). 행이 없으면 None(검출력 없음 — 결함 증거가 아니라 판정 불가 · 리뷰 L3-4)."""
-    out, ok = [], True
+    """G-모형 세션 대조: rows = [(predicted, in_band, observed)] ·
+    띠 밖 불일치 1건이면 False · 띠 안 불일치는 허용('허용'으로 표기). 4갈래 밖 관측(mode_fail · integrity · invalid)은 '판정 밖'으로 돌려주되
+    결과를 False로 만들지 않는다 — 그 세션은 G-정합 · G-F가 실패 자료로 다룬다(계약 C절 정정 · 리뷰 L4-4). 판정 가능한 행이 0이면 None(검출력 없음)."""
+    out, ok, judged = [], True, 0
     rows = list(rows)
-    if not rows:
-        return None, [{"kind": "행 없음"}]
     for i, (pred, band, obs) in enumerate(rows):
         if obs not in O.CATEGORIES:
-            ok = False
             out.append({"i": i, "kind": "판정 밖", "predicted": pred, "observed": obs})
-        elif pred != obs:
+            continue
+        judged += 1
+        if pred != obs:
             if band:
                 out.append({"i": i, "kind": "허용", "predicted": pred, "observed": obs})
             else:
                 ok = False
                 out.append({"i": i, "kind": "띠 밖", "predicted": pred, "observed": obs})
+    if not judged:
+        return None, out + [{"kind": "행 없음"}]
     return ok, out
 
 
@@ -181,6 +183,20 @@ def boundary_ok(rows):
         else:
             c["not_before"] += 1
     return c["sent_before"] > 0 and c["wronged_before"] == 0, c
+
+
+def boundary_grid_ok(grid, min_frac=None):
+    """ⓒ 경계 격자 점별 판정(리뷰 L4-2 — boundary_ok와 함께 본다): grid = {x_ms: {"planned", "sent_before", "wronged_before", …}} ·
+    마감 전 송신인데 wronged ≥ 1 → False · x ≥ 0 점 중 마감 전 실제 송신 < 계획 × min_frac인 점이 있으면 None(그 점의 검출력 부족 — 늦게 깨어 안 보냄 등) · 그 밖 True."""
+    min_frac = plan16.BOUNDARY_MIN_FRAC if min_frac is None else min_frac
+    if not grid:
+        return None, {"why": "격자 없음"}
+    weak = {x: g for x, g in grid.items() if int(x) >= 0 and g.get("sent_before", 0) < g.get("planned", 0) * min_frac}
+    if any(g.get("wronged_before", 0) for g in grid.values()):
+        return False, {"weak": sorted(weak, key=int)}
+    if weak or not any(int(x) >= 0 and g.get("planned", 0) for x, g in grid.items()):
+        return None, {"weak": sorted(weak, key=int)}
+    return True, {"weak": []}
 
 
 def flow_count_ok(planned, classified):
@@ -661,7 +677,7 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
     flows, rep, cap = plan["flows"], plan["rep"], plan["cap_s"]
     seen, cats, by_sid = set(), {}, {}
     gm = {f: [] for f in flows}
-    bd_rows, er_rows, deltas = {}, [], []
+    bd_rows, er_rows, deltas, bd_grid = {}, [], [], {}
     occ = {}   # 흐름별 좌석 점유 시간(경계 흐름 제외 — 리뷰 L1-11)
     cyc = plan["flow_cycle"]
     td_bad = dl_bad = dup = delta_bad = fa_bad = pf_bad = send_bad = 0
@@ -710,7 +726,8 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         want_pf = None
         if reached:
             if f["bd"]:
-                want_pf = "deadline" if num(r.get("gx")) and r["gx"] < 0 else None
+                # x < 0 = 마감 뒤 격자 · lw = 늦게 깨어 송신 직전 마감을 넘어 안 보냄(확정 없음일 때만 정당 — 리뷰 L4-2)
+                want_pf = "deadline" if (num(r.get("gx")) and r["gx"] < 0) or (r.get("lw") is True and c is None) else None
             elif r["D"] > cap:
                 want_pf = "cap"
             elif f["c"]:
@@ -762,6 +779,13 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         if f["bd"]:
             before = c is not None and num(c.get("ts")) and num(r.get("dl")) and c["ts"] <= r["dl"]
             bd_rows.setdefault(fl, []).append((bool(before), cat))
+            gx_ = r.get("gx")
+            if isinstance(gx_, int):
+                g_ = bd_grid.setdefault(fl, {}).setdefault(str(gx_), {"planned": 0, "sent_before": 0, "wronged_before": 0, "late_wake": 0, "not_sent": 0})
+                g_["sent_before"] += bool(before)
+                g_["wronged_before"] += bool(before) and cat == O.WRONGED
+                g_["late_wake"] += r.get("lw") is True
+                g_["not_sent"] += c is None
             continue
         if cat not in O.CATEGORIES:   # 결함 사유 세션은 예측하지 않고 g_model이 사유로 돌려주게(리뷰 L1-1 — 입력 결측으로 predict가 죽지 않게)
             gm[fl].append(("not-predicted", False, cat))
@@ -809,6 +833,23 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
     rh_bad = len(want_rh - set(got_rh)) + (len(got_rh) - len(set(got_rh))) + len(set(got_rh) - want_rh)
     if rh_bad:
         reasons.add("rehold-count-mismatch")
+    # 재선점 일정(리뷰 L4-3): 첫 시도 송신(t1) − 실제 선점 만료 e − 계획 첫 오프셋 > 허용인 행이 재선점 대상의 1% 초과면 무효(재선점이 e 둘레를 놓쳤다).
+    #   t1이 없는 행(옛 하네스 기록) = 일정 검사 입력 결측 → rehold-schedule-missing(0으로 채우지 않는다)
+    lag_n, lag_miss, lags = 0, 0, []
+    for x in rh:
+        hs = (by_sid.get(x.get("sid")) or {}).get("h") or {}
+        if not (num(x.get("t1")) and num(hs.get("exp"))):
+            lag_miss += 1
+            continue
+        lag = (x["t1"] - hs["exp"]) - plan16.REHOLD_FROM_MS
+        lags.append(lag)
+        lag_n += lag > plan16.REHOLD_LAG_TOL_MS
+    M["rehold_schedule"] = {"late": lag_n, "missing": lag_miss, "n": len(rh), "lag_p50_ms": _q(lags, 0.5), "lag_max_ms": max(lags) if lags else None,
+                            "tol_ms": plan16.REHOLD_LAG_TOL_MS}
+    if lag_miss:
+        reasons.add("rehold-schedule-missing")
+    if rh and lag_n > plan16.REHOLD_LAG_MAX_FRAC * len(rh):
+        reasons.add("rehold-schedule-late")
     if delta_bad or (not deltas and any(r.get("c") for r in rows)):
         inp.miss("delta", f"확정 송신 · 수신 시각 없음 {delta_bad}")
     M["harness_checks"] = {"td_mismatch": td_bad, "deadline_mismatch": dl_bad, "duplicate": dup, "flow_assign_mismatch": fa_bad,
@@ -833,10 +874,17 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         ok, lst = g_model(gr)
         M["g_model"][fl] = {"ok": ok if err_ms is not None else None, "n": len(gr), "allowed": sum(1 for x in lst if x.get("kind") == "허용"),
                             "bad": [x for x in lst if x.get("kind") != "허용"][:50]}
-    M["boundary"] = {}   # 경계 흐름별(리뷰 L2-10 — ① nd · bcd · ④ ed)
-    for fl_, rows_ in bd_rows.items():
+    M["boundary"] = {}   # 경계 흐름별(리뷰 L2-10 — ① nd · bcd · ④ ed) · 격자 점별 계수(리뷰 L4-2 — 계획 수 = 시드의 격자 번호)
+    for sid in range(plan["n_total"]):
+        fl_ = cyc[sid % len(cyc)]
+        if flows[fl_]["bd"]:
+            x_ = str(plan16.BOUNDARY_GRID_MS[plan16.session_attrs(rep, sid, plan["rho"])["gx"]])
+            bd_grid.setdefault(fl_, {}).setdefault(x_, {"planned": 0, "sent_before": 0, "wronged_before": 0, "late_wake": 0, "not_sent": 0})["planned"] += 1
+    for fl_ in sorted(set(bd_rows) | set(bd_grid)):
+        rows_ = bd_rows.get(fl_, [])
         bok, bcnt = boundary_ok(rows_)
-        M["boundary"][fl_] = {"ok": bok, **bcnt, "rows": rows_}
+        gok, gdet = boundary_grid_ok(bd_grid.get(fl_, {}))
+        M["boundary"][fl_] = {"ok": bok, "grid_ok": gok, **bcnt, "rows": rows_, "grid": bd_grid.get(fl_, {}), "grid_weak": gdet.get("weak")}
     er = early_reject(er_rows, k["theta"]) if err_ms is not None else None
     M["early_reject"] = er
     if er:
@@ -1042,6 +1090,15 @@ def campaign(root, write=True):
             bfl = plan16.BOUNDARY_FLOW.get(name)
             brows = [tuple(x) for s in pr for x in ((s["metrics"].get("boundary") or {}).get(bfl) or {}).get("rows") or []] if bfl else []
             bnd = boundary_ok(brows)[0] if bfl else None
+            if bfl:   # 격자 점별 검출력 · 거부(리뷰 L4-2): 3회 합 계수로 boundary_grid_ok — 둘 중 False면 False · None이면 None
+                pooled = {}
+                for s in pr:
+                    for x, gv in (((s["metrics"].get("boundary") or {}).get(bfl) or {}).get("grid") or {}).items():
+                        pg_ = pooled.setdefault(x, {})
+                        for kk, vv in gv.items():
+                            pg_[kk] = pg_.get(kk, 0) + vv
+                gok = boundary_grid_ok(pooled)[0]
+                bnd = False if False in (bnd, gok) else (None if None in (bnd, gok) else True)
         # G-비용(리뷰 L1-3): ① 대비 ≫(ADR-014 much_higher). 범위를 못 만든 지표(유효 < 3 · 값 결측)는 '판정 불가:<지표>'로 남긴다(조용히 '보고 없음'이 되지 않게 —
         #   decide_campaign이 그 후보를 판정 불가로 다룬다). cost ① 기준값이 없는 지표(COST_NO_BASE)는 비교에서 빼고 RESULT.md에 적는다.
         cost_report = []
