@@ -746,11 +746,7 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
                     delta_bad += 1
             if (c.get("st"), c.get("code")) == (409, "SEAT_NOT_HELD"):
                 F["seat_not_held"] = F.get("seat_not_held", 0) + 1
-        if f["bd"]:
-            before = c is not None and num(c.get("ts")) and num(r.get("dl")) and c["ts"] <= r["dl"]
-            bd_rows.setdefault(fl, []).append((bool(before), cat))
-            continue
-        # payment-start 200 만료 값 검사(리뷰 L3-1): ① = 선점 만료 그대로 · ④ = 서버 :now ∈ [송신, 수신] ± err에서 남은 시간 < W면 [ps_send + W, ps_recv + W] ± err,
+        # payment-start 200 만료 값 검사(리뷰 L3-1 · 경계 흐름 포함 — 재점검 L4-1: 경계 분기 앞에서 모든 200 응답에): ① = 선점 만료 그대로 · ④ = 서버 :now ∈ [송신, 수신] ± err에서 남은 시간 < W면 [ps_send + W, ps_recv + W] ± err,
         #   ≥ W면 그대로(not_needed) · 문턱이 구간 안이면 둘 다 허용. 어긋나면 G-정합 실패 자료(extend_value_mismatch — 예측과 따로)
         if p is not None and p.get("st") == 200 and err_ms is not None and all(num(p.get(x)) for x in ("exp", "ts", "tr")) and num(h.get("exp")):
             Wm = k["window"] * 1000
@@ -763,6 +759,10 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
                 good = same if rem_lo >= Wm else (ext_ok if rem_hi < Wm else (same or ext_ok))
             if not good:
                 F["extend_value_mismatch"] = F.get("extend_value_mismatch", 0) + 1
+        if f["bd"]:
+            before = c is not None and num(c.get("ts")) and num(r.get("dl")) and c["ts"] <= r["dl"]
+            bd_rows.setdefault(fl, []).append((bool(before), cat))
+            continue
         if cat not in O.CATEGORIES:   # 결함 사유 세션은 예측하지 않고 g_model이 사유로 돌려주게(리뷰 L1-1 — 입력 결측으로 predict가 죽지 않게)
             gm[fl].append(("not-predicted", False, cat))
             continue
