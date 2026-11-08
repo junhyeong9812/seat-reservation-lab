@@ -287,6 +287,10 @@ class HoldStrategyStartupCheck(
                 check(margin <= theta) {
                     "$key 는 seat.confirm.pay-by-margin ≤ seat.confirm.payment-min-remaining여야 한다 — 현재 pay-by-margin=$margin · payment-min-remaining=$theta(ADR-016 설계-9.3)"
                 }
+                // θ ≥ TTL이면 새 홀드도 남은 시간이 θ 이하라 ① 확인은 전부 insufficient · ④ 연장은 전부 too_late가 된다(M ≤ θ라 M < TTL — 선점 201의 payBy도 미래)
+                check(theta < properties.ttl) {
+                    "$key 는 seat.confirm.payment-min-remaining < seat.hold.ttl이어야 한다 — 현재 payment-min-remaining=$theta · ttl=${properties.ttl}(ADR-016 측정 명세 M16-6)"
+                }
             }
             // 규칙 1: B·C·D는 확정 첫머리에서 LazyConfirmProcess로 가므로 손잡이가 조용히 무시된다
             check(properties.expiryMode == ExpiryMode.SWEEP) {
