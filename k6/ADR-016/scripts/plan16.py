@@ -88,7 +88,7 @@ CANDIDATE_FLOW = {"cond": ("cond", "n"), "cond+c": ("cond", "nc"), "cond+b": ("c
 BOUNDARY_FLOW = {"cond+c": "nd", "cond+b+c": "bcd", "ext+c": "ed"}
 # N16-1 격리 탐침(리뷰 L2-9 — 경로별 증거): ① check 회차마다 예열 뒤 · 본 시드 전에 홀드 P개 → 스냅숏 → payment-start만 P회 → 스냅숏. 쓰기 증분 0이어야 통과(자리표시 P)
 PROBE_HOLDS = 50
-PROBE_S = 30   # 탐침 시간(초기화 + 홀드 P · payment-start P · 스냅숏 · 통계 반영 대기 2초 × 2) — 회차 시간 추정에 더한다
+PROBE_S = 60   # 탐침 시간(초기화 + 홀드 P · payment-start P · 스냅숏 3개 · 통계 반영 대기 12초 × 3 — 리뷰 L3-3) — 회차 시간 추정에 더한다
 PROBE_USER = 8_000_000
 CANDIDATE_COST = {"cond": "cond", "cond+c": "cond", "cond+b": "cond+b", "cond+b+c": "cond+b", "ext": "ext", "ext+c": "ext"}
 RACE_MODE = {"cond": "conditional", "ext": "conditional-extend"}

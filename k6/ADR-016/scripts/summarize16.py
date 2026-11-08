@@ -47,8 +47,8 @@ PROBE_TABLES = ("seat_hold", "product_seat", "user_hold_quota", "reservation")
 
 def probe16_check(inp, plan):
     """격리 탐침(probe16.json — run16 probe16): 홀드 P개 뒤 payment-start만 P회 흘린 구간의 증분. 반환 {writes: [증분 > 0 항목], bad: [탐침 성립 안 함], …} · 파일 없음 = None(결측 무효).
-    쓰기 문장 증분 = pgss 쓰기 문장의 rows(영향 행) 증분(배치 틱의 0행 문장 호출은 세지 않는다 — 호출 수는 기록만) · 표 증분 = n_tup_ins · upd · del."""
-    pr = inp.json("probe16", "probe16.json", need=("holds", "pay_codes", "table_before", "table_after", "pgss_before", "pgss_after"))
+    판정 = pgss 쓰기 문장 rows(영향 행) 증분 0(1차 — 배치 틱의 0행 문장 호출은 세지 않는다 · 호출 수는 기록만) + 표 증분 n_tup_ins · upd · del 0(양성 대조가 성립할 때만 — 불성립 = bad)."""
+    pr = inp.json("probe16", "probe16.json", need=("holds", "pay_codes", "table_base", "table_before", "table_after", "pgss_before", "pgss_after"))
     if pr is None:
         return None
     P = plan.get("probe16", {}).get("holds", 0)
@@ -58,6 +58,10 @@ def probe16_check(inp, plan):
     if len(pr["pay_codes"]) != P or any(str(c) != "200" for c in pr["pay_codes"]):
         bad.append(f"payment-start 200이 아님 {sorted(set(map(str, pr['pay_codes'])))} × {len(pr['pay_codes'])}")
     writes = []
+    # 양성 대조(리뷰 L3-3): 기준 → 전 스냅숏의 seat_hold 삽입 증분 = P여야 표 통계 반영이 끝났다 — 아니면 표 증분 0은 증거가 아니다(탐침 불성립)
+    ctl = _d(pr["table_base"], pr["table_before"], "tables", "seat_hold", "n_tup_ins")
+    if ctl != P:
+        bad.append(f"양성 대조 seat_hold n_tup_ins 증분 {ctl} ≠ 홀드 {P}(통계 반영 미완)")
     for t in PROBE_TABLES:
         for k in ("n_tup_ins", "n_tup_upd", "n_tup_del"):
             dv = _d(pr["table_before"], pr["table_after"], "tables", t, k)
@@ -134,11 +138,11 @@ def g_target(wronged, n, pre_reject, pay_fail):
 
 def g_model(rows):
     """G-모형 세션 대조: rows = [(predicted, in_band, observed)]. observed가 4갈래 밖 = 판정 밖(목록에 사유 · 결과 False) ·
-    띠 밖 불일치 1건이면 False · 띠 안 불일치는 허용('허용'으로 표기). 행이 없으면 False(검출력 없음)."""
+    띠 밖 불일치 1건이면 False · 띠 안 불일치는 허용('허용'으로 표기). 행이 없으면 None(검출력 없음 — 결함 증거가 아니라 판정 불가 · 리뷰 L3-4)."""
     out, ok = [], True
     rows = list(rows)
     if not rows:
-        return False, [{"kind": "행 없음"}]
+        return None, [{"kind": "행 없음"}]
     for i, (pred, band, obs) in enumerate(rows):
         if obs not in O.CATEGORIES:
             ok = False
@@ -230,6 +234,8 @@ def decide_campaign(cands):
             if pair.get("g_model") is False:
                 report.append(f"원인 조사:{name} — 짝 {name[:-2]} G-모형 띠 밖 불일치")
         st = _gate_state(g)
+        if c.get("g_model") is False or (name.endswith("+c") and (cands.get(name[:-2]) or {}).get("g_model") is False):
+            st = "undetermined"   # 결함 의심은 다른 관문이 False여도 묻지 않는다(리뷰 L3-4 · OQ-3) — 원인 조사 뒤 다시 본다
         if st == "pass" and any(str(x).startswith("판정 불가:") for x in c.get("cost_report") or []):
             st = "undetermined"   # G-비용 지표 범위를 못 만들었다(리뷰 L1-3) — 비용 보고 여부를 모른 채 고르지 않는다
         state[name] = st
@@ -670,7 +676,9 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         f = flows.get(fl)
         h, p, c = r.get("h") or {}, r.get("p"), r.get("c")
         rec = {"hold": {"st": h.get("st"), "ok_body": bool(h.get("ok"))},
-               "pay": None if p is None else {"st": p.get("st"), "code": p.get("code"), "err": p.get("ec"), "ok_body": p.get("ok", p.get("st") != 200)},
+               # 200 본문: k6 ok 표지 + 요청 홀드 ID 일치를 다시 본다(리뷰 L3-5)
+               "pay": None if p is None else {"st": p.get("st"), "code": p.get("code"), "err": p.get("ec"),
+                                              "ok_body": (p.get("st") != 200) or (bool(p.get("ok")) and p.get("hid") is not None and p.get("hid") == h.get("hid"))},
                "pay_fail": r.get("pf"), "confirm": None if c is None else {"st": c.get("st"), "code": c.get("code"), "err": c.get("ec")},
                "reserved": r.get("uid") in confirmed}
         cat = O.classify(rec)
@@ -742,6 +750,19 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
             before = c is not None and num(c.get("ts")) and num(r.get("dl")) and c["ts"] <= r["dl"]
             bd_rows.setdefault(fl, []).append((bool(before), cat))
             continue
+        # payment-start 200 만료 값 검사(리뷰 L3-1): ① = 선점 만료 그대로 · ④ = 서버 :now ∈ [송신, 수신] ± err에서 남은 시간 < W면 [ps_send + W, ps_recv + W] ± err,
+        #   ≥ W면 그대로(not_needed) · 문턱이 구간 안이면 둘 다 허용. 어긋나면 G-정합 실패 자료(extend_value_mismatch — 예측과 따로)
+        if p is not None and p.get("st") == 200 and err_ms is not None and all(num(p.get(x)) for x in ("exp", "ts", "tr")) and num(h.get("exp")):
+            Wm = k["window"] * 1000
+            same = abs(p["exp"] - h["exp"]) <= 1
+            ext_ok = p["ts"] + Wm - err_ms <= p["exp"] <= p["tr"] + Wm + err_ms
+            if plan["mode"] == O.MODE_COND:
+                good = same
+            else:
+                rem_lo, rem_hi = h["exp"] - p["tr"] - err_ms, h["exp"] - p["ts"] + err_ms
+                good = same if rem_lo >= Wm else (ext_ok if rem_hi < Wm else (same or ext_ok))
+            if not good:
+                F["extend_value_mismatch"] = F.get("extend_value_mismatch", 0) + 1
         if cat not in O.CATEGORIES:   # 결함 사유 세션은 예측하지 않고 g_model이 사유로 돌려주게(리뷰 L1-1 — 입력 결측으로 predict가 죽지 않게)
             gm[fl].append(("not-predicted", False, cat))
             continue
@@ -757,7 +778,7 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         pred, band = O.predict(mode=plan["mode"], b=bool(f["b"]), c=bool(f["c"]), theta=k["theta"], window=k["window"], margin=k["margin"], cap=cap,
                                e0=h["exp"] / 1000, hold_recv=h["tr"] / 1000, think_end=_s(r.get("th")),
                                ps_send=_s(p.get("ts")) if p else None, ps_recv=_s(p.get("tr")) if p else None,
-                               e_after=_s(p.get("exp")) if (p and p.get("st") == 200) else None, pay=r["D"],
+                               e_after=None, pay=r["D"],   # 응답 만료는 예측 입력이 아니다(리뷰 L3-1 — 아래 extend_value_mismatch가 따로 본다)
                                c_send=_s(c.get("ts")) if c else None, c_recv=_s(c.get("tr")) if c else None, err=e_s, **kw)
         # ⓑ · ④ 결제 시작 시각은 payment-start 수신(하네스 tp)이다 — predict도 ps_recv를 쓴다
         gm[fl].append((pred, band, cat))
@@ -1071,7 +1092,8 @@ def render_md(res):
     L += ["", "## G-비용 메모", "", *[f"- {k}: {v}" for k, v in COST_NO_BASE.items()],
           f"- 다른 사용자 비용 짝(경계 흐름 제외): {', '.join(f'{n} = paid {x} 대 ① {y}' for n, (x, y) in PAID_COST_PAIR.items())}",
           "- '판정 불가:<지표>' = 유효 3회 범위를 못 만든 지표 — 그 후보는 판정 불가로 다룬다",
-          "", "## N16-1 근거(세 겹)", "", "- (a) ① 회차 seat_hold n_tup_upd 증분 0 · pgss UPDATE seat_hold 0", "- (b) 허용 목록(plan16.ALLOWED_WRITES) 밖 쓰기 문장 0",
+          "- G-정합은 회차 단위다 — paid 회차의 실패 자료는 같은 회차의 모든 흐름 후보(예: cond+c · cond+b)를 함께 False로 만든다(같은 서버 · 의도 · OQ-2)",
+          "", "## N16-1 근거(격리 탐침 + 세 겹 보조)", "", "- 주: 격리 탐침(probe16 — payment-start만 흘린 구간의 쓰기 증분 0 · 양성 대조 seat_hold 삽입 = P)", "- (a) ① 회차 seat_hold n_tup_upd 증분 0 · pgss UPDATE seat_hold 0", "- (b) 허용 목록(plan16.ALLOWED_WRITES) 밖 쓰기 문장 0",
           "- (c) payment-start 5xx 0 — ① 확인은 readOnly 트랜잭션이라 쓰기 시도는 오류(5xx)로 드러난다 · pgss만으로는 문장의 경로(payment-start)를 가를 수 없다"]
     L += ["", "## 모형(CAP 10 · 30분 — 관측 δ̂ · 설명용)", ""]
     if res["model"] is None:

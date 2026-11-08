@@ -152,29 +152,32 @@ SELECT json_build_object('t', clock_timestamp(), 'rows', coalesce((SELECT json_a
 SQL
 }
 # N16-1 격리 탐침(리뷰 L2-9 — 경로별 증거): ① check 회차(plan16 probe16.holds > 0)만. 예열 뒤 · 본 시드 전에 — 초기화(1 × 10000) → pgss 0 →
-#   홀드 P개(탐침 사용자 대역) → 2초(통계 반영) → 스냅숏(table_stats · pgss16_writes) → payment-start만 P회(다른 요청 없음) → 2초 → 스냅숏 → probe16.json.
+#   기준 스냅숏(table_stats) → 홀드 P개(탐침 사용자 대역) → 스냅숏(table_stats · pgss16_writes) → payment-start만 P회(다른 요청 없음) → 스냅숏 → probe16.json.
+#   스냅숏마다 앞에서 PROBE_WAIT_S(≥ 12초 = PG16 PGSTAT_IDLE_INTERVAL 10초 + 여유 — 리뷰 L3-3)를 기다린다: 표 통계는 세션이 쉴 때 늦게 반영된다.
+#   양성 대조 = 기준 → 전 스냅숏의 seat_hold n_tup_ins 증분 = P(반영이 끝났다는 증거 — 아니면 요약기가 탐침 불성립으로 본다).
 #   요약기가 두 스냅숏의 쓰기 증분 0을 본다(seat_hold · product_seat · user_hold_quota · reservation n_tup_* · pgss 쓰기 문장 rows). 뒤의 본 시드 reset이 상태를 지운다.
 probe16() {   # 인자: 회차폴더
-  local dir="$1" n ub i hid x st tb ta pb pa ids=() codes=()
+  local dir="$1" n ub i hid x st t0 tb ta pb pa ids=() codes=() w=12
   n=$(P .probe16.holds) ub=$(P .probe16.user_base)
   reset_with_retry "$dir" 1 10000 > /dev/null || return 1
   pgss_prepare > /dev/null || return 1
+  sleep "$w"; t0=$(table_stats) || return 1
   for ((i = 1; i <= n; i++)); do
     hid=$(curl -fsS --max-time 10 -X POST -H "X-User-Id: $(( ub + i ))" "$BASE_URL/api/schedules/1/seats/$i/hold" 2>/dev/null | jq -r '.holdId // empty' 2>/dev/null)
     [[ "$hid" =~ ^[0-9]+$ ]] && ids+=("$i:$hid")
   done
-  sleep 2
+  sleep "$w"
   tb=$(table_stats) && pb=$(pgss16_writes) || return 1
   for x in "${ids[@]}"; do
     st=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "X-User-Id: $(( ub + ${x%%:*} ))" "$BASE_URL/api/holds/${x#*:}/payment-start")
     codes+=("$st")
   done
-  sleep 2
+  sleep "$w"
   ta=$(table_stats) && pa=$(pgss16_writes) || return 1
-  jq -n --argjson tb "$tb" --argjson ta "$ta" --argjson pb "$pb" --argjson pa "$pa" \
+  jq -n --argjson t0 "$t0" --argjson w "$w" --argjson tb "$tb" --argjson ta "$ta" --argjson pb "$pb" --argjson pa "$pa" \
         --argjson holds "$(printf '%s\n' "${ids[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
         --argjson codes "$(printf '%s\n' "${codes[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
-    '{holds: $holds, pay_codes: $codes, table_before: $tb, table_after: $ta, pgss_before: $pb, pgss_after: $pa}' > "$dir/probe16.json"
+    '{wait_s: $w, holds: $holds, pay_codes: $codes, table_base: $t0, table_before: $tb, table_after: $ta, pgss_before: $pb, pgss_after: $pa}' > "$dir/probe16.json"
 }
 hold_rows() { db_json <<'SQL'
 SELECT json_build_object('t', clock_timestamp(), 'holds', (SELECT count(*) FROM seat_hold), 'held_seats', (SELECT count(*) FROM product_seat WHERE status = 'HELD'));

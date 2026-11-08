@@ -118,7 +118,9 @@ export function mainFlow() {
     const pc = call(closeBeforeLongThink(payStartReq(hb.hid, user, 'pay_start'), (f.bd ? CAP_S : a.D) * 1000));
     row.p = brief(pc, pc.res.status === 200);
     if (pc.res.status !== 200) { finish(row, `pay:${row.p.st}:${row.p.code}`); return; }
-    row.p.ok = Number.isFinite(row.p.exp) && Number.isFinite(row.p.pb) && Number.isFinite(row.p.pws) && typeof row.p.ext === 'boolean';
+    // 본문 계약: expiresAt · payBy · payWithinSeconds · extended + holdId = 요청한 홀드(리뷰 L3-5 — 다른 홀드 응답을 정상으로 넘기지 않는다)
+    row.p.ok = Number.isFinite(row.p.exp) && Number.isFinite(row.p.pb) && Number.isFinite(row.p.pws) && typeof row.p.ext === 'boolean'
+      && row.p.hid !== null && row.p.hid !== undefined && row.p.hid === hb.hid;
     if (!row.p.ok) { finish(row, 'pay:200:body'); return; }
     src = { tr: pc.tr, pws: row.p.pws, pb: row.p.pb };
     tp = pc.tr;

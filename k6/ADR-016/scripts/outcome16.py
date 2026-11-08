@@ -126,9 +126,11 @@ def predict(*, mode, b, c, theta, window, margin, cap, e0, hold_recv, think_end,
     서버 판정 시각은 [송신, 수신] 어딘가이고 시계 오차 ±err가 붙는다 — 그 구간이 문턱을 품으면 '띠 안'(불일치 허용).
     - payment-start θ 띠: 남은 시간 ∈ [e0 − ps_recv − err, e0 − ps_send + err]가 θ(또는 ④ window)를 품나.
     - 확정 띠: 만료 e ∈ [c_send − err, c_recv + err]인가.
-    e_after = payment-start 200 응답의 expiresAt(④ 연장 뒤 — 관측값을 그대로 쓴다) · pws · pay_by · src_recv = ⓒ 마감을 준 응답의 값(하네스가 기록)."""
+    e_after = payment-start 200 응답의 expiresAt — **예측 입력으로 쓰지 않는다**(리뷰 L3-1 — 응답 값을 예측에 쓰면 순환 검증). ④ 연장 만료는 정책식 구간
+      [ps_send + W, ps_recv + W](± err)로 예측하고, 응답 값이 그 구간 밖인지는 요약기가 따로 본다(extend_value_mismatch). 확정 띠는 그 구간의 끝점까지 넓힌다.
+    pws · pay_by · src_recv = ⓒ 마감을 준 응답의 값(하네스가 기록) — 없으면(예: 서버가 결제 전 거부해 마감 응답이 없다) 마감 단계를 건너뛰고 PAID(리뷰 L3-2)."""
     band = False
-    e = e0
+    e_lo = e_hi = e0
     t_p = think_end
     called = b or mode == MODE_EXT
     if called:
@@ -139,15 +141,14 @@ def predict(*, mode, b, c, theta, window, margin, cap, e0, hold_recv, think_end,
         br = _pay_start_branch(mode, mid, theta, window)
         if br == "reject":
             return PRE_REJECT, band
-        if e_after is not None:
-            e = e_after
-        elif br == "extend":
-            e = (ps_send + ps_recv) / 2 + window
-            band = True  # 연장 만료를 관측하지 못하면 확정 비교가 어림이다
+        if br == "extend":   # 서버 :now ∈ [송신, 수신] ± err → 연장 만료 ∈ [ps_send + W − err, ps_recv + W + err]
+            e_lo, e_hi = ps_send + window - err, ps_recv + window + err
         t_p = ps_recv
     if pay > cap:
         return PAY_FAIL, band
     if c:
+        if src_recv is None or pws is None or pay_by is None:
+            return PAID, band   # 마감 입력이 없다 — 하네스가 확정을 보냈을 리 없다(관측과 늘 어긋나 θ 띠만 허용)
         dl = deadline(src_recv, pws, pay_by, err)
         if t_p + pay > dl:
             return PAY_FAIL, band
@@ -155,7 +156,7 @@ def predict(*, mode, b, c, theta, window, margin, cap, e0, hold_recv, think_end,
         # 결제 성공을 예상했는데 관측 세션은 확정을 보내지 않았다(결제 전 거부 · 결제 실패로 끝남) — 4갈래 밖 'paid'를 돌려
         # 관측과 반드시 어긋나게 한다(앞의 θ 띠만 허용). '띠 안'으로 돌리면 잘못된 결제 전 거부 · 마감 오판을 G-모형이 넘긴다
         return PAID, band
-    if c_send - err <= e <= c_recv + err:
+    if e_hi >= c_send - err and e_lo <= c_recv + err:   # 만료 구간과 서버 확정 판정 구간이 겹치면 띠 안
         band = True
     now = (c_send + c_recv) / 2
-    return (SUCCESS if e > now else WRONGED), band
+    return (SUCCESS if (e_lo + e_hi) / 2 > now else WRONGED), band

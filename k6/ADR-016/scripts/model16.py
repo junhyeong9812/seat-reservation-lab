@@ -3,8 +3,8 @@
 세션 결과는 outcome16.decide(단일 정의 — M16-1)로 정한다. 모형은 후보 · 값 고르기 · 민감도에만 쓰고 판정은 부하 관측으로 한다(설계-9.6).
 
     model16.py --table                         설계-8.3 표 재현(δ 0 · CAP 10분) — 허용 오차 대조
-    model16.py --sweep [--delta F] [--err S]   정책 × 분포 × CAP 전체 → JSON
-    model16.py --choose [--delta F] [--err S] [--margin-slack S]   고르는 규칙(명세 §0 · §1-2)이 고른 θ · W · M → JSON
+    model16.py --sweep --delta F --err S       정책 × 분포 × CAP 전체 → JSON(δ̂ · err 필수 — 리뷰 L3-6)
+    model16.py --choose --delta F --err S [--margin-slack S]   고르는 규칙(명세 §0 · §1-2)이 고른 θ · W · M → JSON
 δ 파일(F) = 줄마다 δ̂ 초(스모크의 확정 응답 시간 — 상한). 주지 않으면 δ = 0으로 계산하고 출력에 "delta": "zero"를 적는다(판정 입력에는 쓰지 않는다 — 결측 대체 금지)."""
 import argparse
 import json
@@ -75,7 +75,7 @@ def choose(deltas=None, err=0.0, margin_slack=0.0, n=N_DEFAULT, seed=1):
     """고르는 규칙(명세 §0 Q/A · Q/A 3):
     M = δ̂ + err의 p99.9를 덮는 초 올림(δ̂가 없으면 결측 — None) · ④ W = CAP + M + 여유(배치 + margin_slack) · ④ θ = M ·
     ①+ⓑ θ = '결제 전 거부 + 결제 실패 ≤ 5%' 안에서 억울 최소(기준 분포 · ⓒ 끔 · 격자 THETA_STEP) — θ ≥ M(앱 기동 검사 M ≤ θ)."""
-    if deltas:
+    if deltas and err is not None:
         xs = sorted(d + err for d in deltas)
         m_val = float(math.ceil(xs[min(len(xs) - 1, int(0.999 * len(xs)))]))
     else:
@@ -84,6 +84,9 @@ def choose(deltas=None, err=0.0, margin_slack=0.0, n=N_DEFAULT, seed=1):
     cap = BASE["cap"]
     out["W"] = None if m_val is None else cap + m_val + BATCH + margin_slack
     out["theta_ext"] = m_val
+    if m_val is None or err is None:   # 측정용 고르기: δ̂ · err 결측이면 θ_cond · 비율도 결측(δ 0으로 채워 고르지 않는다 — 리뷰 L3-6 · 설계표 재현은 --table)
+        out.update(theta_cond=None, theta_cond_rates=None, why="δ̂ 또는 err 결측 — 고르지 않음")
+        return out
     best = None
     th = m_val or 0.0
     while th < TTL:
@@ -180,7 +183,7 @@ def main():
     g.add_argument("--sweep", action="store_true")
     g.add_argument("--choose", action="store_true")
     ap.add_argument("--delta")
-    ap.add_argument("--err", type=float, default=0.0)
+    ap.add_argument("--err", type=float, default=None)
     ap.add_argument("--margin-slack", type=float, default=0.0)
     ap.add_argument("-n", type=int, default=N_DEFAULT)
     ap.add_argument("--seed", type=int, default=1)
@@ -191,6 +194,9 @@ def main():
         bad = table_check(rows, a.n)
         print(json.dumps({"rows": rows, "mismatch": bad}, ensure_ascii=False, indent=1))
         sys.exit(1 if bad else 0)
+    if a.choose or a.sweep:
+        if a.delta is None or a.err is None:   # 측정용 고르기 · 표는 δ̂ 파일 · err를 늘 명시한다(리뷰 L3-6 — δ 0 가정은 --table 경로만)
+            sys.exit("--choose · --sweep에는 --delta <δ̂ 파일> · --err <초>가 필수다(δ 0 가정의 설계표 재현은 --table)")
     if a.choose:
         print(json.dumps(choose(deltas, a.err, a.margin_slack, a.n, a.seed), ensure_ascii=False, indent=1))
         return
