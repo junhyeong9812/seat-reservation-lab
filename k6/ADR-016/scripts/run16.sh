@@ -93,6 +93,7 @@ if (( DRY )); then
   echo "env: $(env14)"
   echo "기동 검사: $(P '.startup | "M \(.M) ≤ θ \(.theta) < \(.limit) → \(if .ok then "통과" else "위반 \(.why)" end)"')"
   echo "시드: /internal/reset?schedules=2&seatsPerSchedule=10000 → warmup15.js(PAY_START=1) → /internal/reset?schedules=$SEED_S&seatsPerSchedule=$SEED_N"
+  echo "N16-1 격리 탐침: $( (( $(P '.probe16.holds // 0') > 0 )) && echo "예열 뒤 reset 1×10000 → 홀드 $(P .probe16.holds)개 → 스냅숏 → payment-start만 $(P .probe16.holds)회 → 스냅숏 → probe16.json" || echo "없음(④)")"
   echo "표본기: 서버·docker stats 10s · 대기 0.5s · Hikari 1s · PC TIME_WAIT ${TW_EVERY_S}s · pg_stat_statements 켬"
   echo "k6: ${K6_ENV_Q[*]} CLOCK_OFFSET_MS=<k6 직전 시계 차> CLOCK_ERR_MS=<왕복/2 + $(P .k6.env.CLOCK_ERR_MARGIN_MS)> $K6_BIN run --quiet --log-format=json --console-output=$DIR/sessions16.log --out csv=$DIR/k6-requests.csv.gz <k6 트리>/$K6_SCRIPT"
   echo "시각: 첫 요청 ${PRE_K6_TARGET_S}±${PRE_K6_TOL_S}초(lead ${PRE_K6_LEAD_S}초) · 도착 $(P .d_arr_s)초 · k6 약 $(P .k6.est_s)초(grace $(P .grace_s)) · 창 $(P '.window | "\(.kind) \(.from_s)+\(.len_s)"')초 · 수렴 $(P .converge_s)초 · 회차 추정 $(P .est_s)초"
@@ -141,6 +142,39 @@ snap16() {   # 인자: 이름 — ADR-014(actsnap14) · ADR-015(actsnap15 — �
 reservation_dump() { db_json <<'SQL'
 SELECT json_build_object('t', clock_timestamp(), 'rows', coalesce((SELECT json_agg(json_build_object('u', payment_uid, 's', status, 'seat', seat_id)) FROM reservation), '[]'::json));
 SQL
+}
+# ADR-016 전용 pgss 쓰기 문장 덤프(N16-1 (b) 입력 — 리뷰 L2-3): 표 필터 없음 · 문장 전문 · 쓰기 동사(INSERT · UPDATE · DELETE · MERGE · WITH)로 시작하는 문장만.
+#   lib15 pgss_snapshot(표 이름 필터 · 200자)은 고치지 않고 그대로 따로 남긴다(설명용)
+pgss16_writes() { db_json <<'SQL'
+SELECT json_build_object('t', clock_timestamp(), 'rows', coalesce((SELECT json_agg(json_build_object('q', regexp_replace(query, '\s+', ' ', 'g'), 'calls', calls, 'rows', rows)
+        ORDER BY calls DESC) FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid
+   WHERE d.datname = 'seat' AND calls > 0 AND query ~* '^\s*(insert|update|delete|merge|with)\M'), '[]'::json));
+SQL
+}
+# N16-1 격리 탐침(리뷰 L2-9 — 경로별 증거): ① check 회차(plan16 probe16.holds > 0)만. 예열 뒤 · 본 시드 전에 — 초기화(1 × 10000) → pgss 0 →
+#   홀드 P개(탐침 사용자 대역) → 2초(통계 반영) → 스냅숏(table_stats · pgss16_writes) → payment-start만 P회(다른 요청 없음) → 2초 → 스냅숏 → probe16.json.
+#   요약기가 두 스냅숏의 쓰기 증분 0을 본다(seat_hold · product_seat · user_hold_quota · reservation n_tup_* · pgss 쓰기 문장 rows). 뒤의 본 시드 reset이 상태를 지운다.
+probe16() {   # 인자: 회차폴더
+  local dir="$1" n ub i hid x st tb ta pb pa ids=() codes=()
+  n=$(P .probe16.holds) ub=$(P .probe16.user_base)
+  reset_with_retry "$dir" 1 10000 > /dev/null || return 1
+  pgss_prepare > /dev/null || return 1
+  for ((i = 1; i <= n; i++)); do
+    hid=$(curl -fsS --max-time 10 -X POST -H "X-User-Id: $(( ub + i ))" "$BASE_URL/api/schedules/1/seats/$i/hold" 2>/dev/null | jq -r '.holdId // empty' 2>/dev/null)
+    [[ "$hid" =~ ^[0-9]+$ ]] && ids+=("$i:$hid")
+  done
+  sleep 2
+  tb=$(table_stats) && pb=$(pgss16_writes) || return 1
+  for x in "${ids[@]}"; do
+    st=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "X-User-Id: $(( ub + ${x%%:*} ))" "$BASE_URL/api/holds/${x#*:}/payment-start")
+    codes+=("$st")
+  done
+  sleep 2
+  ta=$(table_stats) && pa=$(pgss16_writes) || return 1
+  jq -n --argjson tb "$tb" --argjson ta "$ta" --argjson pb "$pb" --argjson pa "$pa" \
+        --argjson holds "$(printf '%s\n' "${ids[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
+        --argjson codes "$(printf '%s\n' "${codes[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
+    '{holds: $holds, pay_codes: $codes, table_before: $tb, table_after: $ta, pgss_before: $pb, pgss_after: $pa}' > "$dir/probe16.json"
 }
 hold_rows() { db_json <<'SQL'
 SELECT json_build_object('t', clock_timestamp(), 'holds', (SELECT count(*) FROM seat_hold), 'held_seats', (SELECT count(*) FROM product_seat WHERE status = 'HELD'));
@@ -210,6 +244,7 @@ BASE_URL="$BASE_URL" PAY_START=1 "$K6_BIN" run --quiet --out "csv=$DIR/warmup-re
 WARM_RC=$?
 python3 -I "$S14/summarize.py" --warmup-status "$DIR/warmup-requests.csv.gz" "$WARM_RC" > "$DIR/warmup-status.json" 2>>"$DIR/errors.log"
 (( WARM_RC == 0 )) || abort16 warmup-failed
+if (( $(P '.probe16.holds // 0') > 0 )); then probe16 "$DIR" < /dev/null 2>>"$DIR/errors.log" || { rm -f "$DIR/probe16.json"; hreason probe16-failed; }; fi
 RESET_TIMEOUT=1800 reset_with_retry "$DIR" "$SEED_S" "$SEED_N" > "$DIR/seed.json" || abort16 seed-failed
 SEED_T=$(now)
 seed_check15 "$SEED_S" "$SEED_N" > "$DIR/seed-check.json" 2>>"$DIR/errors.log" < /dev/null || hreason seed-check-failed
@@ -285,6 +320,7 @@ reservation_dump > "$DIR/reservations.json" 2>>"$DIR/errors.log" < /dev/null || 
 drift_snap app > "$DIR/drift-end.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-snap-failed
 snap16 end
 pgss_snapshot > "$DIR/pgss-end.json" 2>>"$DIR/errors.log" < /dev/null || hreason pgss-failed
+pgss16_writes > "$DIR/pgss16-end.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/pgss16-end.json"; hreason pgss-failed; }
 drift_db_dump v10 > "$DIR/drift-db.json" 2>>"$DIR/errors.log" < /dev/null || hreason drift-db-failed
 app_db_clock > "$DIR/app-db-clock-after.json" 2>>"$DIR/errors.log" < /dev/null
 

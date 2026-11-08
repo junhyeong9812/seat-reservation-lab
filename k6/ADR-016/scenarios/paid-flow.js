@@ -30,6 +30,7 @@ const E = (k) => {
   return v;
 };
 const N = (k) => Number(E(k));
+E('OUT_DIR');   // k6-summary.json 위치(ADR-009 writeSummary) — 기본 '.'에 기대지 않는다(리뷰 L2-6)
 const REP = E('REP');
 const CELL = E('CELL');
 const PAID = CELL === 'paid';

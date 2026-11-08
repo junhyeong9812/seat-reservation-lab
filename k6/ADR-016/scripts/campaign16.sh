@@ -71,9 +71,12 @@ SHA=$(git -C "$REPO" rev-parse --short=8 "${SHA:-HEAD}^{commit}") || exit 2
 [[ "$SHA" == "$C16_SHA" ]] || { echo "동결 SHA $C16_SHA ≠ --sha $SHA" >&2; exit 2; }
 FIXED_RC=0; python3 -I "$SRC/plan16.py" --fixed > /dev/null || FIXED_RC=1
 if (( ! DRY && ! SIMU && FIXED_RC )); then echo "plan16.py FIXED = False — 측정 전 고정 커밋 전이라 실제 캠페인을 거부한다(--dry-run · --simulate만)" >&2; exit 2; fi
+ID_GIVEN=0; [[ -n "$CID" ]] && ID_GIVEN=1
 if (( ! DRY && ! SIMU )) && [[ -z "$CID" ]]; then CID="$(date +%Y%m%d)-adr016-$SHA"; fi
 CID="${CID:-sim-$SHA}"
 ROOT="${RESULTS_ROOT:-$ADR16/results}/$CID"
+# 재개는 --id로만(리뷰 L2-7 · 명세 금지영역 '캠페인 재개 시 --id 없이 실행'): 자동 생성한 ID의 결과 폴더가 이미 있으면 이어 쓰지 않는다
+if (( ! DRY && ! ID_GIVEN )) && [[ -e "$ROOT" ]]; then echo "자동 ID $CID의 결과 폴더가 이미 있다($ROOT) — 재개는 --id $CID로" >&2; exit 2; fi
 ORDER="$(python3 -I "$SRC/plan16.py" --order)" || { echo "계획(plan16.py --order) 실패" >&2; exit 2; }
 DRYJ="$(python3 -I "$SRC/plan16.py" --dry-run --json)"; DRY_RC=$?
 jflag() { [[ -s "$START" ]] && [[ "$(jq -r "$1 // false" "$START" 2>/dev/null)" == true ]]; }

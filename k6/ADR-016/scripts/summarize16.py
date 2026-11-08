@@ -30,7 +30,7 @@ much_higher, rng = S14.much_higher, S14.rng
 S14.INPUT_REASON.update({"act16_before": "app-metric-missing", "act16_end": "app-metric-missing", "table_before": "table-stats-missing",
                          "table_end": "table-stats-missing", "sessions": "sessions-missing", "reservations": "reservation-dump-missing",
                          "tw": "tw-missing", "hold_rows": "hold-rows-missing", "pgss": "pgss-missing", "clock_err": "clock-err-missing",
-                         "delta": "delta-missing"})
+                         "delta": "delta-missing", "probe16": "probe16-missing"})
 
 TARGET_WRONGED, TARGET_LOSS, CONF = 0.001, 0.05, 0.95   # Q14 · 한쪽 95%(명세 G-목표)
 ORDER = ["cond+c", "cond+b+c", "cond+b", "ext+c", "ext"]   # ①+ⓒ > ①+ⓑ+ⓒ > ①+ⓑ > ④+ⓒ > ④
@@ -40,6 +40,42 @@ UPDATE_SEAT_HOLD = re.compile(r"^\s*update\s+seat_hold\b", re.I)
 WRITE_STMT = re.compile(r"\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_]*)", re.I)
 COST_NO_BASE = {"p99.pay_start_200": "cost ①(cond)은 payment-start를 부르지 않아 기준값이 없다 — 비교에서 뺀다"}
 PAID_COST_PAIR = {"ext": ("e", "n"), "ext+c": ("ec", "nc")}   # 다른 사용자 비용 짝(리뷰 L1-11): ④ 흐름 대 같은 ⓒ 설정의 ① 흐름(ⓑ 없음 — 기준 ①)
+
+
+PROBE_TABLES = ("seat_hold", "product_seat", "user_hold_quota", "reservation")
+
+
+def probe16_check(inp, plan):
+    """격리 탐침(probe16.json — run16 probe16): 홀드 P개 뒤 payment-start만 P회 흘린 구간의 증분. 반환 {writes: [증분 > 0 항목], bad: [탐침 성립 안 함], …} · 파일 없음 = None(결측 무효).
+    쓰기 문장 증분 = pgss 쓰기 문장의 rows(영향 행) 증분(배치 틱의 0행 문장 호출은 세지 않는다 — 호출 수는 기록만) · 표 증분 = n_tup_ins · upd · del."""
+    pr = inp.json("probe16", "probe16.json", need=("holds", "pay_codes", "table_before", "table_after", "pgss_before", "pgss_after"))
+    if pr is None:
+        return None
+    P = plan.get("probe16", {}).get("holds", 0)
+    bad = []
+    if len(pr["holds"]) != P:
+        bad.append(f"홀드 {len(pr['holds'])}/{P}")
+    if len(pr["pay_codes"]) != P or any(str(c) != "200" for c in pr["pay_codes"]):
+        bad.append(f"payment-start 200이 아님 {sorted(set(map(str, pr['pay_codes'])))} × {len(pr['pay_codes'])}")
+    writes = []
+    for t in PROBE_TABLES:
+        for k in ("n_tup_ins", "n_tup_upd", "n_tup_del"):
+            dv = _d(pr["table_before"], pr["table_after"], "tables", t, k)
+            if dv is None:
+                bad.append(f"{t}.{k} 결측")
+            elif dv:
+                writes.append(f"{t}.{k} +{dv}")
+    rb = {r.get("q"): r.get("rows", 0) for r in (pr["pgss_before"].get("rows") or [])}
+    calls = {}
+    for r in pr["pgss_after"].get("rows") or []:
+        q = r.get("q")
+        if not write_stmts([r]):
+            continue
+        dv = (r.get("rows") or 0) - rb.get(q, 0)
+        if dv:
+            writes.append(f"pgss rows +{dv}: {q[:80]}")
+        calls[q[:80]] = r.get("calls", 0)
+    return {"writes": writes, "bad": bad, "holds": len(pr["holds"]), "pay": len(pr["pay_codes"]), "write_calls_after": calls}
 
 
 def write_stmts(rows):
@@ -178,15 +214,21 @@ def _gate_state(vals):
 
 def decide_campaign(cands):
     """순서 ORDER의 첫 통과 후보. 관문 = g_consistency · g_model · g_target(+ ⓒ 후보는 boundary_ok와 짝(이름에서 '+c'를 뗀 후보)의 g_model).
-    False가 하나라도 = 탈락 · None이 있으면 판정 불가 · 앞 후보가 판정 불가인 채 뒤 후보가 통과하면 status = undetermined(앞 후보가 이길 수 있었다)."""
+    False가 하나라도 = 탈락 · None이 있으면 판정 불가 · 앞 후보가 판정 불가인 채 뒤 후보가 통과하면 status = undetermined(앞 후보가 이길 수 있었다).
+    g_model False(띠 밖 불일치 = 서버 또는 하네스 결함 의심)는 탈락이 아니라 판정 불가 + report '원인 조사:<후보>'(계약 C절 정정 · 리뷰 L2-1 — ⓒ 후보의 짝도 같다)."""
     report, state, undet_before = [], {}, False
     pick = None
     for name in ORDER:
         c = cands.get(name) or {}
-        g = [c.get("g_consistency"), c.get("g_model"), c.get("g_target")]
+        gm_ = lambda v: None if v is False else v   # noqa: E731 — G-모형 False = 결함 의심 → 판정 불가(묻지 않는다)
+        g = [c.get("g_consistency"), gm_(c.get("g_model")), c.get("g_target")]
+        if c.get("g_model") is False:
+            report.append(f"원인 조사:{name} — G-모형 띠 밖 불일치(서버 또는 하네스 결함 의심)")
         if name.endswith("+c"):
             pair = cands.get(name[:-2]) or {}
-            g += [c.get("boundary_ok"), pair.get("g_model")]
+            g += [c.get("boundary_ok"), gm_(pair.get("g_model"))]
+            if pair.get("g_model") is False:
+                report.append(f"원인 조사:{name} — 짝 {name[:-2]} G-모형 띠 밖 불일치")
         st = _gate_state(g)
         if st == "pass" and any(str(x).startswith("판정 불가:") for x in c.get("cost_report") or []):
             st = "undetermined"   # G-비용 지표 범위를 못 만들었다(리뷰 L1-3) — 비용 보고 여부를 모른 채 고르지 않는다
@@ -505,9 +547,10 @@ def rep_summary(d):
     srv5 = server_n16_5(a0, a1)
     if a0 and a1 and srv5 is None:
         inp.miss("act16_end", "act16 rejected · failed 결측")
-    pg = load(d / "pgss-end.json")
+    # N16-1 입력 = ADR-016 전용 pgss 쓰기 문장 덤프(run16 pgss16_writes — 표 필터 없음 · 문장 전문 · 리뷰 L2-3). ADR-015 pgss-end.json(표 필터 · 200자)은 설명용
+    pg = load(d / "pgss16-end.json")
     if not (isinstance(pg, dict) and isinstance(pg.get("rows"), list)):
-        pg = inp.miss("pgss", "pgss-end.json 없음·깨짐")
+        pg = inp.miss("pgss", "pgss16-end.json 없음·깨짐")
     if tb and te:
         M["deadlocks"] = te["deadlocks"] - tb["deadlocks"]
         if M["deadlocks"]:
@@ -556,6 +599,14 @@ def rep_summary(d):
         M["writes"] = {"stmts": [list(w) for w in wr][:50], "unknown": [list(w) for w in unk]}
         if unk:
             F["write_unknown"] = [f"{w[0]} {w[1]} × {w[2]}: {w[3]}" for w in unk]
+    if mode == O.MODE_COND:   # N16-1 격리 탐침(리뷰 L2-9 — 경로별 증거 · 주 판정): ① check만 흐른 구간의 쓰기 증분 0 · 위 세 겹은 보조
+        pr16 = probe16_check(inp, plan)
+        if pr16 is not None:
+            M["n16_1_probe"] = pr16
+            if pr16["bad"]:
+                reasons.add("probe16-bad")
+            elif pr16["writes"]:
+                F["n16_1_probe"] = pr16["writes"]
     if mode == O.MODE_COND and tb and te and pg:
         upd = _d(tb, te, "tables", "seat_hold", "n_tup_upd")
         stm = sum(r.get("calls", 0) for r in pg["rows"] if UPDATE_SEAT_HOLD.match(r.get("q") or ""))
@@ -564,14 +615,22 @@ def rep_summary(d):
             inp.miss("table_end", "seat_hold n_tup_upd 없음")
         elif upd != 0 or stm != 0 or M["n16_1"]["pay_start_5xx"]:
             F["n16_1"] = M["n16_1"]
+    U = {}   # 판정 불가 자료(실패 아님 — 리뷰 L2-2): 재선점 5xx · 시간 초과는 race 'A도 같은 문턱'처럼 원인(하네스 · 환경 · 서버)을 가를 대조가 없다 → 그 구성 판정 불가
     if csvd is not None:
-        if sum(csvd["err5"].values()):
-            F["5xx"] = csvd["err5"]
-        if csvd["timeout"]:
-            F["timeout"] = csvd["timeout"]
+        e5 = {k: v for k, v in csvd["err5"].items() if k != "rehold"}
+        to = {k: v for k, v in csvd["timeout"].items() if k != "rehold"}
+        if sum(e5.values()):
+            F["5xx"] = e5
+        if to:
+            F["timeout"] = to
+        ru = {f"{kind}:rehold": n for kind, src in (("5xx", csvd["err5"]), ("timeout", csvd["timeout"])) if (n := src.get("rehold", 0))}
+        if ru:
+            U["rehold_undetermined"] = ru
+        if csvd["err5"].get("hold") or csvd["timeout"].get("hold"):
+            reasons.add("hold-fail")   # 자기 좌석 첫 선점 5xx · 시간 초과 = paid와 같이 하네스 무효(L2-2 — cost도 같은 규칙)
     reasons.update(inp.reasons())
     st = "ok" if not reasons else "invalid:" + ",".join(sorted(reasons))
-    return _write(d, {"status": st, "reasons": sorted(reasons), "missing": inp.missing, "metrics": M, "fail": F})
+    return _write(d, {"status": st, "reasons": sorted(reasons), "missing": inp.missing, "metrics": M, "fail": F, "undetermined": U})
 
 
 def _s(ms):
@@ -596,7 +655,7 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
     flows, rep, cap = plan["flows"], plan["rep"], plan["cap_s"]
     seen, cats, by_sid = set(), {}, {}
     gm = {f: [] for f in flows}
-    bd_rows, er_rows, deltas = [], [], []
+    bd_rows, er_rows, deltas = {}, [], []
     occ = {}   # 흐름별 좌석 점유 시간(경계 흐름 제외 — 리뷰 L1-11)
     cyc = plan["flow_cycle"]
     td_bad = dl_bad = dup = delta_bad = fa_bad = pf_bad = send_bad = 0
@@ -681,7 +740,7 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
                 F["seat_not_held"] = F.get("seat_not_held", 0) + 1
         if f["bd"]:
             before = c is not None and num(c.get("ts")) and num(r.get("dl")) and c["ts"] <= r["dl"]
-            bd_rows.append((bool(before), cat))
+            bd_rows.setdefault(fl, []).append((bool(before), cat))
             continue
         if cat not in O.CATEGORIES:   # 결함 사유 세션은 예측하지 않고 g_model이 사유로 돌려주게(리뷰 L1-1 — 입력 결측으로 predict가 죽지 않게)
             gm[fl].append(("not-predicted", False, cat))
@@ -753,8 +812,10 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
         ok, lst = g_model(gr)
         M["g_model"][fl] = {"ok": ok if err_ms is not None else None, "n": len(gr), "allowed": sum(1 for x in lst if x.get("kind") == "허용"),
                             "bad": [x for x in lst if x.get("kind") != "허용"][:50]}
-    bok, bcnt = boundary_ok(bd_rows)
-    M["boundary"] = {"ok": bok, **bcnt, "rows": bd_rows}
+    M["boundary"] = {}   # 경계 흐름별(리뷰 L2-10 — ① nd · bcd · ④ ed)
+    for fl_, rows_ in bd_rows.items():
+        bok, bcnt = boundary_ok(rows_)
+        M["boundary"][fl_] = {"ok": bok, **bcnt, "rows": rows_}
     er = early_reject(er_rows, k["theta"]) if err_ms is not None else None
     M["early_reject"] = er
     if er:
@@ -795,8 +856,8 @@ def cost_rep(d, inp, plan, reasons, M, F, k6c, k6_non2xx):
         b = (plan["flows"].get(fl) or {}).get("b") or plan["mode"] == O.MODE_EXT
         for out, n in outs.items():
             parts = out.split(":", 2)
-            if parts[0] == "hold" and parts[1] != "0" and not parts[1].startswith("5"):
-                reasons.add("hold-fail")   # 4xx · 본문 결함(status 0 · 5xx는 CSV code0 · err5가 따로 잡는다)
+            if parts[0] == "hold":
+                reasons.add("hold-fail")   # 선점 비201 · 본문 결함 · 5xx · status 0 = paid와 같은 하네스 무효(리뷰 L2-2)
             elif parts[0] == "pay":
                 if parts[1] == "0":
                     s0p += n
@@ -888,7 +949,9 @@ def _consistent(reps):
     """유효 3회 · 실패 자료(G-정합 · 방식 실패) 없음 → True · 있음 → False · 유효 < 3 → None."""
     if len(reps) < plan16.REPS:
         return None
-    return not any(s.get("fail") for s in reps)
+    if any(s.get("fail") for s in reps):
+        return False
+    return None if any(s.get("undetermined") for s in reps) else True   # 재선점 5xx · 시간 초과(리뷰 L2-2) → 판정 불가
 
 
 def _race_consistent(reps):
@@ -955,8 +1018,9 @@ def campaign(root, write=True):
                     if c_ in O.CATEGORIES:
                         tot[c_] += n_
             g_tgt = g_target(tot[O.WRONGED], tot["n"], tot[O.PRE_REJECT], tot[O.PAY_FAIL])
-            brows = [tuple(x) for s in pr for x in (s["metrics"].get("boundary") or {}).get("rows") or []]
-            bnd = boundary_ok(brows)[0]
+            bfl = plan16.BOUNDARY_FLOW.get(name)
+            brows = [tuple(x) for s in pr for x in ((s["metrics"].get("boundary") or {}).get(bfl) or {}).get("rows") or []] if bfl else []
+            bnd = boundary_ok(brows)[0] if bfl else None
         # G-비용(리뷰 L1-3): ① 대비 ≫(ADR-014 much_higher). 범위를 못 만든 지표(유효 < 3 · 값 결측)는 '판정 불가:<지표>'로 남긴다(조용히 '보고 없음'이 되지 않게 —
         #   decide_campaign이 그 후보를 판정 불가로 다룬다). cost ① 기준값이 없는 지표(COST_NO_BASE)는 비교에서 빼고 RESULT.md에 적는다.
         cost_report = []
@@ -994,7 +1058,9 @@ def campaign(root, write=True):
 
 def render_md(res):
     L = ["# ADR-016 캠페인 결과", "", f"- 측정 전 고정: {'예' if res['fixed'] else '아니오(자리표시 값 — 판정에 쓰지 않는다)'}",
-         f"- 결론: **{res['decision']['status']}** · 고른 후보 {res['decision']['pick'] or '없음'}", f"- 조건: {res['condition']}", "",
+         f"- 결론: **{res['decision']['status']}** · 고른 후보 {res['decision']['pick'] or '없음'}"
+         + (" — 판정 불가 → 사용자 보고(통과 후보 없음)" if res['decision']['status'] == "none" else "")
+         + (" — 판정 불가 → 사용자 보고" if res['decision']['status'] == "undetermined" else ""), f"- 조건: {res['condition']}", "",
          "| 후보 | 정합 | 모형 | 목표 | 경계 | 억울 상한 | 거부+실패 | G-비용 보고 |", "|---|---|---|---|---|---|---|---|"]
     for n in ORDER:
         c, dt = res["candidates"].get(n, {}), res["detail"].get(n, {})

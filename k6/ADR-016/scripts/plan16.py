@@ -55,6 +55,7 @@ COST_HOLD_STEADY = 0.99   # cost 창 시작의 동시 홀드 수 ≥ 정상 상�
 COST_STEADY_TAIL = 0.01    # cost 창 시작 = 남은 수명 꼬리(∫_t^∞ S) ≤ 평균 수명의 1%가 되는 첫 t(정상 상태 — 명세 '앞 구간 버림')
 GRACE_MARGIN_S = 30        # gracefulStop = 세션 수명 최대(T 최대 + max(CAP, 경계 대기)) + 여유
 CONVERGE_MARGIN_S = 22     # 수렴 = max(TTL, W) + 배치 + 여유(ADR-014 CONVERGE_EXTRA_S 22초 선례)
+BUDGET_HOURS = 10.0       # 캠페인 시간 예산(명세 §0 '하룻밤 약 10시간' — dry-run이 넘으면 문제로 낸다)
 OTHER_S = 150              # 회차 시간 = k6 + 수렴 + 이 값(배포 · 기동 · 예열 · 시드 · 시작 대기 87초 — ADR-015 OTHER_S 200 − 수렴 52)
 PRE_VUS_HEADROOM, PRE_VUS_PAD, MAX_VUS_FACTOR = 1.15, 20, 1.5   # 미리 만든 VU = 결정적 일정의 최대 동시 세션 × 1.15 + 20
 SEATS_PER_SCHEDULE, SEAT_MARGIN = plan15.SEATS_PER_SCHEDULE, plan15.SEAT_MARGIN
@@ -75,7 +76,7 @@ MODE_OF = {"cond": O.MODE_COND, "cond+b": O.MODE_COND, "ext": O.MODE_EXT}
 # 흐름: b = payment-start를 부르나(④는 늘) · c = ⓒ 켬 · bd = ⓒ 경계 흐름(c 켬 · 결제 시간 대신 마감 − x 격자)
 #   ① 회차 경계 흐름은 ⓑ 없음(마감을 준 응답 = 선점 201) — ①+ⓒ · ①+ⓑ+ⓒ 후보가 같은 경계 결과를 쓴다(M 덮음은 응답 출처와 무관 — 둘 다 payBy = 만료 − M)
 FLOWS = {
-    ("paid", "cond"): {"n": (0, 0, 0), "nc": (0, 1, 0), "b": (1, 0, 0), "bc": (1, 1, 0), "nd": (0, 1, 1)},
+    ("paid", "cond"): {"n": (0, 0, 0), "nc": (0, 1, 0), "b": (1, 0, 0), "bc": (1, 1, 0), "nd": (0, 1, 1), "bcd": (1, 1, 1)},
     ("paid", "ext"): {"e": (1, 0, 0), "ec": (1, 1, 0), "ed": (1, 1, 1)},
     ("cost", "cond"): {"n": (0, 0, 0)},
     ("cost", "cond+b"): {"b": (1, 0, 0)},
@@ -83,7 +84,12 @@ FLOWS = {
 }
 # 후보(summarize16 ORDER) ↔ paid 흐름 · cost 구성
 CANDIDATE_FLOW = {"cond": ("cond", "n"), "cond+c": ("cond", "nc"), "cond+b": ("cond", "b"), "cond+b+c": ("cond", "bc"), "ext": ("ext", "e"), "ext+c": ("ext", "ec")}
-BOUNDARY_FLOW = {"cond": "nd", "ext": "ed"}
+# 후보 → ⓒ 경계 흐름(리뷰 L2-10): ①+ⓒ = nd(마감 출처 = 선점 201) · ①+ⓑ+ⓒ = bcd(마감 출처 = payment-start 200) · ④+ⓒ = ed
+BOUNDARY_FLOW = {"cond+c": "nd", "cond+b+c": "bcd", "ext+c": "ed"}
+# N16-1 격리 탐침(리뷰 L2-9 — 경로별 증거): ① check 회차마다 예열 뒤 · 본 시드 전에 홀드 P개 → 스냅숏 → payment-start만 P회 → 스냅숏. 쓰기 증분 0이어야 통과(자리표시 P)
+PROBE_HOLDS = 50
+PROBE_S = 30   # 탐침 시간(초기화 + 홀드 P · payment-start P · 스냅숏 · 통계 반영 대기 2초 × 2) — 회차 시간 추정에 더한다
+PROBE_USER = 8_000_000
 CANDIDATE_COST = {"cond": "cond", "cond+c": "cond", "cond+b": "cond+b", "cond+b+c": "cond+b", "ext": "ext", "ext+c": "ext"}
 RACE_MODE = {"cond": "conditional", "ext": "conditional-extend"}
 
@@ -145,7 +151,7 @@ def values():
     return {"fixed": FIXED, "M_s": M_S, "theta_cond_s": THETA_COND_S, "theta_ext_s": THETA_EXT_S, "W_s": W_S, "W_margin_s": W_MARGIN_S,
             "paid_rate": PAID_RATE, "cost_rate": COST_RATE, "n_per_flow": N_PER_FLOW, "boundary_grid_ms": list(BOUNDARY_GRID_MS), "rho": RHO,
             "cap_s": CAP_S, "ttl_s": TTL_S, "batch_s": BATCH_S, "t_range": list(T_RANGE), "d_median": D_MEDIAN, "d_sigma": D_SIGMA,
-            "clock_err_margin_ms": CLOCK_ERR_MARGIN_MS, "cost_window_len_s": COST_WINDOW_LEN_S}
+            "clock_err_margin_ms": CLOCK_ERR_MARGIN_MS, "cost_window_len_s": COST_WINDOW_LEN_S, "probe_holds": PROBE_HOLDS}
 
 
 def knobs_of(config):
@@ -341,7 +347,8 @@ def _render(cell, config, rep):
         "life": {"mean_s": round(sum(lives) / len(lives), 1), "max_s": round(max(lives), 1)}, "peak_concurrency": peak,
         "k6": {"script": "k6/ADR-016/scenarios/paid-flow.js", "duration_s": d_arr + grace, "est_s": round(k6_est), "pre_vus": pre, "max_vus": mx,
                "pre_vus_total": pre_total, "lead_s": plan15.k6_lead_s(pre_total), "env": k6env},
-        "window": window, "converge_s": converge, "est_s": round(k6_est + converge + OTHER_S),
+        "window": window, "converge_s": converge, "est_s": round(k6_est + converge + OTHER_S + (PROBE_S if mode == O.MODE_COND else 0)),
+        "probe16": {"holds": PROBE_HOLDS if mode == O.MODE_COND else 0, "user_base": PROBE_USER, "schedule": 1},
     }
 
 
@@ -432,6 +439,8 @@ def dry_run():
     if COST_RATE not in COST_RATES:
         problems.append(f"cost 도착률 {COST_RATE} ∉ {COST_RATES}")
     est = sum(cells[f"{c}/{g}/rep{r}"]["est_s"] for _, r, c, g in rows)
+    if est / 3600 > BUDGET_HOURS:   # 명세 §1-5 하룻밤 예산(리뷰 L2-4) — 넘으면 고정 전에 줄이는 안을 보고
+        problems.append(f"예상 {est / 3600:.2f}시간 > 예산 {BUDGET_HOURS}시간")
     per = {}
     for _, r, c, g in rows:
         if r == 1:
