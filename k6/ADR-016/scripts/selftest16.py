@@ -261,7 +261,7 @@ check("g_model — 띠 안 불일치 허용", ok and any(x["kind"] == "허용" f
 check("g_model — 띠 밖 불일치 1건 → False", not S.g_model([("success", False, "wronged")])[0])
 ok, lst = S.g_model([("success", False, "mode_fail:confirm-5xx")])
 check("g_model — 관측이 4갈래 밖 → False · 사유", not ok and lst[0]["kind"] == "판정 밖")
-check("g_model — 행 없음 → False", not S.g_model([])[0])
+check("g_model — 행 없음 → None(검출력 없음 · 결함 아님 — L3-4)", S.g_model([])[0] is None)
 check("n16_5 — k6 ≤ 서버 ≤ k6 + status0", S.n16_5({"rejected:HOLD_EXPIRED": 3}, 1, {"rejected:HOLD_EXPIRED": 4})[0]
       and not S.n16_5({"rejected:HOLD_EXPIRED": 3}, 1, {"rejected:HOLD_EXPIRED": 5})[0] and not S.n16_5({"rejected:HOLD_EXPIRED": 3}, 0, {"rejected:HOLD_EXPIRED": 2})[0])
 check("n16_5 — 한쪽에만 있는 키 · 서버 None", not S.n16_5({}, 0, {"failed:500": 1})[0] and not S.n16_5({"failed:500": 1}, 0, {})[0]
@@ -290,7 +290,10 @@ r_ = dc({"ext": {"g_target": T_, "g_model": F_}})
 check("decide — 자기 g_model False → 판정 불가 · 원인 조사:ext · pick 없음", r_["state"]["ext"] == "undetermined" and r_["pick"] is None
       and r_["status"] == "undetermined" and any(x.startswith("원인 조사:ext") for x in r_["report"]), str(r_))
 r_ = dc({"ext": {"g_target": F_, "g_model": F_}})
-check("decide — g_model False여도 다른 관문 False면 탈락(원인 조사는 남김)", r_["state"]["ext"] == "fail" and any(x.startswith("원인 조사:ext") for x in r_["report"]))
+check("decide — g_model False면 다른 관문이 False여도 판정 불가(원인 조사 · L3-4)", r_["state"]["ext"] == "undetermined" and any(x.startswith("원인 조사:ext") for x in r_["report"]))
+r_ = dc({"cond+c": {"g_target": F_}, "cond": {"g_model": F_}, "ext": {"g_target": T_}})
+check("decide — ⓒ 짝 g_model False · 자기 목표 False여도 판정 불가 → 뒤 ext pick은 undetermined(L3-4)", r_["state"]["cond+c"] == "undetermined"
+      and r_["pick"] == "ext" and r_["status"] == "undetermined")
 r_ = dc({"cond+b": {"g_target": N_}, "ext": {"g_target": T_}})
 check("decide — 앞 후보 판정 불가 · 뒤 통과 → undetermined(pick 기록)", r_["status"] == "undetermined" and r_["pick"] == "ext")
 check("decide — 판정 불가만 → undetermined · pick 없음", dc({"ext": {"g_target": N_}})["status"] == "undetermined" and dc({"ext": {"g_target": N_}})["pick"] is None)
@@ -424,7 +427,8 @@ def synth(cell, config, mutate=None, post=None):
         P_ = plan["probe16"]["holds"]
         tbl = {"deadlocks": 0, "tables": {t: {"n_tup_ins": P_, "n_tup_upd": P_ if t == "product_seat" else 0, "n_tup_del": 0} for t in S.PROBE_TABLES}}
         pgs = {"t": "x", "rows": [{"q": PG_BASE[0]["q"], "calls": P_, "rows": P_}]}
-        (d / "probe16.json").write_text(json.dumps({"holds": [f"{i}:{i}" for i in range(1, P_ + 1)], "pay_codes": ["200"] * P_, "table_before": tbl,
+        base_ = {"deadlocks": 0, "tables": {t: {"n_tup_ins": 0, "n_tup_upd": 0, "n_tup_del": 0} for t in S.PROBE_TABLES}}
+        (d / "probe16.json").write_text(json.dumps({"wait_s": 12, "holds": [f"{i}:{i}" for i in range(1, P_ + 1)], "pay_codes": ["200"] * P_, "table_base": base_, "table_before": tbl,
                                                     "table_after": tbl, "pgss_before": pgs, "pgss_after": pgs}))
     lines = [HEAD] + [csvrow("http_req_duration", t, 5.0, "hold", st="201") for t in range(int(w0), int(w1) + 1)]
     act0 = {"pay_start": dict.fromkeys(("ok", "insufficient", "expired", "not_found", "not_owned"), 0),
@@ -900,6 +904,70 @@ for f_ in fc.glob("paid/ext/rep2/rep-summary.json"):
     f_.write_text(json.dumps(j))
 r = S.campaign(fc, write=False)
 check("L2-2 paid 재선점 5xx 회차 → 그 구성 g_consistency None(False 아님)", r["candidates"]["ext"]["g_consistency"] is None and r["candidates"]["cond"]["g_consistency"] is True)
+
+
+# ---- 리뷰 루프 3 사례(L3-1 · 2 · 3 · 5 · 6) ----
+_, s = synth("paid", "cond", post=probe_mut(lambda j: j.__setitem__("table_before", j["table_base"])))
+check("L3-3 탐침 양성 대조 불성립(기준 → 전 seat_hold 삽입 ≠ P — 통계 반영 미완) → probe16-bad", "probe16-bad" in s["reasons"], s["status"])
+check("L3-3 탐침 대기 ≥ 12초(PGSTAT_IDLE_INTERVAL 10초 + 여유) · 기준 스냅숏", "w=12" in (HERE / "run16.sh").read_text() and "table_base: $t0" in (HERE / "run16.sh").read_text())
+kwp = dict(mode=O.MODE_COND, b=True, c=True, theta=69.0, window=0.0, margin=1.0, cap=600.0, e0=300.0, hold_recv=0.0, think_end=230.997,
+           ps_send=230.997, ps_recv=231.001, pay=10.0, err=0.002)
+try:
+    pr_ = O.predict(**kwp)
+    check("L3-2 predict — ⓒ · θ 띠 안 · 마감 입력 없음 → 예외 없이 (PAID, 띠 안)", pr_ == (O.PAID, True), str(pr_))
+except Exception as e:   # noqa: BLE001
+    check("L3-2 predict — ⓒ · θ 띠 안 · 마감 입력 없음 → 예외 없이 (PAID, 띠 안)", False, repr(e))
+
+
+def bc_theta_reject(L):   # bc 세션: 서버가 θ 문턱 언저리에서 결제 전 거부 — 하네스 중간값으로는 통과
+    r = first(L, lambda x: x["fl"] == "bc" and x["p"] and x["p"]["st"] == 200 and x["c"])
+    e0 = r["h"]["exp"]
+    r["p"] = {"st": 409, "code": "HOLD_EXPIRED", "ec": 0, "ts": e0 - 69_000 - 3, "tr": e0 - 69_000 + 1}
+    if r["uid"] in L["confirmed"]:
+        L["confirmed"].remove(r["uid"])
+    else:
+        L["conf_rej"][r["c"]["code"]] -= 1
+    r.update(c=None, dl=None, pf=None, tp=None)
+    L["pay_n"]["200"] -= 1
+    L["pay_n"]["409"] = L["pay_n"].get("409", 0) + 1
+
+
+_, s = synth("paid", "cond", bc_theta_reject)
+check("L3-2 bc · θ 띠 안 · 서버 거부 → summarize 예외 없음 · 회차 ok · G-모형 bc 허용(띠 안)", s["status"] == "ok" and s["metrics"]["g_model"]["bc"]["ok"] is True
+      and s["metrics"]["g_model"]["bc"]["allowed"] >= 1, f"{s['status']} {s['metrics'].get('g_model', {}).get('bc')}")
+base_ext = dict(mode=O.MODE_EXT, b=True, c=False, theta=1.0, window=611.0, margin=1.0, cap=600.0, e0=300.0, hold_recv=0.0, think_end=100.0,
+                ps_send=100.0, ps_recv=100.1, pay=590.0, c_send=690.0, c_recv=690.2, err=0.003)
+check("L3-1 predict ④ — 응답 만료(e_after)를 예측에 쓰지 않는다(엉뚱한 e_after에도 같은 예측)",
+      O.predict(**base_ext, e_after=None) == O.predict(**base_ext, e_after=650.0) == O.predict(**base_ext, e_after=99999.0))
+check("L3-1 predict ④ — 확정 띠 = 정책 만료 구간 [ps_send + W, ps_recv + W] ± err와 확정 구간이 겹치면 띠 안",
+      O.predict(**{**base_ext, "c_send": 711.0, "c_recv": 711.05})[1] is True and O.predict(**base_ext)[1] is False)
+
+
+def ext_value_bad(L):   # ④ 연장 응답 만료가 정책식 구간 밖(+5초)
+    r = first(L, lambda x: x["p"] and x["p"]["st"] == 200 and x["p"].get("ext"))
+    r["p"]["exp"] += 5000
+
+
+_, s = synth("paid", "ext", ext_value_bad)
+check("L3-1 ④ 연장 만료 값이 정책식 구간 밖 → extend_value_mismatch(G-정합 실패 자료 · 예측과 따로)", s["fail"].get("extend_value_mismatch") == 1, str(s["fail"]))
+
+
+def pay_hid_bad(L):   # payment-start 200이 다른 홀드 ID를 돌려줌(k6 ok 판정도 false)
+    r = first(L, lambda x: x["fl"] == "b" and x["p"] and x["p"]["st"] == 200 and x["c"] and x["c"]["st"] == 200)
+    r["p"].update(hid=r["p"]["hid"] + 1, ok=False)
+    r.update(c=None, dl=None, pf=None)
+    L["confirmed"].remove(r["uid"])
+
+
+_, s = synth("paid", "cond", pay_hid_bad)
+check("L3-5 payment-start 200 holdId 불일치 → mode_fail:pay-body-bad", "mode_fail:pay-body-bad" in (s["fail"].get("mode_fail") or {}), str(s["fail"]))
+check("L3-5 paid-flow.js — payment-start 본문 ok에 holdId 일치(row.p.hid === hb.hid)", "row.p.hid === hb.hid" in (REPO / "k6/ADR-016/scenarios/paid-flow.js").read_text())
+ch = model16.choose(deltas=None, err=0.003, n=500)
+ch2 = model16.choose(deltas=[0.01, 0.02], err=None, n=500)
+check("L3-6 model16.choose — δ̂ 또는 err 결측 → M · W · θ_cond · 비율 모두 None(δ 0 채움 없음)",
+      all(x[k] is None for x in (ch, ch2) for k in ("M", "theta_cond", "theta_cond_rates")) and ch["W"] is None, f"{ch} {ch2}")
+pc_ = subprocess.run([sys.executable, "-I", str(HERE / "model16.py"), "--choose", "-n", "100"], capture_output=True, text=True)
+check("L3-6 model16 --choose — --delta · --err 없이 거부(rc ≠ 0)", pc_.returncode != 0 and "--delta" in pc_.stderr, pc_.stderr[-200:])
 
 # ==== 캠페인 루프(선택) ====
 if "--campaign" in sys.argv:
