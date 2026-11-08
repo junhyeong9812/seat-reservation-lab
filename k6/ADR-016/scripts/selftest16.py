@@ -60,11 +60,18 @@ for c in ("paid", "cost"):
         check(f"render {c}/{g} — TTL 5분 · 배치 10초 · M 키", p["app_env"]["HOLD_TTL"] == "300s" and p["app_env"]["EXPIRY_INTERVAL"] == "10s"
               and p["app_env"]["PAY_BY_MARGIN"] == f"{plan16.M_S:g}s")
 pc = plan16.render("paid", "cond", 1)
-check("paid ① 흐름당 1,100 · 경계 275 · 교차 배정(첫 바퀴 = n nc b bc 반복 + nd)",
-      all(pc["planned"][f] == 1100 for f in ("n", "nc", "b", "bc")) and pc["planned"]["nd"] == 275 and pc["flow_cycle"][:5] == ["n", "nc", "b", "bc", "n"]
-      and pc["flow_cycle"][-1] == "nd", json.dumps(pc["planned"]))
+NB = plan16.N_PER_FLOW // plan16.FLOW_WEIGHT * plan16.BOUNDARY_WEIGHT
+check("paid ① 흐름당 N · 경계 nd · bcd 같은 크기 · 교차 배정(첫 바퀴 = n nc b bc 반복 + nd + bcd — L2-10)",
+      all(pc["planned"][f] == plan16.N_PER_FLOW for f in ("n", "nc", "b", "bc")) and pc["planned"]["nd"] == pc["planned"]["bcd"] == NB
+      and pc["flow_cycle"][:5] == ["n", "nc", "b", "bc", "n"] and pc["flow_cycle"][-2:] == ["nd", "bcd"] and pc["flows"]["bcd"] == {"b": 1, "c": 1, "bd": 1},
+      json.dumps(pc["planned"]))
+check("L2-10 후보 → 경계 흐름(cond+c nd · cond+b+c bcd · ext+c ed)", plan16.BOUNDARY_FLOW == {"cond+c": "nd", "cond+b+c": "bcd", "ext+c": "ed"})
+check("L2-9 탐침 = ① check 회차만(paid cond · cost cond · cost cond+b)", all((plan16.render(c, g, 1)["probe16"]["holds"] > 0) == (g != "ext")
+                                                                   for c in ("paid", "cost") for g in plan16.CONFIGS[c]))
 pe = plan16.render("paid", "ext", 1)
-check("paid ④ 흐름 e · ec 1,100 · 경계 ed 275 · W = CAP + M + 배치", pe["planned"] == {"e": 1100, "ec": 1100, "ed": 275} and pe["knobs16"]["window"] == 611.0)
+check("paid ④ 흐름 e · ec = 흐름당 세션 · 경계 ed = 흐름당 ÷ 4 · W = CAP + M + 배치 + 여유(관계식 — 값이 바뀌어도 성립 · 리뷰 L2-8)",
+      pe["planned"] == {"e": plan16.N_PER_FLOW, "ec": plan16.N_PER_FLOW, "ed": plan16.N_PER_FLOW // plan16.FLOW_WEIGHT * plan16.BOUNDARY_WEIGHT}
+      and pe["knobs16"]["window"] == plan16.CAP_S + plan16.M_S + plan16.BATCH_S + plan16.W_MARGIN_S and pe["knobs16"]["theta"] == plan16.M_S)
 pk = plan16.render("cost", "ext", 1)
 check("cost — ρ 0 · 창 = 정상 상태(시작 > 0) · 도착률 = COST_RATE", pk["rho"] == 0 and pk["window"]["kind"] == "steady" and pk["window"]["from_s"] > 0
       and pk["rate"] == plan16.COST_RATE)
@@ -276,7 +283,14 @@ check("decide — 통과 없음 → none", dc({})["status"] == "none")
 check("decide — ④만 통과 → pick ext", dc({"ext": {"g_target": T_}})["pick"] == "ext" and dc({"ext": {"g_target": T_}})["status"] == "pick")
 check("decide — ①+ⓒ · ④ 통과 → 순서상 cond+c", dc({"ext": {"g_target": T_}, "cond+c": {"g_target": T_}})["pick"] == "cond+c")
 check("decide — ①+ⓒ 경계 실패 → 다음 후보", dc({"cond+c": {"g_target": T_, "boundary_ok": F_}, "ext": {"g_target": T_}})["pick"] == "ext")
-check("decide — ①+ⓒ 짝 ① g_model 실패 → 탈락", dc({"cond+c": {"g_target": T_}, "cond": {"g_model": F_}, "ext": {"g_target": T_}})["pick"] == "ext")
+r_ = dc({"cond+c": {"g_target": T_}, "cond": {"g_model": F_}, "ext": {"g_target": T_}})
+check("decide — ①+ⓒ 짝 ① g_model False → 판정 불가(탈락 아님) · 원인 조사 · 뒤 ext 통과 = undetermined(계약 C 정정 · L2-1)",
+      r_["state"]["cond+c"] == "undetermined" and r_["pick"] == "ext" and r_["status"] == "undetermined" and any(x.startswith("원인 조사:cond+c") for x in r_["report"]), str(r_))
+r_ = dc({"ext": {"g_target": T_, "g_model": F_}})
+check("decide — 자기 g_model False → 판정 불가 · 원인 조사:ext · pick 없음", r_["state"]["ext"] == "undetermined" and r_["pick"] is None
+      and r_["status"] == "undetermined" and any(x.startswith("원인 조사:ext") for x in r_["report"]), str(r_))
+r_ = dc({"ext": {"g_target": F_, "g_model": F_}})
+check("decide — g_model False여도 다른 관문 False면 탈락(원인 조사는 남김)", r_["state"]["ext"] == "fail" and any(x.startswith("원인 조사:ext") for x in r_["report"]))
 r_ = dc({"cond+b": {"g_target": N_}, "ext": {"g_target": T_}})
 check("decide — 앞 후보 판정 불가 · 뒤 통과 → undetermined(pick 기록)", r_["status"] == "undetermined" and r_["pick"] == "ext")
 check("decide — 판정 불가만 → undetermined · pick 없음", dc({"ext": {"g_target": N_}})["status"] == "undetermined" and dc({"ext": {"g_target": N_}})["pick"] is None)
@@ -288,6 +302,13 @@ check("decide — ⓒ 후보 boundary_ok None → 판정 불가", dc({"cond+c": 
 HEAD = "metric_name,timestamp,metric_value,check,error,error_code,expected_response,group,method,name,proto,scenario,service,status,subproto,tls_version,url,extra_tags,metadata"
 csvrow = lambda m, t, v, name="", sc="main", st="", ec="", extra="": f"{m},{t},{v},,,{ec},,,POST,{name},HTTP/1.1,{sc},,{st},,,,{extra},"   # noqa: E731
 T0 = 1_800_000_000.0   # PC 초(시계 차 0)
+# pgss16_writes 덤프 모양(run16 — 쓰기 동사 문장 전문 · calls · rows): main-app 코드의 쓰기 문장(① 기준 — 허용 목록 안)
+PG_BASE = [{"q": "INSERT INTO seat_hold (seat_id, schedule_id, user_id, held_at, expires_at) VALUES ($1, $2, $3, $4, $5) RETURNING id", "calls": 4675, "rows": 4675},
+           {"q": "DELETE FROM seat_hold WHERE id = $1 AND user_id = $2 AND expires_at > $3", "calls": 3900, "rows": 3500},
+           {"q": "UPDATE product_seat SET status = 'RESERVED' WHERE id = $1 AND status = 'HELD'", "calls": 3500, "rows": 3500},
+           {"q": "INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)", "calls": 3500, "rows": 3500},
+           {"q": "INSERT INTO user_hold_quota (schedule_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", "calls": 4675, "rows": 4675},
+           {"q": "DELETE FROM seat_hold h USING unnest($1::bigint[], $2::bigint[]) AS p(sc, us) WHERE h.schedule_id = p.sc", "calls": 30, "rows": 400}]
 
 
 def gen_sessions(plan, delta_ms=5.0, net_ms=1.0, ek=20.0):
@@ -398,6 +419,13 @@ def synth(cell, config, mutate=None, post=None):
     tabs = lambda upd: {"deadlocks": 0, "tables": {"seat_hold": {"n_tup_upd": upd, "n_tup_del": 0}, "reservation": {"n_tup_ins": 0}}}   # noqa: E731
     (d / "table-before.json").write_text(json.dumps(tabs(0)))
     (d / "pgss-end.json").write_text(json.dumps({"rows": []}))
+    (d / "pgss16-end.json").write_text(json.dumps({"t": "2027-01-15T08:00:00+00:00", "rows": PG_BASE}))
+    if plan["probe16"]["holds"]:
+        P_ = plan["probe16"]["holds"]
+        tbl = {"deadlocks": 0, "tables": {t: {"n_tup_ins": P_, "n_tup_upd": P_ if t == "product_seat" else 0, "n_tup_del": 0} for t in S.PROBE_TABLES}}
+        pgs = {"t": "x", "rows": [{"q": PG_BASE[0]["q"], "calls": P_, "rows": P_}]}
+        (d / "probe16.json").write_text(json.dumps({"holds": [f"{i}:{i}" for i in range(1, P_ + 1)], "pay_codes": ["200"] * P_, "table_before": tbl,
+                                                    "table_after": tbl, "pgss_before": pgs, "pgss_after": pgs}))
     lines = [HEAD] + [csvrow("http_req_duration", t, 5.0, "hold", st="201") for t in range(int(w0), int(w1) + 1)]
     act0 = {"pay_start": dict.fromkeys(("ok", "insufficient", "expired", "not_found", "not_owned"), 0),
             "extend": dict.fromkeys(("extended", "already", "not_needed", "too_late"), 0), "rejected": {}, "failed": {}}
@@ -447,9 +475,11 @@ def synth(cell, config, mutate=None, post=None):
 d, s = synth("paid", "cond")
 m = s["metrics"]
 check("합성 paid ① 회차 → ok · 실패 자료 없음", s["status"] == "ok" and not s["fail"], f"{s['status']} {s.get('missing')} {s['fail']}")
-check("합성 paid ① — 흐름 5 · 계획 = 분류 · G-모형 흐름 4 모두 True", set(m["flows"]) == {"n", "nc", "b", "bc", "nd"}
+check("합성 paid ① — 흐름 5 · 계획 = 분류 · G-모형 흐름 4 모두 True", set(m["flows"]) == {"n", "nc", "b", "bc", "nd", "bcd"}
       and all(v["ok"] for v in m["g_model"].values()) and len(m["g_model"]) == 4, json.dumps(m["g_model"], ensure_ascii=False)[:400])
-check("합성 paid ① — ⓒ 경계 흐름 통과(마감 전 송신 > 0 · 억울 0)", m["boundary"]["ok"] and m["boundary"]["sent_before"] > 0, str({k: v for k, v in m["boundary"].items() if k != "rows"}))
+check("합성 paid ① — ⓒ 경계 흐름 nd · bcd 각각 통과(마감 전 송신 > 0 · 억울 0)", set(m["boundary"]) == {"nd", "bcd"}
+      and all(v["ok"] and v["sent_before"] > 0 for v in m["boundary"].values()), str({f: {k: v for k, v in b.items() if k != "rows"} for f, b in m["boundary"].items()}))
+check("합성 paid ① — N16-1 격리 탐침 증분 0(통과)", m["n16_1_probe"]["writes"] == [] and not m["n16_1_probe"]["bad"] and "n16_1_probe" not in s["fail"], str(m.get("n16_1_probe")))
 check("합성 paid ① — N16-1 증거 0 · N16-5 · 서버 교차 통과", m["n16_1"] == {"seat_hold_n_tup_upd": 0, "update_seat_hold_calls": 0, "pay_start_5xx": 0} and m["n16_5"]["ok"] and m["pay_start_cross"]["ok"],
       json.dumps([m.get("n16_1"), m.get("n16_5"), m.get("pay_start_cross")], ensure_ascii=False)[:300])
 check("합성 paid ① — δ̂ 분포 · 재선점 · 점유 시간 값", m["delta"]["n"] > 0 and abs(m["delta"]["p50"] - 0.01) < 1e-9 and m["rehold"]["never_ratio"] == 0 and m["occupancy"]["mean_s"] > 0)
@@ -457,7 +487,7 @@ fl_n = m["flows"]["n"]["classified"]
 check("합성 paid ① — ① 흐름 억울 비율 ≈ 모형(10% 안팎)", 0.05 < fl_n.get("wronged", 0) / 1100 < 0.2, str(fl_n))
 d, s = synth("paid", "ext")
 check("합성 paid ④ 회차 → ok · G-모형 · 경계 통과", s["status"] == "ok" and not s["fail"] and all(v["ok"] for v in s["metrics"]["g_model"].values())
-      and s["metrics"]["boundary"]["ok"], f"{s['status']} {s.get('missing')} {s['fail']} {s['metrics'].get('g_model')}")
+      and s["metrics"]["boundary"]["ed"]["ok"] and "n16_1_probe" not in s["metrics"], f"{s['status']} {s.get('missing')} {s['fail']} {s['metrics'].get('g_model')}")
 check("합성 paid ④ — 억울 0(W = CAP + M + 배치)", sum(v["classified"].get("wronged", 0) for v in s["metrics"]["flows"].values()) == 0)
 d, s = synth("cost", "cond+b")
 check("합성 cost ①+ⓑ 회차 → ok(집계 계수 · 흐름 수 대조 · TIME_WAIT · 홀드 행)", s["status"] == "ok" and s["metrics"].get("tw_server_max") == 40
@@ -522,7 +552,7 @@ _, s = synth("paid", "cond", wrong_reject)
 check("남은 시간 > θ인데 409 → early_reject 1(G-정합 실패 자료)", s["fail"].get("early_reject") == 1, f"{s['fail']} {s['metrics']['g_model']['b']}")
 check("남은 시간 > θ인데 409 → G-모형 띠 밖 불일치(그린 위장 아님)", s["metrics"]["g_model"]["b"]["ok"] is False, str(s["metrics"]["g_model"]["b"]))
 for fname, want in (("sessions16.log.gz", "sessions-missing"), ("reservations.json", "reservation-dump-missing"), ("clock-offset.json", "clock-offset-bad"),
-                    ("act16-end.json", "app-metric-missing"), ("pgss-end.json", "pgss-missing"), ("table-end.json", "table-stats-missing"),
+                    ("act16-end.json", "app-metric-missing"), ("pgss16-end.json", "pgss-missing"), ("table-end.json", "table-stats-missing"),
                     ("k6-requests.csv.gz", "k6-csv-missing"), ("consistency.json", "end-check-failed")):
     d, _ = synth("paid", "cond")
     (d / fname).unlink()
@@ -660,17 +690,18 @@ for fn, key, name in ((seat_not_held, "seat_not_held", "L1-14 409 SEAT_NOT_HELD 
     _, s = synth("paid", "cond", fn)
     check(name, s["status"] == "ok" and key in s["fail"], f"{s['status']} {s['fail']}")
 _, s = synth("paid", "cond", boundary_bad)
-check("L1-14 경계 흐름 마감 전 송신 억울 → boundary ok False", s["metrics"]["boundary"]["ok"] is False and s["metrics"]["boundary"]["wronged_before"] >= 1)
-PG_UPD = {"rows": [{"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 2}, {"q": "DELETE FROM seat_hold WHERE id = $1 AND user_id = $2", "calls": 9}]}
-_, s = synth("paid", "cond", post=lambda d: (d / "pgss-end.json").write_text(json.dumps(PG_UPD)))
+check("L1-14 경계 흐름 마감 전 송신 억울 → nd ok False(bcd는 그대로)", s["metrics"]["boundary"]["nd"]["ok"] is False and s["metrics"]["boundary"]["nd"]["wronged_before"] >= 1
+      and s["metrics"]["boundary"]["bcd"]["ok"])
+PG_UPD = {"t": "x", "rows": PG_BASE + [{"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 2, "rows": 2}]}
+_, s = synth("paid", "cond", post=lambda d: (d / "pgss16-end.json").write_text(json.dumps(PG_UPD)))
 check("L1-9 · L1-14 ① pgss UPDATE seat_hold > 0 → n16_1 실패 + 허용 밖 쓰기(write_unknown)", "n16_1" in s["fail"] and "write_unknown" in s["fail"], str(s["fail"]))
-PG_UNK = {"rows": [{"q": "INSERT INTO counter_cleanup_run (at, mode) VALUES ($1, $2)", "calls": 1},
-                   {"q": "WITH x AS (UPDATE product_seat SET status = $1 RETURNING id) SELECT * FROM x", "calls": 1},
-                   {"q": "SELECT status FROM product_seat WHERE id = $1 FOR UPDATE", "calls": 5}]}
-_, s = synth("paid", "ext", post=lambda d: (d / "pgss-end.json").write_text(json.dumps(PG_UNK)))
+PG_UNK = {"t": "x", "rows": PG_BASE + [{"q": "INSERT INTO counter_cleanup_run (at, mode, schedule_id, holds_seen, rows_deleted) VALUES ($1, $2, $3, $4, $5)", "calls": 1, "rows": 1},
+                                      {"q": "WITH x AS (UPDATE product_seat SET status = $1 WHERE id = $2 RETURNING id) SELECT * FROM x", "calls": 1, "rows": 1},
+                                      {"q": "WITH c AS (SELECT id FROM seat_hold WHERE expires_at <= $1) SELECT count(*) FROM c", "calls": 5, "rows": 5}]}
+_, s = synth("paid", "ext", post=lambda d: (d / "pgss16-end.json").write_text(json.dumps(PG_UNK)))
 wu = s["fail"].get("write_unknown") or []
 check("L1-9 허용 밖 쓰기(INSERT counter_cleanup_run) 1건만 · WITH 안 허용 쓰기 · SELECT FOR UPDATE는 쓰기 아님", len(wu) == 1 and "counter_cleanup_run" in wu[0], str(wu))
-_, s = synth("paid", "ext", post=lambda d: (d / "pgss-end.json").write_text(json.dumps({"rows": [{"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 4}]})))
+_, s = synth("paid", "ext", post=lambda d: (d / "pgss16-end.json").write_text(json.dumps({"t": "x", "rows": PG_BASE + [{"q": "UPDATE seat_hold SET expires_at = $1, extended_at = $2 WHERE id = $3 AND expires_at > $4", "calls": 4, "rows": 4}]})))
 check("L1-9 ④ UPDATE seat_hold(E1 연장)는 허용", "write_unknown" not in s["fail"], str(s["fail"]))
 
 
@@ -721,10 +752,38 @@ sw = model16.sweep(picked={"M": None, "W": None, "theta_cond": 69.0}, n=10)
 check("L1-12 model16 sweep — M · W 결측이면 계산하지 않음(delta missing · 0 채움 없음)", sw["results"] is None and sw["delta"] == "missing" and "M" in sw["missing"])
 check("L1-12 model_cap30 — δ̂ 또는 err 없으면 None", S.model_cap30([], 0.003) is None and S.model_cap30([0.01], None) is None)
 
+
+# ---- 리뷰 루프 2 사례(L2-2 · 4 · 6) ----
+def add_http(rows_):
+    def post(d):
+        with gzip.open(d / "k6-requests.csv.gz", "rt") as g:
+            body = g.read()
+        with gzip.open(d / "k6-requests.csv.gz", "wt") as g:
+            g.write(body + "\n".join(csvrow("http_req_duration", int(T0) + 5, 5.0, n, sc=sc, st=st, ec=ec) for n, sc, st, ec in rows_) + "\n")
+    return post
+
+
+_, s = synth("cost", "cond", post=add_http([("hold", "main", "503", "")]))
+check("L2-2 cost 선점 5xx → hold-fail(무효 · paid와 같은 규칙)", "hold-fail" in s["reasons"], s["status"])
+_, s = synth("cost", "cond", post=add_http([("hold", "main", "0", "1050")]))
+check("L2-2 cost 선점 시간 초과 → hold-fail", "hold-fail" in s["reasons"], s["status"])
+_, s = synth("cost", "cond", lambda L: L["outs"].__setitem__("hold:409:SEAT_NOT_AVAILABLE", 0) or None)
+check("L2-2 cost 선점 out 계수(hold:*) → hold-fail", "hold-fail" in s["reasons"], s["status"])
+for cell, cfg in (("paid", "cond"), ("cost", "cond")):
+    _, s = synth(cell, cfg, post=add_http([("rehold", "rehold", "502", ""), ("rehold", "rehold", "0", "1050")]))
+    check(f"L2-2 {cell} 재선점 5xx · 시간 초과 → 회차 유효 · fail에 없음 · undetermined.rehold_undetermined", s["status"] == "ok" and "5xx" not in s["fail"]
+          and "timeout" not in s["fail"] and s["undetermined"].get("rehold_undetermined") == {"5xx:rehold": 1, "timeout:rehold": 1}, f"{s['status']} {s['fail']} {s.get('undetermined')}")
+_bh = plan16.BUDGET_HOURS
+plan16.BUDGET_HOURS = 1.0
+check("L2-4 dry-run 예상 시간 > 예산 → 문제(rc ≠ 0)", any("예산" in x for x in plan16.dry_run()["problems"]) and plan16.main(["x", "--dry-run"]) == 1)
+plan16.BUDGET_HOURS = _bh
+check("L2-4 dry-run 예산 안(지금 값) → 문제 없음", DRY["est_hours"] <= plan16.BUDGET_HOURS)
+check("L2-6 paid-flow.js OUT_DIR 필수(E('OUT_DIR'))", "E('OUT_DIR')" in (REPO / "k6/ADR-016/scenarios/paid-flow.js").read_text())
+
 # ==== 캠페인 판정(합성 rep-summary) ====
 
 
-def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
+def fake_campaign(bad_bcd=False, paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, race_fail=None, drop_cost_metric=None, drop_paid_flow_metric=False):
     root = Path(tempfile.mkdtemp())
     for cell in plan16.CELLS:
         for g in plan16.CONFIGS[cell]:
@@ -750,7 +809,8 @@ def fake_campaign(paid_ok=True, wr_ext=0, n_reps=3, fail_cost=False, race_ev=2, 
                             cl = {"success": 1100 - wr_ext, "wronged": wr_ext}
                         M_["flows"][fl] = {"planned": 1100, "classified": cl}
                     M_["g_model"] = {fl: {"ok": paid_ok} for fl in M_["flows"]}
-                    M_["boundary"] = {"rows": [[True, "success"], [False, "pay_fail"]]}
+                    M_["boundary"] = {fl: {"rows": [[True, "wronged" if (bad_bcd and fl == "bcd") else "success"], [False, "pay_fail"]]}
+                                      for fl, (b, c, bd) in fls.items() if bd}
                     M_["delta"] = {"values": [0.004, 0.006]}
                     M_["rehold_by_flow"] = {fl: {"never_ratio": (0.9 if g == "ext" else 0.0) + r * 0.001} for fl in M_["flows"]}
                     M_["occupancy_by_flow"] = {fl: {"mean_s": 300 + r if g == "ext" else 150 + r} for fl in M_["flows"]}
@@ -772,7 +832,12 @@ check("캠페인 — ④ 억울 3/3300(상한 > 0.1%) → ④ 탈락", r["candid
 r = S.campaign(fake_campaign(n_reps=2), write=False)
 check("캠페인 — 유효 2회 → 판정 불가", r["decision"]["status"] == "undetermined" and r["decision"]["pick"] is None)
 r = S.campaign(fake_campaign(paid_ok=False), write=False)
-check("캠페인 — G-모형 실패 → 통과 없음", r["decision"]["pick"] is None)
+check("캠페인 — G-모형 False → 통과 없음 · 판정 불가 · 원인 조사(L2-1)", r["decision"]["pick"] is None and r["decision"]["status"] == "undetermined"
+      and any(x.startswith("원인 조사:") for x in r["decision"]["report"]))
+check("RESULT.md — 판정 불가 → 사용자 보고 문구", "판정 불가 → 사용자 보고" in S.render_md(r))
+r = S.campaign(fake_campaign(n_reps=3), write=False)
+r["decision"] = S.decide_campaign({n: {"g_consistency": True, "g_model": True, "g_target": False, "cost_report": [], "boundary_ok": True} for n in S.ORDER + ["cond"]})
+check("RESULT.md — none(통과 후보 없음)도 판정 불가 → 사용자 보고", r["decision"]["status"] == "none" and "통과 후보 없음" in S.render_md(r))
 r = S.campaign(fake_campaign(fail_cost=True), write=False)
 check("캠페인 — cost ④ 정합 실패(N16-5) → ④ 탈락", r["candidates"]["ext"]["g_consistency"] is False)
 md = S.render_md(S.campaign(fake_campaign(), write=False))
@@ -803,6 +868,38 @@ md = S.render_md(r)
 check("L1-12 δ̂ 결측 캠페인 → 모형 계산 안 함 · RESULT.md 'δ̂ 결측 — 계산 안 함' · N16-1 세 겹 · 짝 메모", r["model"] is None and "δ̂ 결측 — 계산 안 함" in md
       and "readOnly" in md and "paid e 대 ① n" in md)
 
+
+
+# ---- 리뷰 루프 2 사례(L2-9 격리 탐침 · L2-10 bcd) ----
+def probe_mut(fn):
+    def post(d):
+        j = json.loads((d / "probe16.json").read_text())
+        fn(j)
+        (d / "probe16.json").write_text(json.dumps(j))
+    return post
+
+
+_, s = synth("paid", "cond", post=probe_mut(lambda j: j["table_after"]["tables"]["seat_hold"].__setitem__("n_tup_upd", 3)))
+check("L2-9 탐침 seat_hold n_tup_upd 증분 > 0 → n16_1_probe 실패 자료", "n16_1_probe" in s["fail"] and any("seat_hold.n_tup_upd +3" in x for x in s["fail"]["n16_1_probe"]), str(s["fail"]))
+_, s = synth("cost", "cond+b", post=probe_mut(lambda j: j["pgss_after"]["rows"].append({"q": "UPDATE seat_hold SET expires_at = $1 WHERE id = $2", "calls": 2, "rows": 2})))
+check("L2-9 탐침 쓰기 문장 rows 증분 > 0(cost ①+ⓑ) → n16_1_probe", "n16_1_probe" in s["fail"], str(s["fail"]))
+_, s = synth("cost", "cond", post=probe_mut(lambda j: j["pgss_after"]["rows"].append({"q": "DELETE FROM seat_hold h USING unnest($1::bigint[]) AS p(x) WHERE true", "calls": 3, "rows": 0})))
+check("L2-9 탐침 0행 쓰기 문장 호출(배치 틱)은 증분 아님", "n16_1_probe" not in s["fail"], str(s["fail"]))
+_, s = synth("paid", "cond", post=lambda d: (d / "probe16.json").unlink())
+check("L2-9 probe16.json 없음 → probe16-missing(무효)", "probe16-missing" in s["reasons"], s["status"])
+_, s = synth("paid", "cond", post=probe_mut(lambda j: j["pay_codes"].__setitem__(0, "409")))
+check("L2-9 탐침 payment-start 200 아님 → probe16-bad(탐침 성립 안 함)", "probe16-bad" in s["reasons"], s["status"])
+r = S.campaign(fake_campaign(bad_bcd=True), write=False)
+check("L2-10 bcd 경계 실패 → cond+b+c boundary False · cond+c(nd)는 True", r["candidates"]["cond+b+c"]["boundary_ok"] is False and r["candidates"]["cond+c"]["boundary_ok"] is True
+      and r["candidates"]["ext+c"]["boundary_ok"] is True)
+
+fc = fake_campaign()
+for f_ in fc.glob("paid/ext/rep2/rep-summary.json"):
+    j = json.loads(f_.read_text())
+    j["undetermined"] = {"rehold_undetermined": {"5xx:rehold": 1}}
+    f_.write_text(json.dumps(j))
+r = S.campaign(fc, write=False)
+check("L2-2 paid 재선점 5xx 회차 → 그 구성 g_consistency None(False 아님)", r["candidates"]["ext"]["g_consistency"] is None and r["candidates"]["cond"]["g_consistency"] is True)
 
 # ==== 캠페인 루프(선택) ====
 if "--campaign" in sys.argv:
@@ -859,6 +956,12 @@ if "--campaign" in sys.argv:
             check("FIXED False 사본 — campaign16 · run16 실제 실행 거부(exit 2 · FIXED)", pc_.returncode == 2 and "FIXED" in pc_.stderr and pr_.returncode == 2
                   and "FIXED" in pr_.stderr, (pc_.stderr + pr_.stderr)[-300:])
         shutil.rmtree(tree, ignore_errors=True)
+    # 재개는 --id로만(리뷰 L2-7): --id 없이 두 번 → 둘째는 자동 ID 폴더가 있어 거부
+    sim = Path(tempfile.mkdtemp())
+    p1 = subprocess.run(["bash", str(HERE / "campaign16.sh"), "--simulate", "--worktree", "--results-root", str(sim)], stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
+    p2 = subprocess.run(["bash", str(HERE / "campaign16.sh"), "--simulate", "--worktree", "--results-root", str(sim)], stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=REPO)
+    check("L2-7 --id 없이 자동 ID 폴더가 이미 있으면 거부(exit 2 · --id 요구)", p1.returncode == 0 and p2.returncode == 2 and "--id" in p2.stderr, f"{p1.returncode} {p2.returncode} {p2.stderr[-200:]}")
+    shutil.rmtree(sim, ignore_errors=True)
     # 요약기 예외 → 멈춤 · 사용자 보고(exit 8 — 재측정하지 않는다 · 리뷰 L1-1)
     sim = Path(tempfile.mkdtemp())
     (sim / "plan.txt").write_text("1:paid:ext:1=invalid:summarize-failed\n")

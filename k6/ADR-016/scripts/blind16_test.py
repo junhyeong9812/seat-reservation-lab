@@ -736,12 +736,13 @@ class TestDecideCampaign(unittest.TestCase):
         cs = all_pass()
         cs["cond"]["g_model"] = False  # cond+c의 짝(ⓒ 끔)
         r = S.decide_campaign(cs)
-        self.assertEqual((r["pick"], r["status"]), ("cond+b+c", "pick"), "짝 cond의 G-모형 실패 → cond+c 탈락")
+        # 계약 C절 정정(루프 2 R2-1): 짝 G-모형 False = 판정 불가(탈락 아님) → 앞 후보 판정 불가인 채 뒤 후보 통과 = undetermined
+        self.assertEqual((r["pick"], r["status"]), ("cond+b+c", "undetermined"), "짝 cond의 G-모형 실패 → cond+c 판정 불가")
         cs = all_pass()
         cs["cond"]["g_model"] = False
         cs["cond+b"]["g_model"] = False  # cond+b+c의 짝 · cond+b 자신도 실패
         r = S.decide_campaign(cs)
-        self.assertEqual((r["pick"], r["status"]), ("ext+c", "pick"))
+        self.assertEqual((r["pick"], r["status"]), ("ext+c", "undetermined"))
 
     def test_c_own_gate_fail(self):
         cs = all_pass()
