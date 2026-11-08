@@ -73,8 +73,8 @@ export function setup() {
 
 const srvNow = () => Date.now() + CLOCK_OFFSET_MS;
 
-function call(req) {   // 요청 하나 — 송신 · 수신 서버 시각(ms)과 함께
-  const ts = srvNow();
+function call(req, tsAt) {   // 요청 하나 — 송신 · 수신 서버 시각(ms)과 함께 · tsAt = 미리 잰 송신 시각(경계 흐름 — 마감 검사와 같은 값)
+  const ts = tsAt === undefined ? srvNow() : tsAt;
   const res = send(req);
   return { res, ts, tr: srvNow() };
 }
@@ -141,8 +141,11 @@ export function mainFlow() {
   }
   sleepUntilSrv(sendAt);
   // ⓒ 경계 흐름(격자 x ≥ 0): 늦게 깨어 송신 직전 시각이 이미 하네스 마감을 넘었으면 보내지 않는다(마감 뒤 송신 금지 계약 — 리뷰 L4-2 · lw = late wake)
-  if (f.bd && srvNow() > row.dl) { row.pf = 'deadline'; row.lw = true; finish(row, 'dl'); return; }
-  const cc = call(closeConn(confirmReq(hb.hid, user, 'confirm')));   // 반복 끝 요청 — 서버가 먼저 닫는다
+  //   재점검 L4-R1: 요청을 먼저 만들고 송신 시각을 한 번만 재서 그 값으로 검사하고 기록한다(검사 시각 ≠ 기록 시각 틈 제거)
+  const creq = closeConn(confirmReq(hb.hid, user, 'confirm'));   // 반복 끝 요청 — 서버가 먼저 닫는다
+  const tsc = srvNow();
+  if (f.bd && tsc > row.dl) { row.pf = 'deadline'; row.lw = true; finish(row, 'dl'); return; }
+  const cc = call(creq, tsc);
   row.c = brief(cc, false);
   finish(row, `conf:${row.c.st}:${row.c.code}`);
 }

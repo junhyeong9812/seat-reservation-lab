@@ -843,8 +843,8 @@ def paid_rep(d, inp, plan, k, err_ms, reasons, M, F, k6c, k6_non2xx):
             continue
         lag = (x["t1"] - hs["exp"]) - plan16.REHOLD_FROM_MS
         lags.append(lag)
-        lag_n += lag > plan16.REHOLD_LAG_TOL_MS
-    M["rehold_schedule"] = {"late": lag_n, "missing": lag_miss, "n": len(rh), "lag_p50_ms": _q(lags, 0.5), "lag_max_ms": max(lags) if lags else None,
+        lag_n += abs(lag) > plan16.REHOLD_LAG_TOL_MS   # 재점검 L4-R3: 늦은 쪽만이 아니라 일찍 시작한 시도 창도 일정 이탈
+    M["rehold_schedule"] = {"late": lag_n, "missing": lag_miss, "n": len(rh), "lag_p50_ms": _q(lags, 0.5), "lag_max_ms": max(lags) if lags else None, "lag_min_ms": min(lags) if lags else None,
                             "tol_ms": plan16.REHOLD_LAG_TOL_MS}
     if lag_miss:
         reasons.add("rehold-schedule-missing")
@@ -1098,7 +1098,15 @@ def campaign(root, write=True):
                         for kk, vv in gv.items():
                             pg_[kk] = pg_.get(kk, 0) + vv
                 gok = boundary_grid_ok(pooled)[0]
-                bnd = False if False in (bnd, gok) else (None if None in (bnd, gok) else True)
+                # 재점검 L4-R2: 거부가 관측된 False와 '마감 전 송신 표본 0'(검출력 없음 — boundary_ok가 False로 돌려주는 경우)을 가른다 — 후자는 None
+                wronged_seen = any(c_ == O.WRONGED and before for before, c_ in brows)
+                sent_before = sum(1 for before, _c in brows if before)
+                if wronged_seen or gok is False:
+                    bnd = False
+                elif sent_before == 0 or None in (bnd, gok):
+                    bnd = None
+                else:
+                    bnd = True
         # G-비용(리뷰 L1-3): ① 대비 ≫(ADR-014 much_higher). 범위를 못 만든 지표(유효 < 3 · 값 결측)는 '판정 불가:<지표>'로 남긴다(조용히 '보고 없음'이 되지 않게 —
         #   decide_campaign이 그 후보를 판정 불가로 다룬다). cost ① 기준값이 없는 지표(COST_NO_BASE)는 비교에서 빼고 RESULT.md에 적는다.
         cost_report = []
