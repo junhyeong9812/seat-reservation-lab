@@ -17,6 +17,7 @@ import math
 
 SUCCESS, WRONGED, PRE_REJECT, PAY_FAIL = "success", "wronged", "pre_reject", "pay_fail"
 CATEGORIES = (SUCCESS, WRONGED, PRE_REJECT, PAY_FAIL)
+PAID = "paid"  # predict 전용 — 결제 성공 예상 · 확정 시각 없음(관측 4갈래와 늘 다르다)
 
 # payment-start 결제 전 거부로 받는 계약 쌍(① check · ④ too_late · 만료 · 없음). 403 HOLD_NOT_OWNED는 세션 자신의 홀드라 생기지 않는다 → 결함
 PAY_START_REJECT = frozenset({(409, "HOLD_EXPIRED"), (404, "HOLD_NOT_FOUND")})
@@ -151,7 +152,9 @@ def predict(*, mode, b, c, theta, window, margin, cap, e0, hold_recv, think_end,
         if t_p + pay > dl:
             return PAY_FAIL, band
     if c_send is None:
-        return WRONGED, True  # 결제 성공 예상인데 확정 시각이 없다 — 비교 불가(요약기가 confirm-missing으로 무효 처리)
+        # 결제 성공을 예상했는데 관측 세션은 확정을 보내지 않았다(결제 전 거부 · 결제 실패로 끝남) — 4갈래 밖 'paid'를 돌려
+        # 관측과 반드시 어긋나게 한다(앞의 θ 띠만 허용). '띠 안'으로 돌리면 잘못된 결제 전 거부 · 마감 오판을 G-모형이 넘긴다
+        return PAID, band
     if c_send - err <= e <= c_recv + err:
         band = True
     now = (c_send + c_recv) / 2
