@@ -11,7 +11,7 @@
 - 원문(2026-11-07): "응 구현 명세로 진행해줘" — 설계 리뷰 루프 1 마감 보고 뒤.
 - Q/A(2026-11-07):
   - 범위 → **앱 코드 먼저**(하네스 · 모형은 다음 명세).
-  - θ · M 기본값 → **θ = 0 · M = 0 · 기동 검사 `M ≤ θ`**(설계-9.3 `M < θ`를 고친다 — 200은 남은 시간 > θ일 때만 나가므로 `M ≤ θ`면 `payBy > :now`가 보장된다. `M < θ`면 기본 0 · 0으로 기동이 안 된다). 값은 측정 뒤 별도 커밋(ADR-015 D-6 선례).
+  - θ · M 기본값 → **θ = 0 · M = 0 · 기동 검사 `M ≤ θ`**(설계-9.3 `M < θ`를 고친다 — 200은 남은 시간 > θ일 때만 나가므로 `M ≤ θ`면 `payBy > :now`가 보장된다. `M < θ`면 기본 0 · 0으로 기동이 안 된다 · 보장 범위 정정 2026-11-08: ① 200 · ④ 연장 · not_needed 200 한정 — ④ `already` 200과 선점 201은 밖, N16-3의 `payWithinSeconds ≥ 0`으로만 묶인다 · 리뷰 AUD16-R2). 값은 측정 뒤 별도 커밋(ADR-015 D-6 선례).
   - stakes → **높음** · 듀얼 리뷰 루프(≤3) + blind 테스트 워커.
   - 자율성 → **auto**.
 - 앞서 정해진 것(설계-9 · 사용자 재확인 2026-11-07): 거부 코드 HOLD_EXPIRED 유지 · payment-start 호출은 권고(확정이 검사하지 않음) · 시간 부족 · 만료 구분은 서버 지표로만.
@@ -22,7 +22,7 @@
 
 1. **θ 손잡이 이름 변경**: `seat.confirm.extend-min-remaining` → `seat.confirm.payment-min-remaining`(θ · Duration · 기본 0). ①의 확인 문턱과 ④의 too_late 문턱이 같은 키를 쓴다. **옛 키가 Environment 어느 출처에든 있으면 기동 거부**(키 이름 · 새 키를 메시지에).
 2. **새 손잡이** `seat.confirm.pay-by-margin`(M · Duration · 기본 0).
-3. **① payment-start**: `POST /api/holds/{holdId}/payment-start`를 `conditional`에도 등록한다. ① 갈래는 E1을 거치지 않는 별도 읽기 전용 함수(`@Transactional(readOnly = true)`) — `SELECT user_id, expires_at FROM seat_hold WHERE id = ?`(잠금 없음). 판정(위에서부터 첫 일치 · `:now` = 앱 Clock · 요청 시작):
+3. **① payment-start**: `POST /api/holds/{holdId}/payment-start`를 `conditional`에도 등록한다. ① 갈래는 E1을 거치지 않는 별도 읽기 전용 함수(`@Transactional(readOnly = true)`) — `SELECT user_id, expires_at FROM seat_hold WHERE id = ?`(잠금 없음). 판정(위에서부터 첫 일치 · `:now` = 앱 Clock · 요청당 한 번 — 트랜잭션에 들어가 연결을 얻은 뒤 채취 · 확정 C1 · ④ E1과 같은 규칙(정정 2026-11-08 · 사용자 확인 · 리뷰 AUD16-1)):
    - 없음 → 404 `HOLD_NOT_FOUND` (`result=not_found`)
    - 남의 것 → 403 `HOLD_NOT_OWNED` (`result=not_owned`)
    - `expires_at ≤ :now` → 409 `HOLD_EXPIRED` (`result=expired`)
