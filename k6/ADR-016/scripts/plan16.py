@@ -33,27 +33,27 @@ T_RANGE = model16.BASE["t"]            # 생각 시간 T ~ U[30, 240]초(설계-
 D_MEDIAN, D_SIGMA = model16.BASE["m"], model16.BASE["s"]   # 결제 시간 D ~ 로그정규(m 45초 · σ 0.94 — 기준 분포)
 CAP_S = model16.BASE["cap"]            # 결제 상한 CAP 10분(D > CAP = 결제 실패) — 30분은 모형 민감도(명세 §0)
 
-# ---- 측정 전 고정 값(자리표시 — 출처 주석 · task 07에서 확정) -----------------------------------------------------------------------
-M_S = 1.0             # M(pay-by-margin) — 규칙: 스모크 δ̂ + err_ms의 p99.9를 덮는 초 올림(model16.choose). 자리표시 1초 = δ̂ 미측정(choose가 None) · 정수 초 최소
-THETA_COND_S = 69.0   # ①+ⓑ θ — 규칙: '결제 전 거부 + 결제 실패 ≤ 5%' 안에서 억울 최소(model16.choose theta_cond · δ 0 · 기준 분포 계산값 자리)
+# ---- 측정 전 고정 값(2026-11-09 사용자 확인 · 스모크 smoke16-20261109 — 출처 주석) -----------------------------------------------------------------------
+M_S = 1.0             # M(pay-by-margin) — 규칙: 스모크 δ̂ + err_ms의 p99.9를 덮는 초 올림(model16.choose). 스모크 δ̂ p99.9 8ms + err ≤ 34.8ms → 1초
+THETA_COND_S = 69.0   # ①+ⓑ θ — 규칙: '결제 전 거부 + 결제 실패 ≤ 5%' 안에서 억울 최소(model16 --choose · 스모크 δ̂ 6,877개 · err 0.0348 → 69초 · 거부 + 실패 4.6%)
 THETA_EXT_S = M_S     # ④ θ = M(명세 §0)
 W_MARGIN_S = 0.0      # ④ W 여유의 측정 전 고정 몫(W = CAP + M + 배치 + 이 값 — DV-1)
 W_S = CAP_S + M_S + BATCH_S + W_MARGIN_S   # = 611초
 PAID_RATE = 20        # paid 셀 도착률(명세 §8 가정 1 '20/s')
-COST_RATE = 100       # cost 셀 도착률 — 가정 1 PC 실측으로 300 또는 100(명세 Q/A 2). 자리표시 = 100
+COST_RATE = 100       # cost 셀 도착률 — 가정 1 PC 실측으로 300 또는 100(명세 Q/A 2) — 300/s는 VU 약 7만 · PC 메모리로 불가(스모크 cost 100/s 가용 최저 15.4GB) → 100
 COST_RATES = (100, 300)
 N_PER_FLOW = 1100     # paid 흐름당 회차 세션(DV-4 · 3회 합 3,300 — 0건이면 상한 ≈ 0.091%)
 FLOW_WEIGHT, BOUNDARY_WEIGHT = 4, 1   # 교차 배정 한 바퀴 = 흐름마다 4세션 + 경계 1세션 → 경계 흐름 = 1,100 × 1/4 = 275세션(명세 '수백' 자리)
 # ⓒ 경계 흐름 격자 x(ms): 확정 송신 = 하네스 마감 − x. x < 0 = 마감 뒤 — 보내지 않고 결제 실패(대조 계수)로 센다(명세 §1-3 DV-3)
 BOUNDARY_GRID_MS = (3000, 2000, 1500, 1000, 700, 500, 300, 200, 100, 50, 0, -200, -1000)
 RHO = {"paid": 0.5, "cost": 0.0}
-BOUNDARY_MIN_FRAC = 0.8     # ⓒ 경계 판정 검출력: 격자 x > 0 각 점의(x = 0은 마감 시각 정각 송신이라 깨어나는 흔들림으로 늘 절반가량 늦다 — 스모크 S3 · 기록만) '마감 전 실제 송신' 수 ≥ 그 점 계획 수 × 이 값이어야 판정(아니면 None — 리뷰 L4-2 · 자리표시)
-REHOLD_LAG_TOL_MS = 2000    # 재선점 첫 시도 지연 허용(실제 (t1 − e) − 계획 첫 오프셋) — 넘는 행이 재선점 대상의 1% 초과면 무효(리뷰 L4-3 · 자리표시)
+BOUNDARY_MIN_FRAC = 0.8     # ⓒ 경계 판정 검출력: 격자 x > 0 각 점의(x = 0은 마감 시각 정각 송신이라 깨어나는 흔들림으로 늘 절반가량 늦다 — 스모크 S3 · 기록만) '마감 전 실제 송신' 수 ≥ 그 점 계획 수 × 이 값이어야 판정(아니면 None — 리뷰 L4-2 · 고정)
+REHOLD_LAG_TOL_MS = 2000    # 재선점 첫 시도 지연 허용(실제 (t1 − e) − 계획 첫 오프셋) — 넘는 행이 재선점 대상의 1% 초과면 무효(리뷰 L4-3 · 고정 — 스모크 지연 최대 |−101ms|)
 REHOLD_LAG_MAX_FRAC = 0.01          # 재선점 비율(명세 Q/A 2 · cost = 0 — ADR-015 M15-20)
-REHOLD_FROM_MS, REHOLD_STEP_MS = -1000, 1000   # 재선점 시도: 원래 만료 e − 1초부터 1초 간격(e 둘레 — 자리표시)
+REHOLD_FROM_MS, REHOLD_STEP_MS = -1000, 1000   # 재선점 시도: 원래 만료 e − 1초부터 1초 간격(e 둘레 — 고정)
 REHOLD_UNTIL_S = BATCH_S + 3                  # … e + 13초까지(배치 한 주기 + 여유 — ADR-015 plan15와 같은 꼴)
-CLOCK_ERR_MARGIN_MS = 20   # k6의 ⓒ 마감 계산 err = k6 직전 시계 차 표본 왕복/2 + 이 값(ADR-015 EVIDENCE_MARGIN_MS 20ms 선례 · 자리표시)
-COST_WINDOW_LEN_S = 300    # cost 판정 창 길이(ADR-015 cost d_arr 300초 선례 · 자리표시)
+CLOCK_ERR_MARGIN_MS = 20   # k6의 ⓒ 마감 계산 err = k6 직전 시계 차 표본 왕복/2 + 이 값(ADR-015 EVIDENCE_MARGIN_MS 20ms 선례 · 고정)
+COST_WINDOW_LEN_S = 300    # cost 판정 창 길이(ADR-015 cost d_arr 300초 선례 · 고정)
 COST_HOLD_STEADY = 0.99   # cost 창 시작의 동시 홀드 수 ≥ 정상 상태의 99%(리뷰 L1-16)
 COST_STEADY_TAIL = 0.01    # cost 창 시작 = 남은 수명 꼬리(∫_t^∞ S) ≤ 평균 수명의 1%가 되는 첫 t(정상 상태 — 명세 '앞 구간 버림')
 GRACE_MARGIN_S = 30        # gracefulStop = 세션 수명 최대(T 최대 + max(CAP, 경계 대기)) + 여유
@@ -63,7 +63,7 @@ OTHER_S = 150              # 회차 시간 = k6 + 수렴 + 이 값(배포 · 기
 PRE_VUS_HEADROOM, PRE_VUS_PAD, MAX_VUS_FACTOR = 1.15, 20, 1.5   # 미리 만든 VU = 결정적 일정의 최대 동시 세션 × 1.15 + 20
 SEATS_PER_SCHEDULE, SEAT_MARGIN = plan15.SEATS_PER_SCHEDULE, plan15.SEAT_MARGIN
 USERS = {"main": 1_000_000, "rehold": 4_000_000}
-# N16-1 (b) 허용 쓰기 문장(리뷰 L1-9 — 자리표시 · FIXED 대상): pg_stat_statements의 쓰기 문장(INSERT · UPDATE · DELETE · WITH … 쓰기)을 (동사, 표) 쌍으로 접어
+# N16-1 (b) 허용 쓰기 문장(리뷰 L1-9 — 고정 · 스모크 pgss로 배경 작업 · 외래키 채우기 추가): pg_stat_statements의 쓰기 문장(INSERT · UPDATE · DELETE · WITH … 쓰기)을 (동사, 표) 쌍으로 접어
 #   이 목록 밖이면 G-정합 실패 자료. 지금 값 = main-app 코드의 쓰기 문장(선점 · 확정 C1/C2 · A′ 배치 · 쿼터)을 grep으로 모은 (동사, 표) — 측정 전 고정 커밋에서
 #   .164 스모크 pgss 실측 문장으로 바꿔 확정한다. ④만 UPDATE seat_hold(E1 연장)를 허용한다(① = 0 — N16-1 (a)도 따로 본다).
 ALLOWED_WRITES = {
