@@ -37,6 +37,11 @@ ORDER = ["cond+c", "cond+b+c", "cond+b", "ext+c", "ext"]   # ①+ⓒ > ①+ⓑ+�
 COST_METRICS = ["p99.confirm_200", "p99.hold_201", "p99.pay_start_200", "db_cpu", "hold_rows_wend", "tw_server_max"]
 PAID_COST_METRICS = ["rehold.never_ratio", "occupancy.mean_s"]   # 다른 사용자 비용(설계-9.6 — paid 셀 · 기준 = ① 흐름 n)
 UPDATE_SEAT_HOLD = re.compile(r"^\s*update\s+seat_hold\b", re.I)
+
+
+def is_fk_fill(q):
+    """선점 JPA 외래키 채우기 문장인가(plan16.SEAT_HOLD_FK_FILL — 공백 · 대소문자만 정규화한 완전 일치)."""
+    return " ".join((q or "").lower().split()) == plan16.SEAT_HOLD_FK_FILL
 WRITE_STMT = re.compile(r"\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_]*)", re.I)
 COST_NO_BASE = {"p99.pay_start_200": "cost ①(cond)은 payment-start를 부르지 않아 기준값이 없다 — 비교에서 뺀다"}
 PAID_COST_PAIR = {"ext": ("e", "n"), "ext+c": ("ec", "nc")}   # 다른 사용자 비용 짝(리뷰 L1-11): ④ 흐름 대 같은 ⓒ 설정의 ① 흐름(ⓑ 없음 — 기준 ①)
@@ -73,7 +78,8 @@ def probe16_check(inp, plan):
     calls = {}
     for r in pr["pgss_after"].get("rows") or []:
         q = r.get("q")
-        if not write_stmts([r]):
+        ws = write_stmts([r])
+        if not ws or not any(w[1] in PROBE_TABLES for w in ws):   # 좌석 4표 쓰기만(배경 작업 표 — 카운터 대조 · 안전 점검 — 는 탐침과 무관하게 주기로 쓴다 · 스모크 S2)
             continue
         dv = (r.get("rows") or 0) - rb.get(q, 0)
         if dv:
@@ -187,14 +193,14 @@ def boundary_ok(rows):
 
 def boundary_grid_ok(grid, min_frac=None):
     """ⓒ 경계 격자 점별 판정(리뷰 L4-2 — boundary_ok와 함께 본다): grid = {x_ms: {"planned", "sent_before", "wronged_before", …}} ·
-    마감 전 송신인데 wronged ≥ 1 → False · x ≥ 0 점 중 마감 전 실제 송신 < 계획 × min_frac인 점이 있으면 None(그 점의 검출력 부족 — 늦게 깨어 안 보냄 등) · 그 밖 True."""
+    마감 전 송신인데 wronged ≥ 1 → False(x = 0 포함 모든 점) · x > 0 점 중 마감 전 실제 송신 < 계획 × min_frac인 점이 있으면 None(그 점의 검출력 부족 — 늦게 깨어 안 보냄 등) · 그 밖 True."""
     min_frac = plan16.BOUNDARY_MIN_FRAC if min_frac is None else min_frac
     if not grid:
         return None, {"why": "격자 없음"}
-    weak = {x: g for x, g in grid.items() if int(x) >= 0 and g.get("sent_before", 0) < g.get("planned", 0) * min_frac}
+    weak = {x: g for x, g in grid.items() if int(x) > 0 and g.get("sent_before", 0) < g.get("planned", 0) * min_frac}   # x = 0은 검출력 문턱 밖(스모크 S3)
     if any(g.get("wronged_before", 0) for g in grid.values()):
         return False, {"weak": sorted(weak, key=int)}
-    if weak or not any(int(x) >= 0 and g.get("planned", 0) for x, g in grid.items()):
+    if weak or not any(int(x) > 0 and g.get("planned", 0) for x, g in grid.items()):
         return None, {"weak": sorted(weak, key=int)}
     return True, {"weak": []}
 
@@ -617,7 +623,7 @@ def rep_summary(d):
     if pg:
         wr = write_stmts(pg["rows"])
         allowed = set(plan16.ALLOWED_WRITES.get(mode, []))
-        unk = [w for w in wr if (w[0], w[1]) not in allowed and w[2]]
+        unk = [w for w in wr if (w[0], w[1]) not in allowed and w[2] and not is_fk_fill(w[3])]
         M["writes"] = {"stmts": [list(w) for w in wr][:50], "unknown": [list(w) for w in unk]}
         if unk:
             F["write_unknown"] = [f"{w[0]} {w[1]} × {w[2]}: {w[3]}" for w in unk]
@@ -631,11 +637,13 @@ def rep_summary(d):
                 F["n16_1_probe"] = pr16["writes"]
     if mode == O.MODE_COND and tb and te and pg:
         upd = _d(tb, te, "tables", "seat_hold", "n_tup_upd")
-        stm = sum(r.get("calls", 0) for r in pg["rows"] if UPDATE_SEAT_HOLD.match(r.get("q") or ""))
-        M["n16_1"] = {"seat_hold_n_tup_upd": upd, "update_seat_hold_calls": stm, "pay_start_5xx": csvd["err5"].get("pay_start", 0) if csvd else None}
+        fk = sum(r.get("rows", 0) for r in pg["rows"] if is_fk_fill(r.get("q")))   # 선점 외래키 채우기 영향 행(스모크 S1) — n_tup_upd에서 뺀다
+        stm = sum(r.get("calls", 0) for r in pg["rows"] if UPDATE_SEAT_HOLD.match(r.get("q") or "") and not is_fk_fill(r.get("q")))
+        M["n16_1"] = {"seat_hold_n_tup_upd": None if upd is None else upd - fk, "fk_fill_rows": fk, "update_seat_hold_calls": stm,
+                      "pay_start_5xx": csvd["err5"].get("pay_start", 0) if csvd else None}
         if upd is None:
             inp.miss("table_end", "seat_hold n_tup_upd 없음")
-        elif upd != 0 or stm != 0 or M["n16_1"]["pay_start_5xx"]:
+        elif upd - fk != 0 or stm != 0 or M["n16_1"]["pay_start_5xx"]:
             F["n16_1"] = M["n16_1"]
     U = {}   # 판정 불가 자료(실패 아님 — 리뷰 L2-2): 재선점 5xx · 시간 초과는 race 'A도 같은 문턱'처럼 원인(하네스 · 환경 · 서버)을 가를 대조가 없다 → 그 구성 판정 불가
     if csvd is not None:
