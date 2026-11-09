@@ -8,8 +8,8 @@
     plan16.py --config-check <cell> <config> <app-config.json>       → {"reasons":[…],"detail":[…]} · exit 0 일치 · 1 불일치 · 2 판정 불가
     plan16.py --fixed                                                → exit 0 = 측정 전 고정 커밋의 값(FIXED = True) · 1 = 자리표시 값(실제 실행 거부)
 
-**FIXED = False — 아래 '측정 전 고정 값'은 자리표시다.** θ · W · M · 도착률 · 경계 격자 · 판정 창 · 여유는 .164 스모크(task 06) 뒤 측정 전 고정 커밋(task 07)에서
-사용자 확인으로 정한다(명세 §1-4 · M16-2). FIXED가 False면 run16.sh · campaign16.sh가 실제 실행을 거부한다(--dry-run · --simulate만)."""
+**FIXED = True — 측정 전 고정 값(2026-11-09 사용자 확인).** θ · W · M · 도착률은 .164 스모크 smoke16-20261109(δ̂ p99.9 8ms · err ≤ 34.8ms → M 1초 ·
+model16 --choose → θ_cond 69초 · cost 300/s는 PC 메모리로 불가 → 100/s)로 정했다(명세 §1-4 · M16-2). FIXED가 False면 run16.sh · campaign16.sh가 실제 실행을 거부한다(--dry-run · --simulate만)."""
 import json
 import math
 import sys
@@ -22,7 +22,7 @@ import model16  # noqa: E402
 import outcome16 as O  # noqa: E402
 import plan15  # noqa: E402
 
-FIXED = False
+FIXED = True   # 측정 전 고정(task 07 · 사용자 확인 2026-11-09) — .164 스모크 smoke16-20261109로 값 확정
 
 # ---- 앱 기본 눈금(명세 §1-3 '실제 눈금' — TTL 30초 상수 재사용 금지) ------------------------------------------------------------------
 TTL_S = model16.TTL                    # application.yml seat.hold.ttl 5m
@@ -47,7 +47,7 @@ FLOW_WEIGHT, BOUNDARY_WEIGHT = 4, 1   # 교차 배정 한 바퀴 = 흐름마다 
 # ⓒ 경계 흐름 격자 x(ms): 확정 송신 = 하네스 마감 − x. x < 0 = 마감 뒤 — 보내지 않고 결제 실패(대조 계수)로 센다(명세 §1-3 DV-3)
 BOUNDARY_GRID_MS = (3000, 2000, 1500, 1000, 700, 500, 300, 200, 100, 50, 0, -200, -1000)
 RHO = {"paid": 0.5, "cost": 0.0}
-BOUNDARY_MIN_FRAC = 0.8     # ⓒ 경계 판정 검출력: 격자 x ≥ 0 각 점의 '마감 전 실제 송신' 수 ≥ 그 점 계획 수 × 이 값이어야 판정(아니면 None — 리뷰 L4-2 · 자리표시)
+BOUNDARY_MIN_FRAC = 0.8     # ⓒ 경계 판정 검출력: 격자 x > 0 각 점의(x = 0은 마감 시각 정각 송신이라 깨어나는 흔들림으로 늘 절반가량 늦다 — 스모크 S3 · 기록만) '마감 전 실제 송신' 수 ≥ 그 점 계획 수 × 이 값이어야 판정(아니면 None — 리뷰 L4-2 · 자리표시)
 REHOLD_LAG_TOL_MS = 2000    # 재선점 첫 시도 지연 허용(실제 (t1 − e) − 계획 첫 오프셋) — 넘는 행이 재선점 대상의 1% 초과면 무효(리뷰 L4-3 · 자리표시)
 REHOLD_LAG_MAX_FRAC = 0.01          # 재선점 비율(명세 Q/A 2 · cost = 0 — ADR-015 M15-20)
 REHOLD_FROM_MS, REHOLD_STEP_MS = -1000, 1000   # 재선점 시도: 원래 만료 e − 1초부터 1초 간격(e 둘레 — 자리표시)
@@ -70,6 +70,13 @@ ALLOWED_WRITES = {
     "conditional": [("insert", "seat_hold"), ("delete", "seat_hold"), ("update", "product_seat"), ("insert", "reservation"),
                     ("insert", "user_hold_quota"), ("update", "user_hold_quota"), ("delete", "user_hold_quota")],
 }
+# 배경 작업(카운터 대조 · 안전 점검 스케줄러 — ADR-012 · 013) 기록 표: 좌석 도메인 밖 · 부하와 무관하게 주기로 쓴다(스모크 smoke16-20261109 pgss 실측)
+BACKGROUND_WRITES = [("insert", "counter_reconcile_run"), ("insert", "counter_safety_run")]
+for _m in ALLOWED_WRITES:
+    ALLOWED_WRITES[_m] += BACKGROUND_WRITES
+# 선점 때 JPA가 내는 외래키 채우기(ProductSeat.holds — 단방향 @OneToMany @JoinColumn: INSERT 뒤 UPDATE seat_id) — 문장 단위로만 허용(스모크 S1 · 호출 수 = 선점 수).
+#   ① 회차의 'UPDATE seat_hold 0'(N16-1 (a))은 이 문장을 뺀 나머지로 본다 · ④의 연장 UPDATE(SET expires_at …)는 아래 (동사, 표)로 허용
+SEAT_HOLD_FK_FILL = "update seat_hold set seat_id=$1 where id=$2"
 ALLOWED_WRITES["conditional-extend"] = ALLOWED_WRITES["conditional"] + [("update", "seat_hold")]
 
 # ---- 셀 · 구성 · 흐름 ------------------------------------------------------------------------------------------------------------
