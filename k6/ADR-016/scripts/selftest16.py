@@ -421,7 +421,7 @@ def synth(cell, config, mutate=None, post=None):
     with gzip.open(d / "gc.log.gz", "wt") as g:
         g.write("[2027-01-15T08:00:00.000+0000][info][gc,init] Using The Z Garbage Collector\n")
     (d / "consistency.json").write_text(json.dumps({c: 0 for c in S.S15.CONS_ZERO}))
-    tabs = lambda upd: {"deadlocks": 0, "tables": {"seat_hold": {"n_tup_upd": upd, "n_tup_del": 0}, "reservation": {"n_tup_ins": 0}}}   # noqa: E731
+    tabs = lambda upd: {"deadlocks": 0, "tables": {"seat_hold": {"n_tup_ins": 0, "n_tup_upd": upd, "n_tup_del": 0}, "reservation": {"n_tup_ins": 0}}}   # noqa: E731
     (d / "table-before.json").write_text(json.dumps(tabs(0)))
     (d / "pgss-end.json").write_text(json.dumps({"rows": []}))
     (d / "pgss16-end.json").write_text(json.dumps({"t": "2027-01-15T08:00:00+00:00", "rows": PG_BASE}))
@@ -486,7 +486,7 @@ check("합성 paid ① — 흐름 5 · 계획 = 분류 · G-모형 흐름 4 모�
 check("합성 paid ① — ⓒ 경계 흐름 nd · bcd 각각 통과(마감 전 송신 > 0 · 억울 0)", set(m["boundary"]) == {"nd", "bcd"}
       and all(v["ok"] and v["sent_before"] > 0 for v in m["boundary"].values()), str({f: {k: v for k, v in b.items() if k != "rows"} for f, b in m["boundary"].items()}))
 check("합성 paid ① — N16-1 격리 탐침 증분 0(통과)", m["n16_1_probe"]["writes"] == [] and not m["n16_1_probe"]["bad"] and "n16_1_probe" not in s["fail"], str(m.get("n16_1_probe")))
-check("합성 paid ① — N16-1 증거 0 · N16-5 · 서버 교차 통과", m["n16_1"] == {"seat_hold_n_tup_upd": 0, "fk_fill_rows": 0, "update_seat_hold_calls": 0, "pay_start_5xx": 0} and m["n16_5"]["ok"] and m["pay_start_cross"]["ok"],
+check("합성 paid ① — N16-1 증거 0 · N16-5 · 서버 교차 통과", m["n16_1"] == {"seat_hold_n_tup_upd": 0, "fk_fill_rows": 0, "seat_hold_n_tup_ins": 0, "update_seat_hold_calls": 0, "pay_start_5xx": 0} and m["n16_5"]["ok"] and m["pay_start_cross"]["ok"],
       json.dumps([m.get("n16_1"), m.get("n16_5"), m.get("pay_start_cross")], ensure_ascii=False)[:300])
 check("합성 paid ① — δ̂ 분포 · 재선점 · 점유 시간 값", m["delta"]["n"] > 0 and abs(m["delta"]["p50"] - 0.01) < 1e-9 and m["rehold"]["never_ratio"] == 0 and m["occupancy"]["mean_s"] > 0)
 fl_n = m["flows"]["n"]["classified"]
@@ -1001,8 +1001,8 @@ def late_wake_near(L):   # 경계 흐름 nd: 마감 직전 격자 x = 0 · 50 ·
 
 d, s = synth("paid", "cond", late_wake_near)
 bn = s["metrics"]["boundary"]["nd"]
-check("L4-2 x=0 · 50 · 100 전부 늦게 깨어 안 보냄 + 먼 격자 성공 → 회차 유효 · boundary_ok True지만 grid_ok None(검출력 부족 — x > 0 점 50 · 100)", s["status"] == "ok" and bn["ok"] is True
-      and bn["grid_ok"] is None and {"50", "100"} <= set(bn["grid_weak"]) and "0" not in bn["grid_weak"] and bn["grid"]["0"]["late_wake"] > 0, f"{s['status']} {bn.get('grid_ok')} {bn.get('grid_weak')}")
+check("L4-2 x=0 · 50 · 100 전부 늦게 깨어 안 보냄 + 먼 격자 성공 → 회차 유효 · boundary_ok True지만 grid_ok None(검출력 부족 — x > 0 점 50 · 100 · x = 0 송신 0건 FX-2)", s["status"] == "ok" and bn["ok"] is True
+      and bn["grid_ok"] is None and {"0", "50", "100"} <= set(bn["grid_weak"]) and bn["grid"]["0"]["late_wake"] > 0, f"{s['status']} {bn.get('grid_ok')} {bn.get('grid_weak')}")
 _, s = synth("paid", "cond")
 check("L4-2 마감 직전 격자 표본 충분 · 거부 0 → grid_ok True(nd · bcd)", all(s["metrics"]["boundary"][f]["grid_ok"] is True for f in ("nd", "bcd")),
       str({f: s["metrics"]["boundary"][f]["grid_weak"] for f in ("nd", "bcd")}))
@@ -1058,11 +1058,12 @@ BG = [{"q": "INSERT INTO counter_reconcile_run (source, started_at) VALUES ($1, 
       {"q": "INSERT INTO counter_safety_run (run_id, db_started_at) VALUES ($1, $2)", "calls": 1, "rows": 1}]
 
 
-def fk_post(extra_upd=0, extra_rows=()):
+def fk_post(extra_upd=0, extra_rows=(), extra_ins=0):
     def post(d):
         (d / "pgss16-end.json").write_text(json.dumps({"t": "x", "rows": PG_BASE + [FK] + BG + list(extra_rows)}))
         j = json.loads((d / "table-end.json").read_text())
         j["tables"]["seat_hold"]["n_tup_upd"] += 7 + extra_upd
+        j["tables"]["seat_hold"]["n_tup_ins"] += 7 + extra_ins
         (d / "table-end.json").write_text(json.dumps(j))
     return post
 
@@ -1079,6 +1080,22 @@ _, s = synth("paid", "cond", post=probe_mut(lambda j: j["pgss_after"]["rows"].ex
 check("S2 탐침 중 배경 작업 표 쓰기(counter_reconcile_run · counter_safety_run)는 탐침 쓰기 아님", "n16_1_probe" not in s["fail"], str(s["fail"]))
 _, s = synth("paid", "cond", post=probe_mut(lambda j: j["pgss_after"]["rows"].extend(BG + [{"q": "INSERT INTO reservation (schedule_id, seat_id) VALUES ($1, $2)", "calls": 1, "rows": 1}])))
 check("S2 탐침 중 좌석 표 쓰기(reservation)는 배경 작업과 섞여도 잡는다", "n16_1_probe" in s["fail"], str(s["fail"]))
+# ---- 고정 커밋 리뷰 사례(FX-1~4 — 캠페인 뒤 재요약용) ----
+_, s = synth("paid", "cond", post=fk_post(extra_ins=-2))
+check("FX-1 외래키 채우기 rows(7) ≠ seat_hold n_tup_ins 증분(5) — 다른 경로가 같은 문장을 냄 → n16_1 실패 자료", "n16_1" in s["fail"]
+      and s["metrics"]["n16_1"]["fk_fill_rows"] == 7 and s["metrics"]["n16_1"]["seat_hold_n_tup_ins"] == 5, str(s["fail"]))
+check("FX-2 x = 0 점 마감 전 송신 0건 → None(검출 기회 없음) · 1건이면 x > 0 충분할 때 True",
+      S.boundary_grid_ok({"0": {"planned": 10, "sent_before": 0, "wronged_before": 0}, "50": {"planned": 10, "sent_before": 10, "wronged_before": 0}})[0] is None
+      and S.boundary_grid_ok({"0": {"planned": 10, "sent_before": 1, "wronged_before": 0}, "50": {"planned": 10, "sent_before": 10, "wronged_before": 0}})[0] is True)
+ws = S.write_stmts([{"q": q, "calls": 1} for q in ("update public.seat_hold set x = $1", 'UPDATE "seat_hold" SET x = $1', "MERGE INTO seat_hold USING t ON true WHEN MATCHED THEN DELETE",
+                                                    "/* c */ update seat_hold set x = $1", "-- c\nDELETE FROM reservation WHERE id = $1")])
+check("FX-3 쓰기 문장 표 캡처 — 스키마 한정 · 따옴표 · MERGE · 머리 주석", [(w[0], w[1]) for w in ws] == [("update", "seat_hold"), ("update", "seat_hold"), ("merge", "seat_hold"),
+      ("update", "seat_hold"), ("delete", "reservation")], str(ws))
+for mut, name in ((lambda j: j.__setitem__("smoke", True), "smoke: true"), (lambda j: j.__setitem__("fixed", False), "fixed: false")):
+    def _pm(d, mut=mut):
+        j = json.loads((d / "plan.json").read_text()); mut(j); (d / "plan.json").write_text(json.dumps(j))
+    _, s = synth("paid", "cond", post=_pm)
+    check(f"FX-4 plan {name} 회차 → invalid:plan-not-fixed", s["status"] == "invalid:plan-not-fixed", s["status"])
 r = S.campaign(fake_campaign(no_send_nd=True), write=False)
 check("L4-R2 캠페인 — nd 마감 전 송신 0(전부 늦게 깨어 안 보냄) → cond+c boundary None(검출력 없음 · 탈락 아님)", r["candidates"]["cond+c"]["boundary_ok"] is None,
       str(r["candidates"]["cond+c"].get("boundary_ok")))
