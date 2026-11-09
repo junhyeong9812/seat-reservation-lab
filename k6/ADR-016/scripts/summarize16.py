@@ -42,7 +42,9 @@ UPDATE_SEAT_HOLD = re.compile(r"^\s*update\s+seat_hold\b", re.I)
 def is_fk_fill(q):
     """선점 JPA 외래키 채우기 문장인가(plan16.SEAT_HOLD_FK_FILL — 공백 · 대소문자만 정규화한 완전 일치)."""
     return " ".join((q or "").lower().split()) == plan16.SEAT_HOLD_FK_FILL
-WRITE_STMT = re.compile(r"\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_]*)", re.I)
+# 표 이름: 스키마 한정(public.seat_hold) · 따옴표("seat_hold") 허용 — 캡처는 마지막 이름(리뷰 FX-3)
+WRITE_STMT = re.compile(r'\b(insert\s+into|update|delete\s+from|merge\s+into)\s+(?:"?[a-z_][a-z0-9_]*"?\.)?"?([a-z_][a-z0-9_]*)"?', re.I)
+LEAD_COMMENT = re.compile(r"^(\s*/\*.*?\*/\s*|\s*--[^\n]*\n)+", re.S)
 COST_NO_BASE = {"p99.pay_start_200": "cost ①(cond)은 payment-start를 부르지 않아 기준값이 없다 — 비교에서 뺀다"}
 PAID_COST_PAIR = {"ext": ("e", "n"), "ext+c": ("ec", "nc")}   # 다른 사용자 비용 짝(리뷰 L1-11): ④ 흐름 대 같은 ⓒ 설정의 ① 흐름(ⓑ 없음 — 기준 ①)
 
@@ -92,9 +94,9 @@ def write_stmts(rows):
     """pgss 행 → [(동사, 표, 호출 수, 문장 앞머리)] — 문장 머리가 쓰기(INSERT · UPDATE · DELETE)이거나 WITH … 안에 쓰기가 있는 것."""
     out = []
     for r in rows or []:
-        q = (r.get("q") or "").strip()
+        q = LEAD_COMMENT.sub("", (r.get("q") or "")).strip()   # 머리 주석(/* … */ · --) 뒤의 실제 동사로 본다(FX-3)
         head = q.split(None, 1)[0].lower() if q else ""
-        if head in ("insert", "update", "delete", "with"):
+        if head in ("insert", "update", "delete", "with", "merge"):
             for m in WRITE_STMT.finditer(q if head == "with" else q[:120]):
                 out.append((m.group(1).split()[0].lower(), m.group(2).lower(), r.get("calls", 0), q[:80]))
                 if head != "with":
@@ -193,11 +195,12 @@ def boundary_ok(rows):
 
 def boundary_grid_ok(grid, min_frac=None):
     """ⓒ 경계 격자 점별 판정(리뷰 L4-2 — boundary_ok와 함께 본다): grid = {x_ms: {"planned", "sent_before", "wronged_before", …}} ·
-    마감 전 송신인데 wronged ≥ 1 → False(x = 0 포함 모든 점) · x > 0 점 중 마감 전 실제 송신 < 계획 × min_frac인 점이 있으면 None(그 점의 검출력 부족 — 늦게 깨어 안 보냄 등) · 그 밖 True."""
+    마감 전 송신인데 wronged ≥ 1 → False(x = 0 포함 모든 점) · x = 0 점은 마감 전 송신 ≥ 1건 · x > 0 점 중 마감 전 실제 송신 < 계획 × min_frac인 점이 있으면 None(그 점의 검출력 부족 — 늦게 깨어 안 보냄 등) · 그 밖 True."""
     min_frac = plan16.BOUNDARY_MIN_FRAC if min_frac is None else min_frac
     if not grid:
         return None, {"why": "격자 없음"}
     weak = {x: g for x, g in grid.items() if int(x) > 0 and g.get("sent_before", 0) < g.get("planned", 0) * min_frac}   # x = 0은 검출력 문턱 밖(스모크 S3)
+    weak.update({x: g for x, g in grid.items() if int(x) == 0 and g.get("planned", 0) and not g.get("sent_before", 0)})   # … 단 x = 0 마감 전 송신 0건 = 그 점 검출 기회 없음(리뷰 FX-2)
     if any(g.get("wronged_before", 0) for g in grid.values()):
         return False, {"weak": sorted(weak, key=int)}
     if weak or not any(int(x) > 0 and g.get("planned", 0) for x, g in grid.items()):
@@ -556,6 +559,8 @@ def rep_summary(d):
         plan = inp.miss("plan", "plan.json이 ADR-016 paid · cost 계획이 아님")
     if plan is None:
         return _write(d, {"status": "invalid:plan-missing", "reasons": ["plan-missing"]})
+    if plan.get("smoke") or plan.get("fixed") is not True:   # 스모크 · 고정 전 계획으로 돈 회차는 판정에 쓰지 않는다(리뷰 FX-4 — 심층 방어)
+        return _write(d, {"status": "invalid:plan-not-fixed", "reasons": ["plan-not-fixed"]})
     cell, config, mode = plan["cell"], plan["config"], plan["mode"]
     k = plan["knobs16"]
     M.update({"cell": cell, "config": config, "mode": mode, "rep": plan["rep"]})
@@ -617,8 +622,8 @@ def rep_summary(d):
             if okp is False:
                 F["pay_start_mismatch"] = badp
     # N16-1 부하 증거(리뷰 L1-9) — pgss로 '어느 문장이 payment-start 경로인가'는 가를 수 없다(같은 문장을 여러 경로가 낸다). 그래서 세 겹으로 본다:
-    #   (a) ① 회차 seat_hold n_tup_upd 증분 0 + pgss UPDATE seat_hold 호출 0(① 코드에 seat_hold UPDATE가 없다 — 있으면 payment-start가 썼다는 신호)
-    #   (b) 허용 목록(plan16.ALLOWED_WRITES — 자리표시 · 측정 전 고정) 밖 쓰기 문장 0(모르는 쓰기 = 새 쓰기 경로)
+    #   (a) ① 회차 seat_hold n_tup_upd 증분 − 선점 외래키 채우기 rows = 0 · 외래키 채우기 rows = n_tup_ins 증분 · 그 밖 pgss UPDATE seat_hold 호출 0(스모크 S1 · FX-1)
+    #   (b) 허용 목록(plan16.ALLOWED_WRITES — 측정 전 고정) 밖 쓰기 문장 0(모르는 쓰기 = 새 쓰기 경로)
     #   (c) payment-start 5xx 0 — ① 확인은 @Transactional(readOnly = true)(PaymentStartService.check)라 쓰기를 시도하면 오류 → 5xx로 드러난다(아래 F["5xx"] · mode_fail)
     if pg:
         wr = write_stmts(pg["rows"])
@@ -638,12 +643,13 @@ def rep_summary(d):
     if mode == O.MODE_COND and tb and te and pg:
         upd = _d(tb, te, "tables", "seat_hold", "n_tup_upd")
         fk = sum(r.get("rows", 0) for r in pg["rows"] if is_fk_fill(r.get("q")))   # 선점 외래키 채우기 영향 행(스모크 S1) — n_tup_upd에서 뺀다
+        ins = _d(tb, te, "tables", "seat_hold", "n_tup_ins")   # 상한(리뷰 FX-1): 선점 INSERT 1건 = 외래키 채우기 1건 — 다른 경로가 같은 문장을 내면 어긋난다
         stm = sum(r.get("calls", 0) for r in pg["rows"] if UPDATE_SEAT_HOLD.match(r.get("q") or "") and not is_fk_fill(r.get("q")))
-        M["n16_1"] = {"seat_hold_n_tup_upd": None if upd is None else upd - fk, "fk_fill_rows": fk, "update_seat_hold_calls": stm,
+        M["n16_1"] = {"seat_hold_n_tup_upd": None if upd is None else upd - fk, "fk_fill_rows": fk, "seat_hold_n_tup_ins": ins, "update_seat_hold_calls": stm,
                       "pay_start_5xx": csvd["err5"].get("pay_start", 0) if csvd else None}
-        if upd is None:
-            inp.miss("table_end", "seat_hold n_tup_upd 없음")
-        elif upd - fk != 0 or stm != 0 or M["n16_1"]["pay_start_5xx"]:
+        if upd is None or ins is None:
+            inp.miss("table_end", "seat_hold n_tup_upd · n_tup_ins 없음")
+        elif upd - fk != 0 or fk != ins or stm != 0 or M["n16_1"]["pay_start_5xx"]:
             F["n16_1"] = M["n16_1"]
     U = {}   # 판정 불가 자료(실패 아님 — 리뷰 L2-2): 재선점 5xx · 시간 초과는 race 'A도 같은 문턱'처럼 원인(하네스 · 환경 · 서버)을 가를 대조가 없다 → 그 구성 판정 불가
     if csvd is not None:
@@ -1166,7 +1172,7 @@ def render_md(res):
           f"- 다른 사용자 비용 짝(경계 흐름 제외): {', '.join(f'{n} = paid {x} 대 ① {y}' for n, (x, y) in PAID_COST_PAIR.items())}",
           "- '판정 불가:<지표>' = 유효 3회 범위를 못 만든 지표 — 그 후보는 판정 불가로 다룬다",
           "- G-정합은 회차 단위다 — paid 회차의 실패 자료는 같은 회차의 모든 흐름 후보(예: cond+c · cond+b)를 함께 False로 만든다(같은 서버 · 의도 · OQ-2)",
-          "", "## N16-1 근거(격리 탐침 + 세 겹 보조)", "", "- 주: 격리 탐침(probe16 — payment-start만 흘린 구간의 쓰기 증분 0 · 양성 대조 seat_hold 삽입 = P)", "- (a) ① 회차 seat_hold n_tup_upd 증분 0 · pgss UPDATE seat_hold 0", "- (b) 허용 목록(plan16.ALLOWED_WRITES) 밖 쓰기 문장 0",
+          "", "## N16-1 근거(격리 탐침 + 세 겹 보조)", "", "- 주: 격리 탐침(probe16 — payment-start만 흘린 구간의 쓰기 증분 0 · 양성 대조 seat_hold 삽입 = P)", "- (a) ① 회차 seat_hold n_tup_upd 증분 − 선점 외래키 채우기 rows = 0 · 외래키 채우기 rows = seat_hold n_tup_ins 증분 · 그 밖 pgss UPDATE seat_hold 0(스모크 S1 · 리뷰 FX-1)", "- (b) 허용 목록(plan16.ALLOWED_WRITES) 밖 쓰기 문장 0",
           "- (c) payment-start 5xx 0 — ① 확인은 readOnly 트랜잭션이라 쓰기 시도는 오류(5xx)로 드러난다 · pgss만으로는 문장의 경로(payment-start)를 가를 수 없다"]
     L += ["", "## 모형(CAP 10 · 30분 — 관측 δ̂ · 설명용)", ""]
     if res["model"] is None:
