@@ -1,0 +1,339 @@
+{
+ "fixed": true,
+ "values": {
+  "fixed": true,
+  "M_s": 1.0,
+  "theta_cond_s": 69.0,
+  "theta_ext_s": 1.0,
+  "W_s": 611.0,
+  "W_margin_s": 0.0,
+  "paid_rate": 20,
+  "cost_rate": 100,
+  "n_per_flow": 1100,
+  "boundary_grid_ms": [
+   3000,
+   2000,
+   1500,
+   1000,
+   700,
+   500,
+   300,
+   200,
+   100,
+   50,
+   0,
+   -200,
+   -1000
+  ],
+  "rho": {
+   "paid": 0.5,
+   "cost": 0.0
+  },
+  "cap_s": 600.0,
+  "ttl_s": 300.0,
+  "batch_s": 10.0,
+  "t_range": [
+   30.0,
+   240.0
+  ],
+  "d_median": 45.0,
+  "d_sigma": 0.94,
+  "clock_err_margin_ms": 20,
+  "cost_window_len_s": 300,
+  "probe_holds": 50
+ },
+ "nvalid": {
+  "paid/cond": 3,
+  "paid/ext": 3,
+  "race/cond": 3,
+  "race/ext": 3,
+  "cost/cond": 3,
+  "cost/cond+b": 3,
+  "cost/ext": 3
+ },
+ "candidates": {
+  "cond": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": false,
+   "cost_report": []
+  },
+  "cond+c": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": false,
+   "cost_report": [],
+   "boundary_ok": true
+  },
+  "cond+b": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": false,
+   "cost_report": [
+    "cost/tw_server_max"
+   ]
+  },
+  "cond+b+c": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": false,
+   "cost_report": [
+    "cost/tw_server_max"
+   ],
+   "boundary_ok": true
+  },
+  "ext": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": true,
+   "cost_report": [
+    "paid/rehold.never_ratio[e:n]"
+   ]
+  },
+  "ext+c": {
+   "g_consistency": true,
+   "g_model": true,
+   "g_target": true,
+   "cost_report": [
+    "paid/rehold.never_ratio[ec:nc]"
+   ],
+   "boundary_ok": true
+  }
+ },
+ "detail": {
+  "cond": {
+   "paid": "cond",
+   "flow": "n",
+   "totals": {
+    "success": 2926,
+    "wronged": 366,
+    "pre_reject": 0,
+    "pay_fail": 8,
+    "n": 3300
+   },
+   "wronged_upper": 0.12030879281165022,
+   "loss_rate": 0.0024242424242424242,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  },
+  "cond+c": {
+   "paid": "cond",
+   "flow": "nc",
+   "totals": {
+    "success": 2915,
+    "wronged": 0,
+    "pre_reject": 0,
+    "pay_fail": 385,
+    "n": 3300
+   },
+   "wronged_upper": 0.0009073857350153647,
+   "loss_rate": 0.11666666666666667,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  },
+  "cond+b": {
+   "paid": "cond",
+   "flow": "b",
+   "totals": {
+    "success": 2796,
+    "wronged": 339,
+    "pre_reject": 152,
+    "pay_fail": 13,
+    "n": 3300
+   },
+   "wronged_upper": 0.11183454698939647,
+   "loss_rate": 0.05,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  },
+  "cond+b+c": {
+   "paid": "cond",
+   "flow": "bc",
+   "totals": {
+    "success": 2787,
+    "wronged": 0,
+    "pre_reject": 148,
+    "pay_fail": 365,
+    "n": 3300
+   },
+   "wronged_upper": 0.0009073857350153647,
+   "loss_rate": 0.15545454545454546,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  },
+  "ext": {
+   "paid": "ext",
+   "flow": "e",
+   "totals": {
+    "success": 3287,
+    "wronged": 0,
+    "pre_reject": 0,
+    "pay_fail": 13,
+    "n": 3300
+   },
+   "wronged_upper": 0.0009073857350153647,
+   "loss_rate": 0.00393939393939394,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  },
+  "ext+c": {
+   "paid": "ext",
+   "flow": "ec",
+   "totals": {
+    "success": 3288,
+    "wronged": 0,
+    "pre_reject": 0,
+    "pay_fail": 12,
+    "n": 3300
+   },
+   "wronged_upper": 0.0009073857350153647,
+   "loss_rate": 0.0036363636363636364,
+   "consistency_parts": {
+    "paid": true,
+    "cost": true,
+    "race": true
+   },
+   "fails": []
+  }
+ },
+ "decision": {
+  "pick": "ext+c",
+  "status": "pick",
+  "report": [
+   "cond+c: fail — 정합 True · 모형 True · 목표 False · 경계 True · 짝 cond 모형 True",
+   "cond+b+c: fail — 정합 True · 모형 True · 목표 False · 경계 True · 짝 cond+b 모형 True",
+   "cond+b: fail — 정합 True · 모형 True · 목표 False",
+   "ext+c: pass — 정합 True · 모형 True · 목표 True · 경계 True · 짝 ext 모형 True",
+   "G-비용 보고(ext+c): ① 대비 ≫ 지표 ['paid/rehold.never_ratio[ec:nc]']"
+  ],
+  "state": {
+   "cond+c": "fail",
+   "cond+b+c": "fail",
+   "cond+b": "fail",
+   "ext+c": "pass"
+  }
+ },
+ "model": {
+  "cap10": {
+   "cond": {
+    "success": 0.8837,
+    "wronged": 0.11367,
+    "pre_reject": 0.0,
+    "pay_fail": 0.00263,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+c": {
+    "success": 0.88173,
+    "wronged": 0.0,
+    "pre_reject": 0.0,
+    "pay_fail": 0.11827,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+b": {
+    "success": 0.85507,
+    "wronged": 0.09887,
+    "pre_reject": 0.0436,
+    "pay_fail": 0.00246,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+b+c": {
+    "success": 0.85261,
+    "wronged": 0.0,
+    "pre_reject": 0.0436,
+    "pay_fail": 0.10379,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "ext": {
+    "success": 0.99737,
+    "wronged": 0.0,
+    "pre_reject": 0.0,
+    "pay_fail": 0.00263,
+    "life_p99": 546.97916,
+    "life_max": 849.66416
+   },
+   "ext+c": {
+    "success": 0.99737,
+    "wronged": 0.0,
+    "pre_reject": 0.0,
+    "pay_fail": 0.00263,
+    "life_p99": 546.97916,
+    "life_max": 849.66416
+   }
+  },
+  "cap30": {
+   "cond": {
+    "success": 0.8837,
+    "wronged": 0.11625,
+    "pre_reject": 0.0,
+    "pay_fail": 5e-05,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+c": {
+    "success": 0.88173,
+    "wronged": 0.0,
+    "pre_reject": 0.0,
+    "pay_fail": 0.11827,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+b": {
+    "success": 0.85507,
+    "wronged": 0.10128,
+    "pre_reject": 0.0436,
+    "pay_fail": 5e-05,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "cond+b+c": {
+    "success": 0.85261,
+    "wronged": 0.0,
+    "pre_reject": 0.0436,
+    "pay_fail": 0.10379,
+    "life_p99": 300.0,
+    "life_max": 300.0
+   },
+   "ext": {
+    "success": 0.99753,
+    "wronged": 0.00242,
+    "pre_reject": 0.0,
+    "pay_fail": 5e-05,
+    "life_p99": 546.97916,
+    "life_max": 849.66416
+   },
+   "ext+c": {
+    "success": 0.99752,
+    "wronged": 0.0,
+    "pre_reject": 0.0,
+    "pay_fail": 0.00248,
+    "life_p99": 546.97916,
+    "life_max": 849.66416
+   }
+  }
+ },
+ "condition": "ⓒ 후보의 억울 0은 결제 쪽이 마감(payBy)을 강제할 때만 성립한다(설계-9.3 · M16-3) — 서버 증거가 아니다"
+}

@@ -1,0 +1,183 @@
+{
+ "status": "ok",
+ "reasons": [],
+ "missing": {},
+ "metrics": {
+  "cell": "cost",
+  "config": "ext",
+  "mode": "conditional-extend",
+  "rep": 1,
+  "t0_pc": 1794203265.191,
+  "window_pc": [
+   1794203765.191,
+   1794204065.191
+  ],
+  "env_window_pc": [
+   1794203765.191,
+   1794204065.191
+  ],
+  "off_s": 0.0149,
+  "seed_to_first_request_s": 85.85315275192261,
+  "config_detail": [],
+  "pc_mem": {
+   "min_kb": 14717008,
+   "n": 58,
+   "gap_max_s": 6.0
+  },
+  "clock_err_ms": 10.600000000000001,
+  "clock_err_ms_given": 22,
+  "db_cpu": 16.5375,
+  "p99": {
+   "confirm_200": 1.468128,
+   "hold_201": 1.937009,
+   "pay_start_200": 1.13656,
+   "rehold_409": null
+  },
+  "dropped": {},
+  "code0_other": {},
+  "err5": {},
+  "timeout": {},
+  "req": {
+   "hold": 80000,
+   "pay_start": 80000,
+   "confirm": 79754
+  },
+  "stall": {
+   "secs": 0,
+   "env_secs": 0,
+   "chunks": []
+  },
+  "deadlocks": 0,
+  "db_tup": {
+   "seat_hold.n_tup_upd": 160000,
+   "seat_hold.n_tup_del": 80000,
+   "reservation.n_tup_ins": 79754
+  },
+  "tw_server_max": 182,
+  "tw_all_max": 228,
+  "flows": {
+   "e": {
+    "planned": 80000,
+    "out": {
+     "conf:200:OK": 79754,
+     "cap": 246
+    }
+   }
+  },
+  "categories": {
+   "e": {
+    "success": 79754,
+    "pay_fail": 246
+   }
+  },
+  "confirmed": {
+   "k6_200": 79754,
+   "reservations": 79754
+  },
+  "rehold": {},
+  "hold_rows_wend": 19787,
+  "occupancy": {
+   "mean_s": 197.87
+  },
+  "n16_5": {
+   "ok": true,
+   "detail": [],
+   "k6": {},
+   "server": {},
+   "status0": 0
+  },
+  "pay_start_cross": {
+   "ok": true,
+   "detail": [],
+   "k6": {
+    "200": 80000
+   },
+   "status0": 0
+  },
+  "writes": {
+   "stmts": [
+    [
+     "update",
+     "product_seat",
+     80000,
+     "update product_seat set row_no=$1,schedule_id=$2,seat_no=$3,section=$4,status=$5"
+    ],
+    [
+     "insert",
+     "seat_hold",
+     80000,
+     "insert into seat_hold (seat_id,expires_at,held_at,schedule_id,user_id) values ($"
+    ],
+    [
+     "update",
+     "seat_hold",
+     80000,
+     "UPDATE seat_hold SET expires_at = $1, extended_at = $2 WHERE id = $3 AND user_id"
+    ],
+    [
+     "insert",
+     "user_hold_quota",
+     80000,
+     "INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES ($1, $2, $4) ON C"
+    ],
+    [
+     "update",
+     "seat_hold",
+     80000,
+     "update seat_hold set seat_id=$1 where id=$2"
+    ],
+    [
+     "delete",
+     "seat_hold",
+     79754,
+     "DELETE FROM seat_hold WHERE id = $1 AND user_id = $2 AND expires_at > $3 RETURNI"
+    ],
+    [
+     "update",
+     "product_seat",
+     79754,
+     "UPDATE product_seat SET status = $2 WHERE id = $1 AND status = $3"
+    ],
+    [
+     "insert",
+     "reservation",
+     79754,
+     "INSERT INTO reservation (schedule_id, seat_id, user_id, payment_uid, status, cre"
+    ],
+    [
+     "insert",
+     "counter_reconcile_run",
+     2233,
+     "INSERT INTO counter_reconcile_run (source, started_at, finished_at, schedules, c"
+    ],
+    [
+     "update",
+     "user_hold_quota",
+     246,
+     "UPDATE user_hold_quota SET cnt = cnt - $1 WHERE schedule_id = $2 AND user_id = $"
+    ],
+    [
+     "delete",
+     "seat_hold",
+     86,
+     "DELETE FROM seat_hold h USING unnest($1::bigint[], $2::bigint[]) AS p(schedule_i"
+    ],
+    [
+     "update",
+     "product_seat",
+     86,
+     "UPDATE product_seat st SET status = $3 WHERE st.id = ANY($1::bigint[]) AND st.st"
+    ],
+    [
+     "insert",
+     "counter_safety_run",
+     37,
+     "INSERT INTO counter_safety_run (run_id, db_started_at, budget_ms, db_ms_total, d"
+    ]
+   ],
+   "unknown": []
+  }
+ },
+ "fail": {},
+ "undetermined": {}
+}
