@@ -35,9 +35,9 @@ class Adr016StartupContractTest : BootTestBase() {
     private val window = WINDOW_KEY to "2m"
     private val locOpt = "$LOC_BASE,$LOC_CONFIRM_VERSION"
 
-    /** 모드별 '허용' 기본 키(ADR-015 기동 계약과 같은 조합) — ④는 window 2분 + 새 키 θ */
+    /** 모드별 '허용' 기본 키(ADR-015 기동 계약과 같은 조합) — ④는 window 2분 + 새 키 θ · ①은 명시(기본은 ADR-016 §결정으로 ④) */
     private val modes: Map<String, Map<String, String?>> = mapOf(
-        "conditional(기본 — 키 없음)" to emptyMap(),
+        "conditional" to mapOf(MODE_KEY to "conditional"),
         "current" to mapOf(MODE_KEY to "current"),
         "pessimistic" to mapOf(MODE_KEY to "pessimistic"),
         "optimistic" to mapOf(MODE_KEY to "optimistic", "spring.flyway.locations" to locOpt),
@@ -109,7 +109,7 @@ class Adr016StartupContractTest : BootTestBase() {
             oldKeyRejected("$name + $OLD_THETA_KEY=5s", bootFailure(freshDbUrl(), p + (OLD_THETA_KEY to "5s")), failures)
         }
         oldKeyRejected("current + $OLD_THETA_KEY=0s(값 0)", bootFailure(freshDbUrl(), mapOf(MODE_KEY to "current", OLD_THETA_KEY to "0s")), failures)
-        oldKeyRejected("conditional + 옛 키 0s + 새 키 0s", bootFailure(freshDbUrl(), mapOf(OLD_THETA_KEY to "0s", THETA_KEY to "0s")), failures)
+        oldKeyRejected("conditional + 옛 키 0s + 새 키 0s", bootFailure(freshDbUrl(), mapOf(MODE_KEY to "conditional", OLD_THETA_KEY to "0s", THETA_KEY to "0s", MARGIN_KEY to "0s")), failures)
         oldKeyRejected(
             "conditional-extend + window + 옛 키만(새 키 없음)",
             bootFailure(freshDbUrl(), mapOf(MODE_KEY to "conditional-extend", window, OLD_THETA_KEY to "5s")), failures,
@@ -125,9 +125,9 @@ class Adr016StartupContractTest : BootTestBase() {
         if (probe == null || causesOf(probe).none { it is BindException }) {
             failures += "장치 대조 실패 — 주입한 환경 변수 SEAT_CONFIRM_MODE=conditionall이 바인딩에 닿지 않았다: ${probe?.let { causesOf(it).map { e -> e::class.simpleName } }}"
         }
-        bootsOrRecordEnv("장치 대조 — 새 키 환경 변수(SEAT_CONFIRM_PAYMENTMINREMAINING=0s)는 뜬다", mapOf("SEAT_CONFIRM_PAYMENTMINREMAINING" to "0s"), failures)
+        bootsOrRecordEnv("장치 대조 — 새 키 환경 변수(SEAT_CONFIRM_PAYMENTMINREMAINING=2s)는 뜬다(기본 M 1초 ≤ θ)", mapOf("SEAT_CONFIRM_PAYMENTMINREMAINING" to "2s"), failures)
 
-        oldKeyRejected("conditional(기본) + env $OLD_THETA_ENV=5s", bootFailureWithEnv(freshDbUrl(), emptyMap(), mapOf(OLD_THETA_ENV to "5s")), failures)
+        oldKeyRejected("conditional-extend(기본) + env $OLD_THETA_ENV=5s", bootFailureWithEnv(freshDbUrl(), emptyMap(), mapOf(OLD_THETA_ENV to "5s")), failures)
         oldKeyRejected("current + env $OLD_THETA_ENV=0s", bootFailureWithEnv(freshDbUrl(), mapOf(MODE_KEY to "current"), mapOf(OLD_THETA_ENV to "0s")), failures)
         oldKeyRejected(
             "conditional-extend + env $OLD_THETA_ENV=5s",
@@ -146,7 +146,7 @@ class Adr016StartupContractTest : BootTestBase() {
     @Test
     fun `기동 검사 — θ 음수 · M 음수는 모드 무관 거부`() {
         val failures = mutableListOf<String>()
-        listOf("conditional(기본 — 키 없음)", "current", "conditional-extend").forEach { name ->
+        listOf("conditional", "current", "conditional-extend").forEach { name ->
             val p = modes.getValue(name)
             rejectFresh("$name + θ=-1s", p + (THETA_KEY to "-1s"), listOf(THETA_KEY), failures)
             rejectFresh("$name + M=-1s", p + (MARGIN_KEY to "-1s"), listOf(MARGIN_KEY), failures)
@@ -155,11 +155,12 @@ class Adr016StartupContractTest : BootTestBase() {
     }
 
     @Test
-    fun `기동 검사 — M 초과 θ는 ① · ④에서 거부(기본 θ 0에 M만 줘도 거부)`() {
+    fun `기동 검사 — M 초과 θ는 ① · ④에서 거부(기본 θ 1초에 M만 줘도 거부)`() {
         val failures = mutableListOf<String>()
         val kw = listOf(MARGIN_KEY, THETA_KEY)
-        rejectFresh("① θ=5s · M=6s", mapOf(THETA_KEY to "5s", MARGIN_KEY to "6s"), kw, failures)
-        rejectFresh("① θ 기본 0 · M=1s", mapOf(MARGIN_KEY to "1s"), kw, failures)
+        rejectFresh("① θ=5s · M=6s", mapOf(MODE_KEY to "conditional", THETA_KEY to "5s", MARGIN_KEY to "6s"), kw, failures)
+        rejectFresh("① θ 기본 1초 · M=2s", mapOf(MODE_KEY to "conditional", MARGIN_KEY to "2s"), kw, failures)
+        rejectFresh("④ 기본(키 없음) · M=2s", mapOf(MARGIN_KEY to "2s"), kw, failures)
         rejectFresh("① 명시 conditional · θ=5s · M=5001ms", mapOf(MODE_KEY to "conditional", THETA_KEY to "5s", MARGIN_KEY to "5001ms"), kw, failures)
         rejectFresh("④ window 2m · θ=5s · M=6s", modes.getValue("conditional-extend") + (MARGIN_KEY to "6s"), kw, failures)
         check(failures)
@@ -168,9 +169,9 @@ class Adr016StartupContractTest : BootTestBase() {
     @Test
     fun `기동 검사 — M = θ는 통과(① · ④ · 0 = 0 포함)`() {
         val failures = mutableListOf<String>()
-        bootsOrRecord("① θ=5s · M=5s", mapOf(THETA_KEY to "5s", MARGIN_KEY to "5s"), failures)
-        bootsOrRecord("① θ=0s · M=0s(명시)", mapOf(THETA_KEY to "0s", MARGIN_KEY to "0s"), failures)
-        bootsOrRecord("① M < θ(θ=30s · M=10s)", mapOf(THETA_KEY to "30s", MARGIN_KEY to "10s"), failures)
+        bootsOrRecord("① θ=5s · M=5s", mapOf(MODE_KEY to "conditional", THETA_KEY to "5s", MARGIN_KEY to "5s"), failures)
+        bootsOrRecord("① θ=0s · M=0s(명시)", mapOf(MODE_KEY to "conditional", THETA_KEY to "0s", MARGIN_KEY to "0s"), failures)
+        bootsOrRecord("① M < θ(θ=30s · M=10s)", mapOf(MODE_KEY to "conditional", THETA_KEY to "30s", MARGIN_KEY to "10s"), failures)
         bootsOrRecord("④ window 2m · θ=5s · M=5s", modes.getValue("conditional-extend") + (MARGIN_KEY to "5s"), failures)
         check(failures)
     }
@@ -191,14 +192,15 @@ class Adr016StartupContractTest : BootTestBase() {
     @Test
     fun `규칙 4(새 키) — conditional-extend는 window 0 초과 · 0 ≤ payment-min-remaining 미만 window`() {
         val failures = mutableListOf<String>()
-        val base = mapOf<String, String?>(MODE_KEY to "conditional-extend")
+        // 기본 M 1초(ADR-016 §결정)는 θ 0에서 M ≤ θ(설계-9.3)로 먼저 거부된다 — 규칙 4만 보도록 M 0을 고정한다
+        val base = mapOf<String, String?>(MODE_KEY to "conditional-extend", MARGIN_KEY to "0s")
         val kw = listOf(WINDOW_KEY, THETA_KEY)
         rejectFresh("window=0s · θ=0s", base + mapOf(WINDOW_KEY to "0s", THETA_KEY to "0s"), kw, failures)
-        rejectFresh("window 키 없음(기본 0)", base, kw, failures)
         rejectFresh("θ = window", base + mapOf(WINDOW_KEY to "2m", THETA_KEY to "2m"), kw, failures)
         rejectFresh("θ > window", base + mapOf(WINDOW_KEY to "2m", THETA_KEY to "3m"), kw, failures)
         rejectFresh("θ < 0", base + mapOf(WINDOW_KEY to "2m", THETA_KEY to "-1s"), kw, failures)
-        bootsOrRecord("대조 θ 키 없음(기본 0) · window=2m", base + mapOf(WINDOW_KEY to "2m"), failures)
+        bootsOrRecord("대조 window 키 없음(기본 611초 — ADR-016 §결정)", base, failures)
+        bootsOrRecord("대조 θ 키 없음(기본 1초) · window=2m", base + mapOf(WINDOW_KEY to "2m"), failures)
         bootsOrRecord("대조 θ=0s · window=2m", base + mapOf(WINDOW_KEY to "2m", THETA_KEY to "0s"), failures)
         bootsOrRecord("대조 θ=119s · window=2m", base + mapOf(WINDOW_KEY to "2m", THETA_KEY to "119s"), failures)
         check(failures)

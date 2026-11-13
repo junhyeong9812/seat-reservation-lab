@@ -109,7 +109,7 @@ class HoldStrategyStartupCheck(
     private val redis: StringRedisTemplate,
     /** 프로필·만료 스케줄러 키 확인용. 직접 생성(테스트)할 때 없으면 그 두 확인은 기본값(프로필 없음·스케줄러 켬)으로 본다 */
     private val environment: Environment? = null,
-    /** ADR-015 확정 손잡이. 직접 생성(테스트)할 때 없으면 기본값(conditional — ADR-015 §결정) */
+    /** ADR-015 확정 손잡이. 직접 생성(테스트)할 때 없으면 기본값(conditional-extend — ADR-016 §결정 · 그 전 conditional — ADR-015 §결정) */
     private val confirm: SeatConfirmProperties = SeatConfirmProperties(),
 ) : ApplicationRunner {
 
@@ -254,7 +254,7 @@ class HoldStrategyStartupCheck(
         }
 
         /**
-         * ADR-015 §설계-5 규칙 1~5 + §설계-10 T1 · T8 — 설정(바인딩 값 · 프로필)만으로 판정. 손잡이를 주지 않으면 기본 conditional(ADR-015 §결정)이라 규칙 1 · 2 · 5를 받는다 — current를 명시하면(지연 0 · 키 false) 통과한다.
+         * ADR-015 §설계-5 규칙 1~5 + §설계-10 T1 · T8 — 설정(바인딩 값 · 프로필)만으로 판정. 손잡이를 주지 않으면 기본 conditional-extend(ADR-016 §결정 · 그 전 conditional — ADR-015 §결정)라 규칙 1 · 2 · 4 · 5를 받는다 — current를 명시하면(지연 0 · 키 false) 통과한다.
          * 거부는 [IllegalStateException] · 메시지에 위반한 키 이름(T3).
          */
         private fun checkConfirmConfig(properties: SeatHoldProperties, environment: Environment?, confirm: SeatConfirmProperties) {

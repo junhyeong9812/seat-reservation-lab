@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 
 /**
  * ADR-016 측정 명세 M16-6: 결제 시작 모드(① · ④)는 θ(`seat.confirm.payment-min-remaining`) < TTL(`seat.hold.ttl`)이어야 기동한다.
- * θ ≥ TTL이면 새 홀드도 남은 시간이 θ 이하라 ①은 전부 insufficient · ④는 전부 too_late가 된다. current · ② · ③은 θ를 쓰지 않아 무관 · 기본값(θ 0)은 통과.
+ * θ ≥ TTL이면 새 홀드도 남은 시간이 θ 이하라 ①은 전부 insufficient · ④는 전부 too_late가 된다. current · ② · ③은 θ를 쓰지 않아 무관 · 기본값(θ 1초 — ADR-016 §결정)과 θ 0(M 0)은 통과.
  * 설정 검사([HoldStrategyStartupCheck.checkConfig])만 부른다.
  */
 class Adr016ThetaTtlStartupTest {
@@ -20,9 +20,9 @@ class Adr016ThetaTtlStartupTest {
     private val ttl = Duration.ofMinutes(5)
     private val hold = SeatHoldProperties(ttl = ttl, maxPerUser = 2, expiryInterval = Duration.ofSeconds(10))
 
-    // ④ 규칙 4(θ < payment-window)가 먼저 걸리지 않게 창을 TTL보다 크게 둔다
+    // ④ 규칙 4(θ < payment-window)가 먼저 걸리지 않게 창을 TTL보다 크게 둔다 · M ≤ θ(설계-9.3)가 먼저 걸리지 않게 M 0
     private fun confirm(mode: ConfirmMode, theta: Duration) = SeatConfirmProperties(
-        mode = mode, paymentMinRemaining = theta,
+        mode = mode, paymentMinRemaining = theta, payByMargin = Duration.ZERO,
         paymentWindow = if (mode == ConfirmMode.CONDITIONAL_EXTEND) Duration.ofMinutes(20) else Duration.ZERO,
     )
 
@@ -42,10 +42,11 @@ class Adr016ThetaTtlStartupTest {
     }
 
     @Test
-    fun `θ = TTL − 1ms와 기본 θ 0은 통과`() {
+    fun `θ = TTL − 1ms · θ 0(M 0) · 기본 θ 1초는 통과`() {
         for (mode in ConfirmMode.entries.filter { it.paymentStartEnabled }) {
             assertDoesNotThrow("[$mode]") { HoldStrategyStartupCheck.checkConfig(hold, null, confirm(mode, ttl.minusMillis(1))) }
             assertDoesNotThrow("[$mode] θ 0") { HoldStrategyStartupCheck.checkConfig(hold, null, confirm(mode, Duration.ZERO)) }
+            assertDoesNotThrow("[$mode] 기본 θ · M · W") { HoldStrategyStartupCheck.checkConfig(hold, null, SeatConfirmProperties(mode = mode)) }
         }
     }
 

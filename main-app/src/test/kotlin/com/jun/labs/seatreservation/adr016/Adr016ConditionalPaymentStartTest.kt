@@ -244,12 +244,11 @@ class Adr016ConditionalPaymentStartTest : Adr016Base() {
 }
 
 /*
- * ① θ = 0 판(명세 §5 'θ > 0 판과 θ = 0 판') — θ · M 키 없음 = 기본 0 · 0(명세 Q/A). 남은 시간 = θ(0)은 곧 expires_at = :now → expired가 먼저.
- * 컨텍스트 키는 Adr015ConditionalRaceTest와 같다(캐시 재사용). N16-5 묶음(확정 지표)도 ①에서 여기서 돈다.
+ * ① θ = 0 판(명세 §5 'θ > 0 판과 θ = 0 판') — θ · M = 0 · 0 명시(기본은 ADR-016 §결정으로 1초 · 1초). 남은 시간 = θ(0)은 곧 expires_at = :now → expired가 먼저. N16-5 묶음(확정 지표)도 ①에서 여기서 돈다.
  */
 @SpringBootTest(
     webEnvironment = RANDOM_PORT,
-    properties = [P_SCHED_OFF, P_A_ON, PIN_C_OFF, PIN_CLEANUP_OFF, PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, P_LOC_BASE, M_CONDITIONAL],
+    properties = [P_SCHED_OFF, P_A_ON, PIN_C_OFF, PIN_CLEANUP_OFF, PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, P_LOC_BASE, M_CONDITIONAL, "$THETA_KEY=0s", "$MARGIN_KEY=0s"],
 )
 @Import(TestcontainersConfiguration::class, IntegrationTest.ClockConfig::class, Adr015TapConfig::class)
 class Adr016ConditionalZeroThetaTest : Adr016ConfirmMetricsScenarios("conditional") {
@@ -288,7 +287,7 @@ class Adr016ConditionalZeroThetaTest : Adr016ConfirmMetricsScenarios("conditiona
     }
 
     @Test
-    fun `θ = 0 · M = 0 기본 — 선점 201 payBy = expiresAt · payWithinSeconds = TTL 초`() {
+    fun `θ = 0 · M = 0 명시 — 선점 201 payBy = expiresAt · payWithinSeconds = TTL 초`() {
         val r = holdHttp(createSeat(1).id!!, x)
         assertEquals(201, r.status, "$r")
         assertEquals(HOLD_KEYS_PAY, r.keys(), "① 선점 201 본문 키(기본값): $r")

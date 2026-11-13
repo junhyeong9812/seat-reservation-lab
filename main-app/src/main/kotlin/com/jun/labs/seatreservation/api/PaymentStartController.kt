@@ -50,7 +50,7 @@ class PaymentStartController(
 
     /**
      * `seat.confirm.mode`를 SeatConfirmProperties와 같은 규칙(relaxed enum 바인딩)으로 읽는다 — 키 표기(`conditional-extend` · `CONDITIONAL_EXTEND`)와 무관하게 같은 판정.
-     * 키가 없으면 SeatConfirmProperties 기본값(conditional — ADR-015 §결정)과 같게 본다.
+     * 키가 없으면 SeatConfirmProperties 기본값(conditional-extend — ADR-016 §결정 · 그 전 conditional — ADR-015 §결정)과 같게 본다.
      */
     class PaymentStartModes : Condition {
         override fun matches(context: ConditionContext, metadata: AnnotatedTypeMetadata): Boolean =
