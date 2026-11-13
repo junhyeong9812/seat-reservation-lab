@@ -79,19 +79,28 @@ class CompensationScheduling(
 
         fun checkConfig(props: CompensationProperties, payment: PaymentProperties, confirm: SeatConfirmProperties, hold: SeatHoldProperties) {
             val w = props.worker
-            check(w.batch > 0 && w.maxAttempts > 0 && !w.lease.isNegative && !w.lease.isZero && !w.interval.isZero && !w.backoffInitial.isNegative && w.backoffMax >= w.backoffInitial) {
-                "seat.compensation.worker 값 범위: batch > 0 · max-attempts > 0 · lease > 0 · interval > 0 · 0 ≤ backoff-initial ≤ backoff-max (ADR-017 설계-4.4)"
+            check(w.batch > 0 && w.maxAttempts > 0 && !w.lease.isNegative && !w.lease.isZero && w.interval > java.time.Duration.ZERO && !w.backoffInitial.isNegative && w.backoffMax > java.time.Duration.ZERO && w.backoffMax >= w.backoffInitial) {
+                "seat.compensation.worker 값 범위: batch > 0 · max-attempts > 0 · lease > 0 · interval > 0 · 0 ≤ backoff-initial ≤ backoff-max · backoff-max > 0 (ADR-017 설계-4.4)"
             }
-            check(props.sweep.batch > 0 && !props.sweep.interval.isZero) { "seat.compensation.sweep 값 범위: batch > 0 · interval > 0 (ADR-017 설계-4.5)" }
+            check(props.sweep.batch > 0 && props.sweep.interval > java.time.Duration.ZERO) { "seat.compensation.sweep 값 범위: batch > 0 · interval > 0 (ADR-017 설계-4.5)" }
             if (!props.mode.createsTasks) return
             check(payment.pgEnabled) {
                 "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 seat.payment.pg.base-url이 있어야 한다(보상은 PG를 부른다 · ADR-017 설계-5)"
+            }
+            // 워커는 리스 안에 못 끝낼 작업을 부르지 않는다 — 작업 하나의 PG 시간 상한보다 리스가 짧으면 아무것도 처리하지 못한다
+            val pgBudget = payment.pg.connectTimeout.plus(payment.pg.readTimeout).multipliedBy(2)
+            check(w.lease > pgBudget) {
+                "seat.compensation.worker.lease(${w.lease})는 PG 시간 상한 2 × (connect-timeout + read-timeout) = $pgBudget 보다 길어야 한다(ADR-017 설계-4.4)"
             }
             check(confirm.mode.paymentStartEnabled) {
                 "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 결제 시작이 있는 확정 모드(conditional · conditional-extend)여야 한다 — 지금 ${confirm.mode} " +
                     "(intent는 payment-start가 만든다 · ADR-017 설계-4.2)"
             }
             // S는 카운터를 앱 문장으로 맞춘다(홀드 → 대체 예약 옮김 · 없으면 upsert) — 카운터를 그렇게 다루는 매수 방식만(설계-5 · N17-9)
+            // S는 판매 마감이면 대체하지 않는다(N17-9) — 마감 판정(회차 FOR SHARE)을 끈 구성에서는 그 판정을 할 수 없다
+            check(props.mode != CompensationMode.SUBSTITUTE || hold.salesClose.enabled) {
+                "seat.compensation.mode=substitute는 seat.hold.sales-close.enabled=true여야 한다(판매 마감 뒤 대체 금지 — ADR-017 N17-9)"
+            }
             check(props.mode != CompensationMode.SUBSTITUTE || hold.limitStrategy in SUBSTITUTE_LIMITS) {
                 "seat.compensation.mode=substitute는 seat.hold.limit-strategy가 ${SUBSTITUTE_LIMITS.joinToString(" · ") { it.name.lowercase().replace('_', '-') }} 이어야 한다 — 지금 ${hold.limitStrategy}"
             }

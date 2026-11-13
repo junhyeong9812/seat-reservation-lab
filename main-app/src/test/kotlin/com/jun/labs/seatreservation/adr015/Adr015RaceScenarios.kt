@@ -333,7 +333,7 @@ abstract class Adr015ExtendScenarios(v12: Boolean) : Adr015NewModeScenarios("con
         assertEquals("HELD", seatStatusOf(seat))
         assertEquals(lost0, counter(M_EXTENSION_LOST) ?: 0.0, "④ FM5 $M_EXTENSION_LOST 0")
 
-        val cr = confirmHttp(hold, x)
+        val cr = confirmHttp(hold, x, pr.json!!.get("paymentUid").asText()) // ADR-017: 발급 uid로만 확정
         assertEquals(200, cr.status, "④ FM5 연장 뒤 확정(원래 te 뒤 · 연장 만료 전) 200: $cr")
         assertVerdictClean("④ FM5")
     }

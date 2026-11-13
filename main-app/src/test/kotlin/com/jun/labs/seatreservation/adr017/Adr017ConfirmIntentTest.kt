@@ -263,14 +263,19 @@ class Adr017ConfirmIntentTest : Adr017Base() {
     }
 
     @Test
-    fun `N17-10 — payment-start를 불렀어도 클라이언트가 자기 uid를 보내면 옛 경로 · intent는 OPEN 그대로`() {
+    fun `I13 — payment-start를 부른 홀드에 자기 uid(intent 없는 uid)를 보내면 409 SEAT_NOT_HELD · 예약 없음 · intent OPEN 그대로 · 그 뒤 발급 uid로 확정 200`() {
+        // 사용자 결정 2026-11-13(리뷰 R3): 옛 경로로 확정되면 intent가 OPEN으로 남아 안전망이 그 결제를 닫는다(좌석 + 환불) — 홀드에 intent가 있으면 그 uid로만 확정한다
         val p = prepare(1, x)
         val r = confirmHttp(p.holdId, x, "pay-$x")
-        assertEquals(200, r.status, "$r")
-        assertLegacyBody(r, CONFIRM_KEYS, "옛 경로 200")
-        assertTrue(reservation(r.long("reservationId")).intentIdNull, "옛 경로 예약 intent_id = NULL")
-        assertEquals(OPEN, intentOrFail(p.uid).state, "intent는 건드리지 않는다(OPEN — 안전망 몫)")
-        assertEquals(0, reservationsWithIntent())
+        assertEquals(409, r.status, "$r")
+        assertEquals("SEAT_NOT_HELD", r.code)
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM reservation", Int::class.java))
+        assertEquals(OPEN, intentOrFail(p.uid).state, "intent는 건드리지 않는다")
+        assertEquals(0, rejectionCount(), "uid 충돌처럼 기록 없음")
+
+        val ok = confirmHttp(p.holdId, x, p.uid)
+        assertEquals(200, ok.status, "발급 uid로는 확정된다: $ok")
+        assertEquals(1, reservationsWithIntent())
     }
 
     @Test

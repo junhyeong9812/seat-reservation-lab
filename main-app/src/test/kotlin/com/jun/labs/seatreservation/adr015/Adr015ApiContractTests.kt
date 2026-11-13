@@ -179,9 +179,10 @@ class Adr015PaymentStartContractTest : Adr015Base() {
         val seat = createSeat(1).id!!
         val hold = holdOk(seat, x)
         clock.set(NOW.plus(Duration.ofMinutes(4)))
-        assertEquals(200, paymentStart(hold, x).status)
+        val ps = paymentStart(hold, x) // ADR-017: payment-start를 부른 홀드는 발급 uid로만 확정한다
+        assertEquals(200, ps.status)
         clock.set(NOW.plus(Duration.ofMinutes(5)).plusSeconds(30))
-        val cr = confirmHttp(hold, x)
+        val cr = confirmHttp(hold, x, ps.json!!.get("paymentUid").asText())
         assertEquals(200, cr.status, "$cr")
         assertEquals("RESERVED", seatStatusOf(seat))
         assertVerdictClean("연장 뒤 확정")

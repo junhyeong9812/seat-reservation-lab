@@ -14,18 +14,31 @@ import java.util.UUID
 @Component
 class PaymentIntents(private val jdbc: JdbcTemplate) {
 
+    /**
+     * V15 표가 있는가 — 기동 검사는 결제 시작 모드(① · ④)에만 V15를 요구한다. 그 밖의 모드는 V15 앞 스키마(기준선 재현 — Flyway target 7 등)로도 뜨고,
+     * 그때는 intent가 있을 수 없으므로 조회 없이 옛 경로로 간다(N17-10 · N17-11). 스키마는 기동 중(Flyway) 정해지므로 처음 물을 때 한 번만 본다.
+     */
+    val available: Boolean by lazy {
+        jdbc.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
+    }
+
     /** 홀드의 intent(없으면 null) — 잠금 없음 */
-    fun findByHold(holdId: Long): Intent? = jdbc.query(
+    fun findByHold(holdId: Long): Intent? = if (!available) null else jdbc.query(
         "SELECT $COLUMNS FROM payment_intent WHERE hold_id = ?", ROW, holdId,
     ).singleOrNull()
 
     /** uid의 intent를 잠근다(설계-4.3 ⓐ — 모든 경로의 첫 잠금). 없으면 null(옛 경로) */
-    fun lock(uid: String): Intent? = jdbc.query(
+    fun lock(uid: String): Intent? = if (!available) null else jdbc.query(
         "SELECT $COLUMNS FROM payment_intent WHERE uid = ? FOR UPDATE", ROW, uid,
     ).singleOrNull()
 
+    /** uid의 intent를 잠그되 남이 쥐고 있으면 건너뛴다(안전망 — 확정 중인 intent는 다음 주기에 본다). 없거나 잠겨 있으면 null */
+    fun tryLock(uid: String): Intent? = if (!available) null else jdbc.query(
+        "SELECT $COLUMNS FROM payment_intent WHERE uid = ? FOR UPDATE SKIP LOCKED", ROW, uid,
+    ).singleOrNull()
+
     /** uid의 intent(잠금 없음) */
-    fun find(uid: String): Intent? = jdbc.query(
+    fun find(uid: String): Intent? = if (!available) null else jdbc.query(
         "SELECT $COLUMNS FROM payment_intent WHERE uid = ?", ROW, uid,
     ).singleOrNull()
 

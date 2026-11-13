@@ -86,7 +86,7 @@ class Adr015Fm5LockWaitTest : Adr015Base() {
         assertEquals(lost0, counter(M_EXTENSION_LOST) ?: 0.0, "$M_EXTENSION_LOST 0")
         assertEquals(1, cntOf(x), "지우지 않았으니 감소도 없다(cnt = 홀드 1)")
 
-        val cr = confirmHttp(hold, x)
+        val cr = confirmHttp(hold, x, pr.json!!.get("paymentUid").asText()) // ADR-017: 발급 uid로만 확정
         assertEquals(200, cr.status, "연장 뒤 확정(원래 te 뒤 · 연장 만료 전) 200: $cr")
         assertVerdictClean("FM5 대기 변형")
     }

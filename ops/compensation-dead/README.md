@@ -35,9 +35,20 @@ curl -X POST http://<app>/internal/compensations/<id>/retry   # 200 = PENDING으
 
 - attempts가 0으로 돌아가고, 다음 워커 주기에 다시 집힌다.
 - 원인(PG 주소 · 장애 · 거부 코드 `last_result`)을 먼저 없애라. 그대로면 다시 DEAD가 된다.
-- `last_result = REJECTED_…`(CLOSE가 4xx를 받음)는 PG 계약 위반 신호다. 재시도 전에 PG 쪽을 확인한다.
+- `last_result = REJECTED_…`(CLOSE가 4xx · CAPTURE가 409 밖 4xx를 받음)는 PG 계약 위반 · 원장 불일치 신호다. 재시도 전에 PG 쪽을 확인한다.
+
+## 수동 종결 기록 (재시도로 끝낼 수 없을 때 — 설계-4.4)
+
+PG 쪽에서 직접 처리했거나(수동 환불 등) 재시도해도 같은 결과가 나는 작업(예: PG 원장에 uid가 없어 CAPTURE가 404)은 **DEAD 행만** 손으로 DONE으로 닫는다.
+DEAD는 워커가 집지 않고 리스도 없으므로 fencing과 부딪히지 않는다. `last_result`에 `MANUAL_` + 사유를 남긴다(판정 · 집계에서 수동 종결을 가른다).
+
+```sql
+UPDATE compensation_task
+   SET status = 'DONE', last_result = 'MANUAL_<사유>', done_at = now()
+ WHERE id = <id> AND status = 'DEAD';   -- 1행이어야 한다(0이면 이미 DEAD가 아니다 — 다시 본다)
+```
 
 ## 주의
 
-- `/internal/*`는 운영 망에서만 열어야 한다(인증 없음 — 이 랩의 다른 internal 엔드포인트와 같다).
-- `compensation_task`를 손으로 고치지 않는다(fencing · 리스 규칙이 깨진다). 상태 변경은 retry API로만 한다.
+- 이 엔드포인트는 reconciler를 뺀 **모든 프로필**의 업무 포트에 인증 없이 열린다(loadtest 프로필에서만 열리는 `/internal/reset` 등과 다르다). 운영 망 밖으로 업무 포트를 열 때는 앞단에서 `/internal/*`를 막아라 — PG 호출은 uid 멱등이라 되살려도 돈이 두 번 움직이지는 않는다.
+- `compensation_task`의 PENDING · IN_PROGRESS 행은 손으로 고치지 않는다(fencing · 리스 규칙이 깨진다). 손으로 바꾸는 것은 위의 DEAD → DONE 수동 종결뿐이다.

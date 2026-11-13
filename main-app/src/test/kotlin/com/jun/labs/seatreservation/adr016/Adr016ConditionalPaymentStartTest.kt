@@ -240,10 +240,11 @@ class Adr016ConditionalPaymentStartTest : Adr016Base() {
         val hold = holdOk(seat, x)
         val e = expiresAtOf(hold)
         clock.set(NOW.plusSeconds(60))
-        assertEquals(200, paymentStart(hold, x).status)
+        val ps = paymentStart(hold, x) // ADR-017: payment-start를 부른 홀드는 발급 uid로만 확정한다
+        assertEquals(200, ps.status)
         assertEquals(e, expiresAtOf(hold), "200은 expires_at을 늘리지 않는다")
         clock.set(e.minusMillis(1))
-        assertEquals(200, confirmHttp(hold, x).status, "e 직전 확정은 성공")
+        assertEquals(200, confirmHttp(hold, x, ps.json!!.get("paymentUid").asText()).status, "e 직전 확정은 성공")
     }
 }
 

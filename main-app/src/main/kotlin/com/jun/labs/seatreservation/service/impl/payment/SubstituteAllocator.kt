@@ -2,6 +2,7 @@ package com.jun.labs.seatreservation.service.impl.payment
 
 import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.ReservationStatus
+import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.service.HoldSeatCommand
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.impl.SalesCloseGate
@@ -37,8 +38,8 @@ class SubstituteAllocator(
         // 판매 마감(시작 정각 이후)이면 대체하지 않는다 — SCHEDULE_CLOSED도 대체 실패로 본다
         try {
             salesClose.assertOpenLocked(intent.scheduleId)
-        } catch (e: RuntimeException) {
-            throw Unavailable("schedule-closed")
+        } catch (e: SeatReservationException) {
+            throw Unavailable("schedule-closed") // SCHEDULE_CLOSED · 회차 없음(SEAT_NOT_FOUND) — DB 오류는 그대로 올려 호출자가 CLOSE로 넘긴다
         } finally {
             salesClose.clearDecision()
         }

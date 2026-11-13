@@ -24,7 +24,14 @@ class PgRegistration(
     fun register(uid: String, userId: Long, deadline: Instant) {
         if (!payment.pgEnabled) return
         when (val call = pg.register(uid, userId, payment.amount, deadline)) {
-            is PgClient.Call.Ok -> meters.counter(METRIC, "result", "ok").increment()
+            is PgClient.Call.Ok -> {
+                // 이미 닫힌 uid(환불 · 승인 취소 — 거부 뒤 워커가 끝냄)는 멱등 200으로 온다 — 결제할 수 없으므로 409 CLOSED와 같게(RD17-P1)
+                if (call.state in CompensationWorker.CLOSED_STATES) {
+                    meters.counter(METRIC, "result", "rejected").increment()
+                    throw SeatReservationException(ErrorCode.HOLD_EXPIRED)
+                }
+                meters.counter(METRIC, "result", "ok").increment()
+            }
             is PgClient.Call.Rejected -> {
                 meters.counter(METRIC, "result", "rejected").increment()
                 if (call.code == "CLOSED") throw SeatReservationException(ErrorCode.HOLD_EXPIRED)

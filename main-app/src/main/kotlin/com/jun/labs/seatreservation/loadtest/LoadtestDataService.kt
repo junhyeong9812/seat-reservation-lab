@@ -1,5 +1,7 @@
 package com.jun.labs.seatreservation.loadtest
 
+import com.jun.labs.seatreservation.service.CompensationProperties
+import com.jun.labs.seatreservation.service.CompensationMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
@@ -30,6 +32,8 @@ class LoadtestDataService(
     private val clock: Clock,
     /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7 — 같은 loadtest 프로필). 직접 생성(판정기 테스트)할 때는 없다 */
     private val injector: AppPathInjector? = null,
+    /** ADR-017 보상 모드 — pay_rejected_without_task는 모드 ≠ none에서만 기대 0이다(직접 생성하면 없다 → 모드 모름 · 항목은 그대로 낸다) */
+    private val compensation: CompensationProperties? = null,
 ) {
 
     /**
@@ -217,11 +221,12 @@ class LoadtestDataService(
      * ADR-017 설계-6 결제 · 보상 항목(DB만으로 셀 수 있는 것 — PG 원장 대조는 하네스 요약기 몫). V15 앞 스키마에서는 내지 않는다.
      * 기존 `v_*` 합계 규칙에 섞지 않게 `pay_` 접두어 — 기대 0: pay_multi_reservation_intents(N17-1) · pay_rejection_state_mismatch(N17-2) ·
      * pay_reserved_with_close(N17-5 — 예약이 있는 intent에 CLOSE 작업) · pay_capture_and_close(N17-8) · pay_dead_tasks(모드 ≠ none · 배수 뒤) ·
-     * pay_rejected_without_task(모드 ≠ none — 대체 아닌 거부 · 안전망 종결에 CLOSE 작업 없음). 보고: 나머지.
+     * pay_rejected_without_task(모드 ≠ none — 대체 아닌 거부 · 안전망 종결에 CLOSE 작업 없음 · 모드 none이면 작업이 없는 것이 정상이라 이 항목을 빼고 낸다). 보고: 나머지 · pay_compensation_mode.
      */
     private fun paymentStates(): Map<String, Any?> {
         if (jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) != true) return emptyMap()
-        return jdbcTemplate.queryForMap(
+        val mode = compensation?.mode
+        val states = jdbcTemplate.queryForMap(
             """
             SELECT
               (SELECT count(*) FROM payment_intent)                                                                            AS pay_intents,
@@ -243,6 +248,8 @@ class LoadtestDataService(
               (SELECT count(*) FROM reservation WHERE origin = 'SUBSTITUTE')                                                   AS pay_substitute_reservations
             """.trimIndent(),
         )
+        if (mode == CompensationMode.NONE) states.remove("pay_rejected_without_task")
+        return linkedMapOf<String, Any?>("pay_compensation_mode" to (mode?.name?.lowercase()?.replace('_', '-') ?: "unknown")) + states
     }
 
     /**

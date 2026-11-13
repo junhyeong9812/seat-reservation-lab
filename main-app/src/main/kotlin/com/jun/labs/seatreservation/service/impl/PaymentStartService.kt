@@ -74,7 +74,7 @@ class PaymentStartService(
      * ① 결제 시작 확인(ADR-016 설계-3.1 · 9.2): 잠금 없는 읽기 한 번 — 판정은 확정 C1이 다시 한다(200 ≠ 보장 · `extended = false`).
      * 위에서부터 첫 일치: 없음 404 · 남의 것 403 · `expires_at ≤ :now` 409 HOLD_EXPIRED(expired) · `expires_at − :now ≤ θ` 409 HOLD_EXPIRED(insufficient) · 그 밖 200(ok).
      * 시간 부족도 HOLD_EXPIRED다(ADR-015 '새 에러 코드 없음' · 클라이언트 행동이 같다) — 구분은 지표 `seat.confirm.pay_start{result}`로만.
-     * 200은 커밋 뒤 · 거부는 그 자리에서 센다(④ [EXTEND_METRIC]와 같은 규칙). `readOnly` — 이 갈래의 쓰기는 오류로 드러난다(N16-1).
+     * 200은 커밋 뒤 · 거부는 그 자리에서 센다(④ [EXTEND_METRIC]와 같은 규칙). 쓰기는 200의 intent INSERT 하나뿐이다(ADR-017 — N16-1 대체 · readOnly 해제라 그 밖의 쓰기는 테스트가 막는다).
      */
     @Transactional
     fun check(holdId: Long, userId: Long): PaymentStartResult {

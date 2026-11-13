@@ -22,6 +22,8 @@ import java.time.Clock
 /**
  * ADR-017 설계-4.3 확정 흐름(트랜잭션 없음 — 단계마다 자기 트랜잭션).
  * - intent 없는 uid = 옛 경로: 지금 확정 그대로([ConfirmReservationUseCase]) · 지표 `seat.confirm.legacy`(N17-10 — 보장 밖).
+ *   단 홀드에 이미 intent가 있으면(payment-start를 불렀다) 그 uid로만 확정한다 — 다른 uid는 409 SEAT_NOT_HELD · 기록 없음(Q3과 대칭 · I13).
+ *   옛 경로로 확정되면 intent가 OPEN으로 남아 안전망이 그 결제를 닫는다(좌석 + 환불).
  * - intent 경로 = 한 트랜잭션: ⓐ intent `FOR UPDATE`(모든 경로의 첫 잠금) → ⓑ hold · user 불일치면 409 SEAT_NOT_HELD · 기록 없음(Q3)
  *   → ⓒ state ≠ OPEN이면 재생(첫 결과 코드 · 예약 id 고정 · 보상 상태는 지금 값 — N17-3) → ⓓ 지금 확정(같은 트랜잭션에 합류) + state CONFIRMED · reservation.intent_id.
  * - ⓓ 거부: 그 트랜잭션은 롤백 → 새 트랜잭션에서 ⓐ를 다시 잡고, 아직 OPEN이면 거부 기록 + REJECTED + (모드 ≠ none) CLOSE 작업 · OPEN이 아니면 재생(A2).
@@ -42,13 +44,20 @@ class PaymentConfirmService(
 ) {
     fun confirm(command: ConfirmReservationCommand): ConfirmResponse {
         if (intents.find(command.paymentUid) == null) {
+            // 남의 홀드면 옛 경로가 지금처럼 403으로 거부한다(진단 그대로) — 내 홀드에 intent가 있을 때만 막는다
+            if (intents.findByHold(command.holdId)?.userId == command.userId) {
+                meters.counter(UID_CONFLICT_METRIC).increment()
+                throw SeatReservationException(ErrorCode.SEAT_NOT_HELD)
+            }
             meters.counter(LEGACY_METRIC).increment()
             return ConfirmResponse(confirmUseCase.confirm(command), compensation = null)
         }
         val rejected = try {
             return tx.execute { confirmIntent(command) }!!
+        } catch (e: Replayed) {
+            throw e.rejection // 이미 닫힌 intent의 거부 재생 — 재잠금 · 기록 트랜잭션이 필요 없다(상태를 바꾸지 않는 ⓒ)
         } catch (e: SeatReservationException) {
-            e // 새 거부든 재생된 거부든 — 아래 재잠금이 OPEN이면 기록하고 아니면 다시 재생한다
+            e // ⓓ의 새 거부 — 아래 재잠금이 아직 OPEN이면 기록하고, 그 사이 닫혔으면 재생한다(A2)
         } catch (e: UidConflict) {
             meters.counter(UID_CONFLICT_METRIC).increment()
             throw SeatReservationException(ErrorCode.SEAT_NOT_HELD)
@@ -57,8 +66,13 @@ class PaymentConfirmService(
         if (compensation.mode == CompensationMode.SUBSTITUTE) {
             try {
                 return tx.execute { substitute(command.paymentUid, rejected.errorCode) }!!.orThrow()
+            } catch (e: SeatReservationException) {
+                throw e // 재잠금에서 본 재생(이미 닫힌 intent) · 대체 성공의 거부 응답
             } catch (e: SubstituteAllocator.Unavailable) {
                 log.info("대체 좌석 배정 실패({}) — CLOSE로 넘긴다 uid={}", e.message, command.paymentUid)
+            } catch (e: RuntimeException) {
+                // 교착 · 잠금 대기 초과 등 DB 오류 — 대체 트랜잭션은 롤백됐다. 무음 500이 아니라 CLOSE로 넘긴다(설계-5 '실패 → 새 트랜잭션에서 CLOSE')
+                log.error("대체 좌석 배정 중 오류 — CLOSE로 넘긴다 uid={} code={}", command.paymentUid, rejected.errorCode, e)
             }
         }
         val outcome = try {
@@ -75,7 +89,12 @@ class PaymentConfirmService(
     private fun confirmIntent(command: ConfirmReservationCommand): ConfirmResponse {
         val intent = intents.lock(command.paymentUid)!!
         if (intent.holdId != command.holdId || intent.userId != command.userId) throw UidConflict()
-        if (intent.state != State.OPEN) return replay(intent).orThrow()
+        if (intent.state != State.OPEN) {
+            return when (val outcome = replay(intent)) {
+                is Outcome.Confirmed -> outcome.response
+                is Outcome.Rejected -> throw Replayed(SeatReservationException(outcome.code, compensation = outcome.task))
+            }
+        }
         val result = confirmUseCase.confirm(command)
         jdbc.update("UPDATE reservation SET intent_id = ? WHERE id = ?", intent.uid, result.reservationId)
         jdbc.update(
@@ -149,6 +168,9 @@ class PaymentConfirmService(
 
     /** ⓑ 다른 hold · user의 같은 uid(Q3) — 기록 없이 409 */
     private class UidConflict : RuntimeException()
+
+    /** ⓒ 이미 닫힌 intent의 거부 재생 — 새 거부와 갈라 곧바로 응답한다 */
+    private class Replayed(val rejection: SeatReservationException) : RuntimeException(null, null, false, false)
 
     companion object {
         private val log = LoggerFactory.getLogger(PaymentConfirmService::class.java)

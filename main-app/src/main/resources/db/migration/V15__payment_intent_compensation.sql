@@ -1,12 +1,14 @@
 -- ADR-017 설계-4.1 — 결제 의도 · 거부 기록 · 보상 아웃박스(기본 위치 · 추가형 · 모든 구성).
 -- payment_intent = uid 소유 행이자 직렬화 지점(RD17-1): 확정 · 거부 기록 · 안전망 · 대체 배정이 모두 이 행을 FOR UPDATE로 먼저 잡고 state 하나로 결과를 고른다.
 -- uid는 payment-start가 발급한다(I13). hold_id는 같은 홀드의 재호출이 같은 uid를 받게 하는 열이다 — seat_hold 행은 확정 · 만료로 지워지므로 FK를 두지 않는다.
+-- schedule_id · seat_id도 홀드에서 옮겨 적은 스냅숏이라 FK를 두지 않는다 — FK면 intent INSERT가 회차 · 좌석 행에 FOR KEY SHARE를 걸어
+-- payment-start(N16-1 — 잠금 문장 0)가 핫 회차 행 공유 잠금 · 좌석 FOR UPDATE NOWAIT 경합을 새로 만든다.
 CREATE TABLE payment_intent (
     uid            VARCHAR(64)  PRIMARY KEY,
     hold_id        BIGINT       NOT NULL,
     user_id        BIGINT       NOT NULL,
-    schedule_id    BIGINT       NOT NULL REFERENCES product_schedule (id),
-    seat_id        BIGINT       NOT NULL REFERENCES product_seat (id),
+    schedule_id    BIGINT       NOT NULL,
+    seat_id        BIGINT       NOT NULL,
     section        VARCHAR(20)  NOT NULL,
     pay_by         TIMESTAMPTZ  NOT NULL,
     state          VARCHAR(16)  NOT NULL,
