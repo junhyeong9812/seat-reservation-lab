@@ -67,6 +67,8 @@
 | 11-13 14:24 | 듀얼 1패스 회수: codex(EXIT 0) finding 0 · verified 7 · OQ 1 / Opus 워커(128,316 토큰 · 224초) F1~F4 + OQ 3 → 종합 RD-1~4 전부 채택(RD-1 문서 처방 · RD-2~4 고침) → 영향 4클래스 재실행 green(26 테스트) → codex 감사 '없음' · post-fix 재점검 clean · 미러 삭제 | 커밋 단계 |
 | 11-13 14:25 | 기본값 교체 커밋 9d2bf21b5(main-app · ops 13파일) · ADR-016 상태 줄 · §결정(사용자 채택 · 기본값 교체 · 클라이언트 계약 · 되돌림 · 옛 하네스 주의 RD-1) · NEXT N00b 갱신 → docs 커밋 | push 대기(사용자 지시: push만) |
 | 11-13 14:41 | push: origin feat/adr-016-paid-seat-loss 114502eed..5a053473f(사용자 지시 — PR 없음) | 이 log 행은 다음 docs 커밋에 |
+| 11-13 | PR #15 생성(feat/adr-016-paid-seat-loss → main · 일반 · 사용자 지시 'ADR-015랑 묶어서' → #14 이미 병합 확인 · 본문 연결로 대체) · push 5a053473f..db572b468 | 사용자 확인 후 |
+| 11-13 | README 정리(진행 상황 · 기본값 · ADR 표 014~016 · 측정 기간 013~016 · ADR-004 행 보상 번호 016→017) · NEXT 갱신 → docs 커밋 · push · PR #15 병합(사용자 지시 '합치고') | 병합 결과는 후속 docs에 |
 
 ## 리뷰 ledger
 
