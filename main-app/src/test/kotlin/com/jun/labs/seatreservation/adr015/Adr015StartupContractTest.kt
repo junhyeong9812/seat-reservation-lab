@@ -30,7 +30,7 @@ class Adr015StartupContractTest : BootTestBase() {
 
     private val kw = listOf("confirm")
     private val locOpt = "$LOC_BASE,$LOC_CONFIRM_VERSION"
-    private val windowKeys = mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "5s")
+    private val windowKeys = mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "5s")
 
     /** 새 모드 넷의 '허용' 기본 키(기본 조합 · sweep · ③ 위치 · ④ window) */
     private val newModes: Map<String, Map<String, String?>> = mapOf(
@@ -83,7 +83,7 @@ class Adr015StartupContractTest : BootTestBase() {
     // ── 허용 ─────────────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `허용 — 손잡이 없음(기본 conditional) · current 명시는 뜨고 V12 유효 · V13 열이 기본 위치로 생긴다 · V14 트리거 없음`() {
+    fun `허용 — 손잡이 없음(기본 conditional-extend) · current 명시는 뜨고 V12 유효 · V13 열이 기본 위치로 생긴다 · V14 트리거 없음`() {
         val failures = mutableListOf<String>()
         listOf<Map<String, String?>>(emptyMap(), mapOf(MODE_KEY to "current")).forEach { p ->
             val url = freshDbUrl()
@@ -181,12 +181,13 @@ class Adr015StartupContractTest : BootTestBase() {
     @Test
     fun `규칙 4 — conditional-extend는 window 0 초과 · 0 ≤ min-remaining 미만 window`() {
         val failures = mutableListOf<String>()
-        val base = mapOf<String, String?>(MODE_KEY to "conditional-extend")
-        rejectFresh("window=0s", base + mapOf("seat.confirm.payment-window" to "0s", "seat.confirm.extend-min-remaining" to "0s"), failures)
-        rejectFresh("min = window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "2m"), failures)
-        rejectFresh("min > window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "3m"), failures)
-        rejectFresh("min < 0", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "-1s"), failures)
-        bootsOrRecord("대조 min=0 · window=2m", freshDbUrl(), base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.extend-min-remaining" to "0s"), failures)
+        // 기본 M 1초(ADR-016 §결정)는 θ 0에서 M ≤ θ(설계-9.3)로 먼저 거부된다 — 규칙 4만 보도록 M 0을 고정한다
+        val base = mapOf<String, String?>(MODE_KEY to "conditional-extend", "seat.confirm.pay-by-margin" to "0s")
+        rejectFresh("window=0s", base + mapOf("seat.confirm.payment-window" to "0s", "seat.confirm.payment-min-remaining" to "0s"), failures)
+        rejectFresh("min = window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "2m"), failures)
+        rejectFresh("min > window", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "3m"), failures)
+        rejectFresh("min < 0", base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "-1s"), failures)
+        bootsOrRecord("대조 min=0 · window=2m", freshDbUrl(), base + mapOf("seat.confirm.payment-window" to "2m", "seat.confirm.payment-min-remaining" to "0s"), failures)
         check(failures)
     }
 

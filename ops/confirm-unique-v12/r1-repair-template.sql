@@ -1,4 +1,4 @@
--- ADR-015 §설계-4 R1 복구 틀 — R0이 0행이 아닐 때, **사람이 고른 뒤**(어느 예약을 남길지 = 사업 결정 · 취소한 쪽은 ADR-016 보상 대상) 한 좌석씩 돌린다.
+-- ADR-015 §설계-4 R1 복구 틀 — R0이 0행이 아닐 때, **사람이 고른 뒤**(어느 예약을 남길지 = 사업 결정 · 취소한 쪽은 ADR-017 보상 대상) 한 좌석씩 돌린다.
 -- 자리표시자(psql 변수): keep = 남길 예약 id · drop = 취소할 예약 id 목록(배열 리터럴). commit을 주지 않으면 끝에서 ROLLBACK한다(기본 = 미리보기).
 --   psql -X -v ON_ERROR_STOP=1 -v keep=101 -v drop='{102}' -f ops/confirm-unique-v12/r1-repair-template.sql             # 미리보기(ROLLBACK)
 --   psql -X -v ON_ERROR_STOP=1 -v keep=101 -v drop='{102}' -v commit=1 -f ops/confirm-unique-v12/r1-repair-template.sql  # 적용(COMMIT)

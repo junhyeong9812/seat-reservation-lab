@@ -1,0 +1,16 @@
+# ADR-016 측정 오버레이 — k6/ADR-009/compose.yml + compose.tmpfs.yml + k6/ADR-015/compose.confirm.yml 위에 얹는다(run16.sh — lib15.sh COMPOSE_EXTRA 뒤에 더함):
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml -f k6/ADR-009/compose.tmpfs.yml -f k6/ADR-015/compose.confirm.yml -f k6/ADR-016/compose.paid16.yml …
+# 바꾸는 것은 app.environment.SPRING_APPLICATION_JSON 하나 — ADR-015 오버레이 값에 seat.confirm.pay-by-margin(M — ADR-016 설계-3.3 · 9.3)을 더한다
+#   (ADR-015 compose.confirm.yml에는 M 변수가 없다 — 그 파일은 고치지 않는다). db.command · 이미지 · ulimits는 ADR-015 오버레이 그대로.
+#   값은 plan16.py --render app_env(PAY_BY_MARGIN · PAYMENT_MIN_REMAINING · PAYMENT_WINDOW · HOLD_TTL 300s · EXPIRY_INTERVAL 10s) — configprops 대조 = plan16.py --config-check.
+services:
+  app:
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"confirm":{"mode":"${CONFIRM_MODE:-current}","payment-window":"${PAYMENT_WINDOW:-0s}","payment-min-remaining":"${PAYMENT_MIN_REMAINING:-0s}",
+                            "pay-by-margin":"${PAY_BY_MARGIN:-0s}","loadtest":{"delay":"${CONFIRM_DELAY:-0ms}"}},
+                 "hold":{"expiry-mode":"sweep","ttl":"${HOLD_TTL:-30s}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental}"},
+                   "data":{"redis":{"host":"redis","port":6379}}},
+         "server":{"tomcat":{"max-connections":${TOMCAT_MAX_CONNECTIONS:-20000}}}}

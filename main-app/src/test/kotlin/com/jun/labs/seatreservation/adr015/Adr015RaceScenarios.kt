@@ -1,5 +1,6 @@
 package com.jun.labs.seatreservation.adr015
 
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.sql.Timestamp
@@ -223,10 +224,13 @@ abstract class Adr015RaceScenarios(val mode: String, val v12: Boolean) : Adr015B
         assertVerdictClean("[$mode] 확정 성공")
     }
 
-    /** ④ API는 conditional-extend에서만 등록(§3.4) — 그 밖의 모드는 404(핸들러 없음: 유효한 내 홀드여도) · DB 무변경 */
+    /**
+     * payment-start API는 ④ conditional-extend(ADR-015 §3.4)와 ① conditional(ADR-016 설계-9.2 — 확인만)에서만 등록 — current · ② · ③은 404(핸들러 없음: 유효한 내 홀드여도) · DB 무변경.
+     * ①의 계약은 ADR-016 테스트(adr016/)가 본다.
+     */
     @Test
-    fun `payment-start API — conditional-extend가 아니면 없다(404)`() {
-        if (mode == "conditional-extend") return
+    fun `payment-start API — conditional · conditional-extend가 아니면 없다(404)`() {
+        assumeTrue(mode != "conditional-extend" && mode != "conditional", "[$mode] payment-start가 있는 모드 — 계약은 ADR-015 ④ · ADR-016 ① 테스트가 본다")
         val seat = createSeat(1).id!!
         val hold = holdOk(seat, x)
         clock.set(NOW.plus(Duration.ofMinutes(4)))

@@ -118,7 +118,7 @@ val OLD_DEFAULTS = mapOf<String, String?>(
 )
 
 /**
- * ADR-015 §결정(나 — 명시 강제 · 자동 후퇴 없음): 기본 확정 모드(conditional)는 sweep + 기본 조합 + inject-app 끔 + V12·V13에서만 뜬다.
+ * ADR-015 §결정(나 — 명시 강제 · 자동 후퇴 없음): 기본 확정 모드(conditional-extend — ADR-016 §결정 · 그 전 conditional)는 sweep + 기본 조합 + inject-app 끔 + V12·V13에서만 뜬다.
  * 그 밖(B·C·D 만료 · 기본 밖 좌석/매수 전략 · inject-app · Flyway target 12 이하 · V12 없는 기준선)을 띄우는 기동은 이 키로 current를 명시한다.
  */
 val CONFIRM_CURRENT = mapOf<String, String?>("seat.confirm.mode" to "current")

@@ -30,12 +30,19 @@ management:
         exclude: "*"
 
 seat:
-  # 확정 방식(ADR-015 — SeatConfirmProperties). 기본 = conditional(① 조건부 문장 확정 + A′ 배치 — ADR-015 §결정 2026-11-06).
+  # 확정 방식(ADR-015 — SeatConfirmProperties). 기본 = conditional-extend(④ 결제 중 연장 + ① 조건부 문장 확정 + A′ 배치 · ⓒ payBy — ADR-016 §결정 2026-11-10).
+  #   그 전 기본(ADR-015 §결정 2026-11-06)을 그대로 되살리려면 mode: conditional · payment-min-remaining: 0s · pay-by-margin: 0s(payment-window는 ①에서 안 쓴다).
+  #   mode만 바꾸면 θ · M 1초가 남아 payBy = expiresAt − 1초 · payWithinSeconds = TTL − 1초 · 결제 시작 409 문턱 = 남은 1초 이하가 된다(그 전과 다른 응답).
+  #   θ만 0으로 내리면 M 1초 > θ로 기동이 거부된다(M ≤ θ — 둘을 함께 바꿔라).
+  #   payment-window(W) · payment-min-remaining(θ) · pay-by-margin(M) = ADR-016 측정 전 고정 값. 결제 쪽(PG)이 payBy를 결제 제한 시간으로 지켜야 ⓒ가 성립한다.
   #   conditional · pessimistic · optimistic · conditional-extend는 sweep + 기본 조합에서만 · V12(확정 유니크 인덱스) · V13(extended_at) 필요 ·
   #   optimistic은 classpath:db/migration-confirm-version(V14) 위치 필요 — 기동 검사가 거부한다.
   #   current(옛 JPA 확정 · JPA 배치)는 되돌림 · 비교용 손잡이 — B·C·D 만료 방식 · 기본 밖 전략 조합 · V12 앞 기준선은 seat.confirm.mode=current를 명시해야 기동한다(자동 후퇴 없음)
   confirm:
-    mode: conditional
+    mode: conditional-extend
+    payment-window: 611s
+    payment-min-remaining: 1s
+    pay-by-margin: 1s
   hold:
     ttl: 5m
     max-per-user: 2

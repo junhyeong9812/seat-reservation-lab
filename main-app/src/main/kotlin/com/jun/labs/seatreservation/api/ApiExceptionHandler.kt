@@ -4,6 +4,7 @@ import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import io.micrometer.core.instrument.MeterRegistry
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.core.env.Environment
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -23,8 +24,12 @@ class ApiExceptionHandler(
     private val loadtest = HoldStrategyStartupCheck.LOADTEST_PROFILE in environment.activeProfiles
 
     @ExceptionHandler(SeatReservationException::class)
-    fun handle(e: SeatReservationException): ResponseEntity<ErrorResponse> {
-        val response = ResponseEntity.status(e.errorCode.httpStatus())
+    fun handle(e: SeatReservationException, request: HttpServletRequest): ResponseEntity<ErrorResponse> {
+        // ADR-016 확정 거부 지표의 표지(ConfirmOutcomeMetrics가 확정 엔드포인트에서만 센다 — N16-5)
+        val status = e.errorCode.httpStatus()
+        request.setAttribute(ConfirmOutcomeMetrics.REJECTED_CODE_ATTR, e.errorCode.name)
+        request.setAttribute(ConfirmOutcomeMetrics.REJECTED_STATUS_ATTR, status.value())
+        val response = ResponseEntity.status(status)
         rejectCause(e)?.let { cause ->
             meters.counter(REJECTED_METRIC, "cause", cause).increment()
             response.header(REJECT_HEADER, cause)

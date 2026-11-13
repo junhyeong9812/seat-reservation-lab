@@ -72,7 +72,7 @@ const val P_LOC_BASE = "spring.flyway.locations=$LOC_BASE_ONLY"
 const val P_LOC_OPTIMISTIC = "spring.flyway.locations=$LOC_BASE_ONLY,$LOC_CONFIRM_VERSION"
 /** ④ 손잡이(§3.4) — 테스트 고정값: window 2분 · 연장 하한 5초(TTL 5분은 application.yml 그대로) */
 const val P_WINDOW = "seat.confirm.payment-window=2m"
-const val P_MIN_REMAINING = "seat.confirm.extend-min-remaining=5s"
+const val P_MIN_REMAINING = "seat.confirm.payment-min-remaining=5s"
 const val P_INDEX_OPTIONAL = "seat.confirm.unique-index-optional=true"
 
 const val M_CURRENT = "$MODE_KEY=current"

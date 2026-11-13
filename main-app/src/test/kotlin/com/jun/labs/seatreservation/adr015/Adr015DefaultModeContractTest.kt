@@ -13,16 +13,13 @@ import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.support.causesOf
 import org.junit.jupiter.api.Test
 import org.springframework.boot.context.properties.bind.BindException
-import org.springframework.boot.context.properties.bind.Binder
-import org.springframework.boot.context.properties.source.ConfigurationPropertySources
-import org.springframework.boot.env.YamlPropertySourceLoader
-import org.springframework.core.io.ClassPathResource
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /*
- * ADR-015 §결정(2026-11-06) 기본값 교체 계약 — `seat.confirm.mode` 기본 = conditional · 정책 (나) 명시 강제(자동 후퇴 없음):
- * 키를 주지 않은 기동은 conditional로 뜨고, 새 모드의 지원 범위 밖(규칙 1 B·C·D 만료 · 규칙 2 기본 밖 조합)은 `seat.confirm.mode=current`를 명시하라고
+ * ADR-015 §결정(2026-11-06) 기본값 교체 계약 — 정책 (나) 명시 강제(자동 후퇴 없음). 기본은 ADR-016 §결정(2026-11-10)으로 conditional-extend
+ *   (값 · 코드 = application.yml 계약은 Adr016DefaultModeContractTest) — 아래 규칙 거부 계약은 새 기본에도 그대로다:
+ * 키를 주지 않은 기동은 기본 모드로 뜨고, 새 모드의 지원 범위 밖(규칙 1 B·C·D 만료 · 규칙 2 기본 밖 조합)은 `seat.confirm.mode=current`를 명시하라고
  * 거부한다(조용히 current로 돌지 않는다 · 마이그레이션 앞 — 스키마 무변경). 같은 설정에 current를 명시하면 뜬다.
  * 기동 = BootTestBase(실제 SpringApplication · 부팅마다 새 DB · 옛 동작 고정 키 OLD_DEFAULTS — 확정 키는 없다).
  */
@@ -47,18 +44,10 @@ class Adr015DefaultModeContractTest : BootTestBase() {
     }
 
     @Test
-    fun `기본값 — 코드 · application_yml 모두 conditional`() {
-        assertEquals(ConfirmMode.CONDITIONAL, SeatConfirmProperties().mode, "코드 기본값")
-        val sources = YamlPropertySourceLoader().load("application.yml", ClassPathResource("application.yml"))
-        val bound = Binder(ConfigurationPropertySources.from(sources)).bind("seat.confirm", SeatConfirmProperties::class.java).get()
-        assertEquals(ConfirmMode.CONDITIONAL, bound.mode, "application.yml")
-    }
-
-    @Test
-    fun `확정 키 없음 — 기본 조합 · sweep으로 뜨고 바인딩된 모드는 conditional(옛 동작 고정 키 · 업무 앱 기본값 둘 다)`() {
+    fun `확정 키 없음 — 기본 조합 · sweep으로 뜨고 바인딩된 모드는 conditional-extend(옛 동작 고정 키 · 업무 앱 기본값 둘 다)`() {
         listOf("옛 동작 고정" to emptyMap(), "업무 앱 기본값" to appDefaults).forEach { (name, base) ->
             boot(freshDbUrl(), base).use { ctx ->
-                assertEquals(ConfirmMode.CONDITIONAL, ctx.getBean(SeatConfirmProperties::class.java).mode, "$name: 확정 모드")
+                assertEquals(ConfirmMode.CONDITIONAL_EXTEND, ctx.getBean(SeatConfirmProperties::class.java).mode, "$name: 확정 모드")
             }
         }
     }

@@ -26,7 +26,7 @@ import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 import { TREND_STATS, writeSummary } from '../../ADR-009/scenarios/lib/common.js';
 import {
-  cBucket, closeBeforeLongThink, codeOf, confirmCodeOf, confirmReq, holdBody, holdReq, isoMs, payStartReq, recordSession, reholdOffsets, seatOf, send, sessionAttrs15, sleepUntilSrv, CLOCK_OFFSET_MS,
+  cBucket, closeBeforeLongThink, closeConn, codeOf, confirmCodeOf, confirmReq, holdBody, holdReq, isoMs, payStartReq, recordSession, reholdOffsets, seatOf, send, sessionAttrs15, sleepUntilSrv, CLOCK_OFFSET_MS,
 } from './lib15.js';
 
 const E = (k) => {
@@ -64,6 +64,12 @@ export const options = {
     rehold: { executor: 'constant-arrival-rate', rate: RATE, timeUnit: '1s', duration: `${durMs}ms`, preAllocatedVUs: N('PRE_VUS_REHOLD'), maxVUs: N('MAX_VUS_REHOLD'), gracefulStop: GRACE, exec: 'reholdFlow' },
   },
   summaryTrendStats: TREND_STATS,
+  // 반복 사이 연결 재사용 끔(ADR-016 설계-5 · 재현 `results/_evidence-20261107/16-eof-repro/`): 반복을 마친 VU가 다음 반복까지 서버 유휴 한도(Tomcat 60초)를
+  //   넘게 쉬면 그 연결 위 첫 요청(선점 · 재선점)이 EOF로 끊겼다(ADR-015 결과-4 · 무효 6). 반복 끝에 연결을 닫아 모든 종료 경로(조기 종료 · 재선점 201 포함)를 덮는다.
+  //   정상 종료 경로의 끝 요청은 따로 Connection: close((가) — 확정 · 짝 확정 · 재선점 마지막 시도): k6가 닫으면 TIME_WAIT가 PC에 쌓여(cost 300/s ≈ 2만 · 임시 포트 2.8만)
+  //   포트가 바닥날 수 있어, 대부분은 서버가 먼저 닫게 하고 미리 알 수 없는 조기 종료만 이 옵션이 닫는다(리뷰 F2 · 사용자 결정 2026-11-07).
+  //   반복 안 재사용은 그대로(긴 생각 시간 앞은 closeBeforeLongThink). 대가: 반복 첫 요청은 늘 새 연결 — 선점 p99에 연결 수립이 들어간다(대조군도 같은 하네스로 다시 잰다).
+  noVUConnectionReuse: true,
 };
 
 const conf = new Counter('conf');
@@ -124,13 +130,14 @@ export function mainFlow() {
   const latestMs = Number.isFinite(extendedMs) ? Math.max(b.expMs, extendedMs) : b.expMs;
   const sentSrv = srvNow();
   if (a.dup) {
-    const rs = http.batch([confirmReq(b.holdId, user, 'confirm'), confirmReq(b.holdId, user, 'confirm')]);
+    // 반복 끝 요청 = Connection: close(서버가 먼저 닫는다 — TIME_WAIT가 PC가 아니라 서버 쪽에 남는다 · ADR-016 설계-5 (가)) · 짝 둘은 연결 두 개라 둘 다
+    const rs = http.batch([closeConn(confirmReq(b.holdId, user, 'confirm')), closeConn(confirmReq(b.holdId, user, 'confirm'))]);
     const te = srvNow();
     rs.forEach((r, i) => conf.add(1, confirmTags(r, cb, i + 1, seat, fl, sentSrv, te, refMs, latestMs)));
     // 짝의 둘째 404는 N2(한 홀드는 한 번만 확정 — §설계-6)의 정상 결과다 — 짝 중 하나라도 200이면 홀드를 잃지 않았다(로컬 스모크 15-09: 짝 진 쪽 11건을 잃음으로 잘못 셌다)
     if (!rs.some((r) => r.status === 200)) lostCheck(rs[0], extendedMs, sentSrv);
   } else {
-    const r = send(confirmReq(b.holdId, user, 'confirm'));
+    const r = send(closeConn(confirmReq(b.holdId, user, 'confirm')));   // 반복 끝 요청(위 짝과 같은 처방)
     conf.add(1, confirmTags(r, cb, 0, seat, fl, sentSrv, srvNow(), refMs, latestMs));
     lostCheck(r, extendedMs, sentSrv);
   }
@@ -156,7 +163,8 @@ export function reholdFlow() {
   for (let k = 1; k <= REHOLD_OFFS.length; k++) {
     const wait = (t0 + refMs + REHOLD_OFFS[k - 1] - Date.now()) / 1000;
     if (wait > 0) sleep(wait);
-    const r = send(holdReq(schedule, seat, user, 'rehold'));
+    // 마지막 시도 = 반복 끝 요청이라 close((가)) · 201로 일찍 끝나는 시도는 보낼 때 마지막인지 모른다 → options.noVUConnectionReuse((나))가 덮는다
+    const r = send(k === REHOLD_OFFS.length ? closeConn(holdReq(schedule, seat, user, 'rehold')) : holdReq(schedule, seat, user, 'rehold'));
     if (r.status === 201) { reholdOk.add(1, { seat: String(seat), k: String(k), ph: k <= DENSE_N ? 'd' : 's', t: String(srvNow()) }); return; }
   }
 }

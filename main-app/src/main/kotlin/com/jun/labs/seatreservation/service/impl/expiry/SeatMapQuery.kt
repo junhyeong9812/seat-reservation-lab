@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 data class SeatMapEntry(val seatId: Long, val section: String, val rowNo: Int, val seatNo: Int, val status: SeatStatus)
 
 /**
- * ADR-014 좌석 맵 조회(§설계-3.3 · Q11) — 방식마다 문장 하나(자동 커밋 · 잠금 없음 · `now()` = 문장 시각). 응답은 조회 시점 스냅숏이다(캐시·조회 구조는 ADR-018 몫).
+ * ADR-014 좌석 맵 조회(§설계-3.3 · Q11) — 방식마다 문장 하나(자동 커밋 · 잠금 없음 · `now()` = 문장 시각). 응답은 조회 시점 스냅숏이다(캐시·조회 구조는 ADR-019 몫).
  * - A: 저장 상태 그대로 · B·C: HELD 행만 활성 홀드를 확인(빠른 길 — 거짓 HELD는 AVAILABLE로 보인다. 저장 HELD가 활성 홀드를 빠짐없이 덮는다는 전제 — DS14-2)
  * - D: RESERVED가 아닌 모든 좌석마다 활성 홀드를 확인
  * 회차 없음 = 404(선점의 '회차 없음'과 같은 코드). 좌석이 0석인 회차는 빈 목록 — 회차 확인 문장은 결과가 비었을 때만 보낸다.

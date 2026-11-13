@@ -632,7 +632,7 @@ def rep_summary(d):
         other = {k: v for k, v in csvd["err5"].items() if k != "confirm"}
         if other:
             F["5xx_non_confirm"] = other   # current도 확정 밖 5xx는 기대하지 않는다(선점 · 재선점 경로 무변경)
-    # ④ payment-start(리뷰 M15-4): 흐름 구성상 ④ 세션은 모두 e − 10초에 payment-start를 보내고(남은 10초 > extend-min-remaining 5초 · < 창 2분)
+    # ④ payment-start(리뷰 M15-4): 흐름 구성상 ④ 세션은 모두 e − 10초에 payment-start를 보내고(남은 10초 > payment-min-remaining 5초 · < 창 2분)
     #   모두 200 extended여야 한다 — 기대값 extended = 200 수 · already = not_needed = too_late = 0. 보낸 수 < main 선점 201 수 = 하네스(G-H — 반복이 끊겼다) ·
     #   비200 · 서버 갈래 불일치 = 모드 실패(G-F). 다른 모드에서 payment-start가 나가면 하네스 결함(G-H)
     if csvd is not None:

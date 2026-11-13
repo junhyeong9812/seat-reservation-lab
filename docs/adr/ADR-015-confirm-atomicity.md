@@ -9,6 +9,7 @@
 > 번호 이동(2026-10-16, 7차): 측정 환경 꼬리 지연 원인을 새 ADR-011로 넣으며 기존 ADR-011~017을 012~018로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-18, 8차): 카운터 증분 대조·Kafka/복제본 대조를 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 대조(옛 ADR-013)를 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-11-07, 10차): 억울한 사용자 최소화(결제했는데 좌석을 잃음 — 예방 · 보상 설계)를 새 ADR-016으로 넣으며 기존 ADR-016~020을 017~021로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
 - 상태: 결정 (2026-11-06) — 새 기본값 ① `conditional`(고정 규칙 요약기 = 판정 불가 → 사용자 보고 → 사용자 결정 — §결과-3 · §결정) · 기본값 교체 커밋 a68d9518
 - 대응 질문: Q6 "결제는 성공했는데 그 사이 선점이 만료됐다면?"
@@ -18,7 +19,7 @@
 
 - 선택지: **4개 전부** — ① 조건부 UPDATE(전환 문장의 WHERE가 곧 확인 · 영향 행 수로 판정) ② 비관락(좌석·홀드 `FOR UPDATE` 뒤 확인·전환) ③ 낙관락(`@Version`) ④ 결제 중 홀드 연장. 최후 방어선(부분 유니크 인덱스)은 공통.
 - 적용 범위: **A(sweep — 현재 기본값) 확정만**. B·C·D는 ADR-014 최소 가드 그대로(ADR-014 재측정에서 D가 기본값이 되면 그때 D를 다시 본다).
-- 만료 뒤 결제 성공: **거부**(ADR-014와 같은 규칙) — 결제 취소·환불 같은 보상은 ADR-016.
+- 만료 뒤 결제 성공: **거부**(ADR-014와 같은 규칙) — 결제 취소·환불 같은 보상은 ADR-017.
 - 측정: **재현 테스트 + 부하 측정** — 짧은 TTL · 확정 지연 주입으로 이중 결과를 재현해 선택지마다 0건 확인 · .164 확정 경합 부하로 처리량·p99·DB CPU 비교.
 - 최후 방어선: `reservation(seat_id) WHERE status='CONFIRMED'` 부분 유니크 인덱스를 **새 마이그레이션 · 기본 위치**(모든 구성에 적용) — 기존 중복 확정 사전 검사·복구 SQL을 운영 절차로(ADR-013 원칙).
 - 기본값: **이기면 교체**(교체 조건은 측정 전에 고정 — ADR-014와 같은 틀).
@@ -115,10 +116,10 @@
 
 | # | 끼어들기 | 가드가 있으면(지금 추정) | 가드가 없으면 |
 |---|---|---|---|
-| FM1 남의 홀드 위 내 RESERVED | ① X(나) 확정이 `t0 < te`에 시작 — A1~A4 통과(`isExpired(t0)` 거짓) 뒤 늦어짐 ② `te` 뒤 배치 틱이 내 홀드를 지우고 좌석 `AVAILABLE` · cnt(X) −1 · 커밋 ③ Y가 선점 — 새 홀드 h′ · 좌석 `HELD` · 커밋 ④ X가 A5 예약 INSERT → A6 내 홀드 DELETE | A6 0행 → 예외 → X 롤백 → X에게 500 · Y 홀드 그대로 | A6 0행 무시 → A7이 Y의 `HELD`를 `RESERVED`로 덮음 → **좌석 RESERVED + Y의 활성 홀드 h′ + X 예약**(이중 결과 ⓐ — 판정기 `active_on_reserved_seats` · `v_hold_on_unheld_seat` — LoadtestDataService.kt:172-173 · :231). cnt(X)는 배치가 −1 · 예약 +1 → 실제보다 1 작다(below — `v_counter_mismatch`). Y의 확정은 409 SEAT_NOT_HELD(ADR-016 '돈은 빠졌는데 좌석 없음'이 Y에게 생긴다) |
+| FM1 남의 홀드 위 내 RESERVED | ① X(나) 확정이 `t0 < te`에 시작 — A1~A4 통과(`isExpired(t0)` 거짓) 뒤 늦어짐 ② `te` 뒤 배치 틱이 내 홀드를 지우고 좌석 `AVAILABLE` · cnt(X) −1 · 커밋 ③ Y가 선점 — 새 홀드 h′ · 좌석 `HELD` · 커밋 ④ X가 A5 예약 INSERT → A6 내 홀드 DELETE | A6 0행 → 예외 → X 롤백 → X에게 500 · Y 홀드 그대로 | A6 0행 무시 → A7이 Y의 `HELD`를 `RESERVED`로 덮음 → **좌석 RESERVED + Y의 활성 홀드 h′ + X 예약**(이중 결과 ⓐ — 판정기 `active_on_reserved_seats` · `v_hold_on_unheld_seat` — LoadtestDataService.kt:172-173 · :231). cnt(X)는 배치가 −1 · 예약 +1 → 실제보다 1 작다(below — `v_counter_mismatch`). Y의 확정은 409 SEAT_NOT_HELD(ADR-017 '돈은 빠졌는데 좌석 없음'이 Y에게 생긴다) |
 | FM2 같은 홀드 이중 확정 | ① X1 · X2가 같은 홀드로 동시에 A2~A4 통과 ② 둘 다 A5 예약 INSERT ③ X1 A6 DELETE · A7 · 커밋 ④ X2가 그 뒤 진행 | **V12 없음('V12 없음' 판 — 설계-8.1)**: ②의 두 INSERT는 서로 막지 않는다 → ④ X2 A6 DELETE가 X1을 기다린 뒤 0행 → X2 롤백 → 500. **V12 있음(기본)**: ②에서 늦게 INSERT한 쪽(X2)이 유니크 검사로 X1 커밋을 기다린 뒤 **23505** — A6에 닿기 전에 진다 → 유니크 위반 매핑(N6)으로 409 SEAT_NOT_HELD + `seat.confirm.unique_violation` +1 (추정 `[구현 검증]` #13 — SQL 로그로 '23505가 INSERT 문장에서 났는가 · DELETE 0행 예외가 아닌가'를 본다) | V12 없음: X2도 커밋 → **같은 좌석 CONFIRMED 2건**(이중 결과 ⓑ — `v_duplicate_confirmed_seats` · LoadtestDataService.kt:164) · cnt(X) +0인데 실제 +1(below). V12 있음: 대조 확정의 INSERT가 23505 → 대조군은 매핑이 없어 500 · 이중 결과 0 — **인덱스가 가린다**(그래서 '가드가 없으면' FM2 칸은 `target=11` 판에서만 잰다) |
 | FM3 확정과 배치의 같은 틱 | ① 배치 틱이 내 홀드를 만료로 읽음(배치 `now ≥ te`) ② X 확정(`t0 < te` 시작)이 A6·A7을 먼저 보내고 커밋 ③ 배치 flush의 홀드 DELETE가 X를 기다린 뒤 0행 | 배치 **틱 전체 롤백**(정합은 지켜지지만 그 틱의 모든 만료가 다음 틱으로 밀림 · 실패 지표) | 배치 좌석 UPDATE(전체 열 · 낡은 스냅숏 `AVAILABLE`)가 X의 `RESERVED`를 덮음 → **예약 CONFIRMED + 좌석 AVAILABLE**(이중 결과 ⓒ — `v_confirmed_on_unreserved_seat` · LoadtestDataService.kt:168-169) → 그 좌석이 다시 팔린다 · cnt(X) −1(지우지 않은 홀드만큼 below) |
-| FM4 응답 계약 | FM1~FM3의 진 쪽 | 5xx(계약 밖 · ADR-016이 '확정 실패'를 404·409로 가를 수 없다) — 단 V12가 있으면 FM2의 진 쪽은 409(매핑) | 진 쪽이 없다(이중 결과) |
+| FM4 응답 계약 | FM1~FM3의 진 쪽 | 5xx(계약 밖 · ADR-017이 '확정 실패'를 404·409로 가를 수 없다) — 단 V12가 있으면 FM2의 진 쪽은 409(매핑) | 진 쪽이 없다(이중 결과) |
 | FM5 연장을 잃음(④) | ① 배치가 내 홀드를 만료 후보로 읽음(배치 `:now ≥` 원래 `te`) ② 내 `payment-start`가 연장 커밋(`expires_at` → `:now′ + window` · `extended_at` 기록) ③ 배치가 그 홀드를 지움 | 지금 JPA 배치(id로만 지움): 연장된 홀드가 지워진다 → 좌석 `AVAILABLE` → 내 확정 404(정합은 지키지만 연장이 무효) | 대조 배치도 같다(지워짐 · 잃음 1) |
 
 - **15-02 실측(`current` — Adr015ReproSmokeTest)**: FM1 = X 확정 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` → 롤백(예약 INSERT · 좌석 UPDATE 함께 사라짐) → **HTTP 500**(Spring 기본 오류 JSON — `ApiExceptionHandler` 밖) · 끝 상태 좌석 HELD · Y 홀드 1 · 예약 0 · 판정기 전부 0. FM3 = 배치가 같은 예외로 **틱 전체 롤백**(가드 감소도 사라짐 · `seat.hold.expiry.tick{outcome=failed}` +1) · X 확정 성공 · 판정기 전부 0. 정정: FM3의 '배치 DELETE가 X를 기다린 뒤 0행'은 이번 순서(X가 L-B 대기 중 커밋)에선 기다림 없이 0행이었고, flush가 좌석 UPDATE를 먼저 보내므로 X 커밋 전이면 배치가 기다리는 곳은 좌석 행이다(추정 — 미실측). 진 배치는 낡은 `AVAILABLE` 좌석 UPDATE를 **실제로 실행한 뒤** 롤백된다 — '가드가 없으면' 칸의 덮어쓰기 모양과 같다.
@@ -351,7 +352,7 @@ SELECT seat_id, count(*) AS n, array_agg(id ORDER BY created_at, id) AS reservat
 FROM reservation WHERE status = 'CONFIRMED' GROUP BY seat_id HAVING count(*) > 1;
 ```
 
-- **0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다**: 중복 확정 1건 = 결제한 사용자 둘이다(어느 쪽을 남길지는 사업 결정 · 남지 않는 쪽은 ADR-016 보상 대상). 사람이 고른 뒤 쓰는 복구 틀(한 트랜잭션 · 쿼터 행을 먼저 잠근다 — ADR-014 §2.4 규칙 ①과 같은 뜻):
+- **0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다**: 중복 확정 1건 = 결제한 사용자 둘이다(어느 쪽을 남길지는 사업 결정 · 남지 않는 쪽은 ADR-017 보상 대상). 사람이 고른 뒤 쓰는 복구 틀(한 트랜잭션 · 쿼터 행을 먼저 잠근다 — ADR-014 §2.4 규칙 ①과 같은 뜻):
 
 ```sql
 -- R1 복구 틀(운영자가 :keep(남길 예약 id)과 :drop(취소할 예약 id 목록)을 정한 뒤) — 한 트랜잭션 · 차감(cnt − n)이 아니라 **쌍마다 V6 정의로 다시 센다**
@@ -373,7 +374,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 ```
 
   - **다시 세기가 맞는 까닭(정정 — 초안의 `cnt − n` 차감은 그 쌍의 cnt가 이미 어긋나 있으면 어긋남을 그대로 옮긴다)**: 그 쌍의 실제 값을 바꾸는 경로는 모두 쿼터 행을 먼저 잠그거나(선점 upsert · 배치 감소 — 지금 배치는 감소가 flush보다 앞이라 R1이 잠금을 쥐면 배치는 감소에서 기다리고, 그때 그 배치의 홀드는 아직 지워지지 않아 ③이 센다 · A′는 B2), 한 트랜잭션에서 홀드 −1 · 예약 +1을 함께 한다(확정 — 한 문장 스냅숏에는 둘 다 보이거나 둘 다 안 보인다). 그래서 ① 잠금 아래 ③의 한 문장 값이 그 쌍의 정의 값이다. 상한(max-per-user)을 넘는 값도 그대로 둔다(V6:4와 같다).
-  - 좌석은 `RESERVED` 그대로(확정 1건이 남는다). 취소한 예약은 행으로 남긴다(지우지 않는다 — 결제 uid 추적 · ADR-016 입력). 다시 센 값은 0 이상이라 V5 CHECK(V5__user_hold_quota.sql:6)에 걸릴 일이 없다.
+  - 좌석은 `RESERVED` 그대로(확정 1건이 남는다). 취소한 예약은 행으로 남긴다(지우지 않는다 — 결제 uid 추적 · ADR-017 입력). 다시 센 값은 0 이상이라 V5 CHECK(V5__user_hold_quota.sql:6)에 걸릴 일이 없다.
   - R0과 V12 사이에 새 중복이 생겨도 V12가 23505로 실패하고 앱이 뜨지 않는다(무음 아님) → R0부터 다시.
 - **기본 위치에 두어서 생기는 일(사용자 결정의 대가 — 코드 사실)**:
   - 기존 테스트 2건이 정면으로 어긋난다: `LoadtestEndpointsTest` '같은 좌석의 CONFIRMED 2건 → 중복 확정'(LoadtestEndpointsTest.kt:108-114 — 같은 좌석에 CONFIRMED 2건을 INSERT) · `IndexMigrationTest` '인덱스는 중복을 막지 않는다 — … 같은 좌석 CONFIRMED 2건이 모두 들어간다'(IndexMigrationTest.kt:21-). 둘 다 ADR-000 §1 '문제를 가리지 않을 것'(기준선 스키마에 유니크 없음 — V1__init.sql:1-2)을 지키는 테스트다. 기준선 재현은 `spring.flyway.target=7`로(같은 파일 :37의 `target=1` 방식 — 11은 기본 위치에 없어 T12) — Q7.
@@ -481,7 +482,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | Q2 | ②의 잠금 순서 | **홀드 행 → 좌석 행**(초안 '좌석 → 홀드' 대신 — 새 모드의 짝인 A′ 배치 순서와 같게 · 정정 15-02: JPA 배치는 좌석 → 홀드지만 Q15로 새 모드와 짝지어지지 않는다) · '좌석 → 홀드'는 대조 테스트로만 | 사용자(§인터뷰: 권장안으로 둠) |
 | Q3 | ③의 버전 올리기 | **(나) 상태 변경 트리거 — 번호 V14 · 선택 위치 `db/migration-confirm-version`**(③ 셀만 · 짝 검사는 마이그레이션 앞 — §설계-5 규칙 6) — `@Version` 매핑은 기각 | 사용자(권장안으로 둠) |
 | Q9 | 손잡이 이름 · 값 | **`seat.confirm.mode` = current · conditional · pessimistic · optimistic · conditional-extend**(기본 current — 배치도 함께 고른다 · **§결정(2026-11-06)으로 기본 conditional** — 범위 밖 구성은 current 명시) · `payment-window` · `extend-min-remaining` · `loadtest.delay` · `unique-index-optional` | 메인 |
-| Q11 | 같은 홀드 이중 확정의 두 번째 응답 | **404 HOLD_NOT_FOUND 그대로**(새 모드) — `current` + V12는 409 SEAT_NOT_HELD(매핑)로 갈린다는 점을 기록만. 같은 `paymentUid` 재시도의 멱등 응답은 ADR-016 · NEXT 몫 | 사용자(권장안으로 둠) |
+| Q11 | 같은 홀드 이중 확정의 두 번째 응답 | **404 HOLD_NOT_FOUND 그대로**(새 모드) — `current` + V12는 409 SEAT_NOT_HELD(매핑)로 갈린다는 점을 기록만. 같은 `paymentUid` 재시도의 멱등 응답은 ADR-017 · NEXT 몫 | 사용자(권장안으로 둠) |
 | Q12 | 지연 주입 방식 | **재현 테스트 = 래치(L-C · L-B · L-B′ · L-E — §설계-8.1) · 부하 = `seat.confirm.loadtest.delay`(loadtest 프로필 전용 · 기본 0 · 자리 '확인 뒤 · 첫 쓰기 앞')** | 메인 |
 | Q13 | 적용 조합 | **기본 조합만**(3b + counter-upsert-precheck · `expiry-mode = sweep`) — 그 밖은 기동 거부(§설계-5) | 사용자(권장안으로 둠) |
 | Q15 (새) | A′ 배치를 확정 손잡이에 묶나, 따로 켜나 | **묶는다**(`current` = JPA 배치 · 그 밖 = A′) — 기준선 칸 무변경 · 잘못된 짝 없음. 셀 비용에 섞이는 배치 몫은 틱 시간 · 문장 수로 따로 남긴다(#15). 'A′만 켠 current' 셀이 필요해지면 그때 키를 더한다 | 메인(사용자 확인 권장 — 측정 셀 구성에 닿는다) |

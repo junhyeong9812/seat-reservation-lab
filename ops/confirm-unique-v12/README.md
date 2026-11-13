@@ -16,7 +16,7 @@ V12(`main-app/src/main/resources/db/migration/V12__reservation_confirmed_seat_un
 ## 순서
 
 1. **운영 크기 사본에서 먼저**(ADR-013 원칙): R0 → (0행이 아니면 2~4) → R2 → V12 적용 시간 측정(`[구현 검증]` #5 — `reservation` SHARE 락 길이).
-2. **R0이 0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다.** 중복 확정 1건 = 결제한 사용자 둘이다. 어느 예약을 남길지는 사업 결정이고, 취소되는 쪽은 ADR-016 보상 대상이다(결제 uid는 취소한 예약 행에 남는다 — 행을 지우지 않는다).
+2. **R0이 0행이 아니면 배포를 멈춘다 — 자동 복구하지 않는다.** 중복 확정 1건 = 결제한 사용자 둘이다. 어느 예약을 남길지는 사업 결정이고, 취소되는 쪽은 ADR-017 보상 대상이다(결제 uid는 취소한 예약 행에 남는다 — 행을 지우지 않는다).
 3. 좌석마다 R1 **미리보기**(기본 — 끝에서 ROLLBACK):
    `psql -X -v ON_ERROR_STOP=1 -v keep=<남길 id> -v drop='{<취소할 id>,…}' -f ops/confirm-unique-v12/r1-repair-template.sql`
    출력(잠근 쌍 · 고른 예약 행 · 다시 센 cnt)을 확인한 뒤 같은 명령에 `-v commit=1`을 더해 적용한다.
@@ -24,7 +24,7 @@ V12(`main-app/src/main/resources/db/migration/V12__reservation_confirmed_seat_un
 5. 배포(앱 기동 → Flyway가 V12 적용). R0과 V12 사이에 새 중복이 생기면 V12가 23505로 실패하고 앱이 뜨지 않는다(무음 아님) → **R0부터 다시**.
    - 실측(로컬 PG 16 · Flyway 11.7.2 · 트랜잭션 안 V12): 23505 실패 뒤 이력에 V12 행이 남지 않고 인덱스도 없다 → R1 · R2 뒤 다시 기동하면 V12가 적용된다(`flyway repair` 불필요).
      같은 migrate 실행에서 V12보다 앞 버전(예: 위치를 더해 함께 적용된 V9)은 각자 트랜잭션이라 **남는다**.
-   - **확정 기본값 `conditional`(ADR-015 결정 2026-11-06)은 V12 인덱스 · V13 `seat_hold.extended_at` 열이 있어야 기동한다**(기동 검사 규칙 7 · 인덱스 검사 — 마이그레이션 앞에서 거부 · 스키마 무변경). `spring.flyway.target`을 12 이하로 고정한 DB는 target을 풀어 V13까지 적용하거나, 그동안 `seat.confirm.mode=current`(옛 JPA 확정)로 띄운다. R0이 0행이 아니어서 배포를 멈춘 동안 옛 앱을 계속 돌릴 때도 `current`를 명시한다.
+   - **확정 기본값 `conditional-extend`(ADR-016 결정 2026-11-10 · 그 전 기본 `conditional` — ADR-015 결정 2026-11-06 · 둘 다 같은 조건)는 V12 인덱스 · V13 `seat_hold.extended_at` 열이 있어야 기동한다**(기동 검사 규칙 7 · 인덱스 검사 — 마이그레이션 앞에서 거부 · 스키마 무변경). `spring.flyway.target`을 12 이하로 고정한 DB는 target을 풀어 V13까지 적용하거나, 그동안 `seat.confirm.mode=current`(옛 JPA 확정)로 띄운다. R0이 0행이 아니어서 배포를 멈춘 동안 옛 앱을 계속 돌릴 때도 `current`를 명시한다.
 6. 배포 뒤 `SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('uq_reservation_confirmed_seat')` = `t`(앱 기동 검사도 INVALID면 모든 모드에서 거부한다).
 
 ## R1이 하는 일(ADR-015 §설계-4 R1 — 한 트랜잭션)
