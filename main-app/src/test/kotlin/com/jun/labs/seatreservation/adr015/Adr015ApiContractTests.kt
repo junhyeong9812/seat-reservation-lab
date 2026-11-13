@@ -102,9 +102,13 @@ class Adr015PaymentStartContractTest : Adr015Base() {
         assertEquals(e0 + 1, requireCounter(M_EXTEND_RESULT, "result", "extended")); assertEquals(a0 + 1, requireCounter(M_EXTEND_RESULT, "result", "already"))
     }
 
-    /** Q16: 남은 시간 ≥ window면 200 + 지금 expires_at · 표지를 남기지 않음 → 뒤의 재호출이 연장을 받는다 */
+    /**
+     * Q16: 남은 시간 ≥ window면 200 + 지금 expires_at · 표지를 남기지 않음.
+     * ADR-017 설계-4.2(RD17-2)로 바뀐 계약: 첫 200이 결제 의도(uid · pay_by)를 만들고, 그 뒤로는 연장하지 않는다(PG에 등록된 마감과 확정 가능 기간이 어긋나지 않게) —
+     * 뒤 호출은 같은 만료를 재생한다(남은 시간이 이미 window 이상이었으므로 결제 시간은 window − M 이상 보장).
+     */
     @Test
-    fun `not_needed — 남은 시간이 window 이상이면 200 · 지금 값 · extended_at NULL 유지 · 뒤 호출은 연장`() {
+    fun `not_needed — 남은 시간이 window 이상이면 200 · 지금 값 · extended_at NULL 유지 · 뒤 호출은 연장하지 않고 재생(ADR-017)`() {
         val seat = createSeat(1).id!!
         val hold = holdOk(seat, x)
         val te = NOW.plus(TTL)
@@ -120,8 +124,9 @@ class Adr015PaymentStartContractTest : Adr015Base() {
         val at = NOW.plus(Duration.ofMinutes(4))
         clock.set(at)
         val r = paymentStart(hold, x)
-        assertEquals(200, r.status); assertEquals(at.plus(WINDOW), body(r).second, "표지가 없어 뒤 호출이 연장을 받는다")
-        assertEquals(at, extendedAt(hold))
+        assertEquals(200, r.status); assertEquals(te, body(r).second, "intent가 생긴 뒤에는 연장하지 않는다 — 같은 만료 재생(ADR-017 RD17-2)")
+        assertNull(extendedAt(hold), "표지는 그대로 없다")
+        assertEquals(n0 + 3, requireCounter(M_EXTEND_RESULT, "result", "not_needed"), "재생도 not_needed로 센다")
     }
 
     @Test

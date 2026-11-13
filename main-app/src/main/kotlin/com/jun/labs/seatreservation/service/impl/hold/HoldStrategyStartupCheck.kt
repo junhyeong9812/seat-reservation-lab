@@ -71,6 +71,11 @@ class HoldStrategyMigrationGate {
         if (HoldStrategyStartupCheck.EXTENDED_AT_VERSION !in pending) {
             HoldStrategyStartupCheck.checkExtendedAtColumn(confirm, HoldStrategyStartupCheck.extendedAtColumnExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
         }
+        // ADR-017 설계-4.2: 결제 시작 모드(① · ④)는 payment_intent(V15)가 있어야 한다 — target으로 V15 앞에서 멈추거나(계획) 이미 적용된 DB에 표가 없으면(이력) 거부
+        HoldStrategyStartupCheck.checkPaymentIntentPlan(confirm, reachesV15 = reaches(HoldStrategyStartupCheck.PAYMENT_INTENT_VERSION))
+        if (HoldStrategyStartupCheck.PAYMENT_INTENT_VERSION !in pending) {
+            HoldStrategyStartupCheck.checkPaymentIntentTable(confirm, HoldStrategyStartupCheck.paymentIntentTableExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
+        }
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
         val flywayRejects = config.isValidateOnMigrate && flyway.validateWithResult().invalidMigrations.orEmpty().any { it.errorDetails?.errorCode !in PENDING }
@@ -148,6 +153,7 @@ class HoldStrategyStartupCheck(
             )
         }
         checkExtendedAtColumn(confirm, extendedAtColumnExists(jdbc), "DB")
+        checkPaymentIntentTable(confirm, paymentIntentTableExists(jdbc), "DB")
         checkConfirmVersionTrigger(properties, confirm, confirmVersionTriggerExists(jdbc), "DB")
     }
 
@@ -414,6 +420,26 @@ class HoldStrategyStartupCheck(
             }
         }
 
+        /** ADR-017 설계-4.2 — 결제 시작 모드(① · ④)는 target이 V15에 닿아야 한다(payment-start가 intent를 만든다) */
+        fun checkPaymentIntentPlan(confirm: SeatConfirmProperties, reachesV15: Boolean) {
+            val mode = confirm.mode
+            check(!mode.paymentStartEnabled || reachesV15) {
+                "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 $PAYMENT_INTENT_VERSION 이상이어야 한다(payment_intent — payment-start가 결제 uid를 발급한다 · ADR-017 설계-4.2). " +
+                    "target을 풀거나, 앞 버전 스키마 재현이면 결제 시작이 없는 모드(current · pessimistic · optimistic)로 띄워라"
+            }
+        }
+
+        /** ADR-017 — 결제 시작 모드인데 payment_intent 표가 없으면 거부(관문 · run 공용) */
+        fun checkPaymentIntentTable(confirm: SeatConfirmProperties, exists: Boolean, where: String) {
+            val mode = confirm.mode
+            check(!mode.paymentStartEnabled || exists) {
+                "seat.confirm.mode=${mode.key()}는 payment_intent 표(V15 — 기본 위치)가 있어야 한다 — $where 에 없다(spring.flyway.target이 $PAYMENT_INTENT_VERSION 미만?) · ADR-017 설계-4.2"
+            }
+        }
+
+        fun paymentIntentTableExists(jdbc: JdbcTemplate): Boolean =
+            jdbc.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
+
         /** V14 트리거가 이 DB에 있는가(읽기만 — 빈 DB에서도 돈다) */
         fun confirmVersionTriggerExists(jdbc: JdbcTemplate): Boolean = jdbc.queryForObject(
             "SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal", Int::class.java, CONFIRM_VERSION_TRIGGER,
@@ -555,6 +581,8 @@ class HoldStrategyStartupCheck(
         const val CONFIRMED_SEAT_INDEX_VERSION = "12"
         /** seat_hold.extended_at 열을 만드는 Flyway 버전(V13 — 기본 위치) */
         const val EXTENDED_AT_VERSION = "13"
+        /** ADR-017 설계-4.1 — payment_intent · confirm_rejection · compensation_task(기본 위치) */
+        const val PAYMENT_INTENT_VERSION = "15"
         /** ADR-015 V14 — 좌석 상태 변경 버전 트리거(선택 위치) */
         const val CONFIRM_VERSION_TRIGGER = "product_seat_status_version"
         const val LOCATION_V14 = "db/migration-confirm-version"

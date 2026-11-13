@@ -60,7 +60,7 @@ class Adr015Fm5LockWaitTest : Adr015Base() {
         val pf = paymentStartAsync(hold, x)
         reachedOrFail(lc, what = "L-E-COMMIT(payment-start E1 뒤 · 커밋 앞)")
         val extenderPid = jdbcTemplate.queryForList(
-            "SELECT pid FROM pg_stat_activity WHERE state = 'idle in transaction' AND lower(query) LIKE 'update seat_hold%'", Int::class.java,
+            "SELECT pid FROM pg_stat_activity WHERE state = 'idle in transaction' AND (lower(query) LIKE 'update seat_hold%' OR lower(query) LIKE '%from payment_intent where hold_id%')", Int::class.java,
         ).singleOrNull()
         assertNotNull(extenderPid, "연장 백엔드(E1 실행 · 커밋 전 — idle in transaction)가 하나여야 한다")
 

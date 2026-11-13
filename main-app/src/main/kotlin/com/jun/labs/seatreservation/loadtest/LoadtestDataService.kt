@@ -42,8 +42,11 @@ class LoadtestDataService(
         require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
         // 배경 홀드·예약은 쿼터 행 없이 넣으므로 counter에서는 v_counter_mismatch가 거짓 위반을 낸다 — 섞지 않는다(ADR-005)
         require(backgroundRows == 0 || properties.limitStrategy !in COUNTER_STRATEGIES) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
+        // ADR-017 V15 표는 회차 · 좌석 · 예약과 FK로 묶여 함께 비운다(RD17-12 — 회차마다 섞이지 않게). V15 앞 스키마(target 7 등)에는 없다
+        val v15 = jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
         jdbcTemplate.execute(
-            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
+            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota" +
+                (if (v15) ", payment_intent, confirm_rejection, compensation_task" else "") + " RESTART IDENTITY",
         )
         // ADR-012 rv44 RG-1: 초기화 앞(예열)의 앱 경로 주입 기록·상태를 비운다 — 측정의 max-pairs·effect.json에 예열 주입이 섞이지 않게.
         // counter_app_inject는 V10(선택 위치 migration-incremental)에만 있다

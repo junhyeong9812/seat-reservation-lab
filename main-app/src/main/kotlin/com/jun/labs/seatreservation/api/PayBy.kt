@@ -21,8 +21,11 @@ class PayBy(
 
     fun of(expiresAt: Instant): Deadline {
         val payBy = expiresAt.minus(confirm.payByMargin)
-        return Deadline(payBy, maxOf(0L, Duration.between(clock.instant(), payBy).seconds))
+        return Deadline(payBy, remaining(payBy))
     }
+
+    /** 이미 정해진 마감(ADR-017 intent의 pay_by)까지 남은 초 — 같은 내림 규칙 */
+    fun remaining(payBy: Instant): Long = maxOf(0L, Duration.between(clock.instant(), payBy).seconds)
 
     data class Deadline(val payBy: Instant, val payWithinSeconds: Long)
 }
