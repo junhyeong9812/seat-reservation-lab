@@ -66,6 +66,7 @@
 | 11-13 14:15 | 기본값 교체 듀얼 1패스 착수: base 6198f0455 + 작업트리 · OUT = scratchpad/rv16d-mYXY · 미러 = scratchpad/rvm16d-HKX0(k6/*/results 제외 · 9.1M) · 보안 스캔: 키 패턴 0 · password/token 값 = 코드 식별자 · 사설망 IP(192.168.x — 기존 하네스 문서) 오탐 판정 · codex ∥ Opus 워커 동시 시작 | 회수 대기 |
 | 11-13 14:24 | 듀얼 1패스 회수: codex(EXIT 0) finding 0 · verified 7 · OQ 1 / Opus 워커(128,316 토큰 · 224초) F1~F4 + OQ 3 → 종합 RD-1~4 전부 채택(RD-1 문서 처방 · RD-2~4 고침) → 영향 4클래스 재실행 green(26 테스트) → codex 감사 '없음' · post-fix 재점검 clean · 미러 삭제 | 커밋 단계 |
 | 11-13 14:25 | 기본값 교체 커밋 9d2bf21b5(main-app · ops 13파일) · ADR-016 상태 줄 · §결정(사용자 채택 · 기본값 교체 · 클라이언트 계약 · 되돌림 · 옛 하네스 주의 RD-1) · NEXT N00b 갱신 → docs 커밋 | push 대기(사용자 지시: push만) |
+| 11-13 14:41 | push: origin feat/adr-016-paid-seat-loss 114502eed..5a053473f(사용자 지시 — PR 없음) | 이 log 행은 다음 docs 커밋에 |
 
 ## 리뷰 ledger
 
