@@ -11,7 +11,7 @@
 > 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 대조(옛 ADR-013)를 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-11-07, 10차): 억울한 사용자 최소화(결제했는데 좌석을 잃음 — 예방 · 보상 설계)를 새 ADR-016으로 넣으며 기존 ADR-016~020을 017~021로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
-- 상태: 설계 초안(2026-11-13 — 인터뷰 1차 I1~I12 · 열린 질문 Q1~Q9 = 권장안(사용자 2026-11-13) · 설계 리뷰 듀얼 1패스 반영(RD17-1~13 · 사용자 결정 I13 · I14) · post-fix 재점검 반영(RD17-P1~P3) — 설계 리뷰 마감 · 다음 = 구현 명세 · 작업 폴더 `docs/plans/2026-11-13/adr-017-confirm-failure-compensation/`) — 미측정
+- 상태: 설계 초안(2026-11-13 — 인터뷰 1차 I1~I12 · 열린 질문 Q1~Q9 = 권장안(사용자 2026-11-13) · 설계 리뷰 듀얼 1패스 반영(RD17-1~13 · 사용자 결정 I13 · I14) · post-fix 재점검 반영(RD17-P1~P3) — 설계 리뷰 마감 · 작업 폴더 `docs/plans/2026-11-13/adr-017-confirm-failure-compensation/`) → **1단계 구현 끝(2026-11-14 — 코드 커밋 ca6f0e23b · e6946a799 · e2876b5ce · 6c0d91d79 · 리뷰 3루프 + 수정분 재점검 · 전체 테스트 green)** · 다음 = 2단계(하네스 · 측정 전 고정 · .164 캠페인) 명세 — 미측정
 - 대응 질문: Q6(결제 성공 + 선점 만료) 후속 — ADR-016이 그 일의 **수를 줄였고**(새 기본값 ④ + ⓒ payBy), 이 ADR은 그래도 남는 건의 **보상**과 ADR-016의 조건 'PG가 payBy를 강제'를 닫는다
 - 선행: ADR-015(확정 원자성) · ADR-016(억울한 사용자 최소화 — 설계-4가 넘긴 것: 거부 기록 표 · 같은 paymentUid 재시도 멱등 · 판정기 고아 결제 · 보상 방식)
 
@@ -331,6 +331,32 @@ POST /api/holds/{holdId}/confirm {paymentUid}
 - 대체 좌석의 등급 · 가격 차이
 - 보상 표 정리 배치(Q8)
 - 매입 실패 뒤 예약 취소 정책(Q5)
+
+## 구현 (1단계 — 2026-11-13~14 · 작업 폴더 `docs/plans/2026-11-13/adr-017-compensation-impl/` · 명세 부록 A · B)
+
+- **구현 커밋**: ca6f0e23b(V15 · intent · 확정 직렬화 · 거부 기록 · 재생 · 조회) · e6946a799(mock-pg · PG 등록 · 워커 · 안전망 · R · D · S · DEAD 복구 · 판정기) · e2876b5ce(V15 반영 기존 마이그레이션 단언 · 테스트 힙 2g) · 6c0d91d79(리뷰 반영 — V15 앞 스키마 · 워커 리스 · 안전망 · 다른 uid 확정 차단). 재측정 기준 이미지 = 이 커밋들 앞 main(f8f52cc33).
+
+- **코드**: V15(`payment_intent` · `confirm_rejection` · `compensation_task` · `reservation.intent_id` · `origin`) · payment-start intent 생성 · PG 등록 · 확정 facade(`PaymentConfirmService` — intent 잠금 · uid_conflict · 재생 · 거부 기록 · R · D · S) · 워커(`CompensationWorker`) · 안전망(`CompensationSweep`) · 스케줄러 · 기동 검사 · DEAD 복구 API · 결제 조회 API · 판정기 `pay_*` 항목 · 새 모듈 `mock-pg`(포트 8104 — `reconciler-app`이 8103을 쓴다).
+- **바뀐 계약(사용자 승인 2026-11-13)**:
+  - payment-start 200 본문에 `paymentUid`가 더해졌다. 결제는 이 uid로만 한다(I13 — ADR-016의 '권고'가 필수가 됐다).
+  - ADR-016 N16-1 '① payment-start는 아무 행도 쓰지 않는다' → '홀드 · 좌석 · 쿼터 · 표지는 쓰지 않는다 — intent 행 하나만 만든다'.
+  - ADR-015 ④ 'not_needed 뒤 호출은 연장' → intent가 생긴 뒤에는 연장하지 않는다(RD17-2 — 남은 시간이 이미 W 이상이라 결제 시간은 W − M 이상 보장).
+  - Flyway 기본 위치 마지막 버전 13 → 15. 결제 시작 모드(① · ④)는 target ≥ 15가 필요하다(기동 검사).
+- **옛 하네스 주의**: ADR-015 · 016 하네스(N16-1 쓰기 탐침 · payment-start 본문 키 대조)는 이 커밋 뒤 이미지에서 intent INSERT · `paymentUid`를 '예상 밖'으로 본다. 재측정은 측정 이미지(커밋 앞 APP_TAG)로 한다(ADR-016 §결정의 옛 하네스 주의와 같은 처방). 또 payment-start를 부른 홀드는 발급 uid(`paymentUid`)로만 확정된다 — 옛 하네스처럼 `pay-…` uid를 보내면 409 SEAT_NOT_HELD다(기존 테스트 5개는 확정 인자만 발급 uid로 바꿨다 — 사용자 승인 2026-11-14).
+- **구현에서 정한 세부(리뷰 반영)**:
+  - 옛 경로(intent 없는 uid)도 확정 트랜잭션 앞에 `payment_intent` 조회 1문장(커넥션 1회 더 빌림)이 붙는다 — N17-10의 '같은 SQL'은 확정 트랜잭션 안의 문장을 뜻한다. 옛 경로 비용을 재면 이 차이가 섞인다. V15 앞 스키마(기준선 재현 — current + target 7)에서는 표가 없음을 한 번 보고 조회 없이 옛 경로로 간다.
+  - 거부 롤백과 재잠금 사이(A2 창)에 안전망이 먼저 intent를 닫으면, 재잠금 쪽은 안전망이 저장한 코드(HOLD_NOT_FOUND · HOLD_EXPIRED)를 재생한다 — 처음 난 거부 코드와 다를 수 있고 거부 기록은 없다. 이중 결과는 없다(state 하나).
+  - payment-start의 지표(`seat.confirm.pay_start{ok}` · `seat.confirm.extend{…}`)는 DB 커밋 뒤에 센다. 그 뒤 PG 등록이 실패하면 응답은 503(또는 409)이지만 그 지표는 이미 올라 있다 — 등록 실패는 `seat.payment.pg.register{result}`로 따로 센다(응답 합 대조 때 뺀다).
+  - `payment_intent.schedule_id` · `seat_id`는 FK가 없다(스냅숏 — FK면 intent INSERT가 회차 · 좌석 행에 FOR KEY SHARE를 건다).
+  - none 모드 안전망은 잠그지 않고 미해결 수를 센다. `seat.compensation.unresolved`는 주기마다 본 수의 합이다(기울기 ÷ 주기 = 지금 미해결 수). none은 intent를 닫지 않으므로(Q8 — 정리 없음) 이 수와 집계 비용은 시간에 따라 커진다.
+  - capture 응답: 409(승인 만료 · 취소 · 미승인 등)는 종결-실패(돈 없는 좌석), 409 밖 4xx(미등록 404 등)는 재시도 → 상한에서 DEAD.
+  - 판정기 `pay_rejected_without_task`는 모드 ≠ none일 때만 낸다(none은 작업이 없는 것이 정상). `pay_compensation_mode`를 함께 낸다.
+  - ④ 동시 첫 호출 경합: 연장이 필요 없는 요청 A가 intent를 만드는 중(미커밋)에 연장 구간에 들어온 요청 B가 E1로 홀드를 연장할 수 있다(`NOT EXISTS payment_intent`가 A의 미커밋 행을 못 본다). 이때 둘은 A의 intent(uid · pay_by)를 함께 받고 홀드는 연장된다 — pay_by가 홀드 만료보다 **이른** 쪽으로만 어긋난다(PG 마감이 확정 가능 기간 안 — RD17-2의 위험 방향인 '마감 > 만료'는 생기지 않는다). 지표는 B를 `extended`로 센다.
+  - 안전망은 후보 intent를 `FOR UPDATE SKIP LOCKED`로 잡는다(확정 중인 intent는 기다리지 않고 다음 주기) · 한 건의 오류는 그 건만 건너뛰고 `seat.compensation.sweep_failed` + ERROR 로그. 후보는 uid 순으로 순회 위치에서 이어 고른다(잠기거나 계속 실패하는 후보가 배치 자리를 막아 뒤 후보가 굶지 않게). 배치 한도(`sweep.batch`)를 넘게 밀리면 N17-7 '한 주기 안에'는 '배치 한도 안에서'다.
+  - **intent 있는 홀드 + 다른 uid 확정(사용자 결정 2026-11-13 — 리뷰 R3)**: 홀드가 요청 사용자의 것이고 intent가 있으면 409 SEAT_NOT_HELD · 기록 없음(I13 — 결제는 발급 uid로만). 옛 경로로 확정되면 intent가 OPEN으로 남아 안전망이 그 결제를 닫기 때문(좌석 + 환불). 남는 틈: 이 검사와 옛 확정은 원자적이지 않다 — 같은 홀드의 payment-start 커밋과 다른 uid 확정이 동시에 오면(클라이언트가 자기 요청끼리 경합) 옛 경로로 확정될 수 있다. 발급 uid로 결제하려면 payment-start 응답을 받은 뒤여야 하므로 정상 흐름에서는 생기지 않는다.
+  - PG 등록이 이미 닫힌 uid(REFUNDED · VOIDED · CLOSED)를 멱등 200으로 돌려주면 payment-start는 409 HOLD_EXPIRED다(409 CLOSED와 같게).
+  - 흉내 PG `/admin/reset`은 원장과 함께 주입 설정도 비운다 — 2단계 하네스는 회차 리셋 뒤 `/admin/faults`를 다시 건다.
+- **운영 배포 전**: V15는 `reservation`에 열 둘과 유니크(전부 NULL인 `intent_id`)를 더한다. 표를 다시 쓰지 않지만 유니크 인덱스를 만드는 동안 쓰기가 막힌다. 큰 표면 배포 창에서 적용한다. DEAD 복구 = `ops/compensation-dead/README.md`.
 
 ## 실험 결과
 
