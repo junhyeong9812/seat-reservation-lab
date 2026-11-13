@@ -110,3 +110,19 @@
 - [x] 필수 6칸 전부 기입 (빈 칸 없음)
 - [x] 사용자 합의(2026-11-13 — 명세 그대로 · 기본값 제안대로) → SPEC=1 (훅 기록 — Claude 직접 편집 금지)
 - [x] 자율성 선택 → MODE=auto
+
+---
+
+## 부록 A — task 03~05 이름 · 연결 계약 (2026-11-13 · 구현 착수 때 메인이 고정 — blind 테스트 워커의 입력)
+
+- **mock-pg 포트 8104**(명세 §8의 8103에서 바꿈 — `reconciler-app/Dockerfile`이 이미 `EXPOSE 8103`). API는 설계-3 표 그대로, 본문 `{payment: {uid, userId, amount, deadline, state, registeredAt, authorizedAt, capturedAt, closedAt, refunds, tombstone}, code}` · 상태 이름 `REGISTERED · AUTHORIZED · CAPTURED · EXPIRED · VOIDED · REFUNDED · CLOSED` · 거부 코드 `UNKNOWN_PAYMENT`(404) · `DEADLINE_PASSED` · `CLOSED` · 상태 이름(409) · 주입 503 `INJECTED_FAILURE`. `/admin/faults` 본문 `{seed, rules: {<op>: {delayMs, failRate, unknownRate, unknownDelayMs}}}` · op = `register · pay · authorize · capture · close`.
+- **main-app 설정 키**(기본값 = §8):
+  - `seat.payment.pg.base-url`(없음) · `seat.payment.pg.connect-timeout`(1s) · `seat.payment.pg.read-timeout`(3s) · `seat.payment.amount`(10000)
+  - `seat.compensation.mode`(none) · `seat.compensation.scheduler-enabled`(true — 테스트 기반 `IntegrationTest`는 false로 핀)
+  - `seat.compensation.worker.interval`(1s) · `.batch`(50) · `.lease`(30s) · `.max-attempts`(10) · `.backoff-initial`(1s) · `.backoff-max`(60s)
+  - `seat.compensation.sweep.interval`(5s) · `.batch`(200)
+- **한 주기 직접 호출(테스트용 빈)**: `com.jun.labs.seatreservation.service.impl.payment.CompensationWorker.runOnce(): Int`(처리한 작업 수) · `CompensationSweep.runOnce(): Int`(닫거나(모드 ≠ none) 탐지한(none) intent 수). 스케줄러는 이 둘을 주기로 부른다.
+- **관리 API**: `POST /internal/compensations/{id}/retry` → DEAD면 PENDING · attempts 0 · 200 / DEAD 아니면 409 / 없으면 404.
+- **지표**: `seat.compensation.done{type, result}` · `.retry{type}` · `.dead{type}` · `.unresolved`(none 탐지) · `.oldest_pending_seconds`(게이지) · `.record_failed` · `seat.confirm.legacy` · `seat.confirm.uid_conflict`.
+- **테스트 연결**: main-app `testImplementation(project(":mock-pg"))` — 테스트가 같은 JVM에서 `SpringApplicationBuilder(MockPgApplication::class.java)`로 랜덤 포트에 띄우고, 원장 시계 빈 `mockPgClock`을 main-app의 `MutableClock`에 위임하는 시계로 바꾼다(앱과 PG가 같은 시각). `seat.payment.pg.base-url`을 그 주소로 준다.
+- **PG 등록 시점**: payment-start 첫 200 커밋 뒤(트랜잭션 밖)에 `POST /intents {uid, userId, amount, deadline = pay_by}` — 실패(타임아웃 · 5xx · 연결)면 payment-start 응답 503 · intent는 OPEN 그대로 · 재호출이 다시 등록(멱등). 등록이 409 `CLOSED`면 payment-start 409 `HOLD_EXPIRED`.
