@@ -11,5 +11,15 @@ class SeatReservationException(
     val compensation: CompensationView? = null,
 ) : RuntimeException(errorCode.message)
 
-/** ADR-017 설계-4.3 응답 본문의 보상 정보 — 작업이 있을 때만(모드 none이면 없음) */
-data class CompensationView(val taskId: Long, val type: String, val status: String)
+/**
+ * ADR-017 설계-4.3 응답 본문의 보상 정보 — 보상이 있을 때만(모드 none이면 없음).
+ * 작업(CLOSE · CAPTURE)이면 [taskId] · 대체 좌석(S — type SUBSTITUTE · status DONE)이면 [reservationId] · [seatId].
+ */
+@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+data class CompensationView(
+    val taskId: Long?,
+    val type: String,
+    val status: String,
+    val reservationId: Long? = null,
+    val seatId: Long? = null,
+)

@@ -37,6 +37,8 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // ADR-017 명세 부록 A — 앱 ↔ 흉내 PG 통합 테스트가 mock-pg를 같은 JVM 랜덤 포트로 띄운다
+    testImplementation(project(":mock-pg"))
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")

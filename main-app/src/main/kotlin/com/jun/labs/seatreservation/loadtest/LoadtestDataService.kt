@@ -183,7 +183,7 @@ class LoadtestDataService(
             """.trimIndent(),
             graceSeconds.toDouble(), limit,
         )
-        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result + expiryStates()
+        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result + expiryStates() + paymentStates()
         // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
         if (properties.limitStrategy !in COUNTER_STRATEGIES) return base
         // ADR-009 판정기 v2(명세 §10): 마감 회차(starts_at <= 앱 Clock now)는 카운터를 쓰지 않는다 — 그 회차의 쌍은 빼고, 뺀 회차·쌍 수를 함께 낸다.
@@ -211,6 +211,38 @@ class LoadtestDataService(
             Timestamp.from(clock.instant()),
         )
         return base + counter
+    }
+
+    /**
+     * ADR-017 설계-6 결제 · 보상 항목(DB만으로 셀 수 있는 것 — PG 원장 대조는 하네스 요약기 몫). V15 앞 스키마에서는 내지 않는다.
+     * 기존 `v_*` 합계 규칙에 섞지 않게 `pay_` 접두어 — 기대 0: pay_multi_reservation_intents(N17-1) · pay_rejection_state_mismatch(N17-2) ·
+     * pay_reserved_with_close(N17-5 — 예약이 있는 intent에 CLOSE 작업) · pay_capture_and_close(N17-8) · pay_dead_tasks(모드 ≠ none · 배수 뒤) ·
+     * pay_rejected_without_task(모드 ≠ none — 대체 아닌 거부 · 안전망 종결에 CLOSE 작업 없음). 보고: 나머지.
+     */
+    private fun paymentStates(): Map<String, Any?> {
+        if (jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) != true) return emptyMap()
+        return jdbcTemplate.queryForMap(
+            """
+            SELECT
+              (SELECT count(*) FROM payment_intent)                                                                            AS pay_intents,
+              (SELECT count(*) FROM payment_intent WHERE state = 'OPEN')                                                       AS pay_open_intents,
+              (SELECT count(*) FROM payment_intent i WHERE i.state = 'OPEN'
+                 AND NOT EXISTS (SELECT 1 FROM seat_hold h WHERE h.id = i.hold_id AND h.expires_at > now()))                  AS pay_open_unheld_intents,
+              (SELECT count(*) FROM (SELECT intent_id FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id HAVING count(*) > 1) x) AS pay_multi_reservation_intents,
+              (SELECT count(*) FROM payment_intent i WHERE (i.state IN ('REJECTED', 'SUBSTITUTED')) <>
+                 EXISTS (SELECT 1 FROM confirm_rejection r WHERE r.uid = i.uid))                                               AS pay_rejection_state_mismatch,
+              (SELECT count(*) FROM payment_intent i WHERE EXISTS (SELECT 1 FROM reservation r WHERE r.intent_id = i.uid)
+                 AND EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                      AS pay_reserved_with_close,
+              (SELECT count(*) FROM payment_intent i WHERE EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CAPTURE')
+                 AND EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                      AS pay_capture_and_close,
+              (SELECT count(*) FROM payment_intent i WHERE i.state IN ('REJECTED', 'CLOSING')
+                 AND NOT EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                  AS pay_rejected_without_task,
+              (SELECT count(*) FROM compensation_task WHERE status IN ('PENDING', 'IN_PROGRESS'))                              AS pay_pending_tasks,
+              (SELECT count(*) FROM compensation_task WHERE status = 'DEAD')                                                   AS pay_dead_tasks,
+              (SELECT count(*) FROM compensation_task WHERE type = 'CAPTURE' AND status = 'DONE' AND last_result LIKE 'FAILED%') AS pay_moneyless_reservations,
+              (SELECT count(*) FROM reservation WHERE origin = 'SUBSTITUTE')                                                   AS pay_substitute_reservations
+            """.trimIndent(),
+        )
     }
 
     /**

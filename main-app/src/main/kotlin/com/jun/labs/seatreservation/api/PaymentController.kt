@@ -2,7 +2,7 @@ package com.jun.labs.seatreservation.api
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.jun.labs.seatreservation.domain.CompensationView
-import com.jun.labs.seatreservation.service.impl.payment.CompensationTasks
+import com.jun.labs.seatreservation.service.impl.payment.PaymentConfirmService
 import com.jun.labs.seatreservation.service.impl.payment.PaymentIntents
 import org.springframework.context.annotation.Profile
 import org.springframework.http.ResponseEntity
@@ -19,7 +19,7 @@ import java.time.Instant
 @Profile("!reconciler")
 class PaymentController(
     private val intents: PaymentIntents,
-    private val tasks: CompensationTasks,
+    private val confirm: PaymentConfirmService,
 ) {
     @GetMapping("/api/payments/{uid}")
     fun get(
@@ -30,7 +30,7 @@ class PaymentController(
         return ResponseEntity.ok(
             PaymentView(
                 paymentUid = intent.uid, holdId = intent.holdId, state = intent.state.name, payBy = intent.payBy,
-                resultCode = intent.resultCode, reservationId = intent.reservationId, compensation = tasks.viewFor(uid),
+                resultCode = intent.resultCode, reservationId = intent.reservationId, compensation = confirm.compensationView(intent),
             ),
         )
     }

@@ -47,7 +47,7 @@ const val PIN_FLYWAY_BASE = "spring.flyway.locations=classpath:db/migration"
  */
 @SpringBootTest(
     properties = [
-        "seat.hold.expiry-scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
+        "seat.hold.expiry-scheduler-enabled=false", "seat.compensation.scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
         PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE,
     ],
 )

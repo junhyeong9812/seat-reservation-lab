@@ -5,6 +5,7 @@ import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.ReservationStatus
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.domain.httpStatusCode
+import com.jun.labs.seatreservation.service.CompensationMode
 import com.jun.labs.seatreservation.service.CompensationProperties
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.ConfirmReservationResult
@@ -32,6 +33,7 @@ class PaymentConfirmService(
     private val confirmUseCase: ConfirmReservationUseCase,
     private val intents: PaymentIntents,
     private val tasks: CompensationTasks,
+    private val substitutes: SubstituteAllocator,
     private val compensation: CompensationProperties,
     private val jdbc: JdbcTemplate,
     private val tx: TransactionTemplate,
@@ -50,6 +52,14 @@ class PaymentConfirmService(
         } catch (e: UidConflict) {
             meters.counter(UID_CONFLICT_METRIC).increment()
             throw SeatReservationException(ErrorCode.SEAT_NOT_HELD)
+        }
+        // S: 대체 배정을 먼저 한 트랜잭션에서 해 보고(성공이면 SUBSTITUTED), 안 되면 그 트랜잭션을 버리고 CLOSE로 넘긴다(설계-5 · N17-9)
+        if (compensation.mode == CompensationMode.SUBSTITUTE) {
+            try {
+                return tx.execute { substitute(command.paymentUid, rejected.errorCode) }!!.orThrow()
+            } catch (e: SubstituteAllocator.Unavailable) {
+                log.info("대체 좌석 배정 실패({}) — CLOSE로 넘긴다 uid={}", e.message, command.paymentUid)
+            }
         }
         val outcome = try {
             tx.execute { recordRejection(command.paymentUid, rejected.errorCode) }!!
@@ -72,7 +82,13 @@ class PaymentConfirmService(
             "UPDATE payment_intent SET state = ?, reservation_id = ? WHERE uid = ?",
             State.CONFIRMED.name, result.reservationId, intent.uid,
         )
-        return ConfirmResponse(result, compensation = null)
+        // D: 확정 성공 ⇔ 같은 트랜잭션의 CAPTURE 작업(N17-8)
+        val capture = if (compensation.mode == CompensationMode.AUTH_CAPTURE) {
+            tasks.enqueue(intent.uid, CompensationTasks.Type.CAPTURE, CompensationTasks.Source.CONFIRM, clock.instant())
+        } else {
+            null
+        }
+        return ConfirmResponse(result, compensation = capture)
     }
 
     /** 거부 뒤 새 트랜잭션 — 재잠금 · OPEN이면 기록, 아니면 재생 */
@@ -89,14 +105,38 @@ class PaymentConfirmService(
         return Outcome.Rejected(code, task)
     }
 
+    /** S — 재잠금 · OPEN이면 거부 기록 + 대체 배정(실패면 [SubstituteAllocator.Unavailable]로 이 트랜잭션째 버린다) */
+    private fun substitute(uid: String, code: ErrorCode): Outcome {
+        val intent = intents.lock(uid)!!
+        if (intent.state != State.OPEN) return replay(intent)
+        val now = clock.instant()
+        jdbc.update(
+            "INSERT INTO confirm_rejection (uid, code, http_status, rejected_at) VALUES (?, ?, ?, ?)",
+            uid, code.name, code.httpStatusCode(), Timestamp.from(now),
+        )
+        val got = substitutes.allocate(intent, code, now)
+        return Outcome.Rejected(code, substituted(got.reservationId, got.seatId))
+    }
+
+    private fun substituted(reservationId: Long, seatId: Long) =
+        CompensationView(taskId = null, type = SUBSTITUTE, status = "DONE", reservationId = reservationId, seatId = seatId)
+
+    /** 조회 · 재생 공용 — 그 intent의 보상 정보(지금 값). 대체 성공이면 SUBSTITUTE, 아니면 작업(CLOSE 먼저 · 없으면 CAPTURE) */
+    fun compensationView(intent: PaymentIntents.Intent): CompensationView? {
+        if (intent.state == State.SUBSTITUTED) {
+            val seatId = jdbc.queryForObject("SELECT seat_id FROM reservation WHERE id = ?", Long::class.java, intent.reservationId)!!
+            return substituted(intent.reservationId!!, seatId)
+        }
+        return tasks.viewFor(intent.uid)
+    }
+
     /** ⓒ 재생 — 첫 결과 코드 · 예약 id는 intent에서, 보상 상태는 지금 값 */
     private fun replay(intent: PaymentIntents.Intent): Outcome {
         if (intent.state == State.CONFIRMED) {
             val seatId = jdbc.queryForObject("SELECT seat_id FROM reservation WHERE id = ?", Long::class.java, intent.reservationId)!!
             return Outcome.Confirmed(ConfirmResponse(ConfirmReservationResult(intent.reservationId!!, seatId, ReservationStatus.CONFIRMED), tasks.find(intent.uid, CompensationTasks.Type.CAPTURE)))
         }
-        val code = ErrorCode.valueOf(intent.resultCode!!)
-        return Outcome.Rejected(code, tasks.viewFor(intent.uid))
+        return Outcome.Rejected(ErrorCode.valueOf(intent.resultCode!!), compensationView(intent))
     }
 
     private sealed interface Outcome {
@@ -115,6 +155,7 @@ class PaymentConfirmService(
         const val LEGACY_METRIC = "seat.confirm.legacy"
         const val UID_CONFLICT_METRIC = "seat.confirm.uid_conflict"
         const val RECORD_FAILED_METRIC = "seat.compensation.record_failed"
+        const val SUBSTITUTE = "SUBSTITUTE"
     }
 }
 
