@@ -60,6 +60,8 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // ADR-017 테스트가 설정 조합별 컨텍스트(캐시 최대 32)와 같은 JVM의 흉내 PG를 더해 기본 512m를 넘긴다
+    maxHeapSize = "2g"
 }
 
 // 폴더를 main-app/으로 옮겨도 산출물은 이동 전과 같게 둔다(task 04b — 동작 무변경):
