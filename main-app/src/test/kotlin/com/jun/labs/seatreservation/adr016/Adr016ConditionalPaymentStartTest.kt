@@ -157,7 +157,7 @@ class Adr016ConditionalPaymentStartTest : Adr016Base() {
     // ── N16-1 쓰기 0 · 읽기 전용 ───────────────────────────────────────────────────────────────
 
     @Test
-    fun `N16-1 — 200 · 거부 모두 행 무변경 · HTTP 스레드 쓰기 · 잠금 문장 0 · seat_hold 읽기는 읽기 전용 연결`() {
+    fun `N16-1(ADR-017 대체) — 200 · 거부 모두 홀드 · 좌석 · 쿼터 · 예약 무변경 · 쓰기는 200의 payment_intent 하나뿐 · 거부는 intent 없음`() {
         val seat = createSeat(1).id!!
         val hold = holdOk(seat, x)
         val e = expiresAtOf(hold)
@@ -175,10 +175,14 @@ class Adr016ConditionalPaymentStartTest : Adr016Base() {
             val (r, sql) = psStatements { paymentStart(who.second, who.first) }
             assertEquals(expectStatus.getValue(label), r.status, "$label: $r")
             assertEquals(before, rowsSnapshot(), "$label — 홀드 · 좌석 · 쿼터 · 예약 행(표지 extended_at 포함) 무변경(N16-1)")
-            assertTrue(sql.none { isWriteOrLock(it.sql) }, "$label — HTTP 스레드 쓰기 · 잠금 문장 0이어야 한다(잠금 없는 SELECT만): ${sql.map { it.sql }}")
+            // ADR-017 설계-4.2(I13): ①도 첫 200에서 결제 의도 행을 만든다 — 그 밖의 쓰기 · 잠금 문장은 여전히 0(N16-1의 홀드 · 좌석 · 쿼터 · 표지 무변경은 그대로)
+            val others = sql.filterNot { it.sql.contains("payment_intent") }
+            assertTrue(others.none { isWriteOrLock(it.sql) }, "$label — payment_intent 밖 쓰기 · 잠금 문장 0이어야 한다: ${sql.map { it.sql }}")
             val holdReads = sql.filter { it.sql.contains("from seat_hold") }
             assertTrue(holdReads.isNotEmpty(), "$label — seat_hold 읽기가 탭에 보이지 않는다(탭 미장착?): ${sql.map { it.sql }}")
-            assertTrue(holdReads.all { it.readOnly }, "$label — seat_hold 읽기는 읽기 전용 트랜잭션 연결(setReadOnly(true))에서: $holdReads")
+            // 사례는 ok가 먼저 — ok가 만든 1행이 그대로이고 거부는 새 intent를 만들지 않는다(ADR-017 설계-4.2)
+            val intents = jdbcTemplate.queryForObject("SELECT count(*) FROM payment_intent", Int::class.java)
+            assertEquals(1, intents, "$label — intent는 첫 200의 1행뿐")
         }
         assertNull(extendedAtOf(hold), "① 확인은 표지 extended_at을 남기지 않는다")
         assertEquals("HELD", seatStatusOf(seat)); assertEquals(1, cntOf(x))
@@ -236,10 +240,11 @@ class Adr016ConditionalPaymentStartTest : Adr016Base() {
         val hold = holdOk(seat, x)
         val e = expiresAtOf(hold)
         clock.set(NOW.plusSeconds(60))
-        assertEquals(200, paymentStart(hold, x).status)
+        val ps = paymentStart(hold, x) // ADR-017: payment-start를 부른 홀드는 발급 uid로만 확정한다
+        assertEquals(200, ps.status)
         assertEquals(e, expiresAtOf(hold), "200은 expires_at을 늘리지 않는다")
         clock.set(e.minusMillis(1))
-        assertEquals(200, confirmHttp(hold, x).status, "e 직전 확정은 성공")
+        assertEquals(200, confirmHttp(hold, x, ps.json!!.get("paymentUid").asText()).status, "e 직전 확정은 성공")
     }
 }
 

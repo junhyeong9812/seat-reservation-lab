@@ -1,5 +1,7 @@
 package com.jun.labs.seatreservation.loadtest
 
+import com.jun.labs.seatreservation.service.CompensationProperties
+import com.jun.labs.seatreservation.service.CompensationMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.UserLimitStrategyType
@@ -30,6 +32,8 @@ class LoadtestDataService(
     private val clock: Clock,
     /** 측정 전용 앱 경로 주입(ADR-012 §4.2.7 — 같은 loadtest 프로필). 직접 생성(판정기 테스트)할 때는 없다 */
     private val injector: AppPathInjector? = null,
+    /** ADR-017 보상 모드 — pay_rejected_without_task는 모드 ≠ none에서만 기대 0이다(직접 생성하면 없다 → 모드 모름 · 항목은 그대로 낸다) */
+    private val compensation: CompensationProperties? = null,
 ) {
 
     /**
@@ -42,8 +46,11 @@ class LoadtestDataService(
         require(backgroundRows in 0..5_000_000) { "배경 규모 범위 초과" }
         // 배경 홀드·예약은 쿼터 행 없이 넣으므로 counter에서는 v_counter_mismatch가 거짓 위반을 낸다 — 섞지 않는다(ADR-005)
         require(backgroundRows == 0 || properties.limitStrategy !in COUNTER_STRATEGIES) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
+        // ADR-017 V15 표는 회차 · 좌석 · 예약과 FK로 묶여 함께 비운다(RD17-12 — 회차마다 섞이지 않게). V15 앞 스키마(target 7 등)에는 없다
+        val v15 = jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
         jdbcTemplate.execute(
-            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota RESTART IDENTITY",
+            "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota" +
+                (if (v15) ", payment_intent, confirm_rejection, compensation_task" else "") + " RESTART IDENTITY",
         )
         // ADR-012 rv44 RG-1: 초기화 앞(예열)의 앱 경로 주입 기록·상태를 비운다 — 측정의 max-pairs·effect.json에 예열 주입이 섞이지 않게.
         // counter_app_inject는 V10(선택 위치 migration-incremental)에만 있다
@@ -180,7 +187,7 @@ class LoadtestDataService(
             """.trimIndent(),
             graceSeconds.toDouble(), limit,
         )
-        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result + expiryStates()
+        val base = linkedMapOf<String, Any?>("grace_seconds" to graceSeconds, "max_per_user_limit" to limit) + result + expiryStates() + paymentStates()
         // ADR-005 counter: 카운터 = 홀드 + 확정 예약 수여야 한다. 다른 매수 방식은 cnt를 유지하지 않으므로(쿼터 행은 0) 항목 자체를 내지 않는다
         if (properties.limitStrategy !in COUNTER_STRATEGIES) return base
         // ADR-009 판정기 v2(명세 §10): 마감 회차(starts_at <= 앱 Clock now)는 카운터를 쓰지 않는다 — 그 회차의 쌍은 빼고, 뺀 회차·쌍 수를 함께 낸다.
@@ -208,6 +215,41 @@ class LoadtestDataService(
             Timestamp.from(clock.instant()),
         )
         return base + counter
+    }
+
+    /**
+     * ADR-017 설계-6 결제 · 보상 항목(DB만으로 셀 수 있는 것 — PG 원장 대조는 하네스 요약기 몫). V15 앞 스키마에서는 내지 않는다.
+     * 기존 `v_*` 합계 규칙에 섞지 않게 `pay_` 접두어 — 기대 0: pay_multi_reservation_intents(N17-1) · pay_rejection_state_mismatch(N17-2) ·
+     * pay_reserved_with_close(N17-5 — 예약이 있는 intent에 CLOSE 작업) · pay_capture_and_close(N17-8) · pay_dead_tasks(모드 ≠ none · 배수 뒤) ·
+     * pay_rejected_without_task(모드 ≠ none — 대체 아닌 거부 · 안전망 종결에 CLOSE 작업 없음 · 모드 none이면 작업이 없는 것이 정상이라 이 항목을 빼고 낸다). 보고: 나머지 · pay_compensation_mode.
+     */
+    private fun paymentStates(): Map<String, Any?> {
+        if (jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) != true) return emptyMap()
+        val mode = compensation?.mode
+        val states = jdbcTemplate.queryForMap(
+            """
+            SELECT
+              (SELECT count(*) FROM payment_intent)                                                                            AS pay_intents,
+              (SELECT count(*) FROM payment_intent WHERE state = 'OPEN')                                                       AS pay_open_intents,
+              (SELECT count(*) FROM payment_intent i WHERE i.state = 'OPEN'
+                 AND NOT EXISTS (SELECT 1 FROM seat_hold h WHERE h.id = i.hold_id AND h.expires_at > now()))                  AS pay_open_unheld_intents,
+              (SELECT count(*) FROM (SELECT intent_id FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id HAVING count(*) > 1) x) AS pay_multi_reservation_intents,
+              (SELECT count(*) FROM payment_intent i WHERE (i.state IN ('REJECTED', 'SUBSTITUTED')) <>
+                 EXISTS (SELECT 1 FROM confirm_rejection r WHERE r.uid = i.uid))                                               AS pay_rejection_state_mismatch,
+              (SELECT count(*) FROM payment_intent i WHERE EXISTS (SELECT 1 FROM reservation r WHERE r.intent_id = i.uid)
+                 AND EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                      AS pay_reserved_with_close,
+              (SELECT count(*) FROM payment_intent i WHERE EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CAPTURE')
+                 AND EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                      AS pay_capture_and_close,
+              (SELECT count(*) FROM payment_intent i WHERE i.state IN ('REJECTED', 'CLOSING')
+                 AND NOT EXISTS (SELECT 1 FROM compensation_task t WHERE t.uid = i.uid AND t.type = 'CLOSE'))                  AS pay_rejected_without_task,
+              (SELECT count(*) FROM compensation_task WHERE status IN ('PENDING', 'IN_PROGRESS'))                              AS pay_pending_tasks,
+              (SELECT count(*) FROM compensation_task WHERE status = 'DEAD')                                                   AS pay_dead_tasks,
+              (SELECT count(*) FROM compensation_task WHERE type = 'CAPTURE' AND status = 'DONE' AND last_result LIKE 'FAILED%') AS pay_moneyless_reservations,
+              (SELECT count(*) FROM reservation WHERE origin = 'SUBSTITUTE')                                                   AS pay_substitute_reservations
+            """.trimIndent(),
+        )
+        if (mode == CompensationMode.NONE) states.remove("pay_rejected_without_task")
+        return linkedMapOf<String, Any?>("pay_compensation_mode" to (mode?.name?.lowercase()?.replace('_', '-') ?: "unknown")) + states
     }
 
     /**

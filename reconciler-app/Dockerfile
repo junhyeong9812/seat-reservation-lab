@@ -7,6 +7,7 @@ COPY gradle gradle
 COPY main-app/build.gradle.kts main-app/
 COPY reconcile-core/build.gradle.kts reconcile-core/
 COPY reconciler-app/build.gradle.kts reconciler-app/
+COPY mock-pg/build.gradle.kts mock-pg/
 RUN ./gradlew --no-daemon -q :reconciler-app:dependencies > /dev/null
 COPY reconcile-core reconcile-core
 COPY reconciler-app/src/main reconciler-app/src/main
