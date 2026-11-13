@@ -60,6 +60,12 @@
 | 11-10 06:xx | task 09: ADR-016 §실험 결과(결과-1~6) · §결정 작성 · 상태 줄 갱신 · 결과 요약 파일 커밋 fca11c27c(87파일 · 원자료 gz · 로그 제외 · 누출 스캔 0) · 결과 문서 듀얼 1패스 packet: base fca11c27c · 대상 ADR-016 문서 diff · OUT=`scratchpad/rv16r-OLNQ` · 미러=`scratchpad/rvm16r-fHti`(보안 스캔 — 비밀값 후보 2,960 미러 안 redact 후 0 · 키패턴 0) · codex ∥ Opus | 실행 중 |
 | 11-10 07:xx | 결과 문서 듀얼 1패스 회수: codex(EXIT 0) F1~F4 · Opus 워커(185,487 토큰) F1~F9 + OQ 4 → 종합 RR16-1~8 전부 채택 · 고침(G-모형 = 세션 대조 19,800 bad 0 · 재선점 해석 = 만료 홀드 전부의 몫 · ④+ⓒ 짝 nc는 ⓒ 결제 실패 좌석 · δ̂ = 응답 시간 상한 · 최대 수명 T + W ≤ 851초 · PC TIME_WAIT · 비용 수용은 사용자 결정 대기 · 7.3만~8만 · cost 열 2개) · codex 종합 감사 '없음' + post-fix 재점검 clean(한 호출 — A · B 분리 출력) · NEXT.md 동기화 + 러너 로그 덮어씀 원인(campaign16.sh:109 `tee /dev/stderr` O_TRUNC) | docs 커밋 → 사용자 보고(비용 수용 · 기본값 교체 결정) |
 | 11-10 07:xx | 사이클 마감: NEXT.md 갱신 · 측정 로그 1행 · CS 이슈 아카이브는 보류(study-note = 명세 금지영역 — 후보: JPA 단방향 @OneToMany 외래키 채우기 UPDATE · `tee /dev/stderr` O_TRUNC) · 미러 rvm16r 삭제 | 사용자 결정 대기: G-비용 수용 · 앱 기본값 교체 · push · PR |
+| 11-10 12:35 | 사용자 결정: ④ + ⓒ 채택 · G-비용(홀드 수명 최대 약 14분 · 재선점) 수용 · 앱 기본값 교체를 이번 작업에 포함(별도 커밋 — 명세 '앱 기본값 변경은 사용자 확인 뒤 별도') · 끝나면 push만(PR 없음) | 기본값 교체 착수 — 영향 조사 = 코드 기본값 + application.yml 교체 후 전체 테스트 |
+| 11-10 13:02 | 기본값 교체 진행 중 중단(사용자 이동): 코드 기본값 · application.yml · ops README 2개 · 기동 검사 주석 교체 · 새 계약 테스트 Adr016DefaultModeContractTest · 기본 θ/M = 0 가정 테스트 5파일 명시화(Adr015DefaultMode · Adr015Startup · Adr016ConditionalZeroTheta · Adr016Startup · Adr016ThetaTtl). 전체 테스트(수정 전 코드로 시작)는 사용자 요청으로 중지 — 그때까지 실패 = 위 5파일 해당 칸뿐 | 미커밋 · 재개 = 수정 후 전체 테스트 다시 → 나머지 실패 고침 → 듀얼 1패스 → 커밋 → push |
+| 11-13 14:14 | 기본값 교체 전체 테스트(수정본 · 32분 20초) | 214클래스 · 1166 · 실패 0 · 오류 0 · 건너뜀 24(이전 213 · 1165 · 건너뜀 24 — +새 계약 클래스 2 · Adr015 기본값 값 칸 1 이전) · EXIT 0 |
+| 11-13 14:15 | 기본값 교체 듀얼 1패스 착수: base 6198f0455 + 작업트리 · OUT = scratchpad/rv16d-mYXY · 미러 = scratchpad/rvm16d-HKX0(k6/*/results 제외 · 9.1M) · 보안 스캔: 키 패턴 0 · password/token 값 = 코드 식별자 · 사설망 IP(192.168.x — 기존 하네스 문서) 오탐 판정 · codex ∥ Opus 워커 동시 시작 | 회수 대기 |
+| 11-13 14:24 | 듀얼 1패스 회수: codex(EXIT 0) finding 0 · verified 7 · OQ 1 / Opus 워커(128,316 토큰 · 224초) F1~F4 + OQ 3 → 종합 RD-1~4 전부 채택(RD-1 문서 처방 · RD-2~4 고침) → 영향 4클래스 재실행 green(26 테스트) → codex 감사 '없음' · post-fix 재점검 clean · 미러 삭제 | 커밋 단계 |
+| 11-13 14:25 | 기본값 교체 커밋 9d2bf21b5(main-app · ops 13파일) · ADR-016 상태 줄 · §결정(사용자 채택 · 기본값 교체 · 클라이언트 계약 · 되돌림 · 옛 하네스 주의 RD-1) · NEXT N00b 갱신 → docs 커밋 | push 대기(사용자 지시: push만) |
 
 ## 리뷰 ledger
 
@@ -134,6 +140,17 @@
 | DV-12 | codex F10 · opus F10 · F11 | 실제 눈금 상수 · 예산 | 채택 — grace · converge · pre-VU · cost 창 재계산 · ⓑ 없는 흐름도 긴 간격 앞 close · plan16 --dry-run으로 시간 · VU 산정 → 예산 넘치면 줄이는 안 보고 · 세션 행은 paid-flow만 | fixed(명세 · 예산은 dry-run 뒤 보고) |
 | DV-13 | opus F13 · F14 | ⓒ 가정 · CAP 30 | 채택(낮음) — 결정 문서에 'PG가 상한 강제' 조건 · ⓒ 끔 짝 흐름 일치 조건 · CAP 30분 결과 병기 | fixed(명세) |
 | DV-14 | opus θ<TTL 주의 | plan16 렌더 | 채택 — 모든 ① · ④ 렌더 M ≤ θ < min(TTL, W) dry-run 점검 | fixed(명세) |
+
+
+### 기본값 교체(2026-11-13 · 듀얼 1패스 · loop 1)
+
+| id | first_seen_loop | source | 근거 | disposition | status | fixed_in_loop |
+|---|---|---|---|---|---|---|
+| RD-1 | 1 | opus | k6/ADR-015/compose.confirm.yml:33 · plan15.py:167 · :208 · campaign16.sh:132-134 — 새 기본 M 1초로 ADR-015 하네스 ① 기동 거부 · 나머지 config 불일치(ADR-016 race 재측정 포함) | 채택(문서 처방 — ADR-015 하네스는 범위 밖) | fixed(docs 커밋) | 1 |
+| RD-2 | 1 | opus | PaymentStartController.kt:53 · HoldStrategyStartupCheck.kt:112 · BootSupport.kt:121 · Adr015StartupContractTest.kt:86 — '기본 conditional' 잔존 | 채택 | fixed | 1 |
+| RD-3 | 1 | opus | application.yml:34 — 되돌림 안내가 θ · M 0 복원을 빠뜨림 | 채택 | fixed | 1 |
+| RD-4 | 1 | opus | Adr016StartupContractTest.kt:112 — 모드 키 없는 ① 사례(검사 순서 의존) | 채택 | fixed | 1 |
+| RD-OQ | 1 | opus · codex | 전체 테스트(해소 — 실행 결과) · 홀드 수명 운영 메모 · payBy 강제(ADR §결정에 기술) | open question | 해소/문서 | 1 |
 
 ## 생략한 검증
 
