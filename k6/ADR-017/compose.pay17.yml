@@ -1,0 +1,45 @@
+# ADR-017 측정 오버레이(보상 R · D · S — 측정 명세 docs/plans/2026-11-14/adr-017-measurement §1-1) — k6/ADR-009/compose.yml + compose.tmpfs.yml + k6/ADR-015/compose.confirm.yml 위에 얹는다
+#   (lib17.sh가 lib15.sh의 COMPOSE_EXTRA 뒤에 더한다 · ADR-016 compose.paid16.yml은 쓰지 않는다 — 이 파일이 앱 JSON을 통째로 다시 쓴다):
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml -f k6/ADR-009/compose.tmpfs.yml -f k6/ADR-015/compose.confirm.yml -f k6/ADR-017/compose.pay17.yml …
+#   경로는 첫 파일(k6/ADR-009)의 폴더 기준 — 이 파일은 경로를 쓰지 않는다(빌드 절 없음 · 이미지 고정).
+# 앱(app): SPRING_APPLICATION_JSON을 통째로 바꾼다(ADR-015 오버레이 값 + ADR-016 M + ADR-017 키):
+#   seat.confirm = ④ conditional-extend · W · θ · M(앱 기본값 — 값은 plan17.py --render app_env가 늘 넘긴다 · 대조 = plan17.py --config-check)
+#   seat.hold    = sweep · TTL · 배치 주기 · pessimistic-nowait(ADR-015 오버레이와 같다)
+#   seat.payment.pg.base-url = PG_BASE_URL(컨테이너 망 안 주소 http://mock-pg:8104) — 비우면 키 자체가 빠져 PG 호출 0(N17-12 · 측정에서는 쓰지 않는다)
+#   seat.compensation.mode   = COMPENSATION_MODE(R refund · D auth-capture · S substitute) — 워커 · 안전망 손잡이(worker.* · sweep.*)는 넣지 않는다(앱 기본값 그대로 — configprops로 대조)
+#   변수 기본값은 실패하지 않는 값이다(none · 빈 base-url) — 잘못 뜬 모드는 configprops 대조가 잡는다.
+# 흉내 PG(mock-pg): image = seatlab-mockpg:<APP_TAG>(측정 SHA 8자 — 회차 준비가 `docker build -f mock-pg/Dockerfile -t seatlab-mockpg:<SHA> .`로 만들고 images.json aux에 id를 적는다) ·
+#   pull_policy never · 포트 8104(k6 PC가 pay · authorize를 직접 부른다 · 하네스가 /ledger · /admin/* 를 부른다) · 승인 유효 시간 MOCKPG_AUTH_TTL(기본 30m — mock-pg 기본값과 같게 늘 명시).
+#   상태 확인 = 없는 uid 조회가 404를 돌려주는가(원장 · 호출 수를 바꾸지 않는 읽기 — /ledger 덤프를 반복하지 않게).
+#   측정 중 흉내 PG는 죽이지 않는다(원장이 메모리 — 설계-3) · 회차 리셋은 /admin/reset + /admin/faults 재설정(설계-6 · ADR-017 §구현).
+services:
+  mock-pg:
+    image: seatlab-mockpg:${APP_TAG:-none}
+    pull_policy: never
+    command: ["--mock-pg.auth-ttl=${MOCKPG_AUTH_TTL:-30m}"]
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    ports:
+      - "8104:8104"
+    cpus: ${MOCKPG_CPUS:-2}
+    mem_limit: ${MOCKPG_MEM:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8104/payments/__health)\" = 404"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  app:
+    depends_on:
+      mock-pg:
+        condition: service_healthy
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"confirm":{"mode":"${CONFIRM_MODE:-conditional-extend}","payment-window":"${PAYMENT_WINDOW:-611s}","payment-min-remaining":"${PAYMENT_MIN_REMAINING:-1s}",
+                            "pay-by-margin":"${PAY_BY_MARGIN:-1s}","loadtest":{"delay":"${CONFIRM_DELAY:-0ms}"}},
+                 "hold":{"expiry-mode":"sweep","ttl":"${HOLD_TTL:-300s}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"},
+                 "payment":{${PG_BASE_URL:+"pg":{"base-url":"${PG_BASE_URL}"}}},
+                 "compensation":{"mode":"${COMPENSATION_MODE:-none}"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental}"},
+                   "data":{"redis":{"host":"redis","port":6379}}},
+         "server":{"tomcat":{"max-connections":${TOMCAT_MAX_CONNECTIONS:-20000}}}}
