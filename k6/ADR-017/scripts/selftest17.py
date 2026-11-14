@@ -224,7 +224,11 @@ class World:
         js("app-config.json", app_config(self.cand))
         js("seed-check.json", {"schedules": 1, "seats": p["seed"]["seats"], "available": p["seed"]["seats"], "holds": 0, "reservations": 0,
                                "quota_rows": 0, "flyway": ["1", "15"]})
-        js("meta.json", {"cand": self.cand, "cell": self.cell})
+        js("meta.json", {"cand": self.cand, "cell": self.cell, "sha": "c0ffee00", "harness_hash": "h" * 64})
+        js("pc-link.json", {"readable": True, "iface": "eno1", "since_epoch": int(T0_PC) - 100, "until_epoch": int(T0_PC) + 800, "down": 0, "lines": [], "why": ""})
+        (d / "timeline-client.jsonl").write_text("".join(json.dumps({"t": datetime.fromtimestamp(T0_PC + i, timezone.utc).isoformat(), "k6_pcpu": 10.0,
+                                                                     "k6_rss_kb": 100000, "load": "0 0 0", "mem_avail_kb": 20 * 1024 * 1024}) + "\n"
+                                                         for i in range(0, 705, 5)))
         if self.cell == "base":
             lines = []
             for i in range(0, 720, 10):
@@ -232,14 +236,16 @@ class World:
                 lines.append(json.dumps({"Name": "seatlab-db-1", "CPUPerc": f"{self.cpu}%", "MemUsage": "100MiB / 1GiB"}))
                 lines.append(json.dumps({"Name": "seatlab-app-1", "CPUPerc": "5%", "MemUsage": "300MiB / 2GiB"}))
             (d / "timeline-server.jsonl").write_text("\n".join(lines) + "\n")
-            head = ["metric_name", "timestamp", "metric_value", "check", "error", "error_code", "expected_response", "group", "method", "name", "proto",
-                    "scenario", "service", "status", "subproto", "tls_version", "url", "extra_tags", "metadata"]
-            with gzip.open(d / "k6-requests.csv.gz", "wt", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(head)
-                for name, v in (("confirm", self.lat["confirm"]), ("pay_start", self.lat["pay_start"])):
-                    for _ in range(10):
-                        w.writerow(["http_req_duration", "0", str(v), "", "", "", "true", "", "POST", name, "", "main", "", "200", "", "", "", "", ""])
+        head = ["metric_name", "timestamp", "metric_value", "check", "error", "error_code", "expected_response", "group", "method", "name", "proto",
+                "scenario", "service", "status", "subproto", "tls_version", "url", "extra_tags", "metadata"]
+        n_c = sum(1 for r in self.rows if isinstance(r.get("c1"), dict) and r["c1"]["st"] == 200)   # CSV 200 수 = 세션 로그 성공 수(L2-5)
+        n_p = sum(1 for r in self.rows if isinstance(r.get("p"), dict) and r["p"]["st"] == 200)
+        with gzip.open(d / "k6-requests.csv.gz", "wt", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(head)
+            for name, v, n in (("confirm", self.lat["confirm"], n_c), ("pay_start", self.lat["pay_start"], n_p)):
+                for _ in range(n):
+                    w.writerow(["http_req_duration", "0", str(v), "", "", "", "true", "", "POST", name, "", "main", "", "200", "", "", "", "", ""])
         (d / "status").write_text("ok\n")
         return d
 
@@ -498,7 +504,13 @@ def test_runs(tmp):
     mutated("inject-not-observed", no_inject, "inject-not-observed")
     mutated("inject-undecidable", edit("inject.json", lambda o: [r.update(failRate=1.0, unknownRate=0.0) for r in o["events"][1]["response"]["rules"].values()]),
             "inject-undecidable")
-    mutated("drain-cap", edit("drain.json", lambda o: o.update(reason="cap")), "drain-timeout")
+    # L2-2 배수 상한은 무효가 아니다(조회가 됐으면) — 남은 일은 G1
+    _, stc = mutated("L2-2-cap-ok", edit("drain.json", lambda o: o.update(reason="cap")), None)
+    check("L2-2-cap-not-invalid", stc == "ok", stc)
+    mutated("L2-2-cap-pollfail", edit("drain.json", lambda o: o.update(reason="cap", polls=[{"t_ms": T0, "err": "x"}])), "drain-poll-failed")
+    mutated("L2-2-unfinished", edit("db-dump.json", lambda o: o["compensation_task"][0].update(status="PENDING", done_ms=None)), None, g1_fail="unfinished_tasks")
+    mutated("L2-2-unfinished-capture", lambda d, w: edit("db-dump.json", lambda o: [t.update(status="IN_PROGRESS", done_ms=None) for t in o["compensation_task"]
+                                                                                    if t["type"] == "CAPTURE"][:1])(d, w), None, cand="D", cell="base", g1_fail="unfinished_tasks")
     mutated("no-late-rej", rows_edit(lambda rs: [dict(r, c1=dict(r["c1"], st=200, code="OK")) if r["kind"] == "late" else r for r in rs]), "no-late-rejection")
     mutated("no-sweep", edit("db-dump.json", lambda o: [t.update(source="REJECTION") for t in o["compensation_task"] if t["uid"] in ("u-0008",)]), "no-sweep-close")
     mutated("metric", edit("act17-end.json", lambda o: o["compensation"].update(done={})), "app-metric-mismatch")
@@ -507,6 +519,7 @@ def test_runs(tmp):
     mutated("k6-plan", edit("k6-summary.json", lambda o: o["adr017"].update(plan_n=999)), "k6-plan-mismatch")
     mutated("clock", edit("clock-offset.json", lambda o: o.update(before=None)), "clock-offset-bad")
     mutated("latency", rm("k6-requests.csv.gz"), "latency-missing", cell="base")
+    mutated("k6-csv-missing", rm("k6-requests.csv.gz"), "k6-csv-missing")
     mutated("dbcpu", rm("timeline-server.jsonl"), "db-cpu-missing", cell="base")
     mutated("harness", lambda d, w: Path(d, "harness-reasons.txt").write_text("compose-up-failed\n"), "compose-up-failed")
     # G1 항목 실패(회차는 유효 · g1 ok 거짓)
@@ -574,7 +587,60 @@ def test_runs(tmp):
         return go
     s7, st7 = mutated("L1-7-excused", ps_lost(T0 + 15500), None, cell="kill")
     check("L1-7-excused", "pg-not-reset" not in reasons_of(st7) and s7["kill"]["left_intents"] == 1 and s7["sessions"]["by_kind"]["ok"].get("app_dead") == 1, st7)
-    mutated("L1-7-outside", ps_lost(T0 + 200000), "pg-not-reset", cell="kill")
+    s7o, st7o = mutated("L1-7-outside", ps_lost(T0 + 200000), None, cell="kill")   # L2-1로 일반화 — 창 밖 생성이어도 (hold, user) 짝이면 이어진다
+    check("L1-7-outside-linked(L2-1)", "pg-not-reset" not in reasons_of(st7o) and s7o["record"]["ps_linked_uids"] == 1, st7o)
+    # ---- 리뷰 루프 2 수정 확인 ----
+    # L2-1 payment-start 미확정 세션의 uid 잇기(셀 무관)
+    def ps_unsettled(st):
+        def go(d, w):
+            rows_edit(lambda rs: [dict(r, uid=None, g=None, c1=None, c2=None, at=None, end="pay_start",
+                                       p=dict(r["p"], st=st, code="NOCODE", ok=False, uid=None, hid=None, exp=None, pb=None, pws=None, ext=None)) if r["sid"] == 0 else r for r in rs])(d, w)
+        return go
+    s21, st21 = mutated("L2-1-503-linked", ps_unsettled(503), None, cell="base")
+    check("L2-1-linked", "pg-not-reset" not in reasons_of(st21) and s21["record"]["ps_linked_uids"] == 1
+          and s21["sessions"]["mode_fail"].get("mode_fail:pay-start-503") == 1, st21 + json.dumps(s21["record"]))
+    mutated("L2-1-unlinked", lambda d, w: (ps_unsettled(503)(d, w), edit("db-dump.json", lambda o: [i.update(hold_id=9999) for i in o["payment_intent"] if i["uid"] == "u-0000"])(d, w)),
+            "pg-not-reset", cell="base")
+    mutated("L2-1-settled-409-not-linked", lambda d, w: rows_edit(lambda rs: [dict(r, uid=None, g=None, c1=None, c2=None, at=None, end="pay_start",
+                                                                                   p=dict(r["p"], st=409, code="HOLD_EXPIRED", ok=False, uid=None)) if r["sid"] == 0 else r for r in rs])(d, w),
+            "pg-not-reset", cell="base")
+    # L2-3 환경 사유
+    mutated("L2-3-pclink-missing", rm("pc-link.json"), "pc-link-missing")
+    mutated("L2-3-pclink-unreadable", edit("pc-link.json", lambda o: o.update(readable=False)), "pc-link-missing")
+    mutated("L2-3-pclink-down", edit("pc-link.json", lambda o: o.update(down=1)), "pc-link-down")
+    mutated("L2-3-client-missing", rm("timeline-client.jsonl"), "pc-mem-missing")
+    mutated("L2-3-client-low", lambda d, w: Path(d, "timeline-client.jsonl").write_text(Path(d, "timeline-client.jsonl").read_text().replace(
+        f'"mem_avail_kb": {20 * 1024 * 1024}', '"mem_avail_kb": 1000', 1)), "pc-mem-low")
+    mutated("L2-3-client-gap", lambda d, w: Path(d, "timeline-client.jsonl").write_text("\n".join(Path(d, "timeline-client.jsonl").read_text().splitlines()[:20]) + "\n"),
+            "pc-mem-missing")
+    def dropped(d, w):
+        with gzip.open(Path(d, "k6-requests.csv.gz"), "at", newline="") as f:
+            csv.writer(f).writerow(["dropped_iterations", "0", "3", "", "", "", "", "", "", "", "", "main", "", "", "", "", "", "", ""])
+    mutated("L2-3-dropped", dropped, "dropped-iterations")
+    for st_, want in (("ok", "valid"), ("", "harness"), ("invalid:env-stall", "env"), ("invalid:env-send-lag,env-stall", "env"),
+                      ("invalid:drain-poll-failed,pc-mem-low", "env"), ("invalid:pc-link-down,seed-mismatch", "env"), ("invalid:env-send-lag,seed-mismatch", "harness"),
+                      ("invalid:seed-mismatch", "harness")):
+        check(f"L2-3-env_kind/{st_}", SM.env_kind(st_) == want, SM.env_kind(st_))
+    import subprocess
+    kind_src = subprocess.run(["bash", "-c", f'source <(sed -n "/^kind_of() {{/,/^}}/p" {HERE / "campaign17.sh"}); for x in ok "" invalid:env-stall invalid:env-send-lag,env-stall '
+                               'invalid:drain-poll-failed,pc-mem-low invalid:pc-link-down,seed-mismatch invalid:env-send-lag,seed-mismatch invalid:seed-mismatch; do kind_of "$x"; done'],
+                              capture_output=True, text=True).stdout.split()
+    check("L2-3-campaign-kind_of=env_kind", kind_src == ["valid", "harness", "env", "env", "env", "env", "harness", "harness"], str(kind_src))
+    # L2-4 확정 송신 지연
+    s24, _ = summ(tmp / "ok-R-base")
+    check("L2-4-lag-dist", s24["send_lag_ms"]["n"] > 0 and s24["send_lag_ms"]["over"] == 0, json.dumps(s24["send_lag_ms"]))
+    mutated("L2-4-lag", rows_edit(lambda rs: [dict(r, c1=dict(r["c1"], ts=r["at"] + 2500)) if r["sid"] == 0 else r for r in rs]), "env-send-lag")
+    mutated("L2-4-no-max", edit("plan.json", lambda o: o["values"].pop("send_lag_max_ms")), "env-send-lag")
+    # L2-5 CSV 표본 수 = 세션 로그 성공 수
+    def csv_short(d, w):
+        rows_ = list(csv.reader(gzip.open(Path(d, "k6-requests.csv.gz"), "rt", newline="")))
+        with gzip.open(Path(d, "k6-requests.csv.gz"), "wt", newline="") as f:
+            csv.writer(f).writerows(rows_[:-1])
+    mutated("L2-5-csv-count", csv_short, "latency-missing", cell="base")
+    # L2-8 안전망 종결 = DONE만
+    mutated("L2-8-sweep-not-done", edit("db-dump.json", lambda o: [t.update(status="PENDING", done_ms=None) for t in o["compensation_task"] if t["uid"] == "u-0008"]),
+            "no-sweep-close")
+
     # L1-8 비용 보고
     sd, _ = summ(tmp / "ok-D-base")
     check("L1-8-void-time", sd["cost"]["void_time_s"]["n"] == 4 + 1, json.dumps(sd["cost"]["void_time_s"]))
@@ -641,6 +707,17 @@ def test_campaign(tmp):
     run("values-differ", values_differ, None, lambda o: check("campaign/values", all(v == "insufficient" for v in o["pass"].values()), str(o["pass"])))
     run("D-and-R-fail", lambda c, cell, rep: {"g2_extra_s": 200.0} if c in ("D", "R") and cell == "kill" else None, "S")
     run("none", lambda c, cell, rep: {"g2_extra_s": 200.0} if cell == "kill" else None, None)
+    # L2-6 회차 사이 대조(values 전체 · SHA · 하네스 해시)
+    def meta_mut(key, val):
+        return lambda c, cell, rep: {"mutate": lambda d: Path(d, "meta.json").write_text(json.dumps(dict(json.loads(Path(d, "meta.json").read_text()), **{key: val})))} \
+            if (c, cell, rep) == ("S", "kill", 2) else None
+    for nm, tw in (("sha", meta_mut("sha", "deadbeef")), ("hash", meta_mut("harness_hash", "x" * 64)), ("meta-none", meta_mut("sha", None)),
+                   ("values-other", lambda c, cell, rep: {"mutate": lambda d: Path(d, "plan.json").write_text(json.dumps(dict(json.loads(Path(d, "plan.json").read_text()),
+                    values=dict(json.loads(Path(d, "plan.json").read_text())["values"], rate=999))))} if (c, cell, rep) == ("R", "pg", 3) else None)):
+        run(f"L2-6-{nm}", tw, None, lambda o: check("L2-6-insufficient", all(v == "insufficient" for v in o["pass"].values()) and o["runs_consistent"] is False, str(o["pass"])))
+    # L2-7 R 판정 불가(G2 표본 0) → 모든 후보 판정 불가
+    run("L2-7-R-nosample", lambda c, cell, rep: {"summary_mut": lambda sm: sm["g2"].update(p99_s=None, n=0)} if (c, cell, rep) == ("R", "kill", 2) else None, None,
+        lambda o: check("L2-7", all(v == "insufficient" for v in o["pass"].values()), str(o["pass"])))
     # L1-9 G2 표본 0 = 판정 불가(실패가 아니다) · 판정된 실패가 우선
     nos = lambda c0, cell0: (lambda c, cell, rep: {"summary_mut": lambda sm: sm["g2"].update(p99_s=None, n=0)} if (c, cell, rep) == (c0, cell0, 1) else None)  # noqa: E731
     run("L1-9-D-nosample", nos("D", "pg"), None, lambda o: check("L1-9-insufficient", o["pass"]["D"] == "insufficient" and o["g2"]["D"]["pg"]["no_sample"], str(o["pass"])))

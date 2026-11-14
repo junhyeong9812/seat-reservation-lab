@@ -73,6 +73,11 @@ V_KEYS = ["v_duplicate_hold_seats", "v_excess_hold_rows", "v_duplicate_confirmed
           "v_confirmed_on_unreserved_seat", "v_held_without_hold", "v_hold_on_unheld_seat", "v_stale_held_seats",
           "v_over_limit_users", "v_counter_mismatch"]  # §6.3 필수 키 10
 KILL_TOL_MS_PLAN = 5000  # §11 values.kill_tol_ms
+SEND_LAG_MAX_MS = 2000  # §11 values.send_lag_max_ms
+PC_MEM_MIN_KB = 4 * 1024 * 1024  # §11 values.pc_mem_run_min_kb(4 GiB)
+PC_MEM_GAP_S = 30  # §11 values.pc_mem_gap_max_s
+K6_T0_PC_S = (T0 - 1000) / 1000.0  # k6-window(오프셋 0)
+K6_END_PC_S = (T0 + 700000) / 1000.0
 
 
 # ---- §7 inject-not-observed 결정열 — java.util.Random · String.hashCode 독립 구현 ----
@@ -182,7 +187,8 @@ def plan_obj(cand="R", cell="base", rep=1, fixed=False, cycle=None, n_total=None
             "pg": {"faults": copy.deepcopy(FAULTS_PG if cell == "pg" else FAULTS_BASE), "op": PG_OP[cand]},
             "kill": kill, "drain": {"cap_s": 600, "poll_s": 2, "est_s": 30},
             "values": {"g2_x_s": 30, "g2_y_s": 120, "kind_weights": {k: 1 for k in cycle}, "pg_rule": "fixed",
-                       "kill_tol_ms": KILL_TOL_MS_PLAN},
+                       "kill_tol_ms": KILL_TOL_MS_PLAN, "send_lag_max_ms": SEND_LAG_MAX_MS,
+                       "pc_mem_run_min_kb": PC_MEM_MIN_KB, "pc_mem_gap_max_s": PC_MEM_GAP_S},
             "rate": 1, "d_arr_s": 10,
             "app_env": {}, "k6": {"env": {"USER_BASE": str(USER_BASE)}}}
 
@@ -286,7 +292,7 @@ def row(kind, end="done", sid=None, cand="R", cell="base", rep=1, uid="__auto__"
     r["c1"] = c1 if c1 is not None else C200(100 + sid)
     if kind == "retry":
         r["c2"] = c2 if c2 is not None else copy.deepcopy(r["c1"])
-    r["at"] = T0 + 28
+    r["at"] = r["c1"]["ts"] - 2  # §7 send lag = c1.ts − at(허용치 안)
     return r
 
 
@@ -987,6 +993,14 @@ class Rep:
         self.harness = []
         self.k6_exit = 0
         self.drain_reason = "empty"
+        self.drain_polls = None
+        self.csv_mut = None        # 함수(list of csv 줄) → list
+        self.csv_rows_extra = []
+        self.pclink = {"readable": True, "iface": "enp3s0", "since_epoch": K6_T0_PC_S - 60, "until_epoch": K6_END_PC_S + 60,
+                       "down": 0, "lines": 0, "why": ""}
+        self.pcmem_step_s = 5
+        self.pcmem_kb = 8_000_000
+        self.pcmem_mut = None      # 함수(list of 줄) → list
         self.inject_events = None
         self.kill = None
         self.process_start = (1000.0, 1000.0)
@@ -1154,9 +1168,11 @@ class Rep:
                                           "rate": pl["rate"], "d_arr_s": pl["d_arr_s"],
                                           "plan_n": pl["n_total"], "cycle": pl["kind_cycle"], "params": pl["params"],
                                           "spare": pl["seed"]["spare"], "pg_url": "http://mock-pg:8104"}}
+        polls = self.drain_polls if self.drain_polls is not None else [
+            {"t_ms": T0 + 750000, "pending": 0, "open": 0, "open_unheld": 0},
+            {"t_ms": T0 + 757000, "pending": 0, "open": 0, "open_unheld": 0}]
         drain = {"start_ms": T0 + 700000 + 20000, "end_ms": T0 + 760000, "reason": self.drain_reason,
-                 "cap_s": 600, "poll_s": 2, "polls": [{"t_ms": T0 + 750000, "pending": 0, "open": 0, "open_unheld": 0},
-                                                      {"t_ms": T0 + 757000, "pending": 0, "open": 0, "open_unheld": 0}]}
+                 "cap_s": 600, "poll_s": 2, "polls": polls}
         if self.seed is None:
             n = pl["seed"]["seats"]
             self.seed = {"schedules": 1, "seats": n, "available": n, "holds": 0, "reservations": 0, "quota_rows": 0,
@@ -1164,7 +1180,8 @@ class Rep:
         files = {
             "plan.json": pl,
             "meta.json": {"cand": self.cand, "cell": self.cell, "pg_faults_seed": 1, "kill_planned_at_s": [120, 360] if self.cell == "kill" else None,
-                          "mockpg_image_id": "sha256:0", "harness_hash": "0" * 64},
+                          "mockpg_image_id": "sha256:0", "harness_hash": "0" * 64, "sha": "c807ce683"},
+            "pc-link.json": self.pclink,
             "pg-ledger.json": led, "db-dump.json": db, "consistency.json": cons,
             "act17-before.json": self.act("before"), "act17-after-k6.json": self.act("after-k6"), "act17-end.json": self.act("end"),
             "drain.json": drain, "inject.json": {"cell": self.cell, "events": self.inject_events},
@@ -1193,17 +1210,40 @@ class Rep:
             if self.torn_tail is not None:
                 lines.append(self.torn_tail)
             write_gz(d / "sessions17.log.gz", lines, trailing_newline=self.torn_tail is None)
-        if self.cell == "base":
-            hdr = ("metric_name,timestamp,metric_value,check,error,error_code,expected_response,group,method,name,proto,"
-                   "scenario,service,status,subproto,tls_version,url,extra_tags")
-            csv = [hdr]
-            ts = int(T0 / 1000)
-            for i in range(20):
-                for nm in ("confirm", "pay_start"):
-                    csv.append(f"http_req_duration,{ts + i},{10 + i},,,,true,,POST,{nm},HTTP/1.1,s,,200,,,http://app/{nm},")
-            if "k6-requests.csv.gz" not in self.skip_files:
+        # §6.11 k6 CSV(모든 셀) — 세션 행에서 파생: confirm 200 수 = c1.st 200 · pay_start 200 수 = p.st 200
+        hdr = ("metric_name,timestamp,metric_value,check,error,error_code,expected_response,group,method,name,proto,"
+               "scenario,service,status,subproto,tls_version,url,extra_tags")
+        csv = [hdr]
+        ts = int(T0 / 1000)
+
+        def line(metric, val, name, st):
+            return f"{metric},{ts},{val},,,,true,,POST,{name},HTTP/1.1,s,,{st},,,http://app/{name},"
+        for r in self.rows + self.csv_rows_extra:
+            for nm, obj in (("hold", r.get("h")), ("pay_start", r.get("p")), ("confirm", r.get("c1")),
+                            ("confirm_retry", r.get("c2"))):
+                if obj:
+                    csv.append(line("http_req_duration", 12.5, nm, obj["st"]))
+        csv.append(f"dropped_iterations,{ts},0,,,,,,,,,s,,,,,,")
+        if self.csv_mut:
+            csv = self.csv_mut(csv)
+        if "k6-requests.csv.gz" not in self.skip_files:
+            if "k6-requests.csv.gz" in self.corrupt_files:
+                (d / "k6-requests.csv.gz").write_bytes(b"\x1f\x8bnot-a-gzip")
+            else:
                 with gzip.open(d / "k6-requests.csv.gz", "wt", encoding="utf-8") as f:
                     f.write("\n".join(csv) + "\n")
+        # §6.11 timeline-client.jsonl(PC 시각 · 5초)
+        if "timeline-client.jsonl" not in self.skip_files:
+            tc = []
+            t = K6_T0_PC_S
+            while t <= K6_END_PC_S:
+                tc.append(json.dumps({"t": iso(t * 1000), "k6_pcpu": 50.0, "k6_rss_kb": 500000, "load": "1.0",
+                                      "mem_avail_kb": self.pcmem_kb}))
+                t += self.pcmem_step_s
+            if self.pcmem_mut:
+                tc = self.pcmem_mut(tc)
+            (d / "timeline-client.jsonl").write_text("\n".join(tc) + "\n", encoding="utf-8")
+        if self.cell == "base":
             if "timeline-server.jsonl" not in self.skip_files:
                 tl = []
                 for t_ms in range(int(T0 - 20000), int(T0 + 720000), 10000):  # §6.11 10초마다 · 창 양끝 넘어서
@@ -1418,9 +1458,10 @@ class TestRepInvalidReasons(RepCase):
     def test_sessions_broken(self):
         """§3 깨진 줄 > 0 → sessions-broken만 · 끝 찢긴 줄은 세지 않음(ok)"""
         rep = Rep()
+        row0 = rep.rows[0]
         rep.rows = rep.rows[1:]
-        rep.extra_lines += [k6line("not-json"), k6line(rep_row0 := row("ok", sid=0, c1=C200(100, seat=SPARE + 1)))]
-        del rep_row0
+        rep.csv_rows_extra = [row0]  # 세션 로그에는 깨진 줄 뒤에 있음 — CSV 파생에는 넣는다
+        rep.extra_lines += [k6line("not-json"), k6line(row0)]
         self.assertOnly(self.summarize(rep, "broken"), ["sessions-broken"], "중간 비JSON 줄")
         rep = Rep()
         rep.extra_lines.append(json.dumps({"level": "error", "msg": "ReferenceError: x", "source": "console", "time": "t"}))
@@ -1746,19 +1787,23 @@ class TestRepInvalidReasons(RepCase):
         s = self.summarize(self._left_intent())
         self.assertOk(s, "kill 중 payment-start 응답 유실")
         self.assertEqual(s["kill"]["left_intents"], 1)
+        self.assertEqual(s["record"]["ps_linked_uids"], 1)
         self.assertEqual(s["sessions"]["by_kind"]["ok"], {"app_dead": 1})
         self.assertEqual(s["cost"]["app_dead_shapes"], {"none": 1}, "§8 uid 없으면 none")
         self.assertEqual(s["uids"].get("closed_unpaid"), 2, "그 uid의 shape는 G1에 그대로")
 
     def test_kill_left_intent_not_excepted(self):
-        for name, kw in (("hold_id 다름", {"hid_match": False}), ("created_ms 창 밖", {"created": T0 + 500000})):
-            with self.subTest(name):
-                self.assertOnly(self.summarize(self._left_intent(**kw), name.replace(" ", "_")), ["pg-not-reset"], name)
+        """§7 이어진 uid는 hold_id · user로만 잇는다 — created_ms 조건 없음(창 밖이어도 이어짐) · hold_id 다르면 잔재"""
+        self.assertOnly(self.summarize(self._left_intent(hid_match=False), "hid"), ["pg-not-reset"], "hold_id 다름")
+        s = self.summarize(self._left_intent(created=T0 + 500000), "created")
+        self.assertOk(s, "created_ms 창 밖이어도 이어진 uid")
+        self.assertEqual(s["record"]["ps_linked_uids"], 1)
 
     def test_left_intent_outside_kill_cell(self):
-        """예외는 kill 셀만 — pg 셀이면 pg-not-reset(같은 세션은 pay-start-code0 → session-invalid)"""
+        """이어진 uid는 셀 무관 — pg 셀: pg-not-reset 아님 · 세션은 invalid:pay-start-code0 → session-invalid만"""
         s = self.summarize(self._left_intent(cell="pg"))
-        self.assertIncludes(s, ["pg-not-reset"])
+        self.assertOnly(s, ["session-invalid"])
+        self.assertEqual(s["record"]["ps_linked_uids"], 1)
 
     def test_session_uid_includes_p_uid(self):
         """§7 세션 uid = 행 uid ∪ p.uid — payment-start 200 본문 위반(행 uid null)의 p.uid는 잔재 아님"""
@@ -1835,10 +1880,6 @@ class TestRepInvalidReasons(RepCase):
                 f(rep)
                 self.assertOnly(self.summarize(rep, name.replace(" ", "_")), ["kill-not-observed"], name)
 
-    def test_drain_timeout(self):
-        rep = Rep()
-        rep.drain_reason = "cap"
-        self.assertOnly(self.summarize(rep), ["drain-timeout"], "drain reason cap")
 
     def test_harness_reasons_order(self):
         """§7 status = invalid: + [하네스 사유(줄 순서 · 중복 하나로)] + [요약기 사유(사전순 · 하네스와 같은 것 빼고)]"""
@@ -1849,15 +1890,15 @@ class TestRepInvalidReasons(RepCase):
         self.assertEqual(s["status"], "invalid:warmup-failed,dump-race")
         rep = Rep()
         rep.harness = ["zz-harness", "zz-harness"]
-        rep.drain_reason = "cap"
+        rep.pclink["down"] = 2
         rep.consistency["pay_compensation_mode"] = "substitute"
         s = self.summarize(rep, "mix")
-        self.assertEqual(s["reasons"], ["zz-harness", "consistency-mode-mismatch", "drain-timeout"])
+        self.assertEqual(s["reasons"], ["zz-harness", "consistency-mode-mismatch", "pc-link-down"])
         rep = Rep()
-        rep.harness = ["drain-timeout"]
-        rep.drain_reason = "cap"
+        rep.harness = ["pc-link-down"]
+        rep.pclink["down"] = 2
         s = self.summarize(rep, "dedup")
-        self.assertEqual(s["reasons"], ["drain-timeout"])
+        self.assertEqual(s["reasons"], ["pc-link-down"])
 
     def test_no_late_rejection(self):
         """M17-6 · §7 late 세션 c1 거부 = 0 → 무효"""
@@ -1953,12 +1994,264 @@ class TestRepInvalidReasons(RepCase):
         self.assertOnly(self.summarize(rep), ["k6-plan-mismatch"], "§6.8 파일 없음도 같다")
 
     def test_latency_missing_base_only(self):
-        """§7 base 셀만 — CSV에 confirm · pay_start 200 표본 0"""
+        """§6.11 · §7 base 셀만 — CSV 200 수 ≠ 세션 로그 성공 수 → latency-missing · pg 셀은 아님"""
+        def drop_one(name):
+            def f(lines):
+                for i, ln in enumerate(lines):
+                    if ln.startswith("http_req_duration") and f",{name}," in ln and ",200," in ln:
+                        return lines[:i] + lines[i + 1:]
+                raise AssertionError(name)
+            return f
+        for name in ("confirm", "pay_start"):
+            with self.subTest(name):
+                rep = Rep("R", "base")
+                rep.csv_mut = drop_one(name)
+                self.assertOnly(self.summarize(rep, f"b-{name}"), ["latency-missing"], f"base {name} 200 하나 빠짐")
+                rep = Rep("R", "pg")
+                rep.csv_mut = drop_one(name)
+                self.assertOk(self.summarize(rep, f"p-{name}"), "pg 셀은 수 대조 안 함")
+        rep = Rep("R", "base")
+        rep.csv_mut = lambda lines: lines + [
+            "http_req_duration,1,9.9,,,,true,,POST,confirm_retry,HTTP/1.1,s,,200,,,http://app/x,"]
+        self.assertOk(self.summarize(rep, "retry-extra"), "§6.11 confirm_retry는 지연 행에 안 듦")
+        rep = Rep("R", "base")
+        rep.csv_mut = lambda lines: lines + ["http_req_duration,1,9.9,,,,true,,POST,confirm,HTTP/1.1,s,,200,,,http://app/x,"]
+        self.assertOnly(self.summarize(rep, "extra"), ["latency-missing"], "confirm 200 하나 더(≠)")
+
+    def test_k6_csv_missing(self):
+        """§7 k6-csv-missing — 없음 · 깨짐(모든 셀)"""
+        for cell in ("pg", "kill"):
+            for mode in ("missing", "corrupt"):
+                with self.subTest((cell, mode)):
+                    rep = Rep("R", cell)
+                    (rep.skip_files if mode == "missing" else rep.corrupt_files).add("k6-requests.csv.gz")
+                    self.assertOnly(self.summarize(rep, f"{cell}-{mode}"), ["k6-csv-missing"], f"{cell} {mode}")
         rep = Rep("R", "base")
         rep.skip_files.add("k6-requests.csv.gz")
-        self.assertOnly(self.summarize(rep, "b"), ["latency-missing"], "base CSV 없음")
+        self.assertIncludes(self.summarize(rep, "base"), ["k6-csv-missing"])
+
+    def test_dropped_iterations(self):
+        for cell in ("base", "pg", "kill"):
+            with self.subTest(cell):
+                rep = Rep("R", cell)
+                rep.csv_mut = lambda lines: lines + [f"dropped_iterations,{int(T0 / 1000)},1,,,,,,,,,s,,,,,,"]
+                self.assertOnly(self.summarize(rep, cell), ["dropped-iterations"], cell)
+
+    def test_pc_link(self):
+        """§6.11 pc-link.json"""
+        for name, f, want in (("없음", None, "pc-link-missing"),
+                              ("readable false", lambda d: d.update(readable=False), "pc-link-missing"),
+                              ("down 문자열", lambda d: d.update(down="0"), "pc-link-missing"),
+                              ("down 1", lambda d: d.update(down=1), "pc-link-down")):
+            with self.subTest(name):
+                rep = Rep("R", "pg")
+                if f is None:
+                    rep.skip_files.add("pc-link.json")
+                else:
+                    f(rep.pclink)
+                self.assertOnly(self.summarize(rep, name.replace(" ", "_")), [want], name)
+
+    def test_pc_mem(self):
+        """§6.11 timeline-client.jsonl — 창 안 줄 ≥ 1 · 못 읽는 줄 0(끝 찢긴 줄 제외) · 간격 ≤ gap · 최솟값 ≥ 하한"""
+        def mid_garbage(lines):
+            return lines[:3] + ["{not json"] + lines[3:]
+
+        def torn_tail(lines):
+            return lines + ['{"t": "2026-11']
+
+        def outside(lines):
+            return [json.dumps({"t": iso((K6_END_PC_S + 100) * 1000), "mem_avail_kb": 8_000_000})]
+        cases = (("없음", "skip", None, "pc-mem-missing"),
+                 ("중간 못 읽는 줄", "mut", mid_garbage, "pc-mem-missing"),
+                 ("끝 찢긴 줄", "mut", torn_tail, None),
+                 ("창 안 줄 0", "mut", outside, "pc-mem-missing"),
+                 ("간격 31초", "step", 31, "pc-mem-missing"),
+                 ("간격 30초", "step", 30, None),
+                 ("최솟값 하한 미만", "kb", PC_MEM_MIN_KB - 1, "pc-mem-low"),
+                 ("최솟값 = 하한", "kb", PC_MEM_MIN_KB, None))
+        for name, how, arg, want in cases:
+            with self.subTest(name):
+                rep = Rep("R", "pg")
+                if how == "skip":
+                    rep.skip_files.add("timeline-client.jsonl")
+                elif how == "mut":
+                    rep.pcmem_mut = arg
+                elif how == "step":
+                    rep.pcmem_step_s = arg
+                else:
+                    rep.pcmem_kb = arg
+                s = self.summarize(rep, name.replace(" ", "_"))
+                (self.assertOk(s, name) if want is None else self.assertOnly(s, [want], name))
+
+    def test_pc_mem_summary(self):
+        s = self.summarize(Rep("R", "pg"))
+        self.assertEqual(s["pc_mem"]["min_kb"], 8_000_000)
+
+    def test_send_lag(self):
+        """§7 env-send-lag — c1.ts − at > send_lag_max_ms(넘음 = 엄격) · 값 없음도"""
+        for lag, want in ((2000, None), (2001, "env-send-lag")):
+            with self.subTest(lag):
+                rep = Rep("R", "pg")
+                rep.rows[0]["at"] = rep.rows[0]["c1"]["ts"] - lag
+                s = self.summarize(rep, f"lag{lag}")
+                (self.assertOk(s) if want is None else self.assertOnly(s, [want]))
+                self.assertEqual(s["send_lag_ms"]["over"], 0 if want is None else 1)
+                self.assertAlmostEqual(s["send_lag_ms"]["max"], lag, places=6)
+                self.assertEqual(s["send_lag_ms"]["n"], 3, "end=done 세션 3(ok · late · retry)")
         rep = Rep("R", "pg")
-        self.assertOk(self.summarize(rep, "p"), "pg 셀은 G3 아님(CSV 없음)")
+        del rep.plan["values"]["send_lag_max_ms"]
+        s = self.summarize(rep, "noval")
+        self.assertOnly(s, ["env-send-lag"], "허용치 없음")
+        self.assertIsNone(s["send_lag_ms"]["over"])
+
+    def test_send_lag_not_done(self):
+        """end ≠ done(noconf · abandon)은 send lag 대상 아님"""
+        rep = Rep("R", "pg")
+        rep.rows[2]["at"] = None
+        self.assertOk(self.summarize(rep))
+
+    # ---- §6.5 cap = 판정 · drain-poll-failed ----
+    def test_drain_cap_not_invalid(self):
+        """§6.5 reason cap은 무효가 아니다 — 남은 일 없으면 ok · G1 통과"""
+        rep = Rep("R", "pg")
+        rep.drain_reason = "cap"
+        s = self.summarize(rep)
+        self.assertOk(s, "cap · 남은 일 0")
+        self.assertTrue(s["g1"]["ok"])
+
+    def test_drain_cap_leftover_is_g1(self):
+        """cap + 남은 OPEN intent · 미완료 CLOSE → 무효 아님 · G1 open_after_drain · unfinished_tasks"""
+        rep = Rep("R", "pg")
+        rep.drain_reason = "cap"
+        rep.drain_polls = [{"t_ms": T0 + 750000, "pending": 1, "open": 1, "open_unheld": 1}]
+        for t in rep.tasks:
+            if t["source"] == "REJECTION":
+                t.update(status="PENDING", done_ms=None)
+        rep.ledger[1] = ledger_entry(uid_of(1), "CAPTURED", captured=True)
+        rep.intents[3]["state"] = "OPEN"
+        rep.intents[3]["closed_reason"] = None
+        rep.act_mut["end"] = lambda a: a["compensation"].update(done={"CLOSE:REFUNDED": 1, "CLOSE:CLOSED": 1})
+        s = self.summarize(rep)
+        self.assertOk(s, "cap은 무효 아님")
+        g = s["g1"]
+        self.assertFalse(g["ok"])
+        self.assertEqual(g["items"]["unfinished_tasks"], 1)
+        self.assertEqual(g["items"]["open_after_drain"], 1)
+
+    def test_drain_poll_failed(self):
+        """§6.5 cap인데 성공한 조회(err 없고 pending 숫자) 0 → drain-poll-failed"""
+        for name, polls in (("조회 없음", []),
+                            ("전부 err", [{"t_ms": T0 + 750000, "err": "timeout", "pending": None, "open": None, "open_unheld": None}]),
+                            ("pending 숫자 아님", [{"t_ms": T0 + 750000, "pending": None, "open": 0, "open_unheld": 0}])):
+            with self.subTest(name):
+                rep = Rep("R", "pg")
+                rep.drain_reason = "cap"
+                rep.drain_polls = polls
+                self.assertOnly(self.summarize(rep, name.replace(" ", "_")), ["drain-poll-failed"], name)
+        rep = Rep("R", "pg")
+        rep.drain_reason = "cap"
+        rep.drain_polls = [{"t_ms": T0 + 740000, "err": "timeout", "pending": None, "open": None, "open_unheld": None},
+                           {"t_ms": T0 + 750000, "pending": 0, "open": 0, "open_unheld": 0}]
+        self.assertOk(self.summarize(rep, "one-ok"), "성공 조회 1개면 무효 아님")
+
+    def test_unfinished_capture_D(self):
+        """§8 G1-3 unfinished_tasks — D의 CAPTURE IN_PROGRESS도 센다"""
+        rep = Rep("D", "pg")
+        for t in rep.tasks:
+            if t["type"] == "CAPTURE":
+                t.update(status="IN_PROGRESS", done_ms=None)
+                rep.ledger = [ledger_entry(t["uid"], "AUTHORIZED", authorized=True) if x["uid"] == t["uid"] else x
+                              for x in rep.ledger]
+                break
+        s = self.summarize(rep)
+        self.assertEqual(s["g1"]["items"]["unfinished_tasks"], 1)
+        self.assertFalse(s["g1"]["ok"])
+
+    def test_no_sweep_close_requires_done(self):
+        """§7 no-sweep-close — SWEEP · DONE만 셈(PENDING이면 0 → 무효)"""
+        rep = Rep("R", "pg")
+        for t in rep.tasks:
+            if t["uid"] == uid_of(2):
+                t.update(status="PENDING", done_ms=None)
+        rep.ledger[2] = ledger_entry(uid_of(2), "CAPTURED", captured=True)
+        rep.act_mut["end"] = lambda a: a["compensation"].update(done={"CLOSE:REFUNDED": 1, "CLOSE:CLOSED": 1})
+        s = self.summarize(rep)
+        self.assertOnly(s, ["no-sweep-close"])
+        self.assertEqual(s["m17_6"]["noconf_sweep_closes"], 0)
+        self.assertEqual(s["g1"]["items"]["unfinished_tasks"], 1)
+
+    # ---- §7 이어진 uid(셀 무관) ----
+    def _linked(self, cell="base", p_kw=None, hid_match=True, user_match=True):
+        rep = Rep("R", cell)
+        u0 = uid_of(0)
+        rep.intents = [i for i in rep.intents if i["uid"] != u0]
+        rep.res = [x for x in rep.res if x["payment_uid"] != u0]
+        rep.ledger = [x for x in rep.ledger if x["uid"] != u0]
+        rep.rows[0] = row("ok", end="pay_start", sid=0, cell=cell, h=H(hid=77),
+                          p=Pp(None, ok=False, **(p_kw or {"st": 503, "code": "PG_UNAVAILABLE"})))
+        left = uid_of(91)
+        it = intent_row(left, 0, "CLOSING", closed_reason="SWEEP", result_code="HOLD_EXPIRED")
+        it.update(hold_id=77 if hid_match else 78, user_id=USER_BASE + (0 if user_match else 50))
+        rep.intents.append(it)
+        rep.ledger.append(ledger_entry(left, "CLOSED"))
+        rep.tasks.append(task_row(91, left, "CLOSE", "SWEEP", "DONE", "CLOSED", T0 + 640000, T0 + 652500))
+        return rep
+
+    def test_linked_uid_503(self):
+        """payment-start 503(intent 커밋 뒤 PG 등록 실패) — hold · user 일치 intent는 이어진 uid → pg-not-reset 아님"""
+        for cell in ("base", "pg"):
+            with self.subTest(cell):
+                s = self.summarize(self._linked(cell), cell)
+                self.assertOk(s)
+                self.assertEqual(s["record"]["ps_linked_uids"], 1)
+                self.assertEqual(s["sessions"]["by_kind"]["ok"], {"mode_fail:pay-start-503": 1})
+
+    def test_linked_uid_lost_response(self):
+        """응답 유실(st 0) — 이어짐 · 세션 자체는 invalid:pay-start-code0(→ session-invalid만)"""
+        s = self.summarize(self._linked("pg", {"st": 0, "code": "NOCODE", "ec": 0}))
+        self.assertOnly(s, ["session-invalid"])
+        self.assertEqual(s["record"]["ps_linked_uids"], 1)
+        s = self.summarize(self._linked("pg", {"st": 0, "code": "NOCODE", "ec": 1050}), "to")
+        self.assertOk(s)
+
+    def test_linked_uid_not_linked(self):
+        for name, kw in (("hold_id 다름", {"hid_match": False}), ("user 다름", {"user_match": False}),
+                         ("p 확정(409)", {"p_kw": {"st": 409, "code": "HOLD_EXPIRED"}})):
+            with self.subTest(name):
+                s = self.summarize(self._linked("pg", **kw), name.replace(" ", "_"))
+                self.assertOnly(s, ["pg-not-reset"], name)
+                self.assertEqual(s["record"]["ps_linked_uids"], 0)
+
+    # ---- §7 환경 사유 판별 ----
+    def test_env_kind(self):
+        """§7 환경 사유 판별 — summarize17 env_kind(계약에 시그니처가 없어 사유 목록 · status 문자열 둘 다 시도)"""
+        mod, err = _try_import("summarize17")
+        _require(mod, err, "summarize17")
+        self.assertTrue(hasattr(mod, "env_kind"), "§7 summarize17 env_kind 없음")
+
+        def ek(reasons):
+            try:
+                return mod.env_kind(list(reasons))
+            except Exception:  # noqa: BLE001
+                return mod.env_kind("ok" if not reasons else "invalid:" + ",".join(reasons))
+        cases = ((["pc-link-down"], "env"), (["pc-mem-low"], "env"),
+                 (["pc-link-down", "seed-mismatch", "sessions-broken"], "env"),
+                 (["seed-mismatch", "pc-mem-low"], "env"),
+                 (["env-send-lag"], "env"), (["env-stall", "env-send-lag"], "env"),
+                 (["env-send-lag", "seed-mismatch"], "harness"),
+                 (["seed-mismatch"], "harness"), (["pc-link-missing"], "harness"), (["pc-mem-missing"], "harness"),
+                 )
+        for reasons, want in cases:
+            with self.subTest(reasons):
+                self.assertEqual(ek(reasons), want, reasons)
+        # §7 "`ok`는 valid" — 문구 그대로 status 문자열 ok로 부른다
+        self.assertEqual(mod.env_kind("ok"), "valid")
+
+    def test_ledger_recheck_failed_harness(self):
+        rep = Rep()
+        rep.harness = ["ledger-recheck-failed"]
+        s = self.summarize(rep)
+        self.assertEqual(s["reasons"], ["ledger-recheck-failed"])
 
     def test_db_cpu_missing_base_only(self):
         rep = Rep("R", "base")
@@ -2321,6 +2614,7 @@ class CampaignCase(unittest.TestCase):
         self.attempts = {}   # (cand, cell, rep) → [kwargs …] 앞 시도(오래된 것부터 attempt1, attempt2 …)
         self.fixed = True
         self.values = {}     # (cand, cell, rep) → plan values 덮어쓰기
+        self.meta = {}       # (cand, cell, rep) → meta 덮어쓰기(값 None = 키 없음)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -2334,6 +2628,11 @@ class CampaignCase(unittest.TestCase):
         pl["values"].update(self.values.get("*", {}))
         pl["values"].update(self.values.get((cand, cell, rep), {}))
         (d / "plan.json").write_text(json.dumps(pl), encoding="utf-8")
+        m = self.meta.get((cand, cell, rep), {})
+        meta = dict({"sha": "c807ce683", "harness_hash": "h" * 64, "cand": cand, "cell": cell},
+                    **(m if isinstance(m, dict) else {}))
+        if m != "absent":
+            (d / "meta.json").write_text(json.dumps({k: v for k, v in meta.items() if v is not None}), encoding="utf-8")
 
     def run_campaign(self):
         root = self.tmp / "c-test"
@@ -2389,6 +2688,37 @@ class TestCampaignOrder(CampaignCase):
         cj = self.run_campaign()
         self.assertIsNone(cj["choice"])
         self.assertEqual(cj["pass"], {"R": False, "D": False, "S": False})
+
+    def test_runs_consistent_true(self):
+        self.assertIs(self.run_campaign()["runs_consistent"], True)
+
+    def test_runs_inconsistent(self):
+        """§8 회차 사이 대조 — values 전체 · meta sha · harness_hash 중 하나라도 다르거나 없으면 전부 insufficient · null"""
+        variants = (("sha 다름", "meta", {"sha": "deadbeef0"}),
+                    ("harness_hash 다름", "meta", {"harness_hash": "x" * 64}),
+                    ("sha 없음", "meta", {"sha": None}),
+                    ("meta.json 없음", "meta", "absent"),
+                    ("values G2 밖 키 다름", "values", {"kind_weights": {"ok": 9}}),
+                    ("values 키 더함", "values", {"extra_knob": 1}))
+        for name, where, upd in variants:
+            with self.subTest(name):
+                self.meta, self.values = {}, {}
+                (self.meta if where == "meta" else self.values)[("S", "kill", 3)] = upd
+                cj = self.run_campaign()
+                self.assertIs(cj["runs_consistent"], False, name)
+                self.assertEqual(cj["pass"], {"R": "insufficient", "D": "insufficient", "S": "insufficient"}, name)
+                self.assertIsNone(cj["choice"])
+                shutil.rmtree(self.tmp / "c-test", ignore_errors=True)
+
+    def test_unused_attempt_meta_ignored(self):
+        """무효 앞 시도의 meta는 사용 회차가 아니라 대조 밖"""
+        self.attempts[("S", "pg", 2)] = [{"status": "invalid:sessions-broken"}]
+        root = self.tmp / "c-test"
+        self.run_campaign()
+        mp = root / "S" / "pg" / "rep2.attempt1" / "meta.json"
+        mp.write_text(json.dumps({"sha": "other", "harness_hash": "y"}), encoding="utf-8")
+        pr = run_cli(SUMMARIZE_PY, "--campaign", root)
+        self.assertEqual(last_line(pr.stdout), "choice:D")
 
     def test_plan_fixed_false(self):
         self.fixed = False
@@ -2568,6 +2898,13 @@ class TestCampaignValidity(CampaignCase):
         cj = self.run_campaign()
         self.assertEqual(cj["pass"]["D"], "insufficient")
         self.assertIs(cj["pass"]["R"], True)
+        self.assertIsNone(cj["choice"])
+
+    def test_R_insufficient_by_no_sample(self):
+        """§8 R pass insufficient(이유 무관 — G2 표본 0) → 모든 후보 insufficient"""
+        self.over[("R", "base", 2)] = {"n": 0}
+        cj = self.run_campaign()
+        self.assertEqual(cj["pass"], {"R": "insufficient", "D": "insufficient", "S": "insufficient"})
         self.assertIsNone(cj["choice"])
 
     def test_R_insufficient_all_insufficient(self):

@@ -35,6 +35,8 @@ ACT_SCALARS = (("process_start_s",), ("compensation", "unresolved"), ("compensat
                ("compensation", "sweep_failed"), ("confirm", "legacy"), ("confirm", "uid_conflict"))
 ACT_DICTS = (("compensation", "done"), ("compensation", "retry"), ("compensation", "dead"), ("confirm", "rejected"), ("confirm", "failed"),
              ("confirm", "pay_start"), ("confirm", "extend"), ("pg_register",))
+ENV_ANY = frozenset({"pc-link-down", "pc-mem-low"})       # 섞여 있어도 환경(campaign16 kind_of와 같은 우선순위)
+ENV_SOLE = frozenset({"env-stall", "env-send-lag"})       # 이것만 있을 때 환경(campaign16의 env-stall 규칙)
 INJECT_WALK_FACTOR, INJECT_WALK_PAD = 100, 10000   # 결정열 걷기 상한 = 처리 수 × 100 + 10,000(그 안에 처리 수에 못 닿으면 inject-undecidable)
 
 ORDER = ["D", "R", "S"]
@@ -73,6 +75,43 @@ def load(path):
 def dist_s(ms_list):
     xs = [x / 1000 for x in ms_list]
     return {"n": len(xs), "p50": pct(xs, 0.5), "p99": pct(xs, 0.99), "max": max(xs) if xs else None}
+
+
+def k6_csv(path):
+    """k6 CSV → {"p99": {name: ms}, "n": {name: 200 표본 수}, "dropped": 합} (http_req_duration · status 200 · name ∈ confirm · pay_start). 파일 없음 · 깨짐 = None."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    vals = {"confirm": [], "pay_start": []}
+    dropped = 0
+    try:
+        with gzip.open(p, "rt", newline="") as f:
+            rd = csv.reader(f)
+            head = next(rd)
+            im, iv, iname, ist = head.index("metric_name"), head.index("metric_value"), head.index("name"), head.index("status")
+            for r in rd:
+                if len(r) <= max(im, iv, iname, ist):
+                    continue
+                if r[im] == "http_req_duration" and r[ist] == "200" and r[iname] in vals:
+                    vals[r[iname]].append(float(r[iv]))
+                elif r[im] == "dropped_iterations":
+                    dropped += int(float(r[iv]))
+    except (OSError, ValueError, StopIteration, EOFError):
+        return None
+    return {"p99": {k: pct(v, 0.99) for k, v in vals.items()}, "n": {k: len(v) for k, v in vals.items()}, "dropped": dropped}
+
+
+def env_kind(status):
+    """회차 status → env | harness | valid(campaign17 kind_of와 같은 규칙 — campaign16 선례 우선순위): pc-link-down · pc-mem-low가 하나라도 있으면 env,
+    사유가 전부 정지 계열(env-stall · env-send-lag)이면 env, 그 밖 무효 · status 없음은 harness."""
+    if status == "ok":
+        return "valid"
+    if not status or not status.startswith("invalid:"):
+        return "harness"
+    rs = set(status.split(":", 1)[1].split(","))
+    if rs & ENV_ANY:
+        return "env"
+    return "env" if rs and rs <= ENV_SOLE else "harness"
 
 
 def latency_p99(path):
@@ -334,8 +373,9 @@ def rep_summary(d):
     if not isinstance(drain, dict) or drain.get("reason") not in ("empty", "cap"):
         reasons.add("drain-missing")
     else:
-        if drain["reason"] == "cap":
-            reasons.add("drain-timeout")
+        polls = drain.get("polls") if isinstance(drain.get("polls"), list) else []
+        if drain["reason"] == "cap" and not any(isinstance(x, dict) and "err" not in x and num(x.get("pending")) for x in polls):
+            reasons.add("drain-poll-failed")   # 상한 도달 자체는 무효가 아니다(남은 일은 G1) — 조회가 한 번도 안 된 하네스 증거만 무효
         drain_out = {"reason": drain["reason"], "len_s": (drain["end_ms"] - drain["start_ms"]) / 1000 if num(drain.get("end_ms")) and num(drain.get("start_ms")) else None}
 
     # ---- 분류 · uid 끝 상태 ----
@@ -358,26 +398,28 @@ def rep_summary(d):
     for e in ends.values():
         uids[e["shape"]] = uids.get(e["shape"], 0) + 1
     sess_uids = {r.get("uid") for r in rows if r.get("uid")} | {(r.get("p") or {}).get("uid") for r in rows if isinstance(r.get("p"), dict) and (r.get("p") or {}).get("uid")}
+    # payment-start 미확정(503 · 응답 유실)인 세션 — intent는 커밋됐을 수 있다(PG 등록이 커밋 뒤) · (hold_id, user_id)로 uid를 이어 세션 uid로 본다(L2-1 · 셀 무관)
+    linked, linked_kill = 0, 0
+    if db is not None:
+        by_hold = {(i.get("hold_id"), i.get("user_id")): i for i in db["payment_intent"]}
+        for r, c in cats:
+            if r.get("end") == "pay_start" and isinstance(r.get("p"), dict) and O._unsettled(r["p"]) and isinstance(r.get("h"), dict):
+                i = by_hold.get((r["h"].get("hid"), r.get("user")))
+                if i and i["uid"] not in sess_uids:
+                    sess_uids.add(i["uid"])
+                    linked += 1
+                    linked_kill += c == "app_dead"
     left = [u for u in ends if u not in sess_uids]
-    excused = 0
-    if left and cell == "kill" and db is not None:   # payment-start 커밋 뒤 응답 전 SIGKILL — 그 세션은 app_dead(pay_start) · uid를 모른다(L1-7)
-        intents = {i["uid"]: i for i in db["payment_intent"]}
-        dead_ps = {(r["h"].get("hid"), r.get("user")) for r, c in cats if c == "app_dead" and r.get("end") == "pay_start" and isinstance(r.get("h"), dict)}
-        for u in list(left):
-            i = intents.get(u)
-            if i and num(i.get("created_ms")) and any(lo <= i["created_ms"] <= hi for lo, hi in kills) and (i.get("hold_id"), i.get("user_id")) in dead_ps:
-                left.remove(u)
-                excused += 1
     if left:
         reasons.add("pg-not-reset")
     if kill_out is not None:
-        kill_out["left_intents"] = excused
+        kill_out["left_intents"] = linked_kill
     tasks = db["compensation_task"] if db else []
 
     # ---- M17-6 · 주입 증거 · 지표 대조 ----
     late_rej = sum(1 for r in rows if r.get("kind") == "late" and isinstance(r.get("c1"), dict) and (r["c1"].get("st"), r["c1"].get("code")) in O.CONFIRM_REJECT)
     noconf_uids = {r.get("uid") for r in rows if r.get("kind") == "noconf" and r.get("uid")}
-    sweep_close = sum(1 for t in tasks if t.get("uid") in noconf_uids and t.get("type") == "CLOSE" and t.get("source") == "SWEEP")
+    sweep_close = sum(1 for t in tasks if t.get("uid") in noconf_uids and t.get("type") == "CLOSE" and t.get("source") == "SWEEP" and t.get("status") == "DONE")
     if rd is not None:
         if late_rej == 0:
             reasons.add("no-late-rejection")
@@ -405,13 +447,14 @@ def rep_summary(d):
     rec_ledger_paid_no_k6 = sum(1 for u, e in ends.items() if (e["captured"] or e["authorized"]) and u not in pay_ok_uids)
     record = {"k6_pay_ok": len(pay_ok), "ledger_paid": sum(1 for e in ends.values() if e["captured"] or e["authorized"]),
               "db_intents": len(db["payment_intent"]) if db else None, "pay_ok_not_in_ledger": rec_not_ledger,
-              "pay_ok_no_intent": rec_no_intent, "ledger_paid_without_k6_pay": rec_ledger_paid_no_k6}
+              "pay_ok_no_intent": rec_no_intent, "ledger_paid_without_k6_pay": rec_ledger_paid_no_k6, "ps_linked_uids": linked}
 
     # ---- G1 ----
     items = {s: uids.get(s, 0) for s in G1_SHAPES}
     items["seat_moneyless"] = uids.get("seat_moneyless", 0) if cand in ("R", "S") else 0
     items["dead_tasks"] = sum(1 for t in tasks if t.get("status") == "DEAD") if db else None
     items["open_after_drain"] = sum(1 for i in db["payment_intent"] if i.get("state") == "OPEN") if db else None
+    items["unfinished_tasks"] = sum(1 for t in tasks if t.get("status") in ("PENDING", "IN_PROGRESS")) if db else None   # 배수 상한에 닿아 남은 일(CLOSE · CAPTURE)
     items["consistency_pay"] = {k: cons.get(k) for k in PAY_ZERO} if cons else None
     items["consistency_v_sum"] = sum(v for k, v in cons.items() if k.startswith("v_") and num(v)) if cons else None
     items["integrity"] = sum(integ.values())
@@ -442,14 +485,64 @@ def rep_summary(d):
           "by_source": {k: {"n": len(v), "p99_s": pct(v, 0.99)} for k, v in samp.items()},
           "substitute_n": sum(1 for r in (db["reservation"] if db else []) if r.get("origin") == "SUBSTITUTE")}
 
+    # ---- 환경(L2-3 · L2-4): PC 링크 · PC 메모리 · 빠진 반복 · 확정 송신 지연 ----
+    vals = plan.get("values") or {}
+    pl = load(d / "pc-link.json")
+    if not isinstance(pl, dict) or pl.get("readable") is not True or not num(pl.get("down")):
+        reasons.add("pc-link-missing")
+    elif pl["down"] > 0:
+        reasons.add("pc-link-down")
+    pc_mem = None
+    w0, w1 = (kw.get("k6_t0_epoch"), kw.get("k6_end_epoch")) if isinstance(kw, dict) else (None, None)
+    cl_path = d / "timeline-client.jsonl"
+    if not (num(w0) and num(w1)) or not cl_path.exists() or not num(vals.get("pc_mem_run_min_kb")) or not num(vals.get("pc_mem_gap_max_s")):
+        reasons.add("pc-mem-missing")
+    else:
+        mrows, mbad = [], 0
+        lines = [x for x in cl_path.read_text(errors="replace").splitlines() if x.strip()]
+        for i, line in enumerate(lines):
+            try:
+                o = json.loads(line)
+                t = S14().ts(o["t"])
+            except (ValueError, KeyError, TypeError):
+                mbad += i != len(lines) - 1
+                continue
+            if w0 <= t <= w1:
+                if num(o.get("mem_avail_kb")):
+                    mrows.append((t, o["mem_avail_kb"]))
+                else:
+                    mbad += 1
+        tt = [w0] + sorted(t for t, _ in mrows) + [w1]
+        gap = max(b - a for a, b in zip(tt, tt[1:]))
+        if mbad or not mrows or gap > vals["pc_mem_gap_max_s"]:
+            reasons.add("pc-mem-missing")
+        else:
+            pc_mem = {"min_kb": min(m for _, m in mrows), "n": len(mrows), "gap_max_s": gap}
+            if pc_mem["min_kb"] < vals["pc_mem_run_min_kb"]:
+                reasons.add("pc-mem-low")
+    csvd = k6_csv(d / "k6-requests.csv.gz")
+    if csvd is None:
+        reasons.add("k6-csv-missing")
+    elif csvd["dropped"] > 0:
+        reasons.add("dropped-iterations")
+    lags = [r["c1"]["ts"] - r["at"] for r in rows if r.get("end") == "done" and isinstance(r.get("c1"), dict) and num(r["c1"].get("ts")) and num(r.get("at"))]
+    send_lag = {"n": len(lags), "p50": pct(lags, 0.5), "p99": pct(lags, 0.99), "max": max(lags) if lags else None,
+                "over": None if not num(vals.get("send_lag_max_ms")) else sum(1 for x in lags if x > vals["send_lag_max_ms"])}
+    if not num(vals.get("send_lag_max_ms")):
+        reasons.add("env-send-lag")   # 허용치 없음 — 판정 불가를 통과로 두지 않는다
+    elif send_lag["over"]:
+        reasons.add("env-send-lag")
+
     # ---- G3(base 셀) ----
     g3 = {"db_cpu_mean": None, "confirm_p99_ms": None, "pay_start_p99_ms": None}
     if cell == "base":
-        lat = latency_p99(d / "k6-requests.csv.gz")
-        if not lat or lat.get("confirm") is None or lat.get("pay_start") is None:
-            reasons.add("latency-missing")
+        lat = csvd
+        want = {"confirm": sum(1 for r in rows if isinstance(r.get("c1"), dict) and r["c1"].get("st") == 200),
+                "pay_start": sum(1 for r in rows if isinstance(r.get("p"), dict) and r["p"].get("st") == 200)}
+        if not lat or any(lat["p99"].get(k) is None or lat["n"].get(k) != want[k] for k in want):
+            reasons.add("latency-missing")   # 표본 없음 · CSV 200 수 ≠ 세션 로그 성공 수(L2-5)
         else:
-            g3["confirm_p99_ms"], g3["pay_start_p99_ms"] = lat["confirm"], lat["pay_start"]
+            g3["confirm_p99_ms"], g3["pay_start_p99_ms"] = lat["p99"]["confirm"], lat["p99"]["pay_start"]
         try:
             off_s = clk["before"]["offset_s"] if isinstance(clk, dict) and isinstance(clk.get("before"), dict) else None
             if num(off_s) and isinstance(kw, dict) and num(kw.get("k6_t0_epoch")) and num(kw.get("k6_end_epoch")):
@@ -491,7 +584,7 @@ def rep_summary(d):
             "sessions": {"n": len(rows), "planned": planned, "by_kind": by_kind, "invalid_detail": inv, "integrity": integ, "mode_fail": mfail},
             "uids": uids, "g1": {"ok": g1_ok, "items": items}, "g2": g2, "g3": g3,
             "m17_6": {"late_rejections": late_rej, "noconf_sweep_closes": sweep_close}, "cost": cost, "drain": drain_out, "kill": kill_out,
-            "record": record, "inject": inject}
+            "record": record, "inject": inject, "send_lag_ms": send_lag, "pc_mem": pc_mem}
     return summ, status
 
 
@@ -534,18 +627,17 @@ def campaign(cdir):
                             fixed = pl.get("fixed")
                     else:
                         runs[key]["used"] = None
-    # G2 문턱 출처 = 사용 회차 plan.json values(측정 전 고정 값이 한 곳 — 회차마다 같아야 한다 · 다르면 모든 후보 판정 불가)
-    vals = []
-    for k, v in used.items():
+    # 회차 사이 대조(L2-6 — M17-2): 사용 회차 전부의 plan.json values 전체 · meta.json 측정 SHA · 하네스 해시가 같아야 한다. 다르거나 없으면 모든 후보 판정 불가
+    sigs = []
+    for k in used:
         cand_, cell_, rep_ = k.split("/")
         pick = next((p for p in attempts_of(cdir, cand_, cell_, int(rep_[3:])) if p.name == runs[k]["used"]), None)
-        pl = load(pick / "plan.json") if pick else None
-        vals.append(((pl or {}).get("values") or {}).get("g2_x_s"))
-        vals.append(None if pl is None else ("y", (pl.get("values") or {}).get("g2_y_s")))
-    xs = {x for x in vals[0::2]}
-    ys = {y for y in vals[1::2]}
-    values_ok = len(xs) == 1 and len(ys) == 1 and all(num(x) for x in xs) and all(isinstance(y, tuple) and num(y[1]) for y in ys)
-    plan_vals = {"g2_x_s": next(iter(xs)) if values_ok else None, "g2_y_s": next(iter(ys))[1] if values_ok else None}
+        pl, mt = (load(pick / "plan.json"), load(pick / "meta.json")) if pick else (None, None)
+        sigs.append(json.dumps([(pl or {}).get("values"), (mt or {}).get("sha"), (mt or {}).get("harness_hash")], sort_keys=True)
+                    if isinstance(pl, dict) and isinstance(pl.get("values"), dict) and isinstance(mt, dict) and mt.get("sha") and mt.get("harness_hash") else None)
+    values_ok = bool(sigs) and None not in sigs and len(set(sigs)) == 1
+    v0 = json.loads(sigs[0])[0] if values_ok else {}
+    plan_vals = {"g2_x_s": v0.get("g2_x_s") if values_ok else None, "g2_y_s": v0.get("g2_y_s") if values_ok else None}
     g1, g2, g3, pas, cost = {}, {}, {}, {}, {}
     full = {c: all(f"{c}/{cell}/rep{r}" in used for cell in plan17.CELLS for r in range(1, plan17.REPS + 1)) for c in plan17.CAND_ORDER}
     for c in plan17.CAND_ORDER:
@@ -596,6 +688,8 @@ def campaign(cdir):
             pas[c] = "insufficient"   # G2 표본 0 = 판정 불가(L1-9)
         else:
             pas[c] = bool(all(g2[c][cell]["ok"] for cell in plan17.CELLS))
+    if pas.get("R") == "insufficient":   # R이 판정 불가면 G3 기준이 없다 — 모든 후보 판정 불가(L2-7)
+        pas = {c: "insufficient" for c in pas}
     choice = None   # 순서대로 — 통과면 고르고, 실패면 다음, 판정 불가(insufficient)면 멈춘다(아래 후보로 내려가지 않는다 — ADR-016 undetermined 선례)
     for c in ORDER:
         if pas[c] is True:
@@ -603,7 +697,7 @@ def campaign(cdir):
             break
         if pas[c] == "insufficient":
             break
-    out = {"plan_fixed": fixed, "runs": runs, "g1": g1, "g2": g2, "g3": g3, "pass": pas, "order": ORDER, "choice": choice, "cost": cost}
+    out = {"plan_fixed": fixed, "runs_consistent": values_ok, "runs": runs, "g1": g1, "g2": g2, "g3": g3, "pass": pas, "order": ORDER, "choice": choice, "cost": cost}
     return out
 
 

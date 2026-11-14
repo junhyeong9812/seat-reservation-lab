@@ -64,7 +64,10 @@ SEAT_FACTOR = 1.5             # 회차 좌석 = ⌈세션 × 1.5⌉(S 대체용 
 PG_RULE = {"delayMs": 200, "failRate": 0.10, "unknownRate": 0.05, "unknownDelayMs": 5000}
 PG_FAULT_OPS = ("capture", "close")   # mock-pg 주입 단위 = 변경 호출(register · pay · authorize · capture · close) — 조회 GET은 주입 지점이 없다(INTERFACE §8)
 KILL_AT_S = (180.0, 760.0)    # kill 셀: k6 시작(t0) 뒤 앱 SIGKILL 시각(초) 2회 → 곧바로 재기동(명세 §0) — ① 결제 단계 한가운데 · ② 지연 확정 거부 · 안전망 종결이 몰리는 구간
-DRAIN_CAP_S = 600.0           # 배수 창 상한(k6 끝 뒤) — 넘으면 회차 무효 drain-timeout
+DRAIN_CAP_S = 600.0           # 배수 창 상한(k6 끝 뒤) — 닿으면 덤프 · 판정하고 남은 일을 G1로 센다(무효 아님)
+SEND_LAG_MAX_MS = 2000        # 확정 송신 지연 허용치(계획 at ↔ 실제 c1.ts — 넘는 세션이 있으면 env-send-lag · 환경)
+PC_MEM_RUN_MIN_KB = 4 * 1024 * 1024   # k6 PC MemAvailable 하한(ADR-014 plan14 PC_MEM_RUN_MIN_KB 복사 — 넘으면 pc-mem-low · 환경)
+PC_MEM_GAP_MAX_S = 30.0               # timeline-client MemAvailable 표본 공백 상한(ADR-014 plan14 PC_MEM_GAP_MAX_S 복사 — 넘으면 pc-mem-missing)
 KILL_TOL_MS = 5000            # kill 시각 허용 오차(계획 ↔ 실제 kill · k6 시작 대조 — summarize17 kill-not-observed)
 DRAIN_POLL_S = 5.0
 DRAIN_EST_S = {"base": 30.0, "pg": 90.0, "kill": 60.0}   # dry-run 손셈용 예상 배수 시간(스모크 실측으로 고정)
@@ -186,7 +189,7 @@ def values():
     return {"fixed": FIXED, "n_sessions": N_SESSIONS, "rate": RATE, "kind_weights": KIND_WEIGHTS, "t_range": list(T_RANGE),
             "pay_median_s": PAY_MEDIAN_S, "pay_sigma": PAY_SIGMA, "pay_max_s": PAY_MAX_S, "conf_gap_range": list(CONF_GAP_RANGE),
             "retry_gap_range": list(RETRY_GAP_RANGE), "late_range": list(LATE_RANGE), "seat_factor": SEAT_FACTOR, "pg_rule": PG_RULE,
-            "pg_fault_ops": list(PG_FAULT_OPS), "kill_at_s": list(KILL_AT_S), "kill_tol_ms": KILL_TOL_MS, "drain_cap_s": DRAIN_CAP_S, "g2_x_s": G2_X_S, "g2_y_s": G2_Y_S,
+            "pg_fault_ops": list(PG_FAULT_OPS), "kill_at_s": list(KILL_AT_S), "kill_tol_ms": KILL_TOL_MS, "send_lag_max_ms": SEND_LAG_MAX_MS, "pc_mem_run_min_kb": PC_MEM_RUN_MIN_KB, "pc_mem_gap_max_s": PC_MEM_GAP_MAX_S, "drain_cap_s": DRAIN_CAP_S, "g2_x_s": G2_X_S, "g2_y_s": G2_Y_S,
             "ttl_s": TTL_S, "batch_s": BATCH_S, "W_s": W_S, "theta_s": THETA_S, "M_s": M_S, "compensation": COMP,
             "pg_read_timeout_s": PG_READ_TIMEOUT_S, "mockpg_auth_ttl": MOCKPG_AUTH_TTL}
 

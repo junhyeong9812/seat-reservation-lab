@@ -123,8 +123,14 @@ fi
 [[ -s "$COND_TMP" ]] && cp "$COND_TMP" "$ROOT/start-conditions.log"; rm -f "$COND_TMP"
 LOG="$ROOT/CAMPAIGN.log"
 RUN_MODE=(); (( SIMU )) && RUN_MODE=(--simulate) && (( C17_WT )) && RUN_MODE+=(--worktree)
-# 환경 = env-stall · pc-link-down · pc-mem-low가 든 무효(ADR-015 · 016 kind_of와 같은 규칙) · status 없는 시도는 하네스
-kind_of() { case "$1" in invalid:env-stall|invalid:pc-link-down|invalid:pc-link-down,*|invalid:*,pc-link-down|invalid:*,pc-link-down,*|invalid:pc-mem-low|invalid:pc-mem-low,*|invalid:*,pc-mem-low|invalid:*,pc-mem-low,*) echo env ;; invalid:*) echo harness ;; "") echo harness ;; *) echo valid ;; esac; }
+# 환경 판별(campaign16 kind_of와 같은 우선순위 — 쉼표 사유 목록을 낱낱이 본다): pc-link-down · pc-mem-low가 하나라도 있으면 env(다른 사유와 섞여도) ·
+#   사유가 전부 정지 계열(env-stall · env-send-lag)이면 env · 그 밖 무효와 status 없는 시도는 harness · ok는 valid. summarize17.env_kind와 같은 규칙
+kind_of() {
+  case "$1" in "") echo harness; return ;; invalid:*) ;; *) echo valid; return ;; esac
+  local r any=0 sole=1 rs; IFS=, read -ra rs <<< "${1#invalid:}"
+  for r in "${rs[@]}"; do case "$r" in pc-link-down|pc-mem-low) any=1 ;; env-stall|env-send-lag) ;; *) sole=0 ;; esac; done
+  if (( any || sole )); then echo env; else echo harness; fi
+}
 attempts_of() { local d="$ROOT/$2/$3/rep$1" n; for n in $(ls -d "$d".attempt* 2>/dev/null | sed 's/.*\.attempt//' | sort -n); do cat "$d.attempt$n/status" 2>/dev/null || echo; done; [[ -d "$d" ]] && { cat "$d/status" 2>/dev/null || echo; }; }
 run_one() {   # 인자: rep cand cell attempt
   echo "$(date -Is) RUN rep$1 $2 $3 attempt$4" >> "$LOG"

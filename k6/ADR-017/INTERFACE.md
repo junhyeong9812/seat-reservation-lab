@@ -32,7 +32,9 @@
 | `harness-reasons.txt` | run17 내내 | 줄마다 하네스 사유 하나(없으면 빈 파일) | ✔ | summarize(그대로 무효 사유로 옮김) |
 | `sessions17.log.gz` | k6 `--console-output` → gzip | §3 — 줄마다 k6 JSON 로그, `msg` = 세션 행 JSON | ✔ | outcome · summarize |
 | `k6-summary.json` | k6 handleSummary | k6 요약 원본 + `adr017` 머리(§6.8) | ✔ | summarize |
-| `k6-requests.csv.gz` | k6 `--out csv` | k6 CSV(요청 시간 — G3 p99) | ✔(base) | summarize |
+| `k6-requests.csv.gz` | k6 `--out csv` | k6 CSV(요청 시간 — G3 p99 · 빠진 반복 dropped_iterations) | ✔ | summarize |
+| `pc-link.json` | run17 끝(`pclink14.sh` — ADR-016 run16과 같다) | `{readable, iface, since_epoch, until_epoch, down, lines, why}` | ✔ | summarize(환경) |
+| `timeline-client.jsonl` | 표본기(5초 — k6 PC) | 줄마다 `{"t": ISO, "k6_pcpu", "k6_rss_kb", "load", "mem_avail_kb"}`(lib14 client_line14) | ✔ | summarize(환경) |
 | `k6-window.json` | run17 k6 직후 | run16과 같다: `k6_t0_epoch` · `k6_end_epoch`(PC 초) · `exit` · `clock_offset_ms_given` | ✔ | summarize |
 | `clock-offset.json` | run17 | run16과 같다: `{before, after}` | ✔ | summarize |
 | `inject.json` | run17 PG 리셋 · 주입 때마다 | §6.6 | ✔ | summarize |
@@ -354,7 +356,8 @@ SELECT json_build_object('t_ms', extract(epoch FROM clock_timestamp()) * 1000,
   - `open` = payment_intent 중 state = OPEN
   - `open_unheld` = OPEN이면서 살아 있는 홀드가 없는 것(consistency `pay_open_unheld_intents`와 같은 식)
 - **empty**: `pending = 0` 이고 `open = 0`인 조회가 연달아 둘이고, 그 둘 사이가 ≥ 안전망 주기 + 워커 주기(5초 + 1초)다.
-- **cap**: k6 끝 뒤 `cap_s`가 지나도 empty가 아니다 → 회차 무효 `drain-timeout`.
+- **cap**: k6 끝 뒤 `cap_s`가 지나도 empty가 아니다 → **무효가 아니다**. 그대로 덤프 · 판정기 · 판정을 하고, 남은 OPEN intent(`open_after_drain`)와 미완료 작업(`unfinished_tasks` — status PENDING · IN_PROGRESS, CLOSE와 D의 CAPTURE 모두)을 G1 실패 항목으로 센다(§8).
+  - 무효는 하네스 쪽 증거가 있을 때만: reason = cap인데 성공한 조회(`err` 없고 `pending`이 숫자)가 하나도 없으면 → §7 `drain-poll-failed`.
 
 ### 6.6 `inject.json` — PG 리셋 · 주입 기록
 
@@ -400,7 +403,8 @@ run16 meta 키에 다음을 더한다.
 
 - 더하는 키: `cand` · `cell` · `pg_faults_seed` · `kill_planned_at_s` · `mockpg_image_id` · `local` · `smoke`
 - `config` 키는 없다. `harness_hash`는 hhash17이다.
-- **summarize17은 meta.json을 읽지 않는다**(없어도 회차 판정에 영향 없음). campaign17.sh가 끝에 `harness_hash`를 동결본 해시와 대조한다.
+- **`summarize17 --rep`은 meta.json을 읽지 않는다**(없어도 회차 판정에 영향 없음). campaign17.sh가 끝에 `harness_hash`를 동결본 해시와 대조한다.
+- `summarize17 --campaign`은 사용 회차마다 meta.json의 `sha` · `harness_hash`를 읽는다(§8 회차 사이 대조).
 
 ### 6.10 `app-config.json`
 
@@ -428,7 +432,9 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 | `drain.json` | §6.5 — 읽는 키: `reason` · `start_ms` · `end_ms` | `reason "empty"` |
 | `harness-reasons.txt` | 줄마다 사유 | 빈 파일. 파일이 없으면 `harness-reasons-missing` |
 | `timeline-server.jsonl`(base) | 서버 시각 줄 `{"t": ISO(서버 시계), "load": "…"}` 뒤에 docker stats 줄 `{"Name": "seatlab-db-1", "CPUPerc": "12.3%", "MemUsage": "100MiB / 1GiB", …}`(10초마다) | DB CPU = ADR-014 `server_rows(path, offset_s)` → `db_cpu(rows, k6_t0_epoch, k6_end_epoch)`. 줄 시각 = `ts(t) − offset_s`(PC 초). 창 안 `seatlab-db-1` 줄 ≥ ⌈창 ÷ 15초⌉ · 이웃 간격(창 양끝 포함) ≤ 30초 · `seatlab-app-1` 줄은 MemUsage를 읽을 수 있어야 한다(못 읽으면 broken → 결측) |
-| `k6-requests.csv.gz`(base) | k6 CSV — 읽는 열: `metric_name` · `metric_value` · `name` · `status`. 행 = `metric_name == http_req_duration` · `status == "200"` · `name ∈ {confirm, pay_start}` | 두 이름 모두 표본 ≥ 1 |
+| `k6-requests.csv.gz`(모든 셀) | k6 CSV — 읽는 열: `metric_name` · `metric_value` · `name` · `status`. 지연 행 = `metric_name == http_req_duration` · `status == "200"` · `name ∈ {confirm, pay_start}`(retry의 c2는 `confirm_retry`라 들지 않는다). 빠진 반복 = `metric_name == dropped_iterations`의 값 합 | (base) confirm 200 수 = 세션 행 중 `c1.st == 200` 수 · pay_start 200 수 = `p.st == 200` 수 · 모든 셀 dropped 합 0. 파일 없음 · 깨짐 = `k6-csv-missing` |
+| `pc-link.json` | 읽는 키: `readable` · `down` | `readable true` · `down 0`. 파일 없음 · readable ≠ true · down이 숫자 아님 = `pc-link-missing`, down > 0 = `pc-link-down` |
+| `timeline-client.jsonl` | 읽는 키: `t`(ISO) · `mem_avail_kb`. 창 = [k6_t0_epoch, k6_end_epoch](PC 초 · 양끝 포함) | 창 안 줄 ≥ 1 · 못 읽는 줄 0(맨 끝 찢긴 한 줄 제외) · 이웃 간격(창 양끝 포함) ≤ `values.pc_mem_gap_max_s` → 아니면 `pc-mem-missing`. 최솟값 < `values.pc_mem_run_min_kb` = `pc-mem-low` |
 
 ## 7. 회차 무효 사유 (`summarize17.py --rep` → `status`) [초안]
 
@@ -450,21 +456,30 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 | `config-mismatch` · `compensation-mode-mismatch` | `plan17 --config-check` exit 1(사유 그대로) |
 | `consistency-mode-mismatch` | `pay_compensation_mode` ≠ 후보 모드 |
 | `seed-mismatch` | 시드 확인: 회차 1 · 좌석 `seed.seats` · 모두 AVAILABLE · 홀드 · 예약 · 쿼터 0 · flyway에 15 있음 |
-| `pg-not-reset` | 원장 · DB에 세션 uid가 아닌 uid가 있다(예열 · 앞 회차 잔재 — M17-4). 세션 uid = 행의 `uid` ∪ `p.uid`. **예외**(kill 셀만): 그 uid의 intent `created_ms`가 kill 창 안이고, `app_dead`로 분류된 end=`pay_start` 세션 중 `h.hid = intent.hold_id` · `user = intent.user_id`인 세션이 있으면 빼고 summary17 `kill.left_intents`로 센다(payment-start 커밋 뒤 응답 전 SIGKILL — 그 uid의 shape는 G1에 그대로 들어간다) |
+| `pg-not-reset` | 원장 · DB에 세션 uid가 아닌 uid가 있다(예열 · 앞 회차 잔재 — M17-4). 세션 uid = 행의 `uid` ∪ `p.uid` ∪ **이어진 uid**. 이어진 uid(셀 무관): end=`pay_start`이고 `p`가 미확정(st 0 또는 ≥ 500 — payment-start는 intent 커밋 뒤 PG 등록을 하므로 503 · 응답 유실이어도 intent가 남을 수 있다)인 세션마다, DB intent 중 `hold_id = h.hid` · `user_id = user`인 것의 uid. 그런 uid의 shape는 G1에 그대로 들어간다. 이은 수 = summary17 `record.ps_linked_uids`, 그중 세션이 `app_dead`인 수 = `kill.left_intents`(kill 셀) |
 | `pg-reset-during-run` · `inject-mismatch` · `inject-leak` | §6.6 |
 | `inject-not-observed` | pg 셀인데 **주입 결정 수 하한 = 0**. 계산: 적용된 faults(inject.json 마지막 faults 응답 · 없으면 plan `pg.faults`)의 규칙마다(failRate · unknownRate가 둘 다 0인 op는 뺀다) `java.util.Random(seed × 31 + op.hashCode())`(Java 64비트 곱 · String.hashCode)의 `nextDouble` 열을 차례로 걷는다 — `x < failRate` = FAIL(처리 안 함), `x < failRate + unknownRate` = UNKNOWN(처리함), 그 밖 = PROCEED(처리함). 처리한 수가 원장 `ops[op]`에 닿으면 멈춘다. 만난 FAIL + UNKNOWN의 op 합이 0이면 이 사유(마지막 처리 뒤 FAIL은 세지 않는다 — 하한). 근거: mock-pg는 변경 호출마다 주입 결정을 먼저 하고, 처리로 간 호출만 원장 ops를 1 늘린다(멱등 재생 · 404 포함 · 조회 GET은 결정도 ops도 없다) |
 | `inject-undecidable` | 위 걷기가 `ops[op] × 100 + 10,000`걸음 안에 처리 수에 닿지 못함(적용 설정과 원장이 어긋남) |
 | `kill-not-observed` | kill 셀 §6.7 유효 조건 실패(시각 대조 · 재기동 탐지 포함) |
 | `app-restarted` | base · pg 셀인데 act17 `process_start_s`가 before ≠ end(§6.4) |
 | `g2-time-missing` | G2 대상 작업(CLOSE · DONE · source REJECTION 또는 SWEEP) 중 `done_ms`가 숫자가 아니거나, REJECTION인데 그 uid의 `confirm_rejection.rejected_ms`가 없거나, SWEEP인데 `created_ms`가 없음(대체하지 않는다 — 표본 수 = 대상 작업 수) |
-| `drain-timeout` | drain.json reason = cap |
+| `drain-poll-failed` | drain.json reason = cap이고 성공한 배수 조회가 0(§6.5). **reason = cap 자체는 무효가 아니다**(남은 일 = G1 `open_after_drain` · `unfinished_tasks`) |
 | `dump-race` | 덤프 뒤 원장 ops 합 ≠ 덤프 앞 — run17이 두 번째 원장 조회로 확인 · harness 사유로 남긴다 |
+| `ledger-recheck-failed` | 두 번째 원장 조회가 1회 재시도 뒤에도 실패(경합과 구분 — harness 사유) |
 | `no-late-rejection` | **M17-6**: late 세션 중 c1이 거부 응답(§5 D 거부 쌍)인 수 = 0 |
-| `no-sweep-close` | **M17-6**: noconf 세션 uid 중 CLOSE 작업 source = SWEEP인 수 = 0 |
+| `no-sweep-close` | **M17-6**: noconf 세션 uid 중 CLOSE 작업 source = SWEEP · **status = DONE**인 수(안전망 종결 수) = 0 |
 | `app-metric-mismatch` | (kill 셀 밖) `act17-end − act17-before`의 `compensation.done` 합 ≠ DB의 DONE 작업 수, 또는 `confirm.rejected` 합 < confirm_rejection 행 수 |
 | `k6-exit-<n>` · `k6-exit-unknown` · `k6-plan-mismatch` · `clock-offset-bad` | k6 종료 코드 ≠ 0 · k6-window.json 없음 · §6.8 · §6.11 |
 | `harness-reasons-missing` | harness-reasons.txt 없음 |
-| `db-cpu-missing` · `latency-missing` | (base 셀만) G3 입력 결측(ADR-014 `db_cpu` missing · CSV에 confirm · pay_start 200 표본 0) |
+| `db-cpu-missing` · `latency-missing` | (base 셀만) G3 입력 결측 — ADR-014 `db_cpu` missing · CSV에 confirm · pay_start 200 표본 0 · **CSV 200 수 ≠ 세션 로그 성공 수**(§6.11) |
+| `k6-csv-missing` | k6-requests.csv.gz 없음 · 깨짐(모든 셀) |
+| `dropped-iterations` | CSV `dropped_iterations` 합 > 0(모든 셀 — ADR-016 선례) |
+| `pc-link-missing` · `pc-link-down` | §6.11 pc-link.json — **pc-link-down은 환경 사유** |
+| `pc-mem-missing` · `pc-mem-low` | §6.11 timeline-client.jsonl — **pc-mem-low는 환경 사유** |
+| `env-send-lag` | 확정 송신 지연(`c1.ts − at`, end=done 세션)이 `values.send_lag_max_ms`를 넘는 세션 ≥ 1, 또는 그 값이 plan에 없음 — **환경 사유(정지 계열)**. 분포 = summary17 `send_lag_ms` |
+
+- **환경 사유 판별**(campaign17 `kind_of` · summarize17 `env_kind` — campaign16 우선순위): 사유 목록에 `pc-link-down` 또는 `pc-mem-low`가 하나라도 있으면 env(다른 사유와 섞여도), 사유가 전부 정지 계열(`env-stall` · `env-send-lag`)이면 env, 그 밖 무효 · status 없음은 harness, `ok`는 valid. 재측정 상한은 env · harness 따로 자리마다 2번이다.
+- `env-stall`(ADR-016의 응답 정지 덩어리 분류)은 이식하지 않았다 — 그 분류는 ADR-011 측정기(k6 탐침 PC · 서버) · GC 로그 · 대기 표본을 함께 보는데 run17은 측정기를 돌리지 않는다. 세션 일정이 밀린 정지는 `env-send-lag`가 잡는다. 이름은 판별 규칙에 남겨 둔다.
 
 ## 8. 판정 (회차 · 캠페인) [초안 — 문턱 · 묶는 법은 측정 전 고정에서 확정]
 
@@ -474,7 +489,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
    - 기대 0: `orphan` · `double_reservation` · `double_refund` · `refunded_with_seat` · `voided_with_seat` · `auth_open` · `open_unpaid` · `substituted_unpaid` · `no_ledger` · `no_intent`
    - R · S의 `seat_moneyless`도 기대 0이다(클라이언트가 결제 뒤에만 확정한다). D의 `seat_moneyless`는 G-비용이다.
 2. DEAD 작업 수(compensation_task status = DEAD).
-3. 배수 뒤 OPEN intent 수(drain empty와 같다 — 그래도 덤프로 다시 센다).
+3. 배수 뒤 OPEN intent 수(`open_after_drain` — drain empty와 같다 · 그래도 덤프로 다시 센다) · **미완료 작업 수**(`unfinished_tasks` — status PENDING · IN_PROGRESS, CLOSE · CAPTURE 모두 — 배수 상한에 닿으면 여기로 온다).
 4. consistency `pay_*` 기대 0 항목 · `v_*` 위반 합.
 5. 세션 `integrity:*` 수 · `wronged_open` 수 · `mode_fail:*` 수.
 
@@ -483,7 +498,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 - 표본은 CLOSE 작업 중 status DONE · source ∈ {REJECTION, SWEEP}이다.
 - 시간 = `done_ms − 시작`이다. 시작은 REJECTION이면 그 uid의 `confirm_rejection.rejected_ms`, SWEEP이면 작업 `created_ms`다.
 - 통과 조건: base 셀은 유효 회차마다 p99 ≤ X(`g2_x_s`), pg · kill 셀은 p99 ≤ Y(`g2_y_s`).
-- **X · Y의 출처 = 사용한 회차들의 `plan.json values.g2_x_s · g2_y_s`**(측정 전 고정 값이 plan17 한 곳에서 회차 폴더로만 온다 — 요약기 상수가 아니다). 사용 회차 사이에 값이 다르면(M17-2 위반) 모든 후보 `pass = "insufficient"` · `choice null`이다.
+- **X · Y의 출처 = 사용한 회차들의 `plan.json values.g2_x_s · g2_y_s`**(측정 전 고정 값이 plan17 한 곳에서 회차 폴더로만 온다 — 요약기 상수가 아니다). **회차 사이 대조**(M17-2): 사용 회차 전부의 `plan.json values` 전체 · `meta.json sha` · `meta.json harness_hash`가 같아야 한다. 하나라도 다르거나 없으면 모든 후보 `pass = "insufficient"` · `choice null` · campaign17 `runs_consistent = false`다.
 - **백분위 계산법**(p50 · p90 · p99 — G2 · G3 지연 · 돈 잃은 시간 공통): 오름차순 정렬 `xs`에서 `xs[min(n − 1, ⌊n × q⌋)]`(ADR-014 summarize `p99`와 같은 규칙 — 보간 없음). n = 0이면 null.
 - 표본이 0이면(회차 p99 = null) **판정 불가**다. 캠페인 `g2.<cand>.<cell>.no_sample = true`이고, 그 후보는 다른 판정된 실패(G1 실패 · G2 문턱 초과 · G3 실패)가 없으면 `pass = "insufficient"`다(판정된 실패가 있으면 `false`).
 - S의 대체 성공(SUBSTITUTE — 거부 트랜잭션 안에서 끝남)은 표본에 넣지 않고 따로 보고한다.
@@ -502,7 +517,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 
 **순서**:
 
-- 유효 회차가 셀마다 3이 아니면(재측정 상한 뒤) 그 후보는 `insufficient`다(판정 불가). R이 insufficient면 G3 기준이 없으므로 모든 후보가 insufficient다.
+- 유효 회차가 셀마다 3이 아니면(재측정 상한 뒤) 그 후보는 `insufficient`다(판정 불가). **R의 pass가 `"insufficient"`이면(회차 부족 · G2 표본 0 등 이유 무관) G3 기준이 없으므로 모든 후보가 insufficient다.**
 - `choice`: D → R → S 순서로 본다. `pass = true`면 그 후보를 고르고 멈춘다. `false`면 다음 후보로 간다. **`"insufficient"`면 멈추고 `choice = null`이다**(위 후보가 판정 불가인데 아래 후보로 내려가지 않는다 — ADR-016 undetermined 선례).
   - 예: D insufficient · R 통과 → `null`. D 실패 · R 통과 → `R`. D · R 실패 · S 통과 → `S`. 모두 실패 → `null`.
 
@@ -577,14 +592,16 @@ CLI: `outcome17.py <회차 폴더>` → 표준 출력 JSON 한 줄, exit 0. 입�
 - 덧붙는 키(위 형식에 더해질 뿐 — 기존 키는 그대로): `g1.items`에 shape 이름 · `seat_moneyless`(R · S만 셈 · D는 0) · record-level 대조 `record_pay_ok_not_in_ledger` · `record_pay_ok_no_intent` · `record_ledger_paid_without_k6_pay`(모두 기대 0 — k6 결제 성공 세션 ↔ 원장 결제 흔적 ↔ DB intent)가 있다.
 - 최상위 `record` = `{k6_pay_ok, ledger_paid, db_intents, pay_ok_not_in_ledger, pay_ok_no_intent, ledger_paid_without_k6_pay}`(보고).
 - 최상위 `inject` = pg 셀이면 `{"<op>": {"processed", "fail", "unknown", "reached": bool}}`(§7 inject-not-observed의 걷기 결과 — `processed` = 걷는 동안 만난 처리(PROCEED · UNKNOWN) 수. `reached`면 원장 `ops[op]`와 같고, 상한에서 멈추면 그보다 작다), 그 밖 셀 · 원장 없음은 null.
-- `cost.void_time_s` · `cost.app_dead_shapes` · `kill.left_intents`(§7 pg-not-reset 예외 수).
+- `cost.void_time_s` · `cost.app_dead_shapes` · `kill.left_intents`(§7 pg-not-reset — 이어진 uid 중 세션이 app_dead인 수).
+- `record.ps_linked_uids`(§7 이어진 uid 수) · `g1.items.unfinished_tasks`(§8).
+- 최상위 `send_lag_ms` = `{n, p50, p99, max, over}`(ms — end=done 세션의 `c1.ts − at` · over = 허용치 초과 수 · 허용치 없음이면 null) · `pc_mem` = `{min_kb, n, gap_max_s}` 또는 null.
 - campaign17 `g2.<cand>.<cell>`에 `no_sample`(표본 0 회차 있음) · `over`(문턱 초과 회차 있음)가 더해진다.
 - `g1.ok` = items의 값이 전부 0(사전이면 그 안의 값이 전부 0)이고 dump가 있음.
 
 `campaign17.json`:
 
 ```
-{"plan_fixed": bool, "runs": {"<cand>/<cell>/rep<k>": {"status", "attempts": n, "used": "<폴더 이름>"}},
+{"plan_fixed": bool, "runs_consistent": bool, "runs": {"<cand>/<cell>/rep<k>": {"status", "attempts": n, "used": "<폴더 이름>"}},
  "g1": {"<cand>": {"ok": bool, "fail_runs": [..]}},
  "g2": {"<cand>": {"<cell>": {"p99_s": [..], "limit_s": x, "ok": bool}}},
  "g3": {"<cand>": {"<metric>": {"range": [lo, hi], "median": x, "ratio_vs_R": x, "much_higher": bool}, "ok": bool}},
@@ -620,6 +637,8 @@ CLI: `outcome17.py <회차 폴더>` → 표준 출력 JSON 한 줄, exit 0. 입�
 | PG 주입(pg 셀 · capture · close) | delay 200ms · fail 10% · unknown 5% · unknownDelay 5,000ms | `PG_RULE` · `PG_FAULT_OPS` |
 | **kill 시각** | k6 시작 뒤 180초 · 760초 | `KILL_AT_S` |
 | kill 시각 허용 오차 | 5,000ms(계획 ↔ 실제 kill · k6 시작 대조 — §6.7) | `KILL_TOL_MS`(`values.kill_tol_ms`) |
+| 확정 송신 지연 허용치 | 2,000ms(`c1.ts − at` — 넘으면 env-send-lag) | `SEND_LAG_MAX_MS`(`values.send_lag_max_ms`) |
+| k6 PC 메모리 하한 · 표본 공백 상한 | 4 GiB · 30초(ADR-014 plan14 값 복사) | `PC_MEM_RUN_MIN_KB` · `PC_MEM_GAP_MAX_S`(`values.pc_mem_run_min_kb` · `pc_mem_gap_max_s`) |
 | **배수 창 상한** | 600초 | `DRAIN_CAP_S` |
 | G2 문턱 X · Y | 30초 · 120초 | `G2_X_S` · `G2_Y_S` |
 | 재측정 상한 | 자리마다 환경 2 · 하네스 2(ADR-015와 같다) | campaign17.sh |

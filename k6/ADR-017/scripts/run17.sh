@@ -220,6 +220,8 @@ finish17() {
       pg_faults_seed: $pgs, kill_planned_at_s: $kp, seed_done_epoch: $seed, k6_launch_epoch: $k0, k6_end_epoch: $k1, k6_exit: $kx,
       local: ($loc == 1), smoke: ($sm == 1)}' > "$DIR/meta.json.tmp" \
     && mv "$DIR/meta.json.tmp" "$DIR/meta.json" || { hreason meta-write-failed; st="invalid:meta-write-failed"; }
+  # PC 링크 끊김 기록(ADR-016 run16 finish16과 같다 — pclink14.sh · 요약기 pc-link-down · pc-link-missing)
+  bash "$S14/pclink14.sh" "$STARTED_EPOCH" "$(( $(date +%s) + 1 ))" > "$DIR/pc-link.json" 2>>"$DIR/errors.log" || echo "$(date -Is) pclink14 실패 rc=$?" >> "$DIR/errors.log"
   if [[ -z "$st" ]]; then
     python3 -I "$S17/summarize17.py" --rep "$DIR" > "$DIR/.summarize.out" 2>>"$DIR/errors.log"; local src=$?
     st=$(tail -n 1 "$DIR/.summarize.out"); rm -f "$DIR/.summarize.out"
@@ -352,8 +354,11 @@ rm -f "$DRAIN_EV"
 pg_ledger > "$DIR/pg-ledger.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/pg-ledger.json"; hreason ledger-dump-failed; }
 db_dump17 > "$DIR/db-dump.json" 2>>"$DIR/errors.log" < /dev/null && jq -e 'type == "object"' "$DIR/db-dump.json" > /dev/null 2>&1 || { rm -f "$DIR/db-dump.json"; hreason db-dump-failed; }
 if [[ -s "$DIR/pg-ledger.json" ]]; then   # 덤프 사이 원장 변화(dump-race) — 처리 호출 수 합 대조
-  o1=$(jq '[.ops[]] | add // 0' "$DIR/pg-ledger.json"); o2=$(pg_ledger 2>/dev/null < /dev/null | jq '[.ops[]] | add // 0' 2>/dev/null)
-  [[ -n "$o2" && "$o1" == "$o2" ]] || hreason dump-race
+  o1=$(jq '[.ops[]] | add // 0' "$DIR/pg-ledger.json"); o2=""
+  for _ in 1 2; do   # 두 번째 조회 실패는 경합이 아니다 — 1회 재시도 뒤에도 실패면 ledger-recheck-failed(L2-9)
+    o2=$(pg_ledger 2>/dev/null < /dev/null | jq '[.ops[]] | add // 0' 2>/dev/null); [[ "$o2" =~ ^[0-9]+$ ]] && break; o2=""; sleep 2
+  done
+  if [[ -z "$o2" ]]; then hreason ledger-recheck-failed; elif [[ "$o1" != "$o2" ]]; then hreason dump-race; fi
 fi
 CONSISTENCY_TIMEOUT=600 consistency 20 > "$DIR/consistency.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/consistency.json"; hreason end-check-failed; }
 snap17 end
