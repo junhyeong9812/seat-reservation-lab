@@ -69,6 +69,87 @@ FAULTS_BASE = {"seed": 1, "rules": {}}
 FAULTS_PG = {"seed": 1, "rules": {
     "capture": {"delayMs": 200, "failRate": 0.1, "unknownRate": 0.05, "unknownDelayMs": 0},
     "close": {"delayMs": 200, "failRate": 0.1, "unknownRate": 0.05, "unknownDelayMs": 0}}}
+V_KEYS = ["v_duplicate_hold_seats", "v_excess_hold_rows", "v_duplicate_confirmed_seats", "v_reserved_without_confirmed",
+          "v_confirmed_on_unreserved_seat", "v_held_without_hold", "v_hold_on_unheld_seat", "v_stale_held_seats",
+          "v_over_limit_users", "v_counter_mismatch"]  # §6.3 필수 키 10
+KILL_TOL_MS_PLAN = 5000  # §11 values.kill_tol_ms
+
+
+# ---- §7 inject-not-observed 결정열 — java.util.Random · String.hashCode 독립 구현 ----
+_MASK48 = (1 << 48) - 1
+_MULT = 0x5DEECE66D
+
+
+def _i32(x):
+    x &= 0xFFFFFFFF
+    return x - (1 << 32) if x >= 1 << 31 else x
+
+
+def _i64(x):
+    x &= (1 << 64) - 1
+    return x - (1 << 64) if x >= 1 << 63 else x
+
+
+def java_hash(sv):
+    h = 0
+    for ch in sv:
+        h = _i32(31 * h + ord(ch))
+    return h
+
+
+class JavaRandom:
+    def __init__(self, seed):
+        self.seed = (seed ^ _MULT) & _MASK48
+
+    def _next(self, bits):
+        self.seed = (self.seed * _MULT + 0xB) & _MASK48
+        return self.seed >> (48 - bits)
+
+    def next_double(self):
+        return ((self._next(26) << 27) + self._next(27)) * (1.0 / (1 << 53))
+
+
+def inject_walk(faults, ops):
+    """§7: 규칙마다 Random(seed × 31 + op.hashCode()) nextDouble 열 — FAIL(처리 안 함) · UNKNOWN · PROCEED(처리함).
+    처리 수가 ops[op]에 닿으면 멈춤 · 상한 ops × 100 + 10000걸음."""
+    out = {}
+    seed = int(faults.get("seed", 0))
+    for op, rule in (faults.get("rules") or {}).items():
+        fr, ur = float(rule.get("failRate", 0)), float(rule.get("unknownRate", 0))
+        if fr == 0 and ur == 0:
+            continue
+        target = int(ops.get(op, 0))
+        rnd = JavaRandom(_i64(seed * 31 + java_hash(op)))
+        processed = fail = unknown = 0
+        steps = 0
+        limit = target * 100 + 10000
+        while processed < target and steps < limit:
+            x = rnd.next_double()
+            steps += 1
+            if x < fr:
+                fail += 1
+            elif x < fr + ur:
+                unknown += 1
+                processed += 1
+            else:
+                processed += 1
+        out[op] = {"processed": processed, "fail": fail, "unknown": unknown, "reached": processed >= target}
+    return out
+
+
+def first_non_proceed(faults, op):
+    """그 op 열에서 처음 FAIL · UNKNOWN이 나오기 전 PROCEED 수(경계 사례용)."""
+    rule = faults["rules"][op]
+    fr, ur = rule["failRate"], rule["unknownRate"]
+    rnd = JavaRandom(_i64(int(faults["seed"]) * 31 + java_hash(op)))
+    k = 0
+    while True:
+        x = rnd.next_double()
+        if x < fr + ur:
+            return k, ("FAIL" if x < fr else "UNKNOWN")
+        k += 1
+
+
 REJ_PAIRS = [(404, "HOLD_NOT_FOUND"), (409, "HOLD_EXPIRED"), (409, "SEAT_NOT_HELD")]
 G1_ZERO_SHAPES = ["orphan", "double_reservation", "double_refund", "refunded_with_seat", "voided_with_seat",
                   "auth_open", "open_unpaid", "substituted_unpaid", "no_ledger", "no_intent"]  # §8 G1-1
@@ -100,7 +181,8 @@ def plan_obj(cand="R", cell="base", rep=1, fixed=False, cycle=None, n_total=None
             "seed": {"schedules": 1, "seats": SPARE + n, "spare": SPARE, "section": "A"},
             "pg": {"faults": copy.deepcopy(FAULTS_PG if cell == "pg" else FAULTS_BASE), "op": PG_OP[cand]},
             "kill": kill, "drain": {"cap_s": 600, "poll_s": 2, "est_s": 30},
-            "values": {"g2_x_s": 30, "g2_y_s": 120, "kind_weights": {k: 1 for k in cycle}, "pg_rule": "fixed"},
+            "values": {"g2_x_s": 30, "g2_y_s": 120, "kind_weights": {k: 1 for k in cycle}, "pg_rule": "fixed",
+                       "kill_tol_ms": KILL_TOL_MS_PLAN},
             "rate": 1, "d_arr_s": 10,
             "app_env": {}, "k6": {"env": {"USER_BASE": str(USER_BASE)}}}
 
@@ -657,10 +739,31 @@ class TestClassify(unittest.TestCase):
         r = row("retry", cell="kill", c1=C200(104, seat=10), c2=C(0, ts=T0 + 52, tr=T0 + 55))
         self.assertEqual(self.c(r, E("seat_paid", res=[{"id": 104, "status": "CONFIRMED", "origin": "HOLD"}]),
                                 kills=kills), "app_dead")
-        # c1이 창 안 503이어도 c2(마지막)가 창 밖 200이면 app_dead 아님 → D 재생 대조 → 불일치
+        # §5 B 판정 대상: retry c1이 미확정이면 c = c1 — c2가 창 밖 200이어도 c1(창 안 503) → app_dead
         r = row("retry", cell="kill", c1=C(503, ts=T0 + 52, tr=T0 + 55), c2=C(200, rid=104, rs="CONFIRMED", ts=T0 + 70))
         self.assertEqual(self.c(r, E("seat_paid", res=[{"id": 104, "status": "CONFIRMED", "origin": "HOLD"}]),
-                                kills=kills), "integrity:retry-replay-mismatch")
+                                kills=kills), "app_dead")
+
+    def test_retry_target_response(self):
+        """§5 B · D 판정 대상 확정 응답 c(retry) — 미확정 = st 0 또는 ≥ 500 · 재생 대조는 둘 다 확정일 때만"""
+        end = E("seat_paid", res=[{"id": 104, "status": "CONFIRMED", "origin": "HOLD"}])
+        ok2 = C(200, rid=104, rs="CONFIRMED", ts=T0 + 70)
+        cases = (
+            ("c1 st0 창 밖 · c2 200", C(0, ec=0), ok2, [], "invalid:confirm-code0"),
+            ("c1 st0 ec1050 · c2 200", C(0, ec=1050), ok2, [], "mode_fail:confirm-timeout"),
+            ("c1 503 창 밖 · c2 200", C(503), ok2, [], "mode_fail:confirm-5xx"),
+            ("c1 st0 창 안 · c2 200", C(0, ts=T0 + 30, tr=T0 + 35), ok2, [(T0 + 31, T0 + 33)], "app_dead"),
+            ("c1 200 · c2 503 창 밖", C200(104), C(503, ts=T0 + 70), [], "mode_fail:confirm-5xx"),
+            ("c1 200 · c2 st0 ec1050", C200(104), C(0, ec=1050, ts=T0 + 70), [], "mode_fail:confirm-timeout"),
+            ("c1 200 · c2 st0 창 밖", C200(104), C(0, ts=T0 + 70), [], "invalid:confirm-code0"),
+            ("c1 200 · c2 st0 창 안", C200(104), C(0, ts=T0 + 70), [(T0 + 72, T0 + 80)], "app_dead"),
+            ("c1 200 · c2 200 같음", C200(104), C200(104), [(T0 + 0, T0 + 99)], "success"),
+            ("c1 200 · c2 409 다름(둘 다 확정)", C200(104), C(409, "HOLD_EXPIRED", ts=T0 + 70), [], "integrity:retry-replay-mismatch"),
+        )
+        for name, c1, c2, kills, want in cases:
+            with self.subTest(name):
+                r = row("retry", cell="kill" if kills else "base", c1=c1, c2=c2)
+                self.assertEqual(self.c(r, end, kills=kills), want, name)
 
     def test_B_not_applied_abandon_noconf(self):
         """§5 B end가 abandon · noconf · pg면 마지막 응답 객체가 없다 → B 미적용 · C로"""
@@ -879,7 +982,7 @@ class Rep:
         self.extra_lines = []  # 세션 로그에 덧붙일 원시 줄
         self.torn_tail = None
         self.intents, self.res, self.rejs, self.tasks, self.ledger = [], [], [], [], []
-        self.consistency = {f"v_{k}": 0 for k in ("double_booking", "hold_and_reserved", "orphan_hold")}
+        self.consistency = {k: 0 for k in V_KEYS}
         self.consistency.update({k: 0 for k in PAY_ZERO})
         self.harness = []
         self.k6_exit = 0
@@ -889,6 +992,7 @@ class Rep:
         self.process_start = (1000.0, 1000.0)
         self.act_end_overrides = {}
         self.act_end_rejected = None  # None = 거부 행에서 파생
+        self.act_mut = {}  # 점 → 함수(act dict 변형)
         self.skip_files = set()
         self.corrupt_files = set()
         self.ops = None
@@ -978,6 +1082,24 @@ class Rep:
              "response": copy.deepcopy(faults)}]
 
     # --- 파생 값 ---
+    def ops_now(self):
+        if self.ops is not None:
+            return self.ops
+        o = {"register": len(self.ledger), "pay": len(self.ledger), "authorize": 0,
+             "capture": sum(1 for t in self.tasks if t["type"] == "CAPTURE"),
+             "close": sum(1 for t in self.tasks if t["type"] == "CLOSE")}
+        if self.cell == "pg":
+            # 바탕 pg 셀은 주입 결정이 관측되도록 close 처리 수를 첫 FAIL/UNKNOWN 뒤까지 둔다(§7 결정열)
+            k, _ = first_non_proceed(FAULTS_PG, "close")
+            o["close"] = max(o["close"], k + 1)
+        return o
+
+    def faults_applied(self):
+        for ev in reversed(self.inject_events or []):
+            if ev.get("at") == "faults" and isinstance(ev.get("response"), dict):
+                return ev["response"]
+        return self.plan["pg"]["faults"]
+
     def done_metric(self):
         out = {}
         for t in self.tasks:
@@ -1010,6 +1132,8 @@ class Rep:
                 a["compensation"][k] = v
             if self.act_end_rejected is not None:
                 a["confirm"]["rejected"] = self.act_end_rejected
+        if point in self.act_mut:
+            self.act_mut[point](a)
         return a
 
     # --- 쓰기 ---
@@ -1018,8 +1142,7 @@ class Rep:
         d.mkdir(parents=True, exist_ok=True)
         pl = self.plan
         led = {"payments": sorted(self.ledger, key=lambda x: x["uid"]),
-               "ops": self.ops or {"register": len(self.ledger), "pay": len(self.ledger), "authorize": 0,
-                                   "capture": 0, "close": len(self.tasks)}}
+               "ops": self.ops_now()}
         db = {"t_ms": T0 + 800000, "payment_intent": sorted(self.intents, key=lambda x: x["uid"]),
               "reservation": sorted(self.res, key=lambda x: x["id"]), "confirm_rejection": self.rejs,
               "compensation_task": self.tasks}
@@ -1413,24 +1536,286 @@ class TestRepInvalidReasons(RepCase):
                 rep.inject_events[-1]["response"] = copy.deepcopy(FAULTS_PG)
                 self.assertOnly(self.summarize(rep, cell), ["inject-leak", "inject-mismatch"], f"{cell} 규칙 남음")
 
-    def test_inject_not_observed(self):
-        """§7 pg 셀 · Σ(attempts − 1) = 0 이고 retry 합 = 0 → 무효 (둘 중 하나라도 > 0이면 아님)"""
+    # ---- §7 inject-not-observed · inject-undecidable (결정열 — 테스트 안 Java Random 독립 구현) ----
+    def test_inject_walk_summary(self):
+        """§9.2 summary inject = §7 걷기 결과(pg 셀) · 그 밖 셀은 null"""
+        for cand in ("R", "D", "S"):
+            with self.subTest(cand):
+                rep = Rep(cand, "pg")
+                want = inject_walk(FAULTS_PG, rep.ops_now())
+                self.assertGreater(sum(v["fail"] + v["unknown"] for v in want.values()), 0, "바탕 pg 셀은 결정이 관측돼야")
+                s = self.summarize(rep, cand)
+                self.assertOk(s)
+                self.assertEqual(s["inject"], want)
+        self.assertIsNone(self.summarize(Rep("R", "base"), "base")["inject"])
+
+    def test_inject_not_observed_boundary(self):
+        """§7 처리 수가 첫 FAIL/UNKNOWN 직전에 닿으면(마지막 처리 뒤 FAIL은 세지 않음) 하한 0 → 무효 · 하나 더면 관측"""
+        k, kind = first_non_proceed(FAULTS_PG, "close")
         rep = Rep("R", "pg")
-        for t in rep.tasks:
-            t["attempts"] = 1
-        self.assertOnly(self.summarize(rep, "none"), ["inject-not-observed"], "주입 흔적 0")
+        rep.ops = dict(rep.ops_now(), close=k, capture=0)
+        s = self.summarize(rep, "k")
+        self.assertOnly(s, ["inject-not-observed"], f"close 처리 {k}(다음 결정 {kind})")
+        self.assertEqual(s["inject"]["close"], {"processed": k, "fail": 0, "unknown": 0, "reached": True})
         rep = Rep("R", "pg")
-        for t in rep.tasks:
-            t["attempts"] = 1
-        rep.act_end_overrides["retry"] = {"CLOSE": 1}
-        self.assertOk(self.summarize(rep, "retry-only"), "지표 retry 1")
+        rep.ops = dict(rep.ops_now(), close=k + 1, capture=0)
+        self.assertOk(self.summarize(rep, "k1"), "처리 k + 1")
+
+    def test_inject_ops_zero(self):
         rep = Rep("R", "pg")
-        rep.act_end_overrides["retry"] = {}
-        self.assertOk(self.summarize(rep, "attempts-only"), "attempts 2")
+        rep.ops = dict(rep.ops_now(), close=0, capture=0)
+        self.assertOnly(self.summarize(rep), ["inject-not-observed"], "원장 처리 0")
+
+    def test_inject_capture_only(self):
+        """op 합 — close 0이어도 capture에서 관측되면 무효 아님"""
+        kc, _ = first_non_proceed(FAULTS_PG, "capture")
+        rep = Rep("D", "pg")
+        rep.ops = dict(rep.ops_now(), close=0, capture=kc + 1)
+        self.assertOk(self.summarize(rep))
+
+    def test_inject_zero_rate_rule_excluded(self):
+        """failRate · unknownRate 둘 다 0인 op는 뺀다"""
+        faults = {"seed": 7, "rules": {"close": {"delayMs": 0, "failRate": 0.0, "unknownRate": 0.0, "unknownDelayMs": 0},
+                                       "capture": dict(FAULTS_PG["rules"]["capture"])}}
+        rep = Rep("R", "pg")
+        rep.plan["pg"]["faults"] = copy.deepcopy(faults)
+        rep.inject_events[-1]["request"] = copy.deepcopy(faults)
+        rep.inject_events[-1]["response"] = copy.deepcopy(faults)
+        rep.ops = dict(rep.ops_now(), close=1000, capture=0)
+        s = self.summarize(rep)
+        self.assertOnly(s, ["inject-not-observed"])
+        self.assertNotIn("close", s["inject"])
+
+    def test_inject_undecidable(self):
+        """§7 걷기가 ops × 100 + 10000걸음 안에 처리 수에 못 닿음 → inject-undecidable"""
+        faults = {"seed": 1, "rules": {"close": {"delayMs": 0, "failRate": 1.0, "unknownRate": 0.0, "unknownDelayMs": 0}}}
+        rep = Rep("R", "pg")
+        rep.plan["pg"]["faults"] = copy.deepcopy(faults)
+        rep.inject_events[-1]["request"] = copy.deepcopy(faults)
+        rep.inject_events[-1]["response"] = copy.deepcopy(faults)
+        rep.ops = dict(rep.ops_now(), close=1)
+        s = self.summarize(rep)
+        self.assertIncludes(s, ["inject-undecidable"])
+        self.assertIs(s["inject"]["close"]["reached"], False)
+        self.assertEqual(s["inject"]["close"]["processed"], 0)
+
+    def test_inject_base_cell_not_checked(self):
         rep = Rep("R", "base")
+        rep.ops = dict(rep.ops_now(), close=0, capture=0)
+        self.assertOk(self.summarize(rep))
+
+    def test_java_random_reference(self):
+        """독립 구현 자체 점검 — 알려진 Java 값: new Random(42).nextDouble() = 0.7275636800328681 · "close".hashCode() = 94756344"""
+        self.assertEqual(java_hash("close"), 94756344)
+        self.assertAlmostEqual(JavaRandom(42).next_double(), 0.7275636800328681, places=15)
+
+    # ---- §6.3 consistency 필수 키 ----
+    def test_consistency_required_keys(self):
+        """§6.3 필수 v_* 10 · 기대 0 pay_* 7 — 없음 · 숫자 아님 → consistency-missing만"""
+        for key in V_KEYS + PAY_ZERO:
+            for mode, val in (("absent", None), ("string", "0"), ("null", None), ("bool", False)):
+                with self.subTest((key, mode)):
+                    rep = Rep("R", "pg")
+                    if mode == "absent":
+                        del rep.consistency[key]
+                    else:
+                        rep.consistency[key] = val
+                    self.assertOnly(self.summarize(rep, f"{key}-{mode}"), ["consistency-missing"], f"{key} {mode}")
+
+    # ---- §6.4 act 필수 지표 ----
+    def test_act_required_metrics(self):
+        """§6.4 필수 지표 null · 비숫자 · failed_names 비어 있지 않음 → act-missing만"""
+        muts = {
+            "unresolved null": lambda a: a["compensation"].update(unresolved=None),
+            "sweep_failed 없음": lambda a: a["compensation"].pop("sweep_failed"),
+            "legacy 문자열": lambda a: a["confirm"].update(legacy="0"),
+            "done 값 null": lambda a: a["compensation"].update(done={"CLOSE:REFUNDED": None}),
+            "rejected 사전 아님": lambda a: a["confirm"].update(rejected=[1]),
+            "pg_register 없음": lambda a: a.pop("pg_register"),
+            "failed_names": lambda a: a.update(failed_names=["seat.confirm.legacy"]),
+        }
+        for point in ("before", "after-k6", "end"):
+            for name, f in muts.items():
+                with self.subTest((point, name)):
+                    rep = Rep("R", "pg")
+                    rep.act_mut[point] = f
+                    self.assertOnly(self.summarize(rep, f"{point}-{name}".replace(" ", "_")), ["act-missing"], name)
+
+    def test_act_empty_failed_names_ok(self):
+        rep = Rep("R", "pg")
+        rep.act_mut["end"] = lambda a: a.update(failed_names=[])
+        self.assertOk(self.summarize(rep))
+
+    def test_act_process_start_null(self):
+        """§6.4 process_start_s 숫자 필수 — null이면 act-missing(재기동 대조 연쇄는 문서 밖)"""
+        rep = Rep("R", "pg")
+        rep.act_mut["end"] = lambda a: a.update(process_start_s=None)
+        self.assertIncludes(self.summarize(rep), ["act-missing"])
+
+    def test_app_restarted(self):
+        """§6.4 · §7 base · pg 셀 process_start_s before ≠ end → app-restarted만"""
+        for cell in ("base", "pg"):
+            with self.subTest(cell):
+                rep = Rep("R", cell)
+                rep.process_start = (1000.0, 1500.0)
+                self.assertOnly(self.summarize(rep, cell), ["app-restarted"], cell)
+
+    # ---- §6.7 kill 시각 대조 ----
+    def _kill_at(self, rep, i, planned, dkill=10):
+        e = rep.kill["events"][i]
+        e.update(planned_ms=planned, kill_ms=planned + dkill, start_ms=planned + dkill + 490,
+                 ready_ms=planned + dkill + 21000)
+
+    def test_kill_time_tolerance(self):
+        """§6.7 |kill_ms − planned_ms| ≤ tol(5000) — 경계 포함"""
+        for dk, ok in ((5000, True), (-5000, True), (5001, False), (-5001, False)):
+            with self.subTest(dk):
+                rep = Rep("R", "kill")
+                self._kill_at(rep, 0, rep.kill["events"][0]["planned_ms"], dkill=dk)
+                s = self.summarize(rep, f"dk{dk}")
+                (self.assertOk(s) if ok else self.assertOnly(s, ["kill-not-observed"], f"kill − planned {dk}"))
+
+    def test_kill_planned_vs_plan(self):
+        """§6.7 |planned_ms − (k6_t0_ms + at_s × 1000)| ≤ tol"""
+        for d, ok in ((5000, True), (5001, False)):
+            with self.subTest(d):
+                rep = Rep("R", "kill")
+                self._kill_at(rep, 1, rep.kill["events"][1]["planned_ms"] + d)
+                s = self.summarize(rep, f"pl{d}")
+                (self.assertOk(s) if ok else self.assertOnly(s, ["kill-not-observed"], f"planned 오차 {d}"))
+
+    def test_kill_k6_t0(self):
+        """§6.7 |kill.k6_t0_ms − (k6_t0_epoch × 1000 + clock_offset_ms_given)| ≤ tol — 계획 시각도 같이 밀어 그 조건만"""
+        for d, ok in ((5000, True), (5001, False)):
+            with self.subTest(d):
+                rep = Rep("R", "kill")
+                rep.kill["k6_t0_ms"] += d
+                for i in (0, 1):
+                    self._kill_at(rep, i, rep.kill["events"][i]["planned_ms"] + d)
+                s = self.summarize(rep, f"t0{d}")
+                (self.assertOk(s) if ok else self.assertOnly(s, ["kill-not-observed"], f"k6_t0 오차 {d}"))
+
+    def test_kill_outside_k6_window(self):
+        """§6.7 k6 시작 ≤ kill_ms ≤ k6 끝(k6_end_epoch × 1000 + offset = T0 + 700000)"""
+        for at2, ok in ((700, True), (710, False)):
+            with self.subTest(at2):
+                rep = Rep("R", "kill")
+                rep.plan["kill"]["at_s"] = [120, at2]
+                rep.kill["planned_at_s"] = [120, at2]
+                self._kill_at(rep, 1, rep.kill["k6_t0_ms"] + at2 * 1000)
+                s = self.summarize(rep, f"at{at2}")
+                (self.assertOk(s) if ok else self.assertOnly(s, ["kill-not-observed"], f"at_s {at2}"))
+
+    def test_kill_count_vs_at_s(self):
+        rep = Rep("R", "kill")
+        rep.plan["kill"]["at_s"] = [120, 360, 600]
+        self.assertOnly(self.summarize(rep), ["kill-not-observed"], "at_s 3 · events 2")
+
+    def test_kill_tol_key_missing(self):
+        rep = Rep("R", "kill")
+        del rep.plan["values"]["kill_tol_ms"]
+        self.assertOnly(self.summarize(rep), ["kill-not-observed"], "values.kill_tol_ms 없음")
+
+    def test_kill_no_restart(self):
+        """§6.7 process_start_s before = end → kill-not-observed"""
+        rep = Rep("R", "kill")
+        rep.process_start = (1000.0, 1000.0)
+        self.assertOnly(self.summarize(rep), ["kill-not-observed"])
+
+    # ---- §7 pg-not-reset 예외(kill 중 응답 유실) · 세션 uid = uid ∪ p.uid ----
+    def _left_intent(self, cell="kill", hid_match=True, created=None):
+        rep = Rep("R", cell)
+        u0 = uid_of(0)
+        rep.intents = [i for i in rep.intents if i["uid"] != u0]
+        rep.res = [x for x in rep.res if x["payment_uid"] != u0]
+        rep.ledger = [x for x in rep.ledger if x["uid"] != u0]
+        ev = rep.kill["events"][0] if rep.kill else {"kill_ms": T0 + 119010}
+        ts = ev["kill_ms"] + 300
+        rep.rows[0] = row("ok", end="pay_start", sid=0, cell=cell, h=H(hid=77),
+                          p=Pp(None, st=0, code="NOCODE", ok=False, ts=ts, tr=ts + 100))
+        left = uid_of(90)
+        it = intent_row(left, 0, "CLOSING", closed_reason="SWEEP", result_code="HOLD_EXPIRED")
+        it.update(hold_id=77 if hid_match else 78, created_ms=ts + 50 if created is None else created)
+        rep.intents.append(it)
+        rep.ledger.append(ledger_entry(left, "CLOSED"))
+        rep.tasks.append(task_row(90, left, "CLOSE", "SWEEP", "DONE", "CLOSED", T0 + 640000, T0 + 652500))
+        return rep
+
+    def test_kill_left_intent_excepted(self):
+        """kill 셀 · created_ms가 kill 창 안 · app_dead pay_start 세션과 hid · user 일치 → pg-not-reset 아님 · left_intents 1"""
+        s = self.summarize(self._left_intent())
+        self.assertOk(s, "kill 중 payment-start 응답 유실")
+        self.assertEqual(s["kill"]["left_intents"], 1)
+        self.assertEqual(s["sessions"]["by_kind"]["ok"], {"app_dead": 1})
+        self.assertEqual(s["cost"]["app_dead_shapes"], {"none": 1}, "§8 uid 없으면 none")
+        self.assertEqual(s["uids"].get("closed_unpaid"), 2, "그 uid의 shape는 G1에 그대로")
+
+    def test_kill_left_intent_not_excepted(self):
+        for name, kw in (("hold_id 다름", {"hid_match": False}), ("created_ms 창 밖", {"created": T0 + 500000})):
+            with self.subTest(name):
+                self.assertOnly(self.summarize(self._left_intent(**kw), name.replace(" ", "_")), ["pg-not-reset"], name)
+
+    def test_left_intent_outside_kill_cell(self):
+        """예외는 kill 셀만 — pg 셀이면 pg-not-reset(같은 세션은 pay-start-code0 → session-invalid)"""
+        s = self.summarize(self._left_intent(cell="pg"))
+        self.assertIncludes(s, ["pg-not-reset"])
+
+    def test_session_uid_includes_p_uid(self):
+        """§7 세션 uid = 행 uid ∪ p.uid — payment-start 200 본문 위반(행 uid null)의 p.uid는 잔재 아님"""
+        rep = Rep("R", "pg")
+        u0 = uid_of(0)
+        rep.res = [x for x in rep.res if x["payment_uid"] != u0]
+        rep.rows[0] = row("ok", end="pay_start", sid=0, cell="pg", p=Pp(u0, pws="x", ok=False))
+        rep.intents[0] = intent_row(u0, 0, "CLOSING", closed_reason="SWEEP", result_code="HOLD_EXPIRED")
+        rep.ledger[0] = ledger_entry(u0, "CLOSED")
+        rep.tasks.append(task_row(91, u0, "CLOSE", "SWEEP", "DONE", "CLOSED", T0 + 640000, T0 + 652500))
+        s = self.summarize(rep)
+        self.assertOk(s)
+        self.assertEqual(s["sessions"]["by_kind"]["ok"], {"mode_fail:pay-start-body": 1})
+
+    # ---- §7 g2-time-missing ----
+    def test_g2_time_missing(self):
+        def no_rej(r):
+            r.rejs.clear()
+
+        def done_null(r):
+            for t in r.tasks:
+                if t["source"] == "SWEEP":
+                    t["done_ms"] = None
+                    break
+
+        def created_null(r):
+            for t in r.tasks:
+                if t["source"] == "SWEEP":
+                    t["created_ms"] = None
+                    break
+        for name, f in (("REJECTION인데 rejected_ms 없음", no_rej), ("DONE인데 done_ms null", done_null),
+                        ("SWEEP인데 created_ms null", created_null)):
+            with self.subTest(name):
+                rep = Rep("R", "pg")
+                f(rep)
+                self.assertOnly(self.summarize(rep, name.replace(" ", "_")), ["g2-time-missing"], name)
+
+    def test_g2_time_missing_not_for_non_targets(self):
+        """대상 밖 작업(CAPTURE · CONFIRM)의 done_ms null은 이 사유 아님"""
+        rep = Rep("D", "pg")
         for t in rep.tasks:
-            t["attempts"] = 1
-        self.assertOk(self.summarize(rep, "base"), "base 셀은 대상 아님")
+            if t["type"] == "CAPTURE":
+                t["status"] = "PENDING"
+                t["done_ms"] = None
+                break
+        rep.act_mut["end"] = lambda a: a["compensation"].update(done={"CLOSE:VOIDED": 2, "CLOSE:CLOSED": 1, "CAPTURE:CAPTURED": 1})
+        s = self.summarize(rep)
+        self.assertNotIn("g2-time-missing", s["reasons"])
+
+    # ---- §8 G-비용 ----
+    def test_void_time(self):
+        """§8 D 승인 취소까지 시간 = VOIDED uid의 closedAt − authorizedAt(초)"""
+        s = self.summarize(Rep("D", "base"))
+        vt = s["cost"]["void_time_s"]
+        self.assertEqual(vt["n"], 2)
+        self.assertAlmostEqual(vt["p50"], 39.98, places=6)
+        self.assertAlmostEqual(vt["max"], 39.98, places=6)
 
     def test_kill_not_observed(self):
         """§6.7 유효 조건 각각"""
@@ -1730,8 +2115,8 @@ class TestRepG1(RepCase):
 
     def test_consistency_v_sum(self):
         rep = Rep()
-        rep.consistency["v_double_booking"] = 2
-        rep.consistency["v_orphan_hold"] = 1
+        rep.consistency["v_duplicate_hold_seats"] = 2
+        rep.consistency["v_counter_mismatch"] = 1
         _, g = self.g1(rep)
         self.assertFalse(g["ok"])
         self.assertEqual(g["items"]["consistency_v_sum"], 3)
@@ -1770,6 +2155,7 @@ class TestRepG1(RepCase):
         self.assertNotIn("session-invalid", s["reasons"])
         self.assertTrue(g["ok"], "uid 끝 상태(seat_paid)는 정상")
         self.assertEqual(s["cost"]["app_dead"], 1)
+        self.assertEqual(s["cost"]["app_dead_shapes"], {"seat_paid": 1})
         rep = Rep("R", "kill")
         ev = rep.kill["events"][0]
         rep.rows[1]["c1"] = C(0, ts=ev["kill_ms"] + 10, tr=ev["kill_ms"] + 20)
@@ -2069,13 +2455,31 @@ class TestCampaignG2(CampaignCase):
         cj = self.run_campaign()
         self.assertFalse(cj["g2"]["D"]["base"]["ok"])
 
-    def test_no_sample_fails(self):
-        """§8 표본 0 → 판정 불가(g2-no-sample) = 실패로 센다"""
+    def test_no_sample_insufficient(self):
+        """§8 표본 0(p99 null) = 판정 불가 · no_sample true · 다른 판정된 실패 없으면 insufficient → choice null"""
         self.over[("D", "kill", 1)] = {"n": 0}
         cj = self.run_campaign()
-        self.assertFalse(cj["g2"]["D"]["kill"]["ok"])
-        self.assertIs(cj["pass"]["D"], False)
-        self.assertEqual(cj["choice"], "R")
+        self.assertIs(cj["g2"]["D"]["kill"]["no_sample"], True)
+        self.assertEqual(cj["pass"]["D"], "insufficient")
+        self.assertIsNone(cj["choice"])
+
+    def test_no_sample_with_judged_fail(self):
+        """판정된 실패(G1 · G2 초과 · G3)가 있으면 false → 다음 후보"""
+        for extra in ({("D", "base", 2): {"g1_ok": False}}, {("D", "pg", 2): {"p99": 500.0}}):
+            with self.subTest(list(extra)):
+                self.over = {("D", "kill", 1): {"n": 0}, **extra}
+                cj = self.run_campaign()
+                self.assertIs(cj["pass"]["D"], False)
+                self.assertEqual(cj["choice"], "R")
+                shutil.rmtree(self.tmp / "c-test", ignore_errors=True)
+
+    def test_over_flag(self):
+        """§9.2 campaign g2.<cand>.<cell>.over(문턱 초과 회차 있음)"""
+        self.over[("D", "pg", 1)] = {"p99": 121.0}
+        cj = self.run_campaign()
+        self.assertIs(cj["g2"]["D"]["pg"]["over"], True)
+        self.assertIs(cj["g2"]["D"]["base"]["over"], False)
+        self.assertIs(cj["g2"]["D"]["base"]["no_sample"], False)
 
 
 class TestCampaignG3(CampaignCase):

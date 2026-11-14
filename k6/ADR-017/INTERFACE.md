@@ -194,7 +194,10 @@ Task = {id, source, status, attempts, last_result, created_ms, done_ms|None}
 **A. 행 정합**: §3.2를 어기거나, `kind` ≠ `kind_cycle[sid mod len]`이거나, rep · cand · cell이 plan과 다르면 → `invalid:row-bad`.
 
 **B. 앱 죽음**: 아래 둘을 모두 만족하면 → `app_dead`.
-- 세션의 **마지막 응답 객체**(end 단계의 응답 — `hold`면 h, `pay_start`면 p, `done`이면 c2 또는 c1)가 앱 호출이다. PG 응답 `g`는 앱 호출이 아니라 제외한다.
+- 세션의 **마지막 응답 객체**(end 단계의 응답 — `hold`면 h, `pay_start`면 p, `done`이면 아래 **판정 대상 확정 응답** `c`)가 앱 호출이다. PG 응답 `g`는 앱 호출이 아니라 제외한다.
+- **판정 대상 확정 응답** `c`(B · D 공통): 미확정 = `st == 0` 또는 `st ≥ 500`(커밋 여부를 모름)이다.
+  - retry가 아니면 `c = c1`.
+  - retry면: c1이 미확정이면 `c = c1` · c1이 확정이고 c2가 미확정이면 `c = c2` · 둘 다 확정이면 `c = c1`(D에서 재생 대조 뒤).
 - 그 응답이 `st == 0` 또는 `st ≥ 500`이고, `[ts, tr]`이 kill 창 하나와 겹친다(`ts ≤ hi` 이고 `tr ≥ lo`).
 - end가 `abandon` · `noconf` · `pg`면 **마지막 응답 객체가 없다**(abandon · noconf는 앱 응답이 정상으로 끝났고, pg는 PG 응답이라 앱 호출이 아니다). 그래서 B는 적용하지 않고 C로 간다.
 
@@ -228,9 +231,13 @@ Task = {id, source, status, attempts, last_result, created_ms, done_ms|None}
 | | — | `voided` | `wronged_voided` |
 | | — | `orphan` · `auth_open` | `wronged_open` |
 | | — | 그 밖(`seat_*` · `substituted` 등 — 확정을 안 보냈는데 좌석) | `integrity:noconf-<shape>` |
-| `done` | 확정 응답 `c` = c1 | | (아래 D) |
+| `done` | 판정 대상 확정 응답 `c`(B 절) | | (아래 D) |
 
-**D. `done`의 확정 응답**: `c` = c1이다. retry는 먼저 c2를 대조한다 — `(c2.st, c2.code, c2.rid) ≠ (c1.st, c1.code, c1.rid)`면 → `integrity:retry-replay-mismatch`(N17-3).
+**D. `done`의 확정 응답**: `c` = 판정 대상 확정 응답(B 절). retry는 **c1 · c2가 둘 다 확정 응답일 때만** 재생을 대조한다 — `(c2.st, c2.code, c2.rid) ≠ (c1.st, c1.code, c1.rid)`면 → `integrity:retry-replay-mismatch`(N17-3).
+
+- c1이 미확정이면: kill 창과 겹치면 B에서 `app_dead`, 아니면 아래 표 10~12줄(c1 기준 `mode_fail:confirm-timeout` · `invalid:confirm-code0` · `mode_fail:confirm-5xx`)이다. c2는 세션 분류에 쓰지 않는다.
+- c1만 확정 · c2가 미확정이면: c2 기준으로 B(kill 창 → `app_dead`) → 표 10~12줄이다.
+- 어느 경우든 그 uid의 끝 상태(돈 · 좌석)는 세션 분류와 따로 §4 shape로 G1에 들어간다(DB + 원장 — 응답이 아니라 끝 상태가 정본).
 
 표의 REJ = 거부 쌍 {(404, HOLD_NOT_FOUND), (409, HOLD_EXPIRED), (409, SEAT_NOT_HELD)}이다. 위에서부터 처음 맞는 줄을 쓴다.
 
@@ -302,7 +309,8 @@ SELECT json_build_object('t_ms', extract(epoch FROM clock_timestamp()) * 1000,
 
 ### 6.3 `consistency.json` — `GET /internal/consistency?graceSeconds=20` 응답 그대로
 
-- `v_*`는 ADR-001 좌석 정합 항목이다(기대 0).
+- `v_*`는 ADR-001 좌석 정합 항목이다(기대 0). **필수 키 10개**: `v_duplicate_hold_seats` · `v_excess_hold_rows` · `v_duplicate_confirmed_seats` · `v_reserved_without_confirmed` · `v_confirmed_on_unreserved_seat` · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats` · `v_over_limit_users` · `v_counter_mismatch`.
+- 필수 v_* 10개와 아래 기대 0 `pay_*` 7개 중 하나라도 없거나 숫자(JSON number)가 아니면 → §7 `consistency-missing`(0으로 채우지 않는다).
 - `pay_*`는 ADR-017 항목이다(`LoadtestDataService.paymentStates`):
   - 기대 0: `pay_multi_reservation_intents` · `pay_rejection_state_mismatch` · `pay_reserved_with_close` · `pay_capture_and_close` · `pay_rejected_without_task` · `pay_dead_tasks` · `pay_open_unheld_intents`.
   - 보고: `pay_intents` · `pay_open_intents` · `pay_pending_tasks` · `pay_moneyless_reservations` · `pay_substitute_reservations`.
@@ -326,8 +334,13 @@ SELECT json_build_object('t_ms', extract(epoch FROM clock_timestamp()) * 1000,
   - `seat.compensation.done{type,result}` · `.retry{type}` · `.dead{type}` · `.unresolved` · `.oldest_pending_seconds` · `.record_failed` · `.sweep_failed`
   - `seat.confirm.legacy` · `.uid_conflict` · `.rejected{code}` · `.failed{status}` · `.pay_start{result}` · `.extend{result}`
   - `seat.payment.pg.register{result}`
-- 값 규칙은 actsnap14와 같다: 이름이 없으면 0, 조회 실패면 null(0으로 채우지 않는다). 실패한 이름은 `failed_names`에 둔다.
-- kill 셀에서는 재기동으로 카운터가 0부터 다시 센다. 그래서 증분 대조(§7 `app-metric-mismatch`)를 하지 않는다. `process_start_s`가 before와 end에서 다른지만 본다.
+- 값 규칙은 actsnap14와 같다: 이름이 없으면 0, 조회 실패면 null(0으로 채우지 않는다). 실패한 이름은 `failed_names`에 둔다. `process_start_s`는 지표가 없으면 null이다.
+- **필수 지표**(셋 파일 모두): 스칼라 `process_start_s` · `compensation.unresolved` · `.oldest_pending_seconds` · `.record_failed` · `.sweep_failed` · `confirm.legacy` · `.uid_conflict`는 숫자, 사전 `compensation.done` · `.retry` · `.dead` · `confirm.rejected` · `.failed` · `.pay_start` · `.extend` · `pg_register`는 사전이고 값이 전부 숫자.
+  - 하나라도 어기거나 `error` 키가 있거나 `failed_names`가 비어 있지 않으면 → §7 `act-missing`.
+- **재기동 탐지**(`process_start_s` — before ↔ end):
+  - kill 셀: 서로 달라야 한다(kill 증거 조건 — §6.7).
+  - base · pg 셀: 서로 다르면 → §7 `app-restarted`.
+- kill 셀에서는 재기동으로 카운터가 0부터 다시 센다. 그래서 증분 대조(§7 `app-metric-mismatch`)를 하지 않는다.
 
 ### 6.5 `drain.json` — 배수 창(설계-6)
 
@@ -366,7 +379,13 @@ SELECT json_build_object('t_ms', extract(epoch FROM clock_timestamp()) * 1000,
 - `kill_ms` = `docker kill -s KILL seatlab-app-1` 직전, `start_ms` = `docker start` 직전이다.
 - `ready_ms` = 그 뒤 actuator health UP을 처음 본 시각이다.
 - **kill 창**(outcome B) = `[kill_ms − 1000, (ready_ms 또는 start_ms + 120000) + 1000]`이다. 여유 1초는 `outcome17.KILL_TOL_MS`다.
-- 유효 조건: events 2개 · `kill_rc = start_rc = 0` · `ready_ok` 둘 다 · `started_at` 둘이 다르다. 어기면 `kill-not-observed`다.
+- 유효 조건(하나라도 어기면 `kill-not-observed`):
+  - events 2개 · `kill_rc = start_rc = 0` · `ready_ok` 둘 다 · `started_at` 둘이 다르다.
+  - 시각: 허용 오차 `tol` = plan `values.kill_tol_ms`(§11 — 키가 없으면 실패).
+    - `|kill.k6_t0_ms − k6 시작(서버 ms = k6-window k6_t0_epoch × 1000 + clock_offset_ms_given)| ≤ tol`.
+    - events와 plan `kill.at_s`의 개수가 같고, 차례로 `|planned_ms − (k6_t0_ms + at_s × 1000)| ≤ tol` · `|kill_ms − planned_ms| ≤ tol`.
+    - `kill_ms`가 k6 창 안이다(k6 시작 ≤ kill_ms ≤ k6 끝 — k6_end_epoch × 1000 + clock_offset_ms_given).
+  - act17 `process_start_s`가 before와 end에서 다르다(§6.4).
 
 ### 6.8 `k6-summary.json`의 `adr017` 머리
 
@@ -427,14 +446,17 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 | `session-dup` | 같은 sid 두 줄 이상 |
 | `session-attrs-mismatch` | T · P · G · R · L이 `plan17.session_attrs(rep, sid, params)`와 1e-6 넘게 다름 · 좌석 · 사용자 · 종류 규칙 어긋남 |
 | `session-invalid` | `invalid:*` 세션 ≥ 1(세부 = summary17 `invalid_detail`) |
-| `ledger-missing` · `db-dump-missing` · `consistency-missing` · `act-missing` · `app-config-missing` · `seed-check-missing` · `inject-missing` · `drain-missing` · `kill-missing` | 필수 파일 없음 · 깨짐(§1) |
+| `ledger-missing` · `db-dump-missing` · `consistency-missing` · `act-missing` · `app-config-missing` · `seed-check-missing` · `inject-missing` · `drain-missing` · `kill-missing` | 필수 파일 없음 · 깨짐(§1) · `consistency-missing`은 필수 키 결측 · 숫자 아님(§6.3)도 · `act-missing`은 필수 지표 null · failed_names(§6.4)도 |
 | `config-mismatch` · `compensation-mode-mismatch` | `plan17 --config-check` exit 1(사유 그대로) |
 | `consistency-mode-mismatch` | `pay_compensation_mode` ≠ 후보 모드 |
 | `seed-mismatch` | 시드 확인: 회차 1 · 좌석 `seed.seats` · 모두 AVAILABLE · 홀드 · 예약 · 쿼터 0 · flyway에 15 있음 |
-| `pg-not-reset` | 원장 · DB에 세션 uid가 아닌 uid가 있다(예열 · 앞 회차 잔재 — M17-4) |
+| `pg-not-reset` | 원장 · DB에 세션 uid가 아닌 uid가 있다(예열 · 앞 회차 잔재 — M17-4). 세션 uid = 행의 `uid` ∪ `p.uid`. **예외**(kill 셀만): 그 uid의 intent `created_ms`가 kill 창 안이고, `app_dead`로 분류된 end=`pay_start` 세션 중 `h.hid = intent.hold_id` · `user = intent.user_id`인 세션이 있으면 빼고 summary17 `kill.left_intents`로 센다(payment-start 커밋 뒤 응답 전 SIGKILL — 그 uid의 shape는 G1에 그대로 들어간다) |
 | `pg-reset-during-run` · `inject-mismatch` · `inject-leak` | §6.6 |
-| `inject-not-observed` | pg 셀인데 주입 흔적 0 — Σ(task.attempts − 1) = 0 이고 `act17-end.compensation.retry` 합 = 0 |
-| `kill-not-observed` | kill 셀 §6.7 유효 조건 실패 |
+| `inject-not-observed` | pg 셀인데 **주입 결정 수 하한 = 0**. 계산: 적용된 faults(inject.json 마지막 faults 응답 · 없으면 plan `pg.faults`)의 규칙마다(failRate · unknownRate가 둘 다 0인 op는 뺀다) `java.util.Random(seed × 31 + op.hashCode())`(Java 64비트 곱 · String.hashCode)의 `nextDouble` 열을 차례로 걷는다 — `x < failRate` = FAIL(처리 안 함), `x < failRate + unknownRate` = UNKNOWN(처리함), 그 밖 = PROCEED(처리함). 처리한 수가 원장 `ops[op]`에 닿으면 멈춘다. 만난 FAIL + UNKNOWN의 op 합이 0이면 이 사유(마지막 처리 뒤 FAIL은 세지 않는다 — 하한). 근거: mock-pg는 변경 호출마다 주입 결정을 먼저 하고, 처리로 간 호출만 원장 ops를 1 늘린다(멱등 재생 · 404 포함 · 조회 GET은 결정도 ops도 없다) |
+| `inject-undecidable` | 위 걷기가 `ops[op] × 100 + 10,000`걸음 안에 처리 수에 닿지 못함(적용 설정과 원장이 어긋남) |
+| `kill-not-observed` | kill 셀 §6.7 유효 조건 실패(시각 대조 · 재기동 탐지 포함) |
+| `app-restarted` | base · pg 셀인데 act17 `process_start_s`가 before ≠ end(§6.4) |
+| `g2-time-missing` | G2 대상 작업(CLOSE · DONE · source REJECTION 또는 SWEEP) 중 `done_ms`가 숫자가 아니거나, REJECTION인데 그 uid의 `confirm_rejection.rejected_ms`가 없거나, SWEEP인데 `created_ms`가 없음(대체하지 않는다 — 표본 수 = 대상 작업 수) |
 | `drain-timeout` | drain.json reason = cap |
 | `dump-race` | 덤프 뒤 원장 ops 합 ≠ 덤프 앞 — run17이 두 번째 원장 조회로 확인 · harness 사유로 남긴다 |
 | `no-late-rejection` | **M17-6**: late 세션 중 c1이 거부 응답(§5 D 거부 쌍)인 수 = 0 |
@@ -463,7 +485,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 - 통과 조건: base 셀은 유효 회차마다 p99 ≤ X(`g2_x_s`), pg · kill 셀은 p99 ≤ Y(`g2_y_s`).
 - **X · Y의 출처 = 사용한 회차들의 `plan.json values.g2_x_s · g2_y_s`**(측정 전 고정 값이 plan17 한 곳에서 회차 폴더로만 온다 — 요약기 상수가 아니다). 사용 회차 사이에 값이 다르면(M17-2 위반) 모든 후보 `pass = "insufficient"` · `choice null`이다.
 - **백분위 계산법**(p50 · p90 · p99 — G2 · G3 지연 · 돈 잃은 시간 공통): 오름차순 정렬 `xs`에서 `xs[min(n − 1, ⌊n × q⌋)]`(ADR-014 summarize `p99`와 같은 규칙 — 보간 없음). n = 0이면 null.
-- 표본이 0이면 판정 불가다(`g2-no-sample` — 실패로 센다).
+- 표본이 0이면(회차 p99 = null) **판정 불가**다. 캠페인 `g2.<cand>.<cell>.no_sample = true`이고, 그 후보는 다른 판정된 실패(G1 실패 · G2 문턱 초과 · G3 실패)가 없으면 `pass = "insufficient"`다(판정된 실패가 있으면 `false`).
 - S의 대체 성공(SUBSTITUTE — 거부 트랜잭션 안에서 끝남)은 표본에 넣지 않고 따로 보고한다.
 
 **G3 비용**(base 셀 · R 대비):
@@ -493,7 +515,8 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 - 출처별 작업 수(REJECTION · SWEEP · CONFIRM)
 - attempts 분포
 - uid_conflict · legacy 증분
-- `app_dead` 세션 수 · 그 uid의 shape 분포
+- `app_dead` 세션 수 · 그 uid의 shape 분포(`cost.app_dead_shapes` — uid 없으면 `none`)
+- D 승인 취소까지 시간: VOIDED uid의 `closedAt − authorizedAt` 분포(`cost.void_time_s` — 초 · {n, p50, p99, max})
 
 ## 9. outcome17 · summarize17 시그니처 · 출력
 
@@ -553,6 +576,9 @@ CLI: `outcome17.py <회차 폴더>` → 표준 출력 JSON 한 줄, exit 0. 입�
 
 - 덧붙는 키(위 형식에 더해질 뿐 — 기존 키는 그대로): `g1.items`에 shape 이름 · `seat_moneyless`(R · S만 셈 · D는 0) · record-level 대조 `record_pay_ok_not_in_ledger` · `record_pay_ok_no_intent` · `record_ledger_paid_without_k6_pay`(모두 기대 0 — k6 결제 성공 세션 ↔ 원장 결제 흔적 ↔ DB intent)가 있다.
 - 최상위 `record` = `{k6_pay_ok, ledger_paid, db_intents, pay_ok_not_in_ledger, pay_ok_no_intent, ledger_paid_without_k6_pay}`(보고).
+- 최상위 `inject` = pg 셀이면 `{"<op>": {"processed", "fail", "unknown", "reached": bool}}`(§7 inject-not-observed의 걷기 결과 — `processed` = 걷는 동안 만난 처리(PROCEED · UNKNOWN) 수. `reached`면 원장 `ops[op]`와 같고, 상한에서 멈추면 그보다 작다), 그 밖 셀 · 원장 없음은 null.
+- `cost.void_time_s` · `cost.app_dead_shapes` · `kill.left_intents`(§7 pg-not-reset 예외 수).
+- campaign17 `g2.<cand>.<cell>`에 `no_sample`(표본 0 회차 있음) · `over`(문턱 초과 회차 있음)가 더해진다.
 - `g1.ok` = items의 값이 전부 0(사전이면 그 안의 값이 전부 0)이고 dump가 있음.
 
 `campaign17.json`:
@@ -593,6 +619,7 @@ CLI: `outcome17.py <회차 폴더>` → 표준 출력 JSON 한 줄, exit 0. 입�
 | 좌석 배수 | 세션 × 1.5 | `SEAT_FACTOR` |
 | PG 주입(pg 셀 · capture · close) | delay 200ms · fail 10% · unknown 5% · unknownDelay 5,000ms | `PG_RULE` · `PG_FAULT_OPS` |
 | **kill 시각** | k6 시작 뒤 180초 · 760초 | `KILL_AT_S` |
+| kill 시각 허용 오차 | 5,000ms(계획 ↔ 실제 kill · k6 시작 대조 — §6.7) | `KILL_TOL_MS`(`values.kill_tol_ms`) |
 | **배수 창 상한** | 600초 | `DRAIN_CAP_S` |
 | G2 문턱 X · Y | 30초 · 120초 | `G2_X_S` · `G2_Y_S` |
 | 재측정 상한 | 자리마다 환경 2 · 하네스 2(ADR-015와 같다) | campaign17.sh |

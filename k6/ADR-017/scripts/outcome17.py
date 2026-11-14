@@ -197,6 +197,25 @@ def _confirmed_id(end, origin):
     return None
 
 
+def _unsettled(o):
+    """미확정 응답 — 상태 0(연결 실패 · 타임아웃) 또는 5xx(커밋 여부 모름)."""
+    st = o.get("st") if isinstance(o, dict) else None
+    return not isinstance(st, int) or st == 0 or st >= 500
+
+
+def _confirm_target(row):
+    """D · B가 볼 확정 응답(§5 D 앞 — retry 규칙): retry면 c1이 미확정이면 c1, c1이 확정이고 c2가 미확정이면 c2, 둘 다 확정이면 c1(재생 대조 뒤).
+    retry가 아니면 c1."""
+    c1, c2 = row["c1"], row["c2"]
+    if row["kind"] != "retry":
+        return c1
+    if _unsettled(c1):
+        return c1
+    if _unsettled(c2):
+        return c2
+    return c1
+
+
 def classify(row, end, cand, kills, plan):
     """§5 결정표."""
     if not _row_ok(row, plan):
@@ -204,7 +223,7 @@ def classify(row, end, cand, kills, plan):
     e = row["end"]
     sh = end["shape"] if end else "none"
     # B. 앱 죽음 — end 단계의 앱 응답이 상태 0 · 5xx이고 [ts, tr]이 kill 창과 겹침
-    last = {"hold": row["h"], "pay_start": row["p"], "done": row["c2"] if row["c2"] is not None else row["c1"]}.get(e)
+    last = {"hold": row["h"], "pay_start": row["p"], "done": _confirm_target(row) if e == "done" else None}.get(e)
     if isinstance(last, dict):
         st = last.get("st")
         if isinstance(st, int) and (st == 0 or st >= 500):
@@ -242,8 +261,8 @@ def classify(row, end, cand, kills, plan):
         m = {"refunded": "wronged_refunded", "voided": "wronged_voided", "orphan": "wronged_open", "auth_open": "wronged_open"}
         return m.get(sh, f"integrity:noconf-{sh}")
     # D. done
-    c = row["c1"]
-    if row["kind"] == "retry":
+    c = _confirm_target(row)
+    if row["kind"] == "retry" and not _unsettled(row["c1"]) and not _unsettled(row["c2"]):   # 재생 대조는 둘 다 확정 응답일 때만(N17-3)
         c2 = row["c2"]
         if (c2.get("st"), c2.get("code"), c2.get("rid")) != (c.get("st"), c.get("code"), c.get("rid")):
             return "integrity:retry-replay-mismatch"

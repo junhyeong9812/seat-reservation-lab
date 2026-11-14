@@ -192,14 +192,17 @@ class World:
             js("kill.json", {"planned_at_s": p["kill"]["at_s"], "k6_t0_ms": T0, "events": [
                 {"n": 1, "planned_ms": T0 + 15000, "kill_ms": T0 + 15000, "kill_rc": 0, "start_ms": T0 + 15100, "start_rc": 0, "ready_ms": T0 + 30000,
                  "ready_ok": True, "started_at": "2026-11-14T00:00:01Z"},
-                {"n": 2, "planned_ms": T0 + 45000, "kill_ms": T0 + 45000, "kill_rc": 0, "start_ms": T0 + 45100, "start_rc": 0, "ready_ms": T0 + 60000,
+                {"n": 2, "planned_ms": T0 + 30000, "kill_ms": T0 + 31000, "kill_rc": 0, "start_ms": T0 + 31100, "start_rc": 0, "ready_ms": T0 + 46000,
                  "ready_ok": True, "started_at": "2026-11-14T00:00:02Z"}]})
         js("drain.json", {"start_ms": T0 + 700000, "end_ms": T0 + 712000, "reason": "empty", "cap_s": 600, "poll_s": 5,
                           "polls": [{"t_ms": T0 + 700000, "pending": 0, "open": 0, "open_unheld": 0}, {"t_ms": T0 + 707000, "pending": 0, "open": 0, "open_unheld": 0}]})
-        js("pg-ledger.json", {"payments": sorted(self.ledger, key=lambda x: x["uid"]), "ops": {"register": len(self.intents)}})
+        ops = {"register": len(self.intents)}
+        if self.cell == "pg":   # 처리 30건씩 — 주입 결정열(시드 고정)에 FAIL · UNKNOWN이 들어 있다(test_inject가 확인)
+            ops.update(close=30, capture=30)
+        js("pg-ledger.json", {"payments": sorted(self.ledger, key=lambda x: x["uid"]), "ops": ops})
         js("db-dump.json", {"t_ms": T0 + 712000, "payment_intent": self.intents, "reservation": self.res, "confirm_rejection": self.rej,
                             "compensation_task": self.tasks})
-        js("consistency.json", {"v_double_hold": 0, "pay_compensation_mode": p["mode"], **{k: 0 for k in SM.PAY_ZERO}, "pay_intents": len(self.intents)})
+        js("consistency.json", {**{k: 0 for k in SM.V_KEYS}, "pay_compensation_mode": p["mode"], **{k: 0 for k in SM.PAY_ZERO}, "pay_intents": len(self.intents)})
         done = {}
         for t in self.tasks:
             if t["status"] == "DONE":
@@ -207,13 +210,16 @@ class World:
                 done[k] = done.get(k, 0) + 1
         retry = {"CLOSE": sum(t["attempts"] - 1 for t in self.tasks if t["type"] == "CLOSE")}
         rejected = {"HOLD_EXPIRED": len(self.rej)}
-        zero = {"t": "x", "base": "x", "process_start_s": 1.0, "compensation": {"done": {}, "retry": {"CLOSE": 0}, "dead": {}, "unresolved": 0,
+        zero = {"t": "x", "base": "x", "process_start_s": 1000.0, "compensation": {"done": {}, "retry": {"CLOSE": 0}, "dead": {}, "unresolved": 0,
                 "oldest_pending_seconds": 0, "record_failed": 0, "sweep_failed": 0},
                 "confirm": {"legacy": 0, "uid_conflict": 0, "rejected": {}, "failed": {}, "pay_start": {}, "extend": {}}, "pg_register": {"ok": 0}}
         end = copy.deepcopy(zero)
         end["compensation"]["done"], end["compensation"]["retry"], end["confirm"]["rejected"] = done, retry, rejected
+        after = copy.deepcopy(end)
+        if self.cell == "kill":
+            end["process_start_s"] = 1060.0   # 재기동 — 시작 시각이 바뀐다
         js("act17-before.json", zero)
-        js("act17-after-k6.json", end)
+        js("act17-after-k6.json", after)
         js("act17-end.json", end)
         js("app-config.json", app_config(self.cand))
         js("seed-check.json", {"schedules": 1, "seats": p["seed"]["seats"], "available": p["seed"]["seats"], "holds": 0, "reservations": 0,
@@ -291,6 +297,24 @@ def test_shapes():
 
 
 # ---- 2. 결정표(§5) -----------------------------------------------------------------------------------------------------------------
+def test_inject():
+    """L1-4: Java Random · String.hashCode 재현 — 실제 mock-pg 컨테이너에 faults(fail 0.3 · unknown 0.2)를 걸고 30회 호출한 결정열(2026-11-14 로컬 대조)을 고정값으로."""
+    check("java_hash", (SM.java_hash("close"), SM.java_hash("capture"), SM.java_hash("")) == (94756344, 552585030, 0))
+    live = {(12345, "close"): "PFPUPFFPPUUPFFPPUUPPPPUUPPPFPP", (12345, "capture"): "FPPPUPFUFUFUPUUFPPPPPUPPUPUFPF",
+            (1218959823, "close"): "PFUPFFPFUPPPPPPFPPPPFPUFFUPFFP", (1218959823, "capture"): "PPUUFPPUPPFFUFFUUPFFFPFPFFPPUU",
+            (-7, "close"): "FPFPPFFFFPFPUUPPPPPPFUUPPPPFUP", (-7, "capture"): "PPFPPPFPFFPFFUPUPFUUPFPUPFUPPF"}
+    for (seed, op), want in live.items():
+        rnd = SM.JavaRandom(SM.s64(seed * 31 + SM.java_hash(op)))
+        got = "".join("F" if x < 0.3 else ("U" if x < 0.5 else "P") for x in (rnd.next_double() for _ in range(30)))
+        check(f"java_random/{seed}/{op}", got == want, got)
+        cfg = {"seed": seed, "rules": {op: {"delayMs": 0, "failRate": 0.3, "unknownRate": 0.2, "unknownDelayMs": 400}}}
+        n = sum(c != "F" for c in want)
+        d = SM.inject_decisions(cfg, {op: n})[op]
+        upto = want[:want.rstrip("F").__len__()]   # 마지막 처리 뒤 FAIL은 걷지 않는다(하한)
+        check(f"inject_decisions/{seed}/{op}", d == {"processed": n, "fail": upto.count("F"), "unknown": upto.count("U"), "reached": True}, str(d))
+    check("inject_decisions/no-rate", SM.inject_decisions({"seed": 1, "rules": {"close": {"failRate": 0, "unknownRate": 0}}}, {"close": 9}) == {})
+
+
 def test_classify():
     w = World("R", "base", 1)
     plan = w.plan
@@ -358,6 +382,18 @@ def test_classify():
         case(f"C-noconf-{sh}", nc, want, end={"shape": sh, "res": []})
     # D done
     rt = copy.deepcopy(by_kind["retry"]); rt["c2"]["rid"] = 999; case("D-retry-mismatch", rt, "integrity:retry-replay-mismatch")
+    # L1-1 retry: 미확정 응답은 재생 대조에서 뺀다
+    base_rt = by_kind["retry"]
+    x = copy.deepcopy(base_rt); x["c1"] = resp(0, "NOCODE", x["c1"]["ts"]); w1 = [(x["c1"]["ts"] - 10, x["c1"]["tr"] + 10)]
+    case("L1-1-c1-0-kill", x, "app_dead", kills=w1)
+    case("L1-1-c1-0", x, "invalid:confirm-code0")
+    x2 = copy.deepcopy(base_rt); x2["c1"] = resp(503, "NOCODE", x2["c1"]["ts"]); case("L1-1-c1-503", x2, "mode_fail:confirm-5xx")
+    x3 = copy.deepcopy(base_rt); x3["c1"] = dict(resp(0, "NOCODE", x3["c1"]["ts"]), ec=1050); case("L1-1-c1-timeout", x3, "mode_fail:confirm-timeout")
+    x4 = copy.deepcopy(base_rt); x4["c2"] = resp(0, "NOCODE", x4["c2"]["ts"]); case("L1-1-c2-0-kill", x4, "app_dead", kills=[(x4["c2"]["ts"], x4["c2"]["tr"])])
+    case("L1-1-c2-0", x4, "invalid:confirm-code0")
+    x5 = copy.deepcopy(base_rt); x5["c2"] = resp(502, "NOCODE", x5["c2"]["ts"]); case("L1-1-c2-502", x5, "mode_fail:confirm-5xx")
+    x6 = copy.deepcopy(base_rt); x6["c1"] = resp(0, "NOCODE", x6["c1"]["ts"]); x6["c2"] = resp(0, "NOCODE", x6["c2"]["ts"])
+    case("L1-1-both-0-c1kill", x6, "app_dead", kills=[(x6["c1"]["ts"], x6["c1"]["tr"])])
     x = copy.deepcopy(ok); x["c1"]["rid"] = 999; case("D-200-rid", x, "integrity:200-mismatch")
     case("D-200-moneyless-R", ok, "integrity:200-mismatch", end={**E(ok), "shape": "seat_moneyless"})
     case("D-200-moneyless-D", ok, "success", end={**E(ok), "shape": "seat_moneyless"}, cand="D")
@@ -448,11 +484,20 @@ def test_runs(tmp):
     mutated("inject-leak", edit("inject.json", lambda o: o["events"][1].update(response={"seed": o["events"][1]["response"]["seed"],
                                                                                         "rules": {"close": plan17.PG_RULE}})), "inject-leak", cell="base")
 
-    def no_retry(d, w):
-        edit("db-dump.json", lambda o: [t.update(attempts=1) for t in o["compensation_task"]])(d, w)
-        for n in ("act17-after-k6.json", "act17-end.json"):
-            edit(n, lambda o: o["compensation"].update(retry={"CLOSE": 0}))(d, w)
-    mutated("inject-not-observed", no_retry, "inject-not-observed")
+    def lead_proceed(cfg, op):
+        r = cfg["rules"][op]
+        rnd = SM.JavaRandom(SM.s64(cfg["seed"] * 31 + SM.java_hash(op)))
+        k = 0
+        while rnd.next_double() >= r["failRate"] + r["unknownRate"]:
+            k += 1
+        return k
+
+    def no_inject(d, w):   # 원장 처리 수 = 결정열 앞쪽 PROCEED 수 — 주입 결정이 하나도 닿지 않는다(재시도 attempts는 그대로 2 — 원인 무관 재시도로는 통과하지 않는다)
+        cfg = w.plan["pg"]["faults"]
+        edit("pg-ledger.json", lambda o: o["ops"].update({op: lead_proceed(cfg, op) for op in cfg["rules"]}))(d, w)
+    mutated("inject-not-observed", no_inject, "inject-not-observed")
+    mutated("inject-undecidable", edit("inject.json", lambda o: [r.update(failRate=1.0, unknownRate=0.0) for r in o["events"][1]["response"]["rules"].values()]),
+            "inject-undecidable")
     mutated("drain-cap", edit("drain.json", lambda o: o.update(reason="cap")), "drain-timeout")
     mutated("no-late-rej", rows_edit(lambda rs: [dict(r, c1=dict(r["c1"], st=200, code="OK")) if r["kind"] == "late" else r for r in rs]), "no-late-rejection")
     mutated("no-sweep", edit("db-dump.json", lambda o: [t.update(source="REJECTION") for t in o["compensation_task"] if t["uid"] in ("u-0008",)]), "no-sweep-close")
@@ -470,7 +515,7 @@ def test_runs(tmp):
             None, g1_fail="orphan")
     mutated("g1-double-refund", edit("pg-ledger.json", lambda o: [p.update(refunds=2) for p in o["payments"] if p["uid"] == "u-0001"]), None, g1_fail="double_refund")
     mutated("g1-cons", edit("consistency.json", lambda o: o.update(pay_capture_and_close=1)), None, g1_fail="consistency_pay")
-    mutated("g1-v", edit("consistency.json", lambda o: o.update(v_double_hold=2)), None, g1_fail="consistency_v_sum")
+    mutated("g1-v", edit("consistency.json", lambda o: o.update(v_duplicate_hold_seats=2)), None, g1_fail="consistency_v_sum")
     mutated("g1-open", edit("db-dump.json", lambda o: o["payment_intent"][0].update(state="OPEN")), None, g1_fail="open_after_drain")
     mutated("g1-integrity", rows_edit(lambda rs: [dict(r, c1=dict(r["c1"], rid=999)) if r["sid"] == 0 else r for r in rs]), None, g1_fail="integrity")
     mutated("g1-record", rows_edit(lambda rs: [dict(r, uid="ghost") if r["sid"] == 0 else r for r in rs]), None, g1_fail="-")
@@ -484,6 +529,56 @@ def test_runs(tmp):
           and all(sum(s["sessions"]["by_kind"][k].values()) == n for k, n in s["sessions"]["planned"].items() if n), json.dumps(s["sessions"])[:300])
     check("cost/S-ratio", s["cost"]["substitute_ratio"] == 1.0, str(s["cost"]["substitute_ratio"]))
     check("G2 R REJECTION n", summ(tmp / "ok-R-base")[0]["g2"]["by_source"]["REJECTION"]["n"] == 4)
+    # ---- 리뷰 루프 1 수정 확인 ----
+    # L1-2 v_* 필수 키
+    mutated("L1-2-v-missing", edit("consistency.json", lambda o: o.pop("v_counter_mismatch")), "consistency-missing")
+    mutated("L1-2-v-nonnum", edit("consistency.json", lambda o: o.update(v_stale_held_seats="0")), "consistency-missing")
+    mutated("L1-2-pay-missing", edit("consistency.json", lambda o: o.pop("pay_dead_tasks")), "consistency-missing")
+    # L1-3 G2 시각 결측
+    mutated("L1-3-done-null", edit("db-dump.json", lambda o: [t.update(done_ms=None) for t in o["compensation_task"] if t["type"] == "CLOSE"][:1]), "g2-time-missing")
+    mutated("L1-3-rej-missing", edit("db-dump.json", lambda o: o.update(confirm_rejection=o["confirm_rejection"][1:])), "g2-time-missing")
+    s0, _ = summ(tmp / "ok-R-pg")
+    n_close = sum(1 for t in World("R", "pg", 1).tasks if t["type"] == "CLOSE")
+    check("L1-3-n=targets", s0["g2"]["n"] == n_close, f"{s0['g2']['n']} ≠ {n_close}")
+    # L1-4 주입 결정 수 · pg 셀 기록
+    check("L1-4-inject-key", s0["inject"] and all(v["reached"] for v in s0["inject"].values()) and sum(v["fail"] + v["unknown"] for v in s0["inject"].values()) > 0,
+          json.dumps(s0.get("inject")))
+    # L1-5 kill 시각
+    mutated("L1-5-late", edit("kill.json", lambda o: o["events"][1].update(kill_ms=o["events"][1]["planned_ms"] + 9000)), "kill-not-observed", cell="kill")
+    mutated("L1-5-outside", edit("k6-window.json", lambda o: o.update(k6_end_epoch=T0_PC + 20)), "kill-not-observed", cell="kill")
+    mutated("L1-5-planned", edit("kill.json", lambda o: o["events"][0].update(planned_ms=T0 + 60000, kill_ms=T0 + 60000)), "kill-not-observed", cell="kill")
+    mutated("L1-5-no-tol", edit("plan.json", lambda o: o["values"].pop("kill_tol_ms")), "kill-not-observed", cell="kill")
+    # L1-6 act 필수 지표 · 재기동
+    mutated("L1-6-null", edit("act17-end.json", lambda o: o["confirm"].update(legacy=None)), "act-missing")
+    mutated("L1-6-dictnull", edit("act17-before.json", lambda o: o["compensation"].update(dead=None)), "act-missing")
+    mutated("L1-6-failed", edit("act17-after-k6.json", lambda o: o.update(failed_names=["seat.confirm.extend"])), "act-missing")
+    mutated("L1-6-ps-null", edit("act17-before.json", lambda o: o.update(process_start_s=None)), "act-missing")
+    mutated("L1-6-restart-base", edit("act17-end.json", lambda o: o.update(process_start_s=5.0)), "app-restarted", cell="base")
+    mutated("L1-6-norestart-kill", edit("act17-end.json", lambda o: o.update(process_start_s=1000.0)), "kill-not-observed", cell="kill")
+    _, st = summ(tmp / "ok-R-kill")
+    check("L1-6-kill-no-app-restarted", "app-restarted" not in reasons_of(st), st)
+
+    # L1-7 kill 중 payment-start 응답 유실 uid
+    def ps_lost(created):
+        def go(d, w):
+            r0 = next(r for r in w.rows if r["sid"] == 0)
+            def fix_rows(rs):
+                out = []
+                for r in rs:
+                    if r["sid"] == 0:
+                        r = dict(r, uid=None, g=None, c1=None, c2=None, at=None, end="pay_start", p=dict(r["p"], st=0, code="NOCODE", ok=False, ts=T0 + 15500, tr=T0 + 15600, uid=None, hid=None, exp=None, pb=None, pws=None, ext=None))
+                    out.append(r)
+                return out
+            rows_edit(fix_rows)(d, w)
+            edit("db-dump.json", lambda o: [i.update(created_ms=created) for i in o["payment_intent"] if i["uid"] == r0["uid"]])(d, w)
+        return go
+    s7, st7 = mutated("L1-7-excused", ps_lost(T0 + 15500), None, cell="kill")
+    check("L1-7-excused", "pg-not-reset" not in reasons_of(st7) and s7["kill"]["left_intents"] == 1 and s7["sessions"]["by_kind"]["ok"].get("app_dead") == 1, st7)
+    mutated("L1-7-outside", ps_lost(T0 + 200000), "pg-not-reset", cell="kill")
+    # L1-8 비용 보고
+    sd, _ = summ(tmp / "ok-D-base")
+    check("L1-8-void-time", sd["cost"]["void_time_s"]["n"] == 4 + 1, json.dumps(sd["cost"]["void_time_s"]))
+    check("L1-8-app-dead-shapes", s7["cost"]["app_dead_shapes"] == {"none": 1}, json.dumps(s7["cost"]["app_dead_shapes"]))
 
 
 # ---- 4. 캠페인(§8 · §9.2) ---------------------------------------------------------------------------------------------------------
@@ -501,6 +596,8 @@ def make_campaign(root, tweak=None):
                 if kw.get("mutate"):
                     kw["mutate"](d)
                 s, st = SM.rep_summary(d)
+                if kw.get("summary_mut"):
+                    kw["summary_mut"](s)
                 (d / "summary17.json").write_text(json.dumps(s))
                 (d / "status").write_text(st + "\n")
     return root
@@ -518,7 +615,7 @@ def test_campaign(tmp):
 
     def g1_fail_D(c, cell, rep):   # G1 항목(v_* 위반)만 실패 — 회차는 유효
         if c == "D" and cell == "pg" and rep == 2:
-            return {"mutate": lambda d: Path(d, "consistency.json").write_text(json.dumps(dict(json.loads(Path(d, "consistency.json").read_text()), v_double_hold=1)))}
+            return {"mutate": lambda d: Path(d, "consistency.json").write_text(json.dumps(dict(json.loads(Path(d, "consistency.json").read_text()), v_duplicate_hold_seats=1)))}
     run("D-g1-fail", g1_fail_D, "R", lambda o: check("campaign/g1-fail-run", o["g1"]["D"]["fail_runs"] == ["D/pg/rep2"], str(o["g1"]["D"])))
     run("D-g2-base-over-X", lambda c, cell, rep: {"g2_extra_s": 31.0} if (c, cell) == ("D", "base") else None, "R",
         lambda o: check("campaign/g2", o["g2"]["D"]["base"]["ok"] is False and o["g2"]["D"]["pg"]["ok"], str(o["g2"]["D"])))
@@ -544,6 +641,17 @@ def test_campaign(tmp):
     run("values-differ", values_differ, None, lambda o: check("campaign/values", all(v == "insufficient" for v in o["pass"].values()), str(o["pass"])))
     run("D-and-R-fail", lambda c, cell, rep: {"g2_extra_s": 200.0} if c in ("D", "R") and cell == "kill" else None, "S")
     run("none", lambda c, cell, rep: {"g2_extra_s": 200.0} if cell == "kill" else None, None)
+    # L1-9 G2 표본 0 = 판정 불가(실패가 아니다) · 판정된 실패가 우선
+    nos = lambda c0, cell0: (lambda c, cell, rep: {"summary_mut": lambda sm: sm["g2"].update(p99_s=None, n=0)} if (c, cell, rep) == (c0, cell0, 1) else None)  # noqa: E731
+    run("L1-9-D-nosample", nos("D", "pg"), None, lambda o: check("L1-9-insufficient", o["pass"]["D"] == "insufficient" and o["g2"]["D"]["pg"]["no_sample"], str(o["pass"])))
+    run("L1-9-S-nosample", nos("S", "base"), "D", lambda o: check("L1-9-S", o["pass"]["S"] == "insufficient", str(o["pass"])))
+
+    def fail_and_nosample(c, cell, rep):
+        if (c, cell) == ("D", "kill"):
+            return {"g2_extra_s": 200.0}
+        if (c, cell, rep) == ("D", "pg", 1):
+            return {"summary_mut": lambda sm: sm["g2"].update(p99_s=None, n=0)}
+    run("L1-9-fail-wins", fail_and_nosample, "R", lambda o: check("L1-9-false", o["pass"]["D"] is False, str(o["pass"])))
     # 시도 고르기: rep1 무효 · attempt1 유효 → attempt1을 쓴다 · status ok인 가장 늦은 시도
     root = make_campaign(tmp / "c-attempts")
     d = root / "D" / "base" / "rep1"
@@ -568,6 +676,7 @@ def main(argv):
     tmp = Path(tempfile.mkdtemp(prefix="selftest17-"))
     try:
         test_shapes()
+        test_inject()
         test_classify()
         test_runs(tmp)
         if "--campaign" in argv:

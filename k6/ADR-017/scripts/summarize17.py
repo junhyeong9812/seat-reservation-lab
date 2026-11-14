@@ -27,6 +27,16 @@ G1_SHAPES = ("orphan", "double_reservation", "double_refund", "refunded_with_sea
 PAY_ZERO = ("pay_multi_reservation_intents", "pay_rejection_state_mismatch", "pay_reserved_with_close", "pay_capture_and_close",
             "pay_rejected_without_task", "pay_dead_tasks", "pay_open_unheld_intents")
 G3_METRICS = ("db_cpu_mean", "confirm_p99_ms", "pay_start_p99_ms")
+# consistency 필수 v_* 키(LoadtestDataService ADR-001 항목 — INTERFACE §6.3): 없거나 숫자가 아니면 consistency-missing
+V_KEYS = ("v_duplicate_hold_seats", "v_excess_hold_rows", "v_duplicate_confirmed_seats", "v_reserved_without_confirmed", "v_confirmed_on_unreserved_seat",
+          "v_held_without_hold", "v_hold_on_unheld_seat", "v_stale_held_seats", "v_over_limit_users", "v_counter_mismatch")
+# act17 필수 지표(INTERFACE §6.4): 값이 null이면 act-missing. 사전 값은 사전이고 그 안 값이 전부 숫자여야 한다
+ACT_SCALARS = (("process_start_s",), ("compensation", "unresolved"), ("compensation", "oldest_pending_seconds"), ("compensation", "record_failed"),
+               ("compensation", "sweep_failed"), ("confirm", "legacy"), ("confirm", "uid_conflict"))
+ACT_DICTS = (("compensation", "done"), ("compensation", "retry"), ("compensation", "dead"), ("confirm", "rejected"), ("confirm", "failed"),
+             ("confirm", "pay_start"), ("confirm", "extend"), ("pg_register",))
+INJECT_WALK_FACTOR, INJECT_WALK_PAD = 100, 10000   # 결정열 걷기 상한 = 처리 수 × 100 + 10,000(그 안에 처리 수에 못 닿으면 inject-undecidable)
+
 ORDER = ["D", "R", "S"]
 _S14 = None
 
@@ -95,6 +105,78 @@ def faults_equal(a, b):
             if not num(ra[op].get(k)) or not num(rb[op].get(k)) or abs(ra[op][k] - rb[op][k]) > 1e-12:
                 return False
     return True
+
+
+def _get(d, path):
+    for k in path:
+        d = d.get(k) if isinstance(d, dict) else None
+    return d
+
+
+def act_ok(a):
+    """§6.4 필수 지표 — error 키 없음 · failed_names 없음 · 스칼라 숫자 · 사전 값 전부 숫자."""
+    if not isinstance(a, dict) or "error" in a or a.get("failed_names"):
+        return False
+    if any(not num(_get(a, p)) for p in ACT_SCALARS):
+        return False
+    return all(isinstance(_get(a, p), dict) and all(num(v) for v in _get(a, p).values()) for p in ACT_DICTS)
+
+
+# ---- mock-pg 주입 결정 재현(INTERFACE §7 inject-not-observed): Faults.decide = op마다 java.util.Random(seed × 31 + op.hashCode())의 nextDouble 열 ----
+_M48 = (1 << 48) - 1
+
+
+def java_hash(s):
+    """java.lang.String.hashCode(32비트 부호 있음)."""
+    h = 0
+    for ch in s:
+        h = (31 * h + ord(ch)) & 0xFFFFFFFF
+    return h - (1 << 32) if h >= 1 << 31 else h
+
+
+def s64(x):
+    x &= (1 << 64) - 1
+    return x - (1 << 64) if x >= 1 << 63 else x
+
+
+class JavaRandom:
+    """java.util.Random(48비트 LCG) — nextDouble만."""
+
+    def __init__(self, seed):
+        self.s = (seed ^ 0x5DEECE66D) & _M48
+
+    def _next(self, bits):
+        self.s = (self.s * 0x5DEECE66D + 0xB) & _M48
+        return self.s >> (48 - bits)
+
+    def next_double(self):
+        return ((self._next(26) << 27) + self._next(27)) * (1.0 / (1 << 53))
+
+
+def inject_decisions(cfg, ops):
+    """주입 결정 수 하한 — op마다 결정열을 걸으며 처리(PROCEED · UNKNOWN — 원장 ops 1 증가)가 원장 ops 수에 닿을 때까지 만난 FAIL · UNKNOWN을 센다.
+    규칙이 없거나 비율 0인 op는 난수를 쓰지 않는다(mock-pg와 같다). 반환 {op: {processed(걸어서 만난 처리 수 — reached면 원장 ops와 같다), fail, unknown, reached}}."""
+    out = {}
+    seed = int(cfg.get("seed") or 0)
+    for op, r in (cfg.get("rules") or {}).items():
+        fr, ur = float(r.get("failRate") or 0), float(r.get("unknownRate") or 0)
+        if fr <= 0 and ur <= 0:
+            continue
+        n = int((ops or {}).get(op) or 0)
+        rnd = JavaRandom(s64(seed * 31 + java_hash(op)))
+        done = fail = unk = steps = 0
+        limit = n * INJECT_WALK_FACTOR + INJECT_WALK_PAD
+        while done < n and steps < limit:
+            x = rnd.next_double()
+            steps += 1
+            if x < fr:
+                fail += 1
+            else:
+                done += 1
+                if x < fr + ur:
+                    unk += 1
+        out[op] = {"processed": done, "fail": fail, "unknown": unk, "reached": done == n}
+    return out
 
 
 def act_delta(before, end, path):
@@ -169,11 +251,15 @@ def rep_summary(d):
     if not isinstance(db, dict) or not all(isinstance(db.get(k), list) for k in ("payment_intent", "reservation", "confirm_rejection", "compensation_task")):
         reasons.add("db-dump-missing")
         db = None
-    if not isinstance(cons, dict):
+    if not isinstance(cons, dict) or any(not num(cons.get(k)) for k in V_KEYS + PAY_ZERO):
         reasons.add("consistency-missing")
-        cons = None
-    if any(not isinstance(a, dict) or "error" in a for a in acts.values()):
+        cons = cons if isinstance(cons, dict) else None
+    if not all(act_ok(a) for a in acts.values()):
         reasons.add("act-missing")
+    ps0, ps1 = _get(acts["before"], ("process_start_s",)), _get(acts["end"], ("process_start_s",))
+    restarted = num(ps0) and num(ps1) and ps0 != ps1
+    if cell != "kill" and restarted:
+        reasons.add("app-restarted")
     seed = load(d / "seed-check.json")
     if not isinstance(seed, dict):
         reasons.add("seed-check-missing")
@@ -200,6 +286,7 @@ def rep_summary(d):
     elif not isinstance(kw, dict):
         reasons.add("k6-exit-unknown")
     k6t0_ms = kw["k6_t0_epoch"] * 1000 + off if isinstance(kw, dict) and num(kw.get("k6_t0_epoch")) and num(off) else None
+    k6end_ms = kw["k6_end_epoch"] * 1000 + off if isinstance(kw, dict) and num(kw.get("k6_end_epoch")) and num(off) else None
     ks = load(d / "k6-summary.json")
     hd = ks.get("adr017") if isinstance(ks, dict) else None
     if not isinstance(hd, dict) or str(hd.get("rep")) != str(rep) or hd.get("cand") != cand or hd.get("cell") != cell \
@@ -221,6 +308,7 @@ def rep_summary(d):
             reasons.add("inject-mismatch")
         if cell != "pg" and fl and isinstance(fl[-1].get("response"), dict) and (fl[-1]["response"].get("rules") or {}):
             reasons.add("inject-leak")
+    applied = fl[-1]["response"] if isinstance(inj, dict) and isinstance(inj.get("events"), list) and inj["events"] and fl and isinstance(fl[-1].get("response"), dict) else pf
     kill = load(d / "kill.json") if cell == "kill" else None
     kill_out = None
     if cell == "kill":
@@ -230,8 +318,14 @@ def rep_summary(d):
         else:
             evs = kill["events"]
             st_at = [e.get("started_at") for e in evs]
+            tol = (plan.get("values") or {}).get("kill_tol_ms")
+            at = (plan.get("kill") or {}).get("at_s") or []
+            t0k = kill.get("k6_t0_ms")
+            timing = (num(tol) and num(t0k) and k6t0_ms is not None and k6end_ms is not None and abs(t0k - k6t0_ms) <= tol and len(at) == len(evs)
+                      and all(num(e.get("kill_ms")) and num(e.get("planned_ms")) and abs(e["planned_ms"] - (t0k + a * 1000)) <= tol
+                              and abs(e["kill_ms"] - e["planned_ms"]) <= tol and k6t0_ms <= e["kill_ms"] <= k6end_ms for e, a in zip(evs, at)))
             ok = (len(evs) == 2 and all(e.get("kill_rc") == 0 and e.get("start_rc") == 0 and e.get("ready_ok") is True for e in evs)
-                  and len(set(st_at)) == 2 and all(st_at))
+                  and len(set(st_at)) == 2 and all(st_at) and timing and restarted)
             if not ok:
                 reasons.add("kill-not-observed")
             kill_out = {"events": len(evs), "restarted": ok}
@@ -264,8 +358,20 @@ def rep_summary(d):
     for e in ends.values():
         uids[e["shape"]] = uids.get(e["shape"], 0) + 1
     sess_uids = {r.get("uid") for r in rows if r.get("uid")} | {(r.get("p") or {}).get("uid") for r in rows if isinstance(r.get("p"), dict) and (r.get("p") or {}).get("uid")}
-    if ends and any(u not in sess_uids for u in ends):
+    left = [u for u in ends if u not in sess_uids]
+    excused = 0
+    if left and cell == "kill" and db is not None:   # payment-start 커밋 뒤 응답 전 SIGKILL — 그 세션은 app_dead(pay_start) · uid를 모른다(L1-7)
+        intents = {i["uid"]: i for i in db["payment_intent"]}
+        dead_ps = {(r["h"].get("hid"), r.get("user")) for r, c in cats if c == "app_dead" and r.get("end") == "pay_start" and isinstance(r.get("h"), dict)}
+        for u in list(left):
+            i = intents.get(u)
+            if i and num(i.get("created_ms")) and any(lo <= i["created_ms"] <= hi for lo, hi in kills) and (i.get("hold_id"), i.get("user_id")) in dead_ps:
+                left.remove(u)
+                excused += 1
+    if left:
         reasons.add("pg-not-reset")
+    if kill_out is not None:
+        kill_out["left_intents"] = excused
     tasks = db["compensation_task"] if db else []
 
     # ---- M17-6 · 주입 증거 · 지표 대조 ----
@@ -277,12 +383,14 @@ def rep_summary(d):
             reasons.add("no-late-rejection")
         if db is not None and sweep_close == 0:
             reasons.add("no-sweep-close")
-    retry_delta = act_delta(acts["before"], acts["end"], ("compensation", "retry")) if all(isinstance(a, dict) for a in acts.values()) else None
-    if cell == "pg" and db is not None:
-        extra = sum(max(0, (t.get("attempts") or 0) - 1) for t in tasks)
-        if extra == 0 and not (num(retry_delta) and retry_delta > 0):
+    inject = None
+    if cell == "pg" and led is not None and isinstance(applied, dict):
+        inject = inject_decisions(applied, led.get("ops"))
+        if not all(v["reached"] for v in inject.values()):
+            reasons.add("inject-undecidable")
+        elif sum(v["fail"] + v["unknown"] for v in inject.values()) == 0:
             reasons.add("inject-not-observed")
-    if cell != "kill" and db is not None and all(isinstance(a, dict) and "error" not in a for a in acts.values()):
+    if cell != "kill" and db is not None and all(act_ok(a) for a in acts.values()):
         dd = act_delta(acts["before"], acts["end"], ("compensation", "done"))
         rj = act_delta(acts["before"], acts["end"], ("confirm", "rejected"))
         n_done = sum(1 for t in tasks if t.get("status") == "DONE")
@@ -322,13 +430,13 @@ def rep_summary(d):
     # ---- G2 ----
     rej_ms = {c["uid"]: c.get("rejected_ms") for c in db["confirm_rejection"]} if db else {}
     samp = {"REJECTION": [], "SWEEP": []}
-    for t in tasks:
-        if t.get("type") == "CLOSE" and t.get("status") == "DONE" and t.get("source") in samp and num(t.get("done_ms")):
-            start = rej_ms.get(t["uid"]) if t["source"] == "REJECTION" else t.get("created_ms")
-            if not num(start):
-                start = t.get("created_ms")
-            if num(start):
-                samp[t["source"]].append((t["done_ms"] - start) / 1000)
+    targets = [t for t in tasks if t.get("type") == "CLOSE" and t.get("status") == "DONE" and t.get("source") in samp]
+    for t in targets:   # 시각 결측은 대체하지 않는다(g2-time-missing — 표본 수 = 대상 DONE CLOSE 수)
+        start = rej_ms.get(t["uid"]) if t["source"] == "REJECTION" else t.get("created_ms")
+        if not num(t.get("done_ms")) or not num(start):
+            reasons.add("g2-time-missing")
+            continue
+        samp[t["source"]].append((t["done_ms"] - start) / 1000)
     allv = samp["REJECTION"] + samp["SWEEP"]
     g2 = {"n": len(allv), "p50_s": pct(allv, 0.5), "p90_s": pct(allv, 0.9), "p99_s": pct(allv, 0.99), "max_s": max(allv) if allv else None,
           "by_source": {k: {"n": len(v), "p99_s": pct(v, 0.99)} for k, v in samp.items()},
@@ -368,7 +476,14 @@ def rep_summary(d):
             "tasks_by_source": {s: sum(1 for t in tasks if t.get("source") == s) for s in ("REJECTION", "SWEEP", "CONFIRM")}, "attempts": attempts,
             "uid_conflict": None if kill_cell else act_delta(acts["before"], acts["end"], ("confirm", "uid_conflict")),
             "legacy": None if kill_cell else act_delta(acts["before"], acts["end"], ("confirm", "legacy")),
-            "app_dead": cat_n("app_dead")}
+            "app_dead": cat_n("app_dead"),
+            "void_time_s": dist_s([b - a for a, b in ((O.iso_ms(p.get("authorizedAt")), O.iso_ms(p.get("closedAt"))) for p in (led["payments"] if led else [])
+                                                      if p.get("state") == "VOIDED") if num(a) and num(b)]),
+            "app_dead_shapes": {}}
+    for r, c in cats:
+        if c == "app_dead":
+            shp = (ends.get(r.get("uid")) or {}).get("shape", "none") if r.get("uid") else "none"
+            cost["app_dead_shapes"][shp] = cost["app_dead_shapes"].get(shp, 0) + 1
 
     out_reasons = harness + sorted(r for r in reasons if r not in harness)
     status = "ok" if not out_reasons else "invalid:" + ",".join(out_reasons)
@@ -376,7 +491,7 @@ def rep_summary(d):
             "sessions": {"n": len(rows), "planned": planned, "by_kind": by_kind, "invalid_detail": inv, "integrity": integ, "mode_fail": mfail},
             "uids": uids, "g1": {"ok": g1_ok, "items": items}, "g2": g2, "g3": g3,
             "m17_6": {"late_rejections": late_rej, "noconf_sweep_closes": sweep_close}, "cost": cost, "drain": drain_out, "kill": kill_out,
-            "record": record}
+            "record": record, "inject": inject}
     return summ, status
 
 
@@ -441,7 +556,8 @@ def campaign(cdir):
         for cell in plan17.CELLS:
             ps = [used[f"{c}/{cell}/rep{r}"]["g2"]["p99_s"] for r in range(1, plan17.REPS + 1) if f"{c}/{cell}/rep{r}" in used]
             lim = plan_vals["g2_x_s"] if cell == "base" else plan_vals["g2_y_s"]
-            g2[c][cell] = {"p99_s": ps, "limit_s": lim, "ok": num(lim) and len(ps) == plan17.REPS and all(num(p) and p <= lim for p in ps)}
+            g2[c][cell] = {"p99_s": ps, "limit_s": lim, "ok": num(lim) and len(ps) == plan17.REPS and all(num(p) and p <= lim for p in ps),
+                           "no_sample": any(p is None for p in ps), "over": num(lim) and any(num(p) and p > lim for p in ps)}
         base = [used[f"{c}/base/rep{r}"]["g3"] for r in range(1, plan17.REPS + 1) if f"{c}/base/rep{r}" in used]
         g3[c] = {}
         for m in G3_METRICS:
@@ -474,8 +590,12 @@ def campaign(cdir):
     for c in plan17.CAND_ORDER:
         if not full[c] or not full["R"] or not values_ok:
             pas[c] = "insufficient"
+        elif not g1[c]["ok"] or any(g2[c][cell]["over"] for cell in plan17.CELLS) or not g3[c]["ok"]:
+            pas[c] = False   # 판정된 실패가 우선
+        elif any(g2[c][cell]["no_sample"] for cell in plan17.CELLS):
+            pas[c] = "insufficient"   # G2 표본 0 = 판정 불가(L1-9)
         else:
-            pas[c] = bool(g1[c]["ok"] and all(g2[c][cell]["ok"] for cell in plan17.CELLS) and g3[c]["ok"])
+            pas[c] = bool(all(g2[c][cell]["ok"] for cell in plan17.CELLS))
     choice = None   # 순서대로 — 통과면 고르고, 실패면 다음, 판정 불가(insufficient)면 멈춘다(아래 후보로 내려가지 않는다 — ADR-016 undetermined 선례)
     for c in ORDER:
         if pas[c] is True:
