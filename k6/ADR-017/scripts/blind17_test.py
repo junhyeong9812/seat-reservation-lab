@@ -155,6 +155,18 @@ def first_non_proceed(faults, op):
         k += 1
 
 
+def _pick_seed():
+    """바탕 pg 셀 seed — close · capture 모두 첫 FAIL/UNKNOWN 전 PROCEED ≥ 5(§6.11 ops 하한 아래로 안 내려가며 경계를 만들 수 있게)."""
+    for sd in range(1, 100000):
+        f = dict(FAULTS_PG, seed=sd)
+        if first_non_proceed(f, "close")[0] >= 5 and first_non_proceed(f, "capture")[0] >= 5:
+            return sd
+    raise AssertionError("seed 없음")
+
+
+FAULTS_PG["seed"] = _pick_seed()
+
+
 REJ_PAIRS = [(404, "HOLD_NOT_FOUND"), (409, "HOLD_EXPIRED"), (409, "SEAT_NOT_HELD")]
 G1_ZERO_SHAPES = ["orphan", "double_reservation", "double_refund", "refunded_with_seat", "voided_with_seat",
                   "auth_open", "open_unpaid", "substituted_unpaid", "no_ledger", "no_intent"]  # §8 G1-1
@@ -994,6 +1006,7 @@ class Rep:
         self.k6_exit = 0
         self.drain_reason = "empty"
         self.drain_polls = None
+        self.drain_dump = None
         self.csv_mut = None        # 함수(list of csv 줄) → list
         self.csv_rows_extra = []
         self.pclink = {"readable": True, "iface": "enp3s0", "since_epoch": K6_T0_PC_S - 60, "until_epoch": K6_END_PC_S + 60,
@@ -1099,9 +1112,12 @@ class Rep:
     def ops_now(self):
         if self.ops is not None:
             return self.ops
-        o = {"register": len(self.ledger), "pay": len(self.ledger), "authorize": 0,
-             "capture": sum(1 for t in self.tasks if t["type"] == "CAPTURE"),
-             "close": sum(1 for t in self.tasks if t["type"] == "CLOSE")}
+        # §6.11 하한 그대로: register = tombstone 거짓 원장 수 · 결제 op = g.ok 세션 수 · close/capture = DONE 작업 수
+        gok = sum(1 for r in self.rows + self.csv_rows_extra if r.get("g") and r["g"].get("ok"))  # 세션 로그의 모든 행
+        o = {"register": sum(1 for x in self.ledger if not x.get("tombstone")),
+             "pay": gok if self.cand in ("R", "S") else 0, "authorize": gok if self.cand == "D" else 0,
+             "capture": sum(1 for t in self.tasks if t["type"] == "CAPTURE" and t["status"] == "DONE"),
+             "close": sum(1 for t in self.tasks if t["type"] == "CLOSE" and t["status"] == "DONE")}
         if self.cell == "pg":
             # 바탕 pg 셀은 주입 결정이 관측되도록 close 처리 수를 첫 FAIL/UNKNOWN 뒤까지 둔다(§7 결정열)
             k, _ = first_non_proceed(FAULTS_PG, "close")
@@ -1172,7 +1188,8 @@ class Rep:
             {"t_ms": T0 + 750000, "pending": 0, "open": 0, "open_unheld": 0},
             {"t_ms": T0 + 757000, "pending": 0, "open": 0, "open_unheld": 0}]
         drain = {"start_ms": T0 + 700000 + 20000, "end_ms": T0 + 760000, "reason": self.drain_reason,
-                 "cap_s": 600, "poll_s": 2, "polls": polls}
+                 "cap_s": 300, "poll_s": 2, "polls": polls,
+                 "dump": self.drain_dump or {"attempts": 1, "max": 1 if self.drain_reason == "empty" else 5, "stable": True}}
         if self.seed is None:
             n = pl["seed"]["seats"]
             self.seed = {"schedules": 1, "seats": n, "available": n, "holds": 0, "reservations": 0, "quota_rows": 0,
@@ -1602,17 +1619,38 @@ class TestRepInvalidReasons(RepCase):
         rep.ops = dict(rep.ops_now(), close=k + 1, capture=0)
         self.assertOk(self.summarize(rep, "k1"), "처리 k + 1")
 
-    def test_inject_ops_zero(self):
-        rep = Rep("R", "pg")
-        rep.ops = dict(rep.ops_now(), close=0, capture=0)
-        self.assertOnly(self.summarize(rep), ["inject-not-observed"], "원장 처리 0")
-
     def test_inject_capture_only(self):
-        """op 합 — close 0이어도 capture에서 관측되면 무효 아님"""
+        """op 합 — close 결정 0이어도 capture에서 결정되면 하한 > 0"""
+        k, _ = first_non_proceed(FAULTS_PG, "close")
         kc, _ = first_non_proceed(FAULTS_PG, "capture")
         rep = Rep("D", "pg")
-        rep.ops = dict(rep.ops_now(), close=0, capture=kc + 1)
+        rep.ops = dict(rep.ops_now(), close=k, capture=kc + 1)
         self.assertOk(self.summarize(rep))
+
+    def test_inject_observation_and(self):
+        """§7 관측 조건(AND) — 결정 수 > 0이어도 retry 증분 0 · attempts > 1 작업 0이면 inject-not-observed"""
+        rep = Rep("R", "pg")
+        for t in rep.tasks:
+            t["attempts"] = 1
+        self.assertGreater(sum(v["fail"] + v["unknown"] for v in inject_walk(FAULTS_PG, rep.ops_now()).values()), 0)
+        self.assertOnly(self.summarize(rep, "none"), ["inject-not-observed"], "결정 > 0 · 관측 0")
+        rep = Rep("R", "pg")
+        for t in rep.tasks:
+            t["attempts"] = 1
+        rep.act_end_overrides["retry"] = {"CLOSE": 1}
+        self.assertOk(self.summarize(rep, "retry"), "retry 증분 1 · attempts 1")
+        rep = Rep("R", "pg")
+        rep.act_end_overrides["retry"] = {}
+        self.assertOk(self.summarize(rep, "attempts"), "attempts 2 작업 · retry 0")
+
+    def test_inject_retry_delta_from_before(self):
+        """§6.11 before = 기준점 — retry before 5 · end 5(증분 0) · attempts 1 → 관측 없음"""
+        rep = Rep("R", "pg")
+        for t in rep.tasks:
+            t["attempts"] = 1
+        rep.act_mut["before"] = lambda a: a["compensation"].update(retry={"CLOSE": 5})
+        rep.act_end_overrides["retry"] = {"CLOSE": 5}
+        self.assertOnly(self.summarize(rep), ["inject-not-observed"])
 
     def test_inject_zero_rate_rule_excluded(self):
         """failRate · unknownRate 둘 다 0인 op는 뺀다"""
@@ -1634,15 +1672,55 @@ class TestRepInvalidReasons(RepCase):
         rep.plan["pg"]["faults"] = copy.deepcopy(faults)
         rep.inject_events[-1]["request"] = copy.deepcopy(faults)
         rep.inject_events[-1]["response"] = copy.deepcopy(faults)
-        rep.ops = dict(rep.ops_now(), close=1)
+        rep.ops = dict(rep.ops_now(), close=3)
         s = self.summarize(rep)
         self.assertIncludes(s, ["inject-undecidable"])
         self.assertIs(s["inject"]["close"]["reached"], False)
         self.assertEqual(s["inject"]["close"]["processed"], 0)
 
     def test_inject_base_cell_not_checked(self):
+        """base 셀은 주입 검사 대상 아님 — ops = 하한 그대로 · attempts 1"""
         rep = Rep("R", "base")
-        rep.ops = dict(rep.ops_now(), close=0, capture=0)
+        for t in rep.tasks:
+            t["attempts"] = 1
+        self.assertOk(self.summarize(rep))
+
+    # ---- §6.11 pg-ledger ops 형식 · 하한 → ledger-missing ----
+    def test_ops_format(self):
+        cases = (("ops 사전 아님", lambda o: [1, 2]), ("register 없음", lambda o: {k: v for k, v in o.items() if k != "register"}),
+                 ("authorize 음수(R · 하한 0)", lambda o: dict(o, authorize=-1)),
+                 ("close 문자열", lambda o: dict(o, close=str(o["close"]))),
+                 ("authorize 불리언(R)", lambda o: dict(o, authorize=False)),
+                 ("register 실수", lambda o: dict(o, register=o["register"] + 0.5)))
+        for name, f in cases:
+            with self.subTest(name):
+                rep = Rep("R", "base")
+                rep.ops = f(dict(rep.ops_now()))
+                self.assertOnly(self.summarize(rep, f"f{len(name)}"), ["ledger-missing"], name)
+
+    def test_ops_zero_bound_key_absent_ok(self):
+        """하한 0인 op는 키가 없어도 된다(R의 authorize · capture)"""
+        rep = Rep("R", "base")
+        rep.ops = {k: v for k, v in rep.ops_now().items() if k not in ("authorize", "capture")}
+        self.assertOk(self.summarize(rep))
+
+    def test_ops_lower_bounds(self):
+        """register ≥ tombstone 거짓 원장 수 · 결제 op ≥ g.ok 세션 수 · close ≥ DONE CLOSE · capture ≥ DONE CAPTURE — 경계"""
+        bounds = (("R", "register", 5), ("R", "pay", 4), ("R", "close", 3), ("D", "authorize", 4), ("D", "capture", 2),
+                  ("D", "close", 3), ("S", "pay", 4), ("S", "close", 2))
+        for cand, op, lb in bounds:
+            for v, ok in ((lb, True), (lb - 1, False)):
+                with self.subTest((cand, op, v)):
+                    rep = Rep(cand, "base")
+                    rep.ops = dict(rep.ops_now(), **{op: v})
+                    s = self.summarize(rep, f"{cand}-{op}-{v}")
+                    (self.assertOk(s) if ok else self.assertOnly(s, ["ledger-missing"], f"{cand} {op} {v} < {lb}"))
+
+    def test_ops_register_tombstone(self):
+        """tombstone 참 원장 항목은 register 하한에서 빠진다"""
+        rep = Rep("R", "base")
+        rep.ledger[3]["tombstone"] = True
+        rep.ops = dict(rep.ops_now(), register=4)
         self.assertOk(self.summarize(rep))
 
     def test_java_random_reference(self):
@@ -2252,6 +2330,121 @@ class TestRepInvalidReasons(RepCase):
         rep.harness = ["ledger-recheck-failed"]
         s = self.summarize(rep)
         self.assertEqual(s["reasons"], ["ledger-recheck-failed"])
+
+    # ---- §6.5 · §7 app_metric · 덤프 반복 ----
+    def test_app_metric_baseline(self):
+        """§9.2 app_metric = {done_delta, db_done, rejected_delta, rejections, mismatch, checked} · kill 셀은 null"""
+        s = self.summarize(Rep("R", "base"), "b")
+        self.assertEqual(s["app_metric"], {"done_delta": 3, "db_done": 3, "rejected_delta": 1, "rejections": 1,
+                                           "mismatch": False, "checked": True})
+        self.assertIsNone(self.summarize(Rep("R", "kill"), "k")["app_metric"])
+
+    def test_app_metric_before_is_baseline_point(self):
+        """§6.11 before는 기준점 — 0이 아니어도 증분(end − before)으로 대조"""
+        rep = Rep("R", "base")
+
+        def bump(a, add_done, add_rej):
+            d = dict(a["compensation"]["done"])
+            d["CLOSE:REFUNDED"] = d.get("CLOSE:REFUNDED", 0) + add_done
+            a["compensation"]["done"] = d
+            r = dict(a["confirm"]["rejected"])
+            r["SEAT_NOT_HELD"] = r.get("SEAT_NOT_HELD", 0) + add_rej
+            a["confirm"]["rejected"] = r
+        rep.act_mut["before"] = lambda a: bump(a, 4, 2)
+        rep.act_mut["end"] = lambda a: bump(a, 4, 2)
+        s = self.summarize(rep)
+        self.assertOk(s, "before 4 · end 4 + 3")
+        self.assertEqual((s["app_metric"]["done_delta"], s["app_metric"]["rejected_delta"]), (3, 1))
+        rep = Rep("R", "base")
+        rep.act_mut["before"] = lambda a: bump(a, 4, 0)
+        self.assertOnly(self.summarize(rep, "delta-short"), ["app-metric-mismatch"], "증분 −1")
+
+    def test_app_metric_cap_report_only(self):
+        """§6.5 · §7 cap 회차는 대조 안 함 — 어긋나도 ok · checked false · mismatch 보고"""
+        rep = Rep("R", "pg")
+        rep.drain_reason = "cap"
+        rep.act_end_overrides["done"] = {"CLOSE:REFUNDED": 1}
+        s = self.summarize(rep, "cap")
+        self.assertOk(s, "cap + 지표 어긋남")
+        self.assertIs(s["app_metric"]["checked"], False)
+        self.assertIs(s["app_metric"]["mismatch"], True)
+        rep = Rep("R", "pg")
+        rep.act_end_overrides["done"] = {"CLOSE:REFUNDED": 1}
+        s = self.summarize(rep, "empty")
+        self.assertOnly(s, ["app-metric-mismatch"], "empty + 지표 어긋남")
+        self.assertIs(s["app_metric"]["checked"], True)
+        self.assertIs(s["app_metric"]["mismatch"], True)
+
+    def test_dump_race_and_unstable(self):
+        """§6.5 · §7 dump-race(empty) · dump-unstable(cap) · ledger-recheck-failed는 run17 harness 사유 — 그대로 옮겨 무효"""
+        for name, reason, drain, dump in (("empty race", "dump-race", "empty", {"attempts": 1, "max": 1, "stable": False}),
+                                          ("cap unstable", "dump-unstable", "cap", {"attempts": 5, "max": 5, "stable": False}),
+                                          ("recheck", "ledger-recheck-failed", "empty", {"attempts": 1, "max": 1, "stable": False})):
+            with self.subTest(name):
+                rep = Rep("R", "pg")
+                rep.drain_reason = drain
+                rep.drain_dump = dump
+                rep.harness = [reason]
+                s = self.summarize(rep, name.replace(" ", "_"))
+                self.assertEqual(s["reasons"], [reason], name)
+
+    def test_cap_stable_after_retries_ok(self):
+        """cap · 덤프 3번째에 안정 → 무효 아님"""
+        rep = Rep("R", "pg")
+        rep.drain_reason = "cap"
+        rep.drain_dump = {"attempts": 3, "max": 5, "stable": True}
+        self.assertOk(self.summarize(rep))
+
+    # ---- §7 k6-csv-missing 행 손상 ----
+    def test_csv_row_damage(self):
+        """§7 열 수가 머리와 다른 행 · 지연 행 · dropped 행 metric_value 결측 · 숫자 아님 → k6-csv-missing(무음 건너뜀 금지)"""
+        def colmis(lines):
+            return lines + ["http_req_duration,1,9.9,POST,confirm,200"]
+
+        def val(name, v):
+            def f(lines):
+                out = []
+                done = False
+                for ln in lines:
+                    parts = ln.split(",")
+                    if not done and parts[0] == "http_req_duration" and parts[9] == name and parts[13] == "200":
+                        parts[2] = v
+                        done = True
+                    out.append(",".join(parts))
+                assert done
+                return out
+            return f
+
+        def dropped(v):
+            return lambda lines: [ln if not ln.startswith("dropped_iterations") else
+                                  ",".join(["dropped_iterations", ln.split(",")[1], v] + ln.split(",")[3:]) for ln in lines]
+        cases = (("열 수 다름", colmis), ("confirm 값 빈칸", val("confirm", "")), ("pay_start 값 문자", val("pay_start", "abc")),
+                 ("dropped 값 빈칸", dropped("")), ("dropped 값 문자", dropped("x")))
+        for name, f in cases:
+            for cell in ("pg", "kill"):
+                with self.subTest((name, cell)):
+                    rep = Rep("R", cell)
+                    rep.csv_mut = f
+                    self.assertOnly(self.summarize(rep, f"{cell}-{len(name)}-{name[:2]}"), ["k6-csv-missing"], name)
+
+    # ---- §9.2 kill restarted · timing_ok · valid ----
+    def test_kill_flags(self):
+        s = self.summarize(Rep("R", "kill"), "base")
+        self.assertEqual({k: s["kill"][k] for k in ("events", "restarted", "timing_ok", "valid")},
+                         {"events": 2, "restarted": True, "timing_ok": True, "valid": True})
+        rep = Rep("R", "kill")
+        e = rep.kill["events"][0]
+        e.update(kill_ms=e["planned_ms"] + 5001)
+        s = self.summarize(rep, "timing")
+        self.assertOnly(s, ["kill-not-observed"])
+        self.assertEqual({k: s["kill"][k] for k in ("restarted", "timing_ok", "valid")},
+                         {"restarted": True, "timing_ok": False, "valid": False}, "재기동은 됐지만 시각 어긋남")
+        rep = Rep("R", "kill")
+        rep.process_start = (1000.0, 1000.0)
+        s = self.summarize(rep, "norestart")
+        self.assertOnly(s, ["kill-not-observed"])
+        self.assertEqual({k: s["kill"][k] for k in ("restarted", "timing_ok", "valid")},
+                         {"restarted": False, "timing_ok": True, "valid": False})
 
     def test_db_cpu_missing_base_only(self):
         rep = Rep("R", "base")

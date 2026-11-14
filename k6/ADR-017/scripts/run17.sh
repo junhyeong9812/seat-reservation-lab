@@ -350,16 +350,28 @@ jq -s --argjson s "$D0" --argjson e "$(srv_ms)" --arg r "$reason" --argjson c "$
   '{start_ms: $s, end_ms: $e, reason: $r, cap_s: $c, poll_s: $p, polls: .}' "$DRAIN_EV" > "$DIR/drain.json" 2>>"$DIR/errors.log" || hreason drain-write-failed
 rm -f "$DRAIN_EV"
 
-# ---- 덤프(순서 고정 — INTERFACE §1: 원장 → DB → 원장 대조 → 판정기 → 지표) -------------------------------------------------------------
-pg_ledger > "$DIR/pg-ledger.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/pg-ledger.json"; hreason ledger-dump-failed; }
-db_dump17 > "$DIR/db-dump.json" 2>>"$DIR/errors.log" < /dev/null && jq -e 'type == "object"' "$DIR/db-dump.json" > /dev/null 2>&1 || { rm -f "$DIR/db-dump.json"; hreason db-dump-failed; }
-if [[ -s "$DIR/pg-ledger.json" ]]; then   # 덤프 사이 원장 변화(dump-race) — 처리 호출 수 합 대조
+# ---- 덤프(순서 고정 — INTERFACE §1 · §6.5: 원장 → DB → 원장 대조 → 판정기 → 지표) -------------------------------------------------------------
+#   원장 ops 합이 덤프 앞뒤로 같아야 '안정 스냅숏'이다. empty면 한 번(다르면 dump-race) · cap이면 워커가 아직 PG를 부를 수 있어 같아질 때까지 DUMP_TRIES_CAP번
+#   (3초 간격 · 소진 = dump-unstable). 두 번째 원장 조회 실패는 1회 재시도 뒤 ledger-recheck-failed(경합과 구분 — L2-9)
+DUMP_TRIES_CAP=5
+DUMP_TRIES=1; [[ "$reason" == cap ]] && DUMP_TRIES=$DUMP_TRIES_CAP
+dump_n=0 dump_stable=false dump_ok=true
+while (( dump_n < DUMP_TRIES )); do
+  dump_n=$((dump_n + 1))
+  pg_ledger > "$DIR/pg-ledger.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/pg-ledger.json"; hreason ledger-dump-failed; dump_ok=false; break; }
+  db_dump17 > "$DIR/db-dump.json" 2>>"$DIR/errors.log" < /dev/null && jq -e 'type == "object"' "$DIR/db-dump.json" > /dev/null 2>&1 \
+    || { rm -f "$DIR/db-dump.json"; hreason db-dump-failed; dump_ok=false; break; }
   o1=$(jq '[.ops[]] | add // 0' "$DIR/pg-ledger.json"); o2=""
-  for _ in 1 2; do   # 두 번째 조회 실패는 경합이 아니다 — 1회 재시도 뒤에도 실패면 ledger-recheck-failed(L2-9)
+  for _ in 1 2; do
     o2=$(pg_ledger 2>/dev/null < /dev/null | jq '[.ops[]] | add // 0' 2>/dev/null); [[ "$o2" =~ ^[0-9]+$ ]] && break; o2=""; sleep 2
   done
-  if [[ -z "$o2" ]]; then hreason ledger-recheck-failed; elif [[ "$o1" != "$o2" ]]; then hreason dump-race; fi
-fi
+  [[ -n "$o2" ]] || { hreason ledger-recheck-failed; dump_ok=false; break; }
+  [[ "$o1" == "$o2" ]] && { dump_stable=true; break; }
+  (( dump_n < DUMP_TRIES )) && sleep 3
+done
+if $dump_ok && ! $dump_stable; then [[ "$reason" == cap ]] && hreason dump-unstable || hreason dump-race; fi
+jq --argjson n "$dump_n" --argjson m "$DUMP_TRIES" --argjson st "$dump_stable" '. + {dump: {attempts: $n, max: $m, stable: $st}}' "$DIR/drain.json" > "$DIR/drain.json.tmp" 2>>"$DIR/errors.log" \
+  && mv "$DIR/drain.json.tmp" "$DIR/drain.json" || hreason drain-write-failed
 CONSISTENCY_TIMEOUT=600 consistency 20 > "$DIR/consistency.json" 2>>"$DIR/errors.log" < /dev/null || { rm -f "$DIR/consistency.json"; hreason end-check-failed; }
 snap17 end
 table_stats > "$DIR/table-end.json" 2>>"$DIR/errors.log" < /dev/null

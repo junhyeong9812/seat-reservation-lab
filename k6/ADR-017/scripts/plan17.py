@@ -64,7 +64,7 @@ SEAT_FACTOR = 1.5             # 회차 좌석 = ⌈세션 × 1.5⌉(S 대체용 
 PG_RULE = {"delayMs": 200, "failRate": 0.10, "unknownRate": 0.05, "unknownDelayMs": 5000}
 PG_FAULT_OPS = ("capture", "close")   # mock-pg 주입 단위 = 변경 호출(register · pay · authorize · capture · close) — 조회 GET은 주입 지점이 없다(INTERFACE §8)
 KILL_AT_S = (180.0, 760.0)    # kill 셀: k6 시작(t0) 뒤 앱 SIGKILL 시각(초) 2회 → 곧바로 재기동(명세 §0) — ① 결제 단계 한가운데 · ② 지연 확정 거부 · 안전망 종결이 몰리는 구간
-DRAIN_CAP_S = 600.0           # 배수 창 상한(k6 끝 뒤) — 닿으면 덤프 · 판정하고 남은 일을 G1로 센다(무효 아님)
+DRAIN_CAP_S = 300.0           # 배수 창 상한(k6 끝 뒤) — 닿으면 덤프 · 판정하고 남은 일을 G1로 센다(무효 아님)
 SEND_LAG_MAX_MS = 2000        # 확정 송신 지연 허용치(계획 at ↔ 실제 c1.ts — 넘는 세션이 있으면 env-send-lag · 환경)
 PC_MEM_RUN_MIN_KB = 4 * 1024 * 1024   # k6 PC MemAvailable 하한(ADR-014 plan14 PC_MEM_RUN_MIN_KB 복사 — 넘으면 pc-mem-low · 환경)
 PC_MEM_GAP_MAX_S = 30.0               # timeline-client MemAvailable 표본 공백 상한(ADR-014 plan14 PC_MEM_GAP_MAX_S 복사 — 넘으면 pc-mem-missing)
@@ -331,7 +331,7 @@ def _total(over=None):
 # dry-run '줄이는 안'(12시간을 넘을 때 측정 전 고정에서 고를 자리 — 명세 §0 · 가정 1): 세션 수 · 생각 시간 상한 · 배수 창 상한.
 #   회차 길이의 대부분은 최장 세션(지연 확정 = T + W 611초 + L)이라 세션 수(도착 구간)를 줄여도 거의 줄지 않는다 — W는 앱 눈금이라 바꾸지 않는다
 REDUCTIONS = [
-    ("배수 상한 600→300초", {"drainCap": 300.0}),
+    ("배수 상한 300→200초", {"drainCap": 200.0}),
     ("생각 시간 상한 T 240→120초", {"tMax": 120.0}),
     ("세션 1,100→800(도착 40초)", {"n": 800}),
     ("세션 1,100→800 + T 상한 120초", {"n": 800, "tMax": 120.0}),
@@ -367,8 +367,8 @@ def dry_run():
     if not MOCKPG_AUTH_TTL_S > T_RANGE[1] + W_S + LATE_RANGE[1] + DRAIN_CAP_S:
         problems.append("mock-pg 승인 유효 시간 < 세션 수명 + 배수 — D 승인이 측정 중 만료된다")
     est, est_max = _total()
-    if est / 3600 > BUDGET_HOURS:
-        problems.append(f"예상 {est / 3600:.2f}시간 > 예산 {BUDGET_HOURS:g}시간")
+    if est_max / 3600 > BUDGET_HOURS:   # 예산은 최악(배수 상한을 매 회차 다 씀) 기준(사용자 결정 2026-11-14 — 명세 §0 Q/A 2)
+        problems.append(f"최악 {est_max / 3600:.2f}시간 > 예산 {BUDGET_HOURS:g}시간(예상 {est / 3600:.2f}시간)")
     red = []
     for name, ov in REDUCTIONS:
         e, em = _total(ov)

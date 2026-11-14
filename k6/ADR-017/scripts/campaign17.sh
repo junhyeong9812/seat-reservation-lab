@@ -85,7 +85,10 @@ cond_lines() {
   else echo "⓪ 이미지 고정 — --images 없음 · SHA 다름 · mockpg 없음 → 막음"; ok=0; fi
   jflag .smoke.done && echo "① .164 스모크 → 통과" || { echo "① .164 스모크 — smoke.done 아님 → 막음"; ok=0; }
   jflag .campaign_smoke.done && echo "② 캠페인 스모크 → 통과" || { echo "② 캠페인 스모크 — campaign_smoke.done 아님 → 막음"; ok=0; }
-  if (( DRY_RC == 0 )); then echo "③ dry-run $(jq -r .n <<< "$DRYJ")회차 · 예상 $(jq -r .est_hours <<< "$DRYJ")시간(최악 $(jq -r .est_max_hours <<< "$DRYJ")) → 통과"; else echo "③ dry-run 문제 $(jq -c .problems <<< "$DRYJ" 2>/dev/null) → 막음"; ok=0; fi
+  # ③ dry-run 문제 0 + 최악 시간(배수 상한을 매 회차 다 씀) ≤ 예산(사용자 결정 2026-11-14 — 12시간 = 최악 기준)
+  if (( DRY_RC == 0 )) && jq -e '.est_max_hours <= .budget_hours' <<< "$DRYJ" > /dev/null 2>&1; then
+    echo "③ dry-run $(jq -r .n <<< "$DRYJ")회차 · 예상 $(jq -r .est_hours <<< "$DRYJ")시간 · 최악 $(jq -r .est_max_hours <<< "$DRYJ")시간 ≤ 예산 $(jq -r .budget_hours <<< "$DRYJ")시간 → 통과"
+  else echo "③ dry-run 문제 $(jq -c .problems <<< "$DRYJ" 2>/dev/null) · 최악 $(jq -r .est_max_hours <<< "$DRYJ" 2>/dev/null)시간 → 막음"; ok=0; fi
   local pcj; pcj="$(bash "$C17_FROZEN/k6/ADR-014/scripts/pccheck14.sh" 2>/dev/null)"; local pcrc=$?
   if ! jflag .pc_check.done; then echo "④ k6 PC 점검 — pc_check.done 아님 → 막음"; ok=0
   elif (( pcrc == 0 )) && [[ "$(jq -r .ok <<< "$pcj" 2>/dev/null)" == true ]]; then echo "④ k6 PC 점검 → 통과"

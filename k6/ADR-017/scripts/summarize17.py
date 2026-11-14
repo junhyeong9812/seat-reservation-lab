@@ -90,13 +90,13 @@ def k6_csv(path):
             head = next(rd)
             im, iv, iname, ist = head.index("metric_name"), head.index("metric_value"), head.index("name"), head.index("status")
             for r in rd:
-                if len(r) <= max(im, iv, iname, ist):
-                    continue
+                if len(r) != len(head):   # 짧은 · 긴 행 = 손상(무음으로 건너뛰지 않는다 — L3-2)
+                    return None
                 if r[im] == "http_req_duration" and r[ist] == "200" and r[iname] in vals:
-                    vals[r[iname]].append(float(r[iv]))
+                    vals[r[iname]].append(float(r[iv]))   # 값 결측 · 숫자 아님 = ValueError → None
                 elif r[im] == "dropped_iterations":
                     dropped += int(float(r[iv]))
-    except (OSError, ValueError, StopIteration, EOFError):
+    except (OSError, ValueError, StopIteration, EOFError, csv.Error):
         return None
     return {"p99": {k: pct(v, 0.99) for k, v in vals.items()}, "n": {k: len(v) for k, v in vals.items()}, "dropped": dropped}
 
@@ -112,25 +112,6 @@ def env_kind(status):
     if rs & ENV_ANY:
         return "env"
     return "env" if rs and rs <= ENV_SOLE else "harness"
-
-
-def latency_p99(path):
-    """k6 CSV → {name: p99 ms}(http_req_duration · status 200 · name ∈ confirm · pay_start). 파일 없음 = None."""
-    p = Path(path)
-    if not p.exists():
-        return None
-    vals = {"confirm": [], "pay_start": []}
-    try:
-        with gzip.open(p, "rt", newline="") as f:
-            rd = csv.reader(f)
-            head = next(rd)
-            im, iv, iname, ist = head.index("metric_name"), head.index("metric_value"), head.index("name"), head.index("status")
-            for r in rd:
-                if len(r) > max(im, iv, iname, ist) and r[im] == "http_req_duration" and r[ist] == "200" and r[iname] in vals:
-                    vals[r[iname]].append(float(r[iv]))
-    except (OSError, ValueError, StopIteration, EOFError):
-        return None
-    return {k: pct(v, 0.99) for k, v in vals.items()}
 
 
 def faults_equal(a, b):
@@ -363,11 +344,11 @@ def rep_summary(d):
             timing = (num(tol) and num(t0k) and k6t0_ms is not None and k6end_ms is not None and abs(t0k - k6t0_ms) <= tol and len(at) == len(evs)
                       and all(num(e.get("kill_ms")) and num(e.get("planned_ms")) and abs(e["planned_ms"] - (t0k + a * 1000)) <= tol
                               and abs(e["kill_ms"] - e["planned_ms"]) <= tol and k6t0_ms <= e["kill_ms"] <= k6end_ms for e, a in zip(evs, at)))
-            ok = (len(evs) == 2 and all(e.get("kill_rc") == 0 and e.get("start_rc") == 0 and e.get("ready_ok") is True for e in evs)
-                  and len(set(st_at)) == 2 and all(st_at) and timing and restarted)
+            rest = bool(restarted and len(st_at) == 2 and all(st_at) and len(set(st_at)) == 2)   # 재기동 사실(StartedAt 둘이 다름 · process_start 바뀜)
+            ok = (len(evs) == 2 and all(e.get("kill_rc") == 0 and e.get("start_rc") == 0 and e.get("ready_ok") is True for e in evs) and rest and bool(timing))
             if not ok:
                 reasons.add("kill-not-observed")
-            kill_out = {"events": len(evs), "restarted": ok}
+            kill_out = {"events": len(evs), "restarted": rest, "timing_ok": bool(timing), "valid": ok}
     drain = load(d / "drain.json")
     drain_out = None
     if not isinstance(drain, dict) or drain.get("reason") not in ("empty", "cap"):
@@ -425,18 +406,34 @@ def rep_summary(d):
             reasons.add("no-late-rejection")
         if db is not None and sweep_close == 0:
             reasons.add("no-sweep-close")
+    # 원장 처리 수(ops) 형식 · 하한(L3-3 · 모든 셀): 사전 · 값은 0 이상 정수 · 등록 ≥ 등록으로 생긴 원장 항목 · 결제 op ≥ k6 결제 성공 · close ≥ DONE CLOSE · capture ≥ DONE CAPTURE
+    if led is not None:
+        ops = led.get("ops")
+        need = {"register": sum(1 for p_ in led["payments"] if not p_.get("tombstone")), plan17.PG_OP.get(cand, "pay"):
+                sum(1 for r in rows if isinstance(r.get("g"), dict) and r["g"].get("ok") is True),
+                "close": sum(1 for t in tasks if t.get("type") == "CLOSE" and t.get("status") == "DONE"),
+                "capture": sum(1 for t in tasks if t.get("type") == "CAPTURE" and t.get("status") == "DONE")}
+        if not isinstance(ops, dict) or any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in ops.values()) \
+                or any(n > 0 and not (isinstance(ops.get(k), int) and ops[k] >= n) for k, n in need.items()):
+            reasons.add("ledger-missing")
     inject = None
     if cell == "pg" and led is not None and isinstance(applied, dict):
-        inject = inject_decisions(applied, led.get("ops"))
+        inject = inject_decisions(applied, led.get("ops") if isinstance(led.get("ops"), dict) else {})
+        retry_delta = act_delta(acts["before"], acts["end"], ("compensation", "retry")) if all(act_ok(a) for a in (acts["before"], acts["end"])) else None
+        observed = (num(retry_delta) and retry_delta > 0) or any((t.get("attempts") or 0) > 1 for t in tasks)
         if not all(v["reached"] for v in inject.values()):
             reasons.add("inject-undecidable")
-        elif sum(v["fail"] + v["unknown"] for v in inject.values()) == 0:
-            reasons.add("inject-not-observed")
+        elif sum(v["fail"] + v["unknown"] for v in inject.values()) == 0 or not observed:
+            reasons.add("inject-not-observed")   # 결정열 재현(주입 결정 > 0) AND 관측(재시도 증분 > 0 또는 attempts > 1 작업 > 0) — L3-4
+    capped = isinstance(drain, dict) and drain.get("reason") == "cap"
+    app_metric = None
     if cell != "kill" and db is not None and all(act_ok(a) for a in acts.values()):
         dd = act_delta(acts["before"], acts["end"], ("compensation", "done"))
         rj = act_delta(acts["before"], acts["end"], ("confirm", "rejected"))
         n_done = sum(1 for t in tasks if t.get("status") == "DONE")
-        if dd is None or dd != n_done or rj is None or rj < len(db["confirm_rejection"]):
+        mism = dd is None or dd != n_done or rj is None or rj < len(db["confirm_rejection"])
+        app_metric = {"done_delta": dd, "db_done": n_done, "rejected_delta": rj, "rejections": len(db["confirm_rejection"]), "mismatch": mism, "checked": not capped}
+        if mism and not capped:   # 배수 상한(cap) 회차는 워커가 덤프 · 지표 사이에도 일하므로 대조하지 않고 보고만 한다(L3-1)
             reasons.add("app-metric-mismatch")
 
     # ---- record-level(k6 결제 성공 ↔ PG 원장 ↔ DB intent) ----
@@ -584,7 +581,7 @@ def rep_summary(d):
             "sessions": {"n": len(rows), "planned": planned, "by_kind": by_kind, "invalid_detail": inv, "integrity": integ, "mode_fail": mfail},
             "uids": uids, "g1": {"ok": g1_ok, "items": items}, "g2": g2, "g3": g3,
             "m17_6": {"late_rejections": late_rej, "noconf_sweep_closes": sweep_close}, "cost": cost, "drain": drain_out, "kill": kill_out,
-            "record": record, "inject": inject, "send_lag_ms": send_lag, "pc_mem": pc_mem}
+            "record": record, "inject": inject, "send_lag_ms": send_lag, "pc_mem": pc_mem, "app_metric": app_metric}
     return summ, status
 
 

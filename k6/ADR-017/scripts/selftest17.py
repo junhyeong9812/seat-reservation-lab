@@ -196,7 +196,8 @@ class World:
                  "ready_ok": True, "started_at": "2026-11-14T00:00:02Z"}]})
         js("drain.json", {"start_ms": T0 + 700000, "end_ms": T0 + 712000, "reason": "empty", "cap_s": 600, "poll_s": 5,
                           "polls": [{"t_ms": T0 + 700000, "pending": 0, "open": 0, "open_unheld": 0}, {"t_ms": T0 + 707000, "pending": 0, "open": 0, "open_unheld": 0}]})
-        ops = {"register": len(self.intents)}
+        ops = {"register": len(self.intents), plan17.PG_OP[self.cand]: sum(1 for r in self.rows if r.get("g")),
+               "close": sum(t["attempts"] for t in self.tasks if t["type"] == "CLOSE"), "capture": sum(t["attempts"] for t in self.tasks if t["type"] == "CAPTURE")}
         if self.cell == "pg":   # 처리 30건씩 — 주입 결정열(시드 고정)에 FAIL · UNKNOWN이 들어 있다(test_inject가 확인)
             ops.update(close=30, capture=30)
         js("pg-ledger.json", {"payments": sorted(self.ledger, key=lambda x: x["uid"]), "ops": ops})
@@ -640,6 +641,74 @@ def test_runs(tmp):
     # L2-8 안전망 종결 = DONE만
     mutated("L2-8-sweep-not-done", edit("db-dump.json", lambda o: [t.update(status="PENDING", done_ms=None) for t in o["compensation_task"] if t["uid"] == "u-0008"]),
             "no-sweep-close")
+
+    # ---- 리뷰 루프 3 수정 확인 ----
+    # L3-1 cap 회차: 지표 대조는 보고만 · run17이 남긴 dump-unstable은 무효
+    s31, st31 = mutated("L3-1-cap-metric", lambda d, w: (edit("drain.json", lambda o: o.update(reason="cap"))(d, w),
+                                                         edit("act17-end.json", lambda o: o["compensation"].update(done={}))(d, w)), None)
+    check("L3-1-cap-metric-report-only", st31 == "ok" and s31["app_metric"]["mismatch"] and s31["app_metric"]["checked"] is False, st31 + json.dumps(s31["app_metric"]))
+    mutated("L3-1-dump-unstable", lambda d, w: Path(d, "harness-reasons.txt").write_text("dump-unstable\n"), "dump-unstable")
+    # L3-1 run17 덤프 반복(bash 블록을 떼어 원장 stub으로 실행): cap · 원장이 두 번 움직인 뒤 멈춤 → 3번째 시도에서 안정 / 계속 움직임 → dump-unstable
+    import subprocess
+    run_src = (HERE / "run17.sh").read_text()
+    blk = run_src[run_src.index("# ---- 덤프(순서 고정"):run_src.index("CONSISTENCY_TIMEOUT=600 consistency 20")]
+    def dump_loop(reason_, moves):
+        dd = Path(tempfile.mkdtemp(prefix="dump17-", dir=tmp))
+        (dd / "drain.json").write_text(json.dumps({"reason": reason_}))
+        script = f"""DIR={dd}; reason={reason_}; CNT={dd}/cnt; echo 0 > $CNT
+hreason() {{ echo "$1" >> $DIR/reasons.txt; }}
+sleep() {{ :; }}
+pg_ledger() {{ n=$(cat $CNT); echo $((n + 1)) > $CNT; m=$(( n < {moves} ? n : {moves} )); echo "{{\\"payments\\": [], \\"ops\\": {{\\"close\\": $m}}}}"; }}
+db_dump17() {{ echo '{{}}'; }}
+{blk}"""
+        subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        rs = (dd / "reasons.txt").read_text().split() if (dd / "reasons.txt").exists() else []
+        return json.loads((dd / "drain.json").read_text()).get("dump"), rs
+    dmp, rs = dump_loop("cap", 3)
+    check("L3-1-loop-stabilizes", dmp and dmp["stable"] is True and dmp["attempts"] == 3 and dmp["max"] == 5 and not rs, f"{dmp} {rs}")
+    dmp, rs = dump_loop("cap", 99)
+    check("L3-1-loop-unstable", dmp and dmp["stable"] is False and dmp["attempts"] == 5 and rs == ["dump-unstable"], f"{dmp} {rs}")
+    dmp, rs = dump_loop("empty", 99)
+    check("L3-1-empty-race", dmp and dmp["attempts"] == 1 and rs == ["dump-race"], f"{dmp} {rs}")
+    dmp, rs = dump_loop("empty", 0)
+    check("L3-1-empty-stable", dmp and dmp["stable"] is True and not rs, f"{dmp} {rs}")
+    # L3-2 CSV 손상
+    def csv_tamper(row):
+        def go(d, w):
+            with gzip.open(Path(d, "k6-requests.csv.gz"), "at", newline="") as f:
+                csv.writer(f).writerow(row)
+        return go
+    mutated("L3-2-short-row", csv_tamper(["http_req_duration", "0", "5"]), "k6-csv-missing")
+    mutated("L3-2-dropped-empty", csv_tamper(["dropped_iterations", "0", "", "", "", "", "", "", "", "", "", "main", "", "", "", "", "", "", ""]), "k6-csv-missing")
+    # L3-3 원장 ops 형식 · 하한
+    mutated("L3-3-ops-pay-missing", edit("pg-ledger.json", lambda o: o["ops"].pop("pay")), "ledger-missing", cell="base")
+    mutated("L3-3-ops-negative", edit("pg-ledger.json", lambda o: o["ops"].update(register=-1)), "ledger-missing", cell="base")
+    mutated("L3-3-ops-string", edit("pg-ledger.json", lambda o: o["ops"].update(close="3")), "ledger-missing", cell="base")
+    mutated("L3-3-ops-notdict", edit("pg-ledger.json", lambda o: o.update(ops=[1])), "ledger-missing", cell="base")
+    mutated("L3-3-close-below-done", edit("pg-ledger.json", lambda o: o["ops"].update(close=1)), "ledger-missing", cell="base")
+    mutated("L3-3-capture-below-done-D", edit("pg-ledger.json", lambda o: o["ops"].update(capture=0)), "ledger-missing", cand="D", cell="base")
+    # L3-4 주입 결정은 있는데 관측 없음(attempts 1 · retry 증분 0)
+    def unobserved(d, w):
+        edit("db-dump.json", lambda o: [t.update(attempts=1) for t in o["compensation_task"]])(d, w)
+        for n_ in ("act17-after-k6.json", "act17-end.json"):
+            edit(n_, lambda o: o["compensation"].update(retry={"CLOSE": 0}))(d, w)
+    s34, st34 = mutated("L3-4-unobserved", unobserved, "inject-not-observed")
+    check("L3-4-decisions>0", sum(v["fail"] + v["unknown"] for v in s34["inject"].values()) > 0, json.dumps(s34["inject"]))
+    # L3-5 kill 블록 분리
+    sk, _ = summ(tmp / "ok-R-kill")
+    check("L3-5-kill-keys", sk["kill"] == {"events": 2, "restarted": True, "timing_ok": True, "valid": True, "left_intents": 0}, json.dumps(sk["kill"]))
+    sk2, _ = mutated("L3-5-timing", edit("kill.json", lambda o: o["events"][1].update(kill_ms=o["events"][1]["planned_ms"] + 9000)), "kill-not-observed", cell="kill")
+    check("L3-5-split", sk2["kill"]["restarted"] is True and sk2["kill"]["timing_ok"] is False and sk2["kill"]["valid"] is False, json.dumps(sk2["kill"]))
+    # L3-7 예산 = 최악 기준
+    old_b = plan17.BUDGET_HOURS
+    try:
+        plan17.BUDGET_HOURS = 9.0   # 예상(8.46) < 9 < 최악(10.26) — 최악 기준이면 문제
+        dr = plan17.dry_run()
+        check("L3-7-worst-budget", any("최악" in x for x in dr["problems"]), str(dr["problems"]))
+    finally:
+        plan17.BUDGET_HOURS = old_b
+    check("L3-7-cap-300", plan17.DRAIN_CAP_S == 300.0 and plan17.render("R", "base", 1)["drain"]["cap_s"] == 300.0)
+    check("L3-6-no-latency_p99", not hasattr(SM, "latency_p99"))
 
     # L1-8 비용 보고
     sd, _ = summ(tmp / "ok-D-base")
