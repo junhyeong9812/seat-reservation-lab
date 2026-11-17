@@ -10,7 +10,8 @@ run17.sh · campaign17.sh · outcome17.py · summarize17.py · selftest17.py가 
     plan17.py --fixed                                                → exit 0 = 측정 전 고정 값(FIXED = True) · 1 = 자리표시 값(실제 실행 거부)
     plan17.py --session <rep> <sid>                                  → 그 세션의 종류 · 시드 속성 JSON(paid-flow17.js와 같은 값 — 요약기 · selftest 대조용)
 
-**FIXED = False — 자리표시 값.** 세션 비율 · 지연 분포 · 세션 수 · 도착률 · PG 주입 · kill 시각 · 배수 창 상한은 .164 스모크 뒤 측정 전 고정 커밋에서 정한다(명세 §1-2 · M17-2).
+**FIXED = True — 측정 전 고정 값.** 세션 비율 · 지연 분포 · 세션 수 · 도착률 · PG 주입 · kill 시각 · 배수 창 상한 · G2 문턱은 .164 스모크(smoke17-164b — 5회차 모두 ok) 뒤
+초안 그대로 고정했다(사용자 확인 2026-11-17 · 명세 §1-2 · M17-2 — 이 뒤 바꾸면 캠페인 무효).
 앱 눈금(TTL · W · θ · M · 배치 · 워커 · 안전망 손잡이)은 앱 기본값 그대로다(명세 §0 '실제 눈금')."""
 import json
 import math
@@ -23,7 +24,7 @@ sys.path.insert(0, str(HERE.parent.parent / "ADR-015" / "scripts"))
 import plan15  # noqa: E402
 from plan16 import dur, fnv1a, iso_dur, mulberry32  # noqa: E402  — k6 lib14.js와 같은 비트의 난수(plan16 그대로)
 
-FIXED = False   # 측정 전 고정 커밋 전 — run17.sh · campaign17.sh는 --dry-run · --simulate · --smoke만 허용
+FIXED = True    # 측정 전 고정(2026-11-17) — False면 run17.sh · campaign17.sh는 --dry-run · --simulate · --smoke만 허용
 
 # ---- 앱 눈금(application.yml · CompensationProperties · PaymentProperties 기본값 — 실제 눈금 · 바꾸지 않는다) -----------------------------------
 TTL_S = 300.0                 # seat.hold.ttl 5m
@@ -47,7 +48,7 @@ CELLS = ["base", "pg", "kill"]      # 회차 안 묶음 순서(base → pg → k
 REPS = 3
 PG_OP = {"R": "pay", "D": "authorize", "S": "pay"}   # 클라이언트(k6)가 부르는 PG 결제 호출(설계-5)
 
-# ---- 측정 전 고정 자리(자리표시 — 명세 §0 초안) ----------------------------------------------------------------------------------------
+# ---- 측정 전 고정 값(명세 §0 초안 = .164 스모크 뒤 그대로 고정) ----------------------------------------------------------------------------------------
 N_SESSIONS = 1100             # 회차 세션 수(명세 §0 '약 1,100')
 RATE = 20                     # 일정 도착률(세션/초 — ADR-016 paid 셀 선례) → 도착 구간 55초
 KINDS = ("ok", "late", "noconf", "abandon", "retry")
@@ -70,8 +71,8 @@ PC_MEM_RUN_MIN_KB = 4 * 1024 * 1024   # k6 PC MemAvailable 하한(ADR-014 plan14
 PC_MEM_GAP_MAX_S = 30.0               # timeline-client MemAvailable 표본 공백 상한(ADR-014 plan14 PC_MEM_GAP_MAX_S 복사 — 넘으면 pc-mem-missing)
 KILL_TOL_MS = 5000            # kill 시각 허용 오차(계획 ↔ 실제 kill · k6 시작 대조 — summarize17 kill-not-observed)
 DRAIN_POLL_S = 5.0
-DRAIN_EST_S = {"base": 30.0, "pg": 90.0, "kill": 60.0}   # dry-run 손셈용 예상 배수 시간(스모크 실측으로 고정)
-G2_X_S, G2_Y_S = 30.0, 120.0  # G2 문턱 초안(Q6 — 스모크 실측 뒤 고정)
+DRAIN_EST_S = {"base": 30.0, "pg": 90.0, "kill": 60.0}   # dry-run 손셈용 예상 배수 시간(스모크 실측 base 12 · pg 18 · kill 12초보다 넉넉히 둔다)
+G2_X_S, G2_Y_S = 30.0, 120.0  # G2 문턱(Q6 — 스모크 실측 p99 최대 15.3초 · max 21.6초(D/pg) 뒤 고정)
 
 # ---- 하네스 상수(고정) ------------------------------------------------------------------------------------------------------
 USER_BASE = 1_000_000         # 세션 사용자 = USER_BASE + sid
@@ -357,7 +358,7 @@ def dry_run():
                                      "k6_est_s": p["k6"]["est_s"], "grace_s": p["grace_s"], "drain_est_s": p["drain"]["est_s"], "n_total": p["n_total"],
                                      "planned": p["planned"], "pre_vus": p["k6"]["pre_vus"], "max_vus": p["k6"]["max_vus"],
                                      "peak": p["peak_concurrency"], "seed": p["seed"], "life": p["life"]}
-    # 앱 눈금과 자리표시 값의 성립 조건(세션이 계획한 갈래로 가는가)
+    # 앱 눈금과 고정 값의 성립 조건(세션이 계획한 갈래로 가는가)
     if not T_RANGE[1] < TTL_S - THETA_S:
         problems.append(f"T 상한 {T_RANGE[1]:g} ≥ TTL − θ — payment-start가 결제 전 거부를 낸다")
     if not PAY_MAX_S + CONF_GAP_RANGE[1] < W_S - M_S - 5:

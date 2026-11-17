@@ -4,8 +4,8 @@
 > - 쓰는 쪽: `scenarios/paid-flow17.js`(세션 로그) · `scripts/run17.sh`(회차 폴더 · 덤프 · 주입 · kill · 배수).
 > - 읽는 쪽: `scripts/outcome17.py`(세션 분류) · `scripts/summarize17.py`(회차 무효 · 캠페인 판정) · `scripts/selftest17.py`.
 > - 구현은 이 문서를 따른다. 구현과 이 문서가 다르면 구현의 결함이다(바꾸려면 이 문서를 먼저 고친다).
-> - 숫자(비율 · 문턱 · 주입 · 시각)의 출처는 `scripts/plan17.py`다. 이 문서의 숫자는 지금 자리표시 값이다(`FIXED = False` — 측정 전 고정 커밋에서 확정 · M17-2).
-> - 표의 **[초안]**은 측정 전 고정 전에 메인 · 사용자가 확정할 자리다. 테스트 사례는 [초안] 값도 이 문서대로 쓴다.
+> - 숫자(비율 · 문턱 · 주입 · 시각)의 출처는 `scripts/plan17.py`다. 이 문서의 숫자는 측정 전 고정 값이다(`FIXED = True` — .164 스모크 뒤 2026-11-17 확정 · M17-2).
+> - §5 결정표 · §7 무효 사유 · §8 판정은 측정 전 고정(2026-11-17)에서 [초안] 표시를 떼고 확정했다(리뷰 3루프 + .164 스모크 반영본).
 
 ## 0. 용어 · 단위
 
@@ -180,7 +180,7 @@ Task = {id, source, status, attempts, last_result, created_ms, done_ms|None}
   - 안전망이 닫은 intent는 작업이 DONE이 된 뒤에도 `CLOSING`(closed_reason `SWEEP` · result_code = 재생 코드 `HOLD_NOT_FOUND` 또는 `HOLD_EXPIRED`)으로 남는다.
   - 확정 거부는 `REJECTED`, 대체 성공은 `SUBSTITUTED`, 확정 성공은 `CONFIRMED`다(`CompensationSweep.kt:98` · `PaymentConfirmService.kt:101,122` · `SubstituteAllocator.kt:79`).
 
-## 5. 세션 분류 결정표 `outcome17.classify(row, end, cand, kills, plan) → str` [초안]
+## 5. 세션 분류 결정표 `outcome17.classify(row, end, cand, kills, plan) → str`
 
 반환값은 범주 하나 또는 결함 문자열이다.
 
@@ -443,7 +443,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 | `pc-link.json` | 읽는 키: `readable` · `down` | `readable true` · `down 0`. 파일 없음 · readable ≠ true · down이 숫자 아님 = `pc-link-missing`, down > 0 = `pc-link-down` |
 | `timeline-client.jsonl` | 읽는 키: `t`(ISO) · `mem_avail_kb`. 창 = [k6_t0_epoch, k6_end_epoch](PC 초 · 양끝 포함) | 창 안 줄 ≥ 1 · 못 읽는 줄 0(맨 끝 찢긴 한 줄 제외) · 이웃 간격(창 양끝 포함) ≤ `values.pc_mem_gap_max_s` → 아니면 `pc-mem-missing`. 최솟값 < `values.pc_mem_run_min_kb` = `pc-mem-low` |
 
-## 7. 회차 무효 사유 (`summarize17.py --rep` → `status`) [초안]
+## 7. 회차 무효 사유 (`summarize17.py --rep` → `status`)
 
 무효 회차는 판정에 들어가지 않는다(M17-3).
 
@@ -489,7 +489,7 @@ lib15 `app_config15`와 같은 모양이다. 다만 configprops 접두어에 **`
 - **환경 사유 판별**(campaign17 `kind_of` · summarize17 `env_kind` — campaign16 우선순위): 사유 목록에 `pc-link-down` 또는 `pc-mem-low`가 하나라도 있으면 env(다른 사유와 섞여도), 사유가 전부 정지 계열(`env-stall` · `env-send-lag`)이면 env, 그 밖 무효 · status 없음은 harness, `ok`는 valid. 재측정 상한은 env · harness 따로 자리마다 2번이다.
 - `env-stall`(ADR-016의 응답 정지 덩어리 분류)은 이식하지 않았다 — 그 분류는 ADR-011 측정기(k6 탐침 PC · 서버) · GC 로그 · 대기 표본을 함께 보는데 run17은 측정기를 돌리지 않는다. 세션 일정이 밀린 정지는 `env-send-lag`가 잡는다. 이름은 판별 규칙에 남겨 둔다.
 
-## 8. 판정 (회차 · 캠페인) [초안 — 문턱 · 묶는 법은 측정 전 고정에서 확정]
+## 8. 판정 (회차 · 캠페인)
 
 **G1 정합**(회차마다 · 유효 회차 전부 · 모드 ≠ none): 아래가 전부 0이다.
 
@@ -628,15 +628,15 @@ CLI: `outcome17.py <회차 폴더>` → 표준 출력 JSON 한 줄, exit 0. 입�
 3. **예열**: ADR-015 `warmup15.js`(PAY_START=1)는 payment-start 뒤 `pay-…` uid로 확정한다. 지금 이미지에서는 409 SEAT_NOT_HELD이고, intent · PG 등록이 남는다.
    - run17은 PAY_START=0 예열을 쓰거나, 예열 뒤 시드 reset(TRUNCATE — V15 표 포함)과 PG reset을 반드시 한다(§7 `pg-not-reset`이 잡는다).
 4. **지연 확정의 갈래**: late 확정이 연장 만료 뒤 5초(안전망 주기) 안에 오면 REJECTION 경로(R · D CLOSE · S 대체)로 간다. 늦으면 안전망이 먼저 닫아 SWEEP 경로(재생 코드 · S도 환불)로 간다.
-   - L 분포(`late_range` — 지금 U[0.2, 10]초)가 두 출처의 몫과 S 대체 비율을 정한다. 측정 전 고정에서 정할 값이다.
+   - L 분포(`late_range` — U[0.2, 10]초)가 두 출처의 몫과 S 대체 비율을 정한다. 측정 전 고정(2026-11-17)에서 이 값으로 고정했다.
 5. **kill 셀 지표**: 재기동으로 앱 카운터가 0부터 다시 센다. 지표 증분 대조는 kill 셀에서 하지 않는다(§6.4).
 6. **결정적 일정**: 회차 시간은 최장 세션(late = T + W 611초 + L)이 정한다. 세션 수를 줄여도 회차는 거의 짧아지지 않는다(`plan17.py --dry-run` 줄이는 안).
 
-## 11. 측정 전 고정 대상(자리표시 — `plan17.py FIXED = False`)
+## 11. 측정 전 고정 값(`plan17.py FIXED = True`)
 
-아래 값은 .164 스모크 뒤 측정 전 고정 커밋에서 정한다(M17-2 — 그 뒤 바꾸면 캠페인 무효). 출처는 모두 `plan17.py` 한 곳이고, 회차 폴더의 `plan.json values`로 남는다.
+아래 값은 .164 스모크(smoke17-164b · 5회차 모두 ok) 뒤 측정 전 고정 커밋에서 초안 그대로 정했다(사용자 확인 2026-11-17 · M17-2 — 이 뒤 바꾸면 캠페인 무효). 출처는 모두 `plan17.py` 한 곳이고, 회차 폴더의 `plan.json values`로 남는다.
 
-| 값 | 지금 자리표시 | plan17 이름 |
+| 값 | 고정 값 | plan17 이름 |
 |---|---|---|
 | 세션 수 · 도착률 | 1,100 · 20/s | `N_SESSIONS` · `RATE` |
 | 세션 종류 비율 | ok 60 · late 20 · noconf 5 · abandon 10 · retry 5(%) | `KIND_WEIGHTS` |
