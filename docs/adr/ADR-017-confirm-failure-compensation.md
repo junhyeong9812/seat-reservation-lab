@@ -249,7 +249,7 @@ POST /api/holds/{holdId}/confirm {paymentUid}
 | # | 불변식 | 메커니즘 |
 |---|---|---|
 | N17-1 | **intent 경로에서** uid(= intent)당 예약은 1개 이하다. 옛 경로(intent 없음)는 보장 밖이다 | `reservation.intent_id UNIQUE` + intent 잠금 · state |
-| N17-2 | intent 경로의 확정 거부(404 · 403 · 409)는 state를 REJECTED(또는 SUBSTITUTED)로 바꾼다. 이때 거부 기록과(모드 ≠ none이면) CLOSE 작업 또는 대체 예약을 **한 트랜잭션**으로 남긴다. 그 쓰기가 실패하면 intent는 OPEN으로 남고 폴백 스캔이 닫는다(무음 아님) | 4.3 · 4.5 |
+| N17-2 | intent 경로의 확정 거부(404 · 403 · 409)는 state를 REJECTED(또는 SUBSTITUTED)로 바꾼다. 이때 거부 기록과(모드 ≠ none이면) CLOSE 작업 또는 대체 예약을 **한 트랜잭션**으로 남긴다. 그 쓰기가 실패하면 intent는 OPEN으로 남고 폴백 스캔이 닫는다(조용히 넘기지 않음) | 4.3 · 4.5 |
 | N17-3 | 같은 uid로 다시 요청하면, 상태를 바꾸지 않고 **첫 결과 코드 · 예약 id**와 **지금의 보상 상태**를 돌려준다 | intent.state · result_code · reservation_id |
 | N17-4 | 보상 작업은 (uid, type)당 1행이다. PG 변경 호출은 uid 멱등이다. 그래서 워커를 다시 실행해도 PG 결과는 하나다 | `UNIQUE` · `ON CONFLICT DO NOTHING` · fencing · PG 멱등(처리된 결과만 재생) |
 | N17-5 | 한 intent에서 '예약'과 'CLOSE 작업'은 함께 생기지 않는다. D의 CAPTURE와 CLOSE도 함께 생기지 않는다 | 모든 경로가 intent 잠금 아래에서 state가 OPEN일 때만 하나를 고른다 |
@@ -344,7 +344,7 @@ POST /api/holds/{holdId}/confirm {paymentUid}
   - Flyway 기본 위치 마지막 버전 13 → 15. 결제 시작 모드(① · ④)는 target ≥ 15가 필요하다(기동 검사).
 - **옛 하네스 주의**: ADR-015 · 016 하네스(N16-1 쓰기 탐침 · payment-start 본문 키 대조)는 이 커밋 뒤 이미지에서 intent INSERT · `paymentUid`를 '예상 밖'으로 본다. 재측정은 측정 이미지(커밋 앞 APP_TAG)로 한다(ADR-016 §결정의 옛 하네스 주의와 같은 처방). 또 payment-start를 부른 홀드는 발급 uid(`paymentUid`)로만 확정된다 — 옛 하네스처럼 `pay-…` uid를 보내면 409 SEAT_NOT_HELD다(기존 테스트 5개는 확정 인자만 발급 uid로 바꿨다 — 사용자 승인 2026-11-14).
 - **구현에서 정한 세부(리뷰 반영)**:
-  - 옛 경로(intent 없는 uid)도 확정 트랜잭션 앞에 `payment_intent` 조회 1문장(커넥션 1회 더 빌림)이 붙는다 — N17-10의 '같은 SQL'은 확정 트랜잭션 안의 문장을 뜻한다. 옛 경로 비용을 재면 이 차이가 섞인다. V15 앞 스키마(베이스라인 재현 — current + target 7)에서는 표가 없음을 한 번 보고 조회 없이 옛 경로로 간다.
+  - 옛 경로(intent 없는 uid)도 확정 트랜잭션 앞에 `payment_intent` 조회 1문장(커넥션 1회 더 커넥션 획득)이 붙는다 — N17-10의 '같은 SQL'은 확정 트랜잭션 안의 문장을 뜻한다. 옛 경로 비용을 재면 이 차이가 섞인다. V15 앞 스키마(베이스라인 재현 — current + target 7)에서는 표가 없음을 한 번 보고 조회 없이 옛 경로로 간다.
   - 거부 롤백과 재잠금 사이(A2 창)에 폴백 스캔이 먼저 intent를 닫으면, 재잠금 쪽은 폴백 스캔이 저장한 코드(HOLD_NOT_FOUND · HOLD_EXPIRED)를 재생한다 — 처음 난 거부 코드와 다를 수 있고 거부 기록은 없다. 이중 결과는 없다(state 하나).
   - payment-start의 지표(`seat.confirm.pay_start{ok}` · `seat.confirm.extend{…}`)는 DB 커밋 뒤에 센다. 그 뒤 PG 등록이 실패하면 응답은 503(또는 409)이지만 그 지표는 이미 올라 있다 — 등록 실패는 `seat.payment.pg.register{result}`로 따로 센다(응답 합 대조 때 뺀다).
   - `payment_intent.schedule_id` · `seat_id`는 FK가 없다(스냅숏 — FK면 intent INSERT가 회차 · 좌석 행에 FOR KEY SHARE를 건다).

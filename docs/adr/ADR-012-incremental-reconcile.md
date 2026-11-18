@@ -61,7 +61,7 @@
 | source 값 | 대조 출처 이름 — `inc-app-{mem,trg,stmt}-{1s,5s}` = 앱 안 ⓐⓑⓒ 증분 · `inc-ext-*` = 외부 앱 증분 · `safety-app`·`safety-ext` = 폴백 스캔 · `reconcile-app` = C · `reconcile-proc` = F · `expiry-repair` = A | §4.2.6 |
 | `chunk_ms_total` · `orphan_ms_total` | 스캔 기록의 ① 쿼터 청크 시간 합 · ② 행 없음 갈래 시간 합 | §4.1 · §4.2.6 |
 | `counter_reconcile_run` · `counter_drift_log` · `counter_safety_run` · `counter_inc_gap` · `counter_app_inject` | 스캔 기록 · 불일치·복구 기록 · 폴백 스캔 실행 기록 · 증분 보장 밖 사건 기록 · 주입 기록 | §4.2.5~4.2.7 |
-| 키 · 스캔 · 빌림 | (회차, 사용자) — 쿼터 행 하나의 키 · 대조 한 번(전체 스캔 1회) · 커넥션 풀에서 커넥션을 한 번 빌림 | §1 · §4.1 |
+| 키 · 스캔 · 커넥션 획득 | (회차, 사용자) — 쿼터 행 하나의 키 · 대조 한 번(전체 스캔 1회) · 커넥션 풀에서 커넥션을 한 번 커넥션 획득 | §1 · §4.1 |
 | HOT | Heap-Only Tuple — 인덱스 열이 안 바뀌면 인덱스를 고치지 않는 갱신 | §4.2.2 |
 | CDC | 변경 데이터 캡처 — DB 변경 로그를 읽어 메시지로 내보냄 | ADR-021 |
 | RR | REPEATABLE READ 트랜잭션 격리 수준 | §4.1 |
@@ -102,11 +102,11 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 - 증분은 **탐지 후보를 줄이기만** 한다. 후보 키의 cnt 대 실제 값 비교는 지금 C와 같은 의미의 쿼리로 원본 DB에서 하고(바뀐 키 추적에 DB 비용이 없는 메모리 집합도 이 비교 비용은 같다), 어긋나 보인 키는 기존 `PairRepair`(쿼터 행 잠금 → 다시 세기 → 다르면 덮어씀 · 맞으면 오탐 기록)로만 고친다.
 - **폴백 스캔 = 예산 있는 이어서 스캔 + 최근 창 우선**(§2.2 — 재합의 2번: 1시간 전체 → 10분 전체 → 이것). 증분이 못 보는 불일치(§2.3)을 잡는다.
   - 1분마다 실행하고, 실행마다 **DB 시간 예산 2초**만 쓴다(청크 하나가 끝나는 시점에 예산을 넘었으면 멈춤). 예산의 앞 절반은 **최근 창**(최근 2시간에 생긴 홀드·확정 예약 행의 키 — `seat_hold.id`·`reservation.id` 범위: 실행마다 (DB 시각, 최대 id)를 기록해 2시간 전 id를 찾는다, 새 인덱스 없음)에, 나머지는 **전체 커서**(지금 C의 두 갈래 — 쿼터 행 PK 순 · 행 없음 id 범위 — 를 멈춘 곳부터 이어서)에 쓴다. 최근 창을 다 보면 남은 예산은 전체 커서로 넘긴다.
-  - **최근 창에도 자기 커서가 있다**: 아직 안 본 가장 오래된 id부터 id 순으로 읽고, 다 본 곳까지 커서를 옮긴다. 최근 창의 유입(도착률 — 4,200건/s면 1분에 약 25만 행)이 실행당 몫보다 크면 커서가 밀린다 — 실행마다 **최근 창 적체**(커서 id와 최신 id의 차이 · 커서 행의 나이)를 기록하고, 커서가 2시간 경계 밖으로 밀리면 경계로 건너뛰며 건너뛴 id 범위를 기록·경고한다(그 범위는 전체 커서 몫이 된다 — 무음 누락 금지).
+  - **최근 창에도 자기 커서가 있다**: 아직 안 본 가장 오래된 id부터 id 순으로 읽고, 다 본 곳까지 커서를 옮긴다. 최근 창의 유입(도착률 — 4,200건/s면 1분에 약 25만 행)이 실행당 몫보다 크면 커서가 밀린다 — 실행마다 **최근 창 적체**(커서 id와 최신 id의 차이 · 커서 행의 나이)를 기록하고, 커서가 2시간 경계 밖으로 밀리면 경계로 건너뛰며 건너뛴 id 범위를 기록·경고한다(그 범위는 전체 커서 몫이 된다 — 조용한 누락 금지).
   - **id 순서 ≠ 커밋 순서**: `BIGSERIAL`은 할당 순서라 늦게 커밋한 트랜잭션의 작은 id가 커서 뒤에 나타날 수 있다. 실행마다 직전 30초 동안 할당된 id 범위(실행마다 남긴 (DB 시각, 최대 id) 기록으로 찾음)를 다시 읽는다. 30초보다 긴 트랜잭션의 행은 전체 커서가 잡는다(한계 — §7).
   - **rv41 반영 2026-10-20**(측정 전 고정값 변경 — 위 원문 유지): 다시 읽기 폭 30초 → **130초**(= 실행 주기 1분 + 트랜잭션 상한 60초 + 실행 벽시계 여유 — 설계 선검증 rv41 codex H3 '주기 + 트랜잭션 상한 이상', §4.2.5). '30초보다 긴 트랜잭션'은 '60초(사용자 결정 2026-10-20 D1(조건부 보장 결정)의 창 상한)보다 긴 트랜잭션'으로 읽는다. 예산 2초는 탐지 블록에 쓰고, 복구는 실행당 따로 상한(`repair-budget` 1초 · `repair-cap` 500건)을 두며 넘친 키는 이월 대기열로 다음 실행 맨 앞에 간다(rv41 codex M5 — 아래 '남은 복구만 마치고'의 상한 없는 복구를 막는다 · §4.2.5).
   - **예산 = 실행 전체의 DB 시간**(탐지 청크 + 발견 키의 `PairRepair` 복구 + 기록 INSERT — 커넥션을 빌린 동안의 벽시계 합). 청크 하나가 끝날 때마다 예산을 보고, 넘었으면 남은 복구만 마치고 멈춘다(복구를 미루면 그 키는 다음 실행 맨 앞). 청크 크기는 설계에서 '청크 하나 ≤ 200ms'(766만 키 규모 실측)가 되게 정한다.
-  - 실행당 비용은 쌓인 행 수와 무관하게 일정하다. 대신 **전체 풀 스캔 1회 시간**(커서가 처음으로 돌아올 때까지)이 데이터에 따라 늘어난다 — 스캔마다 기록하고, 1시간을 넘으면 경고 로그·지표를 남긴다(무음 지연 금지).
+  - 실행당 비용은 쌓인 행 수와 무관하게 일정하다. 대신 **전체 풀 스캔 1회 시간**(커서가 처음으로 돌아올 때까지)이 데이터에 따라 늘어난다 — 스캔마다 기록하고, 1시간을 넘으면 경고 로그·지표를 남긴다(조용한 지연 금지).
   - 예산·주기·창 값은 측정 전 고정값이다. 바꾸면 측정 전에 이 문서를 고친다.
 
 ### 2.2 고른 것과 고르지 않은 것 (인터뷰 2026-10-18 — 원문 명세 §0)
@@ -154,7 +154,7 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 
 1. **유실 없음**: 커밋된 모든 쿼터 변경(앱 경로 — ⓐ·ⓒ(메모리 집합 · 앱 문장) / 모든 UPDATE — ⓑ(DB 트리거 표시))은 적어도 한 번 증분 탐지 대상이 된다.
    - updated_at 기준점은 **DB 시계**로 잡는다(외부 앱 .158의 시계를 쓰지 않는다). `now()`는 트랜잭션 시작 시각이라 늦게 커밋한 변경이 기준점보다 과거 값을 가질 수 있다 — 다음 창은 앞 창과 **최대 트랜잭션 시간 이상** 겹치게 읽고(또는 스냅숏 xmin 기반), 중복은 키 단위로 걸러낸다. 겹침 폭과 그 근거는 설계에서 정한다.
-   - 메모리 집합은 **커밋 뒤에만** 등록한다(롤백된 변경은 넣지 않고, 커밋 전에 넣어 옛 스냅숏을 보고 지우는 일이 없게). 탐지에서 꺼낸 키는 비교·복구가 끝나기 전 실패하면 다시 넣는다. 집합 크기 상한을 두고, 넘치면 넘친 것을 기록하고 다음 폴백 스캔을 앞당긴다(무음 버림 금지).
+   - 메모리 집합은 **커밋 뒤에만** 등록한다(롤백된 변경은 넣지 않고, 커밋 전에 넣어 옛 스냅숏을 보고 지우는 일이 없게). 탐지에서 꺼낸 키는 비교·복구가 끝나기 전 실패하면 다시 넣는다. 집합 크기 상한을 두고, 넘치면 넘친 것을 기록하고 다음 폴백 스캔을 앞당긴다(조용한 버림 금지).
    - **재합의 2026-10-20**(사용자 결정 2026-10-20 D1 '조건부 보장 + 폴백 스캔' — 위 원문 유지, 보장을 좁힌다): 증분 탐지 보장은 ① 트랜잭션 길이 ≤ 창 상한 60초(`max-overlap`) ② 앱이 재시작 없이 도는 동안 커밋 ③ ⓐ는 집합 상한(`memory-cap`) 안 — 세 조건을 모두 만족하는 변경에만 준다. 조건 밖(창 상한에 걸린 틱 · 재시작 · 넘침 · `afterCommit` 등록 예외 · 커밋 직후 프로세스 종료)은 폴백 스캔이 잡고, **놓친 사실을 기록한다**(`counter_inc_gap` 행 · 지표 · WARN — 조용히 넘기지 않는다, §4.2.6). 준비된 트랜잭션(`PREPARE TRANSACTION`)은 `pg_stat_activity`로 볼 수 없으므로 기동 검사(`max_prepared_transactions = 0`)로 막는다(§4.2.2). 보장 밖 변경의 탐지 시간은 폴백 스캔 1회 기준으로 판정한다(§5 R4(효과·탐지 시간 가설) 재합의 행).
 2. **복구 규칙 그대로**: 증분·폴백 스캔·만료 A(만료 배치 카운터 감소)가 같은 키를 동시에 다뤄도 결과가 맞다 — 모두 `PairRepair`(쿼터 행 `FOR UPDATE` 뒤 다시 세기)를 쓰고, 여러 키를 한 트랜잭션에서 잠그지 않는다(키마다 트랜잭션 — 지금 C(앱 내 전체 스캔 보정)와 같음). 오탐 복구 0.
 3. **행 없음 갈래**: 쿼터 행이 없는 키(D — 행 삭제 주입)은 증분이 보지 않는다 — 폴백 스캔의 행 없음 갈래가 잡는다. 새 홀드가 행을 다시 만드는 경우(upsert INSERT)는 그 순간의 cnt가 기존 확정 예약을 빠뜨릴 수 있다 — 그 키는 앱 경로 변경으로 증분 후보가 되어 실제 값(홀드 + CONFIRMED)으로 다시 비교된다(ⓐ·ⓑ·ⓒ 모두 — INSERT도 등록·기본값 대상).
@@ -177,7 +177,7 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 - **창 정의**: '정상 구간' = 램프 뒤 첫 초부터 k6 끝까지(tail.py `t0` 기준 1,800초) · '후반' = 정상 구간 15분~30분. 지표는 회차마다 낸 뒤 3회 범위로 본다. 서버 원인 스파이크 초 = tail.py 정의(waiting > blocked + sending + receiving, 최대 응답 > 50ms인 1초).
 - **효과 셀**: S3e는 약 17분(200,000건 ÷ 300건/s + 테일 레이턴시 360초)이고 좌석 1만 석 규모라 폴백 스캔의 전체 풀 스캔 1회가 짧다(최근 창이 주입 키 대부분을 먼저 본다). 설계에서 '마지막 주입 + 전체 풀 스캔 1회 시간(스모크 실측) < 끝 검사'를 확인하고, 안 되면 S3e 테일 레이턴시를 늘린다(판정 전 고정).
 - **앱 경로 주입**(새 — loadtest 프로필에서만 켜지는 설정 옵션 · 기본 꺼짐): 앱의 선점·만료 경로 안에서 일부 키의 cnt를 일부러 틀리게 쓴다(버그 흉내 — 등록·updated_at 표시는 정상 경로 그대로 남는다). 기대: ⓐ·ⓑ·ⓒ 모두 증분 경로로 잡음.
-- **측정 전에 하네스에 필요한 것**(없으면 그 가설은 판정 불가): ① 후반 창 서버 원인 스파이크 초·1초 p99(99번째 백분위 응답 시간) 최대(tail.py) ② 정상 구간 DB·앱 컨테이너 CPU 평균(docker stats — 램프 제외, 결측 표본 수 기록) ③ 증분 스캔마다 `counter_reconcile_run` 1행 + 새 source 값(방식·주기별) — 폴백 스캔과 구분 ④ `counter_drift_log.source`로 주입 키별 첫 탐지 출처·시각 → effect.json 경로별 탐지 시간 ⑤ summarize 허용 출처·`borrow_per_request` 차감에 증분 빌림 추가 ⑥ M3: .158 외부 앱 컨테이너 CPU·풀 표본 ⑦ C 스캔 중 Hikari pending(1단계 R1(C 스캔 비용 출처 가설)) ⑧ `pg_stat_user_tables.n_tup_hot_upd`·updated_at 인덱스 크기(R5(updated_at 선점 비용 가설)). 1단계에 필요한 ①②⑦은 1단계 전에, 나머지는 구현과 함께 넣는다.
+- **측정 전에 하네스에 필요한 것**(없으면 그 가설은 판정 불가): ① 후반 창 서버 원인 스파이크 초·1초 p99(99번째 백분위 응답 시간) 최대(tail.py) ② 정상 구간 DB·앱 컨테이너 CPU 평균(docker stats — 램프 제외, 결측 표본 수 기록) ③ 증분 스캔마다 `counter_reconcile_run` 1행 + 새 source 값(방식·주기별) — 폴백 스캔과 구분 ④ `counter_drift_log.source`로 주입 키별 첫 탐지 출처·시각 → effect.json 경로별 탐지 시간 ⑤ summarize 허용 출처·`borrow_per_request` 차감에 증분 커넥션 획득 추가 ⑥ M3: .158 외부 앱 컨테이너 CPU·풀 표본 ⑦ C 스캔 중 Hikari pending(1단계 R1(C 스캔 비용 출처 가설)) ⑧ `pg_stat_user_tables.n_tup_hot_upd`·updated_at 인덱스 크기(R5(updated_at 선점 비용 가설)). 1단계에 필요한 ①②⑦은 1단계 전에, 나머지는 구현과 함께 넣는다.
 
 ### 4.1 R8(탐지 모양 가설) 설계 (task 04c — 측정 전 고정)
 
@@ -189,13 +189,13 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 
 | 모양 | 청크마다 DB에 보내는 것 | 앱이 하는 것 |
 |---|---|---|
-| `one-shot` | 지금 `CHUNK_SQL` 한 문장(쿼터 행마다 홀드·확정 예약 상관 서브쿼리 — 자동 커밋) | 어긋난 행만 받는다 |
+| `one-shot` | 지금 `CHUNK_SQL` 한 문장(쿼터 행마다 홀드·확정 예약 상관 서브쿼리 — 자동 커밋) | 불일치한 행만 받는다 |
 | `split` | ⓐ 쿼터 행 k개(user_id, cnt — keyset) ⓑ 홀드 `SELECT user_id FROM seat_hold WHERE schedule_id = s AND user_id = ANY(U)` ⓒ 확정 예약 `SELECT user_id FROM reservation WHERE schedule_id = s AND user_id = ANY(U) AND status = 'CONFIRMED'` — 행 그대로(U = ⓐ의 사용자 k명) | 행을 흘려 읽으며(목록에 쌓지 않음) 사용자별로 세어 쿼터 행과 비교 |
 | `group` | ⓐ 같음 · ⓑⓒ 같은 조건 `… GROUP BY user_id`(개수만) | 세 결과를 합쳐 비교 |
 
 - **읽는 대상 = one-shot과 같다**(선검증 rv39 H1 — 처음 안의 `user_id` 범위 `(a, b]`는 범위 안의 다른 회차·다른 사용자 홀드까지 읽어 '인덱스 부재'를 재게 되므로 버렸다): ⓑⓒ는 ⓐ가 돌려준 사용자 k명만 본다. `seat_hold`는 `user_id` 단일 인덱스(V2:7)라 one-shot의 상관 서브쿼리와 같은 인덱스·같은 행을 읽는다 — 다른 것은 '키마다 한 번씩 k번' 대 '배열 하나로 한 번'이다. 쿼터 행이 없는 사용자는 U에 없으므로 결과에 나오지 않는다(②가 맡는다). 메모리는 사용자 k명의 카운터만(앱이 셀 때 U 밖 사용자는 없다). `split`의 ⓑⓒ는 JDBC fetch size를 양수(청크 크기)로 지정해 커서로 읽는다 — pgJDBC 기본은 결과 전체를 한 번에 받는다(트랜잭션 안이라 커서가 성립한다).
-- **한 스냅샷 · 동등성**: `split`·`group`은 ⓐⓑⓒ를 **탐지 전용** 읽기 전용 `REPEATABLE READ` 트랜잭션 하나에서 읽는다(빌림 1). 복구 트랜잭션(`repairOne`)이 쓰는 템플릿은 그대로 READ COMMITTED다(탐지용 템플릿을 따로 둔다 — 선검증 M1). 같은 스냅샷이면 세 모양은 ①에서 **같은 불일치한 키 집합**(키 · cnt · 실제 값)을 낸다. 범위: ① 쿼터 행이 있는 키. ②(행 없음 갈래)는 모양과 무관하게 같은 코드다.
-- **경계 규칙(셋 다 같게)**: ⓐ가 0행이면 ⓑⓒ를 보내지 않고 그 회차를 끝낸다 — 그래도 청크 1개·빌림 1로 센다(one-shot의 '빈 청크'와 같음 — `scanned == k` 뒤 빈 청크 포함). 다음 청크 커서 = ⓐ의 마지막 user_id. ⓑⓒ에 없는 사용자는 0. 홀드는 `expires_at`으로 거르지 않는다(one-shot과 같음). 실제 값은 `Math.toIntExact`(넘치면 오류 — one-shot의 `::int`와 같은 실패).
+- **한 스냅샷 · 동등성**: `split`·`group`은 ⓐⓑⓒ를 **탐지 전용** 읽기 전용 `REPEATABLE READ` 트랜잭션 하나에서 읽는다(커넥션 획득 1). 복구 트랜잭션(`repairOne`)이 쓰는 템플릿은 그대로 READ COMMITTED다(탐지용 템플릿을 따로 둔다 — 선검증 M1). 같은 스냅샷이면 세 모양은 ①에서 **같은 불일치한 키 집합**(키 · cnt · 실제 값)을 낸다. 범위: ① 쿼터 행이 있는 키. ②(행 없음 갈래)는 모양과 무관하게 같은 코드다.
+- **경계 규칙(셋 다 같게)**: ⓐ가 0행이면 ⓑⓒ를 보내지 않고 그 회차를 끝낸다 — 그래도 청크 1개·커넥션 획득 1로 센다(one-shot의 '빈 청크'와 같음 — `scanned == k` 뒤 빈 청크 포함). 다음 청크 커서 = ⓐ의 마지막 user_id. ⓑⓒ에 없는 사용자는 0. 홀드는 `expires_at`으로 거르지 않는다(one-shot과 같음). 실제 값은 `Math.toIntExact`(넘치면 오류 — one-shot의 `::int`와 같은 실패).
 - **실패**: ⓐⓑⓒ나 앱 집계 중 하나라도 실패하면 그 청크는 통째로 버리고 지금과 같은 경로(`stage=chunk` · `errors` · `skipped_chunks` · 그 회차 남은 청크 건너뜀)를 탄다 — 부분 집계로 불일치를 내지 않는다.
 - **`chunk_ms`의 뜻**: 청크 하나의 벽시계 시간 = 트랜잭션 시작·끝(isolation 설정 왕복 포함) + 세 조회 + 앱 집계. 트랜잭션 왕복도 '모양의 비용'에 넣는다(선검증 M2).
 - **복구·기록은 그대로**: 불일치한 키는 지금처럼 `repairOne`(→ `PairRepair`). 스캔 기록 열은 더하지 않는다 — 모양은 회차 설정(`reconciler-config.json`의 `detectShape`)으로 남는다.
@@ -215,13 +215,13 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 
 | 대상 | 지금 위치 | core에서 바뀌는 것 |
 |---|---|---|
-| `CounterReconciler`·`CounterRepairProbe`·`ReconcileRun` | `service/impl/drift/CounterReconciler.kt:1-463` | 생성자 `properties: SeatHoldProperties`(:72) → `ReconcileProperties`. `:120`의 `properties.counterDrift.reconcile` → `properties`. 탐지(:192-295)는 4.2.4의 `ChunkDetector`로 떼어 내고, 키 복구(:345-390)는 `PairRepairRunner`로 떼어 낸다(전체 스캔 보정·증분·폴백 스캔이 같이 쓴다). 행 없음 갈래(:298-343)는 id 범위를 인자로 받는 함수로 바꿔 폴백 스캔도 쓴다. 기본 경로(one-shot · 설정 옵션 없음)의 문장·순서·빌림 수는 그대로다 |
+| `CounterReconciler`·`CounterRepairProbe`·`ReconcileRun` | `service/impl/drift/CounterReconciler.kt:1-463` | 생성자 `properties: SeatHoldProperties`(:72) → `ReconcileProperties`. `:120`의 `properties.counterDrift.reconcile` → `properties`. 탐지(:192-295)는 4.2.4의 `ChunkDetector`로 떼어 내고, 키 복구(:345-390)는 `PairRepairRunner`로 떼어 낸다(전체 스캔 보정·증분·폴백 스캔이 같이 쓴다). 행 없음 갈래(:298-343)는 id 범위를 인자로 받는 함수로 바꿔 폴백 스캔도 쓴다. 기본 경로(one-shot · 설정 옵션 없음)의 문장·순서·커넥션 획득 수는 그대로다 |
 | `PairRepair`·`CounterDriftRecorder`·`DriftKind`·`DriftAction`·`DriftOutcome`·`DriftSource`·`skipReason` | `service/impl/drift/PairRepair.kt:1-156` | `:3` import만 바뀐다. **`skipReason`(:39 — 지금 `internal`)은 core에서 `public`이 된다** — main-app의 `ExpiryCounters.kt:119`가 부르는데, `internal`은 모듈 경계를 넘지 못해 컴파일이 깨진다(rv41 Opus M2 · core 안 호출처 `CounterReconciler.kt:379`는 영향 없음). 4.2.2의 등록 이음새(`QuotaChangeListener`)와 ⓒ(앱 문장 표시) 문장 선택이 더해진다 |
 | `sqlStateOf` | `service/impl/hold/DbLockHoldStrategies.kt:66-68`(`internal`) | core의 같은 패키지 `service/impl/hold/SqlState.kt`로, `public`. 호출처(`DbLockHoldStrategies.kt:57` · `UserLimitStrategies.kt:13·408` · `PairRepair.kt:3`)는 import 그대로 컴파일된다(파일 파사드 클래스 이름만 `SqlStateKt`로 바뀐다) |
 | 마감 판정식 `isClosed(startsAt, now) = !now.isBefore(startsAt)` | `service/impl/SalesCloseGate.kt:73-76`(companion) | core `service/impl/drift/ScheduleClosure.kt`(`object` — 순수 함수). `SalesCloseGate.isClosed`는 그대로 두고 이 함수를 부른다(`QuotaCleanup.kt:124` 등 호출처 무변경). `SalesCloseGate` 자체(도메인 `ErrorCode` · ThreadLocal 판정 시각 · `enabled`)는 main-app에 남는다. 복구 트랜잭션의 마감 재확인(`CounterReconciler.kt:363`)은 지금처럼 `sales-close.enabled`와 무관하게 판정식만 쓴다 |
 | `SeatHoldProperties.Reconcile`(:42-54)·`DetectShape`(:67-71) | `service/SeatHoldProperties.kt` | core 최상위 타입 `ReconcileProperties`·`DetectShape`(패키지 `service.impl.drift`). `SeatHoldProperties.CounterDrift.reconcile`(:38)의 타입만 바뀐다. **설정 키·configprops 모양은 그대로**다 — 키는 계속 `seat.hold.counter-drift.reconcile.*`이고, configprops JSON은 클래스 이름이 아니라 속성 이름으로 그려지므로 `counterDrift.reconcile.{enabled, interval, lockTimeout, chunkSize, orphanChunkSize, detectShape}` 경로가 같다. 새 키(4.2.2·4.2.5)는 `counterDrift.reconcile.incremental.*`·`counterDrift.reconcile.safetyNet.*`로 **더해지기만** 한다 — 하네스의 jq 경로(`run.sh:1254-1262`·`tail.py:857-858`)는 바뀌지 않는다. 테스트의 `SeatHoldProperties.DetectShape` 참조는 import만 바뀐다(단언 무변경) |
 
-**§3-4가 보장하는 범위**(rv41 codex M9 — §3-4 범위 명확화 행): 이동 전후로 ① 동작(기존 테스트 전부 · 기본 경로 문장·순서·빌림 수) ② configprops JSON(`seat.hold` 접두어 아래 기존 경로의 키·값) ③ 하네스 렌더·계획(같은 플래그로 같은 `SPRING_APPLICATION_JSON`·`FLYWAY_LOCATIONS`·compose)을 비교해 같음을 확인한다. **바이너리 호환은 보장하지 않는다** — 바뀌는 이름: `SeatHoldProperties.Reconcile` → `ReconcileProperties` · `SeatHoldProperties.DetectShape` → `DetectShape` · `DbLockHoldStrategiesKt.sqlStateOf` → `SqlStateKt.sqlStateOf`. 옛 이름 호환 계층은 두지 않는다 — 기존 컴파일 산출물·반사로 이 이름을 쓰는 사용자가 저장소 밖에 없다(실험 저장소 · 저장소 안 호출처는 다시 컴파일한다).
+**§3-4가 보장하는 범위**(rv41 codex M9 — §3-4 범위 명확화 행): 이동 전후로 ① 동작(기존 테스트 전부 · 기본 경로 문장·순서·커넥션 획득 수) ② configprops JSON(`seat.hold` 접두어 아래 기존 경로의 키·값) ③ 하네스 렌더·계획(같은 플래그로 같은 `SPRING_APPLICATION_JSON`·`FLYWAY_LOCATIONS`·compose)을 비교해 같음을 확인한다. **바이너리 호환은 보장하지 않는다** — 바뀌는 이름: `SeatHoldProperties.Reconcile` → `ReconcileProperties` · `SeatHoldProperties.DetectShape` → `DetectShape` · `DbLockHoldStrategiesKt.sqlStateOf` → `SqlStateKt.sqlStateOf`. 옛 이름 호환 계층은 두지 않는다 — 기존 컴파일 산출물·반사로 이 이름을 쓰는 사용자가 저장소 밖에 없다(실험 저장소 · 저장소 안 호출처는 다시 컴파일한다).
 
 **main-app에 남는 것과 이유**:
 - `ExpiryCounters`(`service/impl/drift/ExpiryCounters.kt`) — JPA 엔티티 `SeatHold`(:3·:40)를 받고, 만료 틱 ThreadLocal(:34-38)이 `ExpireHoldsService.kt:28-49`와 묶여 있다. 외부 앱은 만료를 하지 않는다. core의 `PairRepair`만 부른다(방향 main-app → core).
@@ -323,13 +323,13 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 #### 4.2.3 창(watermark) 규칙과 증분 틱
 
 **ⓑⓒ(트리거 · 앱 문장) 창**(core `UpdatedAtCandidates`): 시계는 모두 DB 시계다. 앱·외부 앱(.158)의 시계는 창에 쓰지 않는다.
-- 틱 k는 문장 두 개를 **이 순서로** 보낸다(각각 자동 커밋 — 빌림 2):
+- 틱 k는 문장 두 개를 **이 순서로** 보낸다(각각 자동 커밋 — 커넥션 획득 2):
   1. `SELECT now() AS t, (SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid() AND xact_start IS NOT NULL) AS o, (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid() AND state IS NULL) AS h`
   2. `SELECT schedule_id, user_id FROM user_hold_quota WHERE updated_at >= ? ORDER BY schedule_id, user_id` — 인자 = 앞 틱이 정한 하한 `L_k`.
 - 다음 틱 하한 `L_{k+1} = max(min(t, o) − 1초, t − max-overlap)`. 첫 틱 하한 = 기동 시 `now() − start-lookback`.
 - **숨은 세션 검사**(rv41 Opus M4): `h` = 권한이 없어 상태·`xact_start`가 NULL로 보이는 다른 역할 세션 수. `h > 0`이면 그 틱은 `o`를 믿지 않고 `L_{k+1} = t − max-overlap`(보수 하한)으로 둔다 — 그 세션의 트랜잭션도 60초 안이면 놓치지 않는다. 지표 `…incremental.hidden_sessions` +1 · 처음 1회와 10분마다 WARN. superuser·`pg_read_all_stats`면 `h`는 늘 0이다. 권한 없는 세션의 어느 열이 NULL로 보이는지는 PostgreSQL 16에서 스모크로 확인한다 `[구현 검증]`.
 - **유실 없음의 근거**(§3-1): `updated_at = now()` = 쓴 트랜잭션의 시작 시각이다. 문장 2의 스냅숏에 안 보인 커밋은 ① 문장 1 때 이미 진행 중이었거나(그 시작 시각 ≥ `o`) ② 문장 1 뒤에 시작했다(시작 시각 ≥ `t`). 그래서 `min(t, o)` 이상인 행만 다음 틱이 다시 읽으면 놓치지 않는다. **문장 1을 먼저 보내는 것이 핵심**이다 — 한 문장에 묶으면 스냅숏을 잡은 뒤 `pg_stat_activity`를 읽는 사이에 커밋한 트랜잭션이 양쪽 모두에서 빠질 수 있다. `− 1초`는 트랜잭션 시작 시각이 `pg_stat_activity`에 늦게 보이는 틈의 여유다 `[구현 검증]`. **이 근거는 사용자 결정 2026-10-20 D1의 보장 조건 안에서만 성립한다**: 트랜잭션이 60초보다 길면 그동안 하한이 `t − 60초`로 앞서 나가고, 커밋 순간 `updated_at`(= 트랜잭션 시작 시각)은 이미 하한보다 과거라 그 변경은 증분 후보가 되지 않는다(rv41 codex H1). 준비된 트랜잭션은 기동 검사로 막는다(4.2.2).
-- **겹침 상한**: 오래 열린 세션(남겨 둔 psql · 긴 만료 틱)이 `o`를 붙잡으면 창이 끝없이 커진다. 그래서 하한은 `t − max-overlap`(60초)보다 뒤로 가지 않는다. 상한에 걸린 틱은 `…incremental.window_clamped` +1 · WARN 로그(가장 오래된 `xact_start`와 그 차이) · **`counter_inc_gap` kind `window_clamped` 행**(`t` · 하한 · `o` — 하네스는 주입한 **트랜잭션의 시작 시각**(`counter_app_inject.tx_started_at` = 그 트랜잭션의 `now()`)이 `[o, 하한)`에 드는 키를 '보장 밖'으로 분류한다 — 주입 시각 `at`으로 가르면 60초를 넘긴 트랜잭션에서 늦게 주입한 키가 보장 안으로 잘못 들어간다(rv41 재점검 codex M-a)) — 60초보다 긴 트랜잭션의 변경은 폴백 스캔 몫이 된다(사용자 결정 2026-10-20 D1의 보장 밖 · §7-11 — 무음 아님).
+- **겹침 상한**: 오래 열린 세션(남겨 둔 psql · 긴 만료 틱)이 `o`를 붙잡으면 창이 끝없이 커진다. 그래서 하한은 `t − max-overlap`(60초)보다 뒤로 가지 않는다. 상한에 걸린 틱은 `…incremental.window_clamped` +1 · WARN 로그(가장 오래된 `xact_start`와 그 차이) · **`counter_inc_gap` kind `window_clamped` 행**(`t` · 하한 · `o` — 하네스는 주입한 **트랜잭션의 시작 시각**(`counter_app_inject.tx_started_at` = 그 트랜잭션의 `now()`)이 `[o, 하한)`에 드는 키를 '보장 밖'으로 분류한다 — 주입 시각 `at`으로 가르면 60초를 넘긴 트랜잭션에서 늦게 주입한 키가 보장 안으로 잘못 들어간다(rv41 재점검 codex M-a)) — 60초보다 긴 트랜잭션의 변경은 폴백 스캔 몫이 된다(사용자 결정 2026-10-20 D1의 보장 밖 · §7-11 — 조용히 넘기지 않음).
 - **재시작**(ⓑⓒ): 기동 때 `counter_inc_gap` kind `restart` 행(기동 DB 시각 · 첫 하한)을 남긴다. 첫 하한보다 앞에 시작한 트랜잭션의 변경은 보장 밖이다(§2.3 재합의 행).
 - **해석 주의 — 다시 읽는 양**(rv41 Opus L11): 하한이 `min(t, o) − 1초`라 틱마다 '앞 틱 이후 + 최소 1초'를 읽는다. 1초 주기는 같은 키를 약 2배, 5초 주기는 약 1.2배 읽는다(가장 오래 열린 트랜잭션이 짧을 때). 1초 대 5초의 비용 차이에 이 고정 겹침 몫이 섞인다 — 틱 기록의 `pairs_scanned`(후보 수)를 주기별로 함께 본다.
 - 중복: 틱 안에서는 PK라 키가 한 번씩이다. 겹침 때문에 앞 틱이 본 키를 다시 볼 수 있다 — 같은 키를 다시 대조할 뿐 결과는 같다(맞으면 아무것도 안 함).
@@ -341,8 +341,8 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 2. 후보의 회차 중 열린 회차만 남긴다 — `SELECT id FROM product_schedule WHERE id = ANY(?) AND starts_at > ?`(앱 `Clock` — 지금 C의 `CounterReconciler.kt:122-142`와 같은 기준). 빠진 회차·키 수는 기록의 `skipped_schedules`·`skipped_pairs`.
 3. 회차별로 사용자를 정렬해 k명(`chunkSize`)씩 `ChunkDetector.detect(s, Users(U))`(4.2.4).
 4. 어긋나 보인 키를 (회차, 사용자) 순으로 `PairRepairRunner`(= 지금 `repairOne` — 키마다 트랜잭션 · `lock_timeout` · 마감 재확인 · `PairRepair`)로 고친다.
-5. `counter_reconcile_run` 1행(4.2.6). 후보가 0이어도 쓴다(틱 결손을 하네스가 볼 수 있게). 기록 버퍼의 `counter_inc_gap` 행도 이때 내보낸다(같은 빌림).
-6. `track-inject=true`일 때만: 후보 키 중 주입 키의 첫 후보 시각을 채운다(4.2.7 — 빌림 1 더함).
+5. `counter_reconcile_run` 1행(4.2.6). 후보가 0이어도 쓴다(틱 결손을 하네스가 볼 수 있게). 기록 버퍼의 `counter_inc_gap` 행도 이때 내보낸다(같은 커넥션 획득).
+6. `track-inject=true`일 때만: 후보 키 중 주입 키의 첫 후보 시각을 채운다(4.2.7 — 커넥션 획득 1 더함).
 - 주기: `scheduleWithFixedDelay(interval)` — 틱이 주기보다 길면 다음 틱은 끝난 뒤 시작한다(겹쳐 돌지 않음).
 
 **§3 불변식과의 대응**:
@@ -370,7 +370,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 ```
 
 - 구현은 모양 3가지(`OneShotDetector` · `SplitDetector` · `GroupDetector`)다. `Keyset`은 지금 문장 그대로(`CHUNK_SQL` :416-427 · `QUOTA_KEYSET_SQL` :430-432). `Users`는 쿼터 행 조회만 `WHERE schedule_id = ? AND user_id = ANY(?)`로 바뀐 새 상수(one-shot은 `CHUNK_SQL`의 `q` CTE만 바뀐 문장 · split·group은 ⓐ(쿼터 행) 조회만 바뀌고 ⓑⓒ 홀드·예약 조회(:435-441)는 같다).
-- 계약(모양 무관): 청크 하나 = 한 스냅숏(one-shot은 한 문장, split·group은 탐지 전용 읽기 전용 REPEATABLE READ 트랜잭션 — §4.1) = 빌림 1 · 실패하면 예외(부분 결과 없음 — 호출자가 `stage=chunk`로 기록하고 그 청크의 키를 처리하지 않는다. 증분이면 ⓐ(메모리 집합) 키를 다시 넣는다) · `Users`에서 쿼터 행이 없는 사용자는 결과에 없다(`scanned` = 찾은 행 수) · 실제 값 = 홀드 + CONFIRMED · `toIntExact`.
+- 계약(모양 무관): 청크 하나 = 한 스냅숏(one-shot은 한 문장, split·group은 탐지 전용 읽기 전용 REPEATABLE READ 트랜잭션 — §4.1) = 커넥션 획득 1 · 실패하면 예외(부분 결과 없음 — 호출자가 `stage=chunk`로 기록하고 그 청크의 키를 처리하지 않는다. 증분이면 ⓐ(메모리 집합) 키를 다시 넣는다) · `Users`에서 쿼터 행이 없는 사용자는 결과에 없다(`scanned` = 찾은 행 수) · 실제 값 = 홀드 + CONFIRMED · `toIntExact`.
 - 호출자 4곳: 전체 스캔 보정 C(`Keyset` — 기본 경로 문장·순서 무변경) · 증분(`Users`) · 폴백 스캔 최근 창(`Users`) · 폴백 스캔 전체 커서 ①(`Keyset` — 회차·커서를 실행 사이에 이어 감).
 - 후보를 읽는 ⓑⓒ(트리거·앱 문장) 문장 2와 탐지를 한 문장으로 합치는 안은 기각 — 탐지 모양(R8)이 끼어들 자리가 없어지고, 증분만 다른 비교 쿼리를 갖게 된다(§2.1 공통 '같은 의미의 쿼리').
 
@@ -382,24 +382,24 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 
 **스레드**: 단일 스레드 스케줄러 하나에 두 일을 건다 — ① id–시각 표본(`sample-interval` 고정 지연) ② 폴백 스캔 실행(`interval` 고정 지연 + '앞당김' 요청 시 바로 1회, 앞당김은 10초에 1번까지). 같은 스레드라 겹쳐 돌지 않는다.
 
-**id–시각 표본**(메모리 고리 — 2시간 10분치, 약 780개): `SELECT now(), (SELECT max(id) FROM seat_hold), (SELECT max(id) FROM reservation), pg_relation_filenode('seat_hold'), pg_relation_filenode('reservation')`(빌림 1 · 폴백 스캔 빌림으로 셈). `id_at(T)` = 시각 ≤ T인 가장 늦은 표본의 최대 id(표본이 폴백 스캔 실행 때문에 늦어져도 더 작은 id를 고르게 되어 보수적이다). 고리는 저장하지 않는다 — 재시작하면 비어 있다. **표본의 DB 시간은 실행 `db_ms_total`에 넣지 않고 따로 센다**(`counter_safety_run.sample_db_ms` = 직전 실행 뒤 표본들의 합 · `sample_count` — rv41 codex M5). 폴백 스캔의 총 DB 부하 = 실행 DB 시간 + 표본 DB 시간이다(§2.1 비용 판단 · R7 기록).
+**id–시각 표본**(메모리 고리 — 2시간 10분치, 약 780개): `SELECT now(), (SELECT max(id) FROM seat_hold), (SELECT max(id) FROM reservation), pg_relation_filenode('seat_hold'), pg_relation_filenode('reservation')`(커넥션 획득 1 · 폴백 스캔 커넥션 획득으로 셈). `id_at(T)` = 시각 ≤ T인 가장 늦은 표본의 최대 id(표본이 폴백 스캔 실행 때문에 늦어져도 더 작은 id를 고르게 되어 보수적이다). 고리는 저장하지 않는다 — 재시작하면 비어 있다. **표본의 DB 시간은 실행 `db_ms_total`에 넣지 않고 따로 센다**(`counter_safety_run.sample_db_ms` = 직전 실행 뒤 표본들의 합 · `sample_count` — rv41 codex M5). 폴백 스캔의 총 DB 부하 = 실행 DB 시간 + 표본 DB 시간이다(§2.1 비용 판단 · R7 기록).
 - **증명하는 것과 못 하는 것**(rv41 codex H3): 표본 `max(id)`는 '표본 시각 **뒤에** 할당된 id는 그 값보다 크다'만 증명한다(같은 시퀀스 · 보이는 id는 그 전에 할당됨). 표본 때 아직 커밋되지 않은 **더 작은** id가 언제 할당됐는지는 알려 주지 않는다. 그래서 다시 읽기 구역은 '트랜잭션 ≤ 60초'(사용자 결정 2026-10-20 D1)를 전제로만 늦은 커밋을 잡는다 — 그보다 긴 트랜잭션의 행은 전체 커서 몫이다(보장 밖 · §7-11). 행의 커밋 시각이나 영속 변경 기록 없이 이 한계를 없앨 방법은 없다(ADR-021의 CDC(변경 데이터 캡처)가 다룬다).
 
 **DB 시간 = 실행이 커넥션을 빌린 모든 블록의 벽시계 합**(열린 회차 조회 · 다시 읽기 · 최근 창 id 범위 조회 · 행 없음 문장 · 탐지 청크 · `PairRepair` 복구 트랜잭션 · 기록 INSERT — rv41 Opus M5: 처음 목록에 열린 회차 조회·다시 읽기가 빠져 있었다). **예산 `budget` 2초는 탐지 블록**(열린 회차 조회 · 다시 읽기 · 최근 창 · 전체 커서)에 쓰고, 복구는 따로 `repair-budget` 1초·`repair-cap` 500건까지 쓴다(아래 순서 5). 각 블록 시간은 앱 쪽 시계로 잰다(앱 쪽 `System.nanoTime`으로 `borrow { }`를 감싼다). 풀 대기와 왕복(외부 앱이면 .158 ↔ .164)이 들어간다 — DB 서버 CPU 시간이 아니다. 실행의 벽시계(시작~끝)는 따로 남긴다.
 
 **실행 한 번의 순서**:
-1. 열린 회차 목록(`SELECT id FROM product_schedule WHERE starts_at > ? ORDER BY id` — 빌림 1). 지금 C의 회차 조회(:127-136)와 달리 마감 회차의 쿼터 행 수를 세지 않는다(그 count가 마감 회차 행 수에 비례하기 때문 — 기록의 `skipped_pairs`는 0).
+1. 열린 회차 목록(`SELECT id FROM product_schedule WHERE starts_at > ? ORDER BY id` — 커넥션 획득 1). 지금 C의 회차 조회(:127-136)와 달리 마감 회차의 쿼터 행 수를 세지 않는다(그 count가 마감 회차 행 수에 비례하기 때문 — 기록의 `skipped_pairs`는 0).
 2. **다시 읽기 구역**(rv41 codex H3로 고침 — 처음 안: 앞 실행 k가 지나간 id 중 '그때 30초 안에 할당된 것' `(max(c_{k-1}, id_at(T_k − reread)), c_k]`): 이번 실행 시작 DB 시각 `T`에서 **이미 최근 창 커서가 지나간 id 중 `reread`(130초) 안에 할당된 것** = `(id_at(T − reread), c]`(`c` = 지금 커서 — 홀드·예약 각각). 이번 실행이 이월 복구(순서 5) 다음, 탐지의 맨 먼저 이 구역을 다시 읽고, **최근 창 몫(앞 절반 1초)에서 쓴다**(rv41 Opus M5). 폭의 근거: 커서가 읽을 때 미커밋이던 id는 할당 시각 `a`부터 60초 안에 커밋한다(D1). 실행 시작 간격은 최대 '주기 1분 + 실행 벽시계(상한 약 6초)'라 `[a + 60초, a + 126초]` 안에 시작하는 실행이 반드시 있고, 그 실행의 구역 `(id_at(T − 130초), c]`에 그 id가 든다(앞당김 실행은 다시 읽기를 더할 뿐이다 · `wall-cap`은 멈추는 상한이 아니라 기록 기준이라, 실행이 6초를 넘으면 이 근거가 깨질 수 있다 — 그 실행은 `wall_ms`로 드러나고 R7 반증이다). 비용: 한 id를 약 2번 다시 읽는다(130초 ÷ 60초). 커서가 밀려 있으면(지나간 id가 모두 130초보다 오래됨) 구역은 비어 있다. 앞 절반 안에 구역을 다 못 읽으면 남은 위치를 메모리에 두고 다음 실행이 맨 앞에서 잇는다(`reread_left` 기록 — 4,200건/s면 130초 ≈ 약 55만 id라 앞 절반을 넘을 수 있다 `[구현 검증]`). 이 구역도 2시간 경계 밖이면 버리고 기록한다.
 3. **최근 창**(예산 앞 절반 = 1초): 하한 `B = id_at(now − recent-window)`. 커서 `c`(홀드·예약 각각)가 `B`보다 작으면 `B`로 건너뛰고 건너뛴 범위 `(c, B]`를 기록·WARN·지표(전체 커서 몫 — 따로 할 일은 없다, 전체 커서가 모든 id를 돈다). 커서부터 `recent-id-chunk` 폭씩(홀드 한 청크 · 예약 한 청크 번갈아):
    - (가) 행 없음: 지금 `ORPHAN_HOLD_SQL`·`ORPHAN_RESERVATION_SQL`(:444-461)을 그 id 범위로 — 쿼터 행 없는 키 = `cnt = null` 관측.
    - (나) 행 있음: `SELECT DISTINCT schedule_id, user_id FROM seat_hold WHERE id > ? AND id <= ? AND schedule_id = ANY(열린 회차)`(예약은 `status = 'CONFIRMED'` 더함) → 회차별 `ChunkDetector.detect(s, Users(U))`.
    - 청크 하나(가 또는 나의 탐지 청크 하나)가 끝날 때마다 예산을 본다. 커서가 최신 id(실행 시작 표본)에 닿으면 남은 앞 절반은 전체 커서로 넘긴다.
    - **id 범위 표기**(rv41 Opus L9): 이 절의 모든 id 범위는 `(lo, hi]` = `id > lo AND id <= hi`다. 커서 = 마지막으로 처리를 **마친** id(그 id까지 끝남). 기록 열 `recent_skip_from` = `lo`(제외) · `recent_skip_to` = `hi`(포함) · `recent_skip_ids` = `hi − lo`. 처음 안에 섞여 있던 `[c, B)` 표기는 `(c, B]`로 바꿨다(같은 id 집합이 아니다 — `c`는 이미 처리했고 `B`는 건너뛴다).
-   - **커서 전진 규칙**(rv41 codex M6): id 청크 하나의 (가) 행 없음 조회 · (나) 사용자 탐지 전부 · 찾은 키의 처리(복구 또는 이월 대기열 등록 — 순서 5)가 **모두 끝난 뒤에만** 커서를 그 청크 끝으로 옮긴다. 청크 안의 진행 위치(다 끝낸 갈래 · 다음 회차 · 다음 사용자)는 메모리에 두고, 예산으로 청크 중간에서 멈추면 다음 실행이 그 위치에서 잇는다(이미 처리한 사용자를 다시 읽지 않고, 미처리 사용자를 건너뛰지 않는다). 청크가 실패하면 커서·진행 위치를 그대로 두고 다음 실행이 같은 청크를 다시 한다 — 같은 청크가 3회 연속 실패하면 그 범위를 건너뛴 범위로 기록·WARN하고 전진한다(전체 커서 몫 — 무음 아님). 재시작하면 진행 위치는 사라진다(아래 '커서 의미'의 재시작 규칙). 다시 읽기 구역과 전체 커서 ①②에도 같은 규칙을 쓴다.
+   - **커서 전진 규칙**(rv41 codex M6): id 청크 하나의 (가) 행 없음 조회 · (나) 사용자 탐지 전부 · 찾은 키의 처리(복구 또는 이월 대기열 등록 — 순서 5)가 **모두 끝난 뒤에만** 커서를 그 청크 끝으로 옮긴다. 청크 안의 진행 위치(다 끝낸 갈래 · 다음 회차 · 다음 사용자)는 메모리에 두고, 예산으로 청크 중간에서 멈추면 다음 실행이 그 위치에서 잇는다(이미 처리한 사용자를 다시 읽지 않고, 미처리 사용자를 건너뛰지 않는다). 청크가 실패하면 커서·진행 위치를 그대로 두고 다음 실행이 같은 청크를 다시 한다 — 같은 청크가 3회 연속 실패하면 그 범위를 건너뛴 범위로 기록·WARN하고 전진한다(전체 커서 몫 — 조용히 넘기지 않음). 재시작하면 진행 위치는 사라진다(아래 '커서 의미'의 재시작 규칙). 다시 읽기 구역과 전체 커서 ①②에도 같은 규칙을 쓴다.
 4. **전체 커서**(남은 예산): 지금 C의 두 갈래를 멈춘 곳부터 이어 간다 — ① 쿼터 행 `(schedule_id, user_id)` keyset(`Keyset` 탐지 — 열린 회차를 회차 id 순으로) ② 행 없음 id 범위(홀드 → 예약, 폭 `orphanChunkSize`). ①과 ②를 청크 하나씩 번갈아 진행한다(비율 `[구현 검증]`). 두 갈래가 모두 끝(① 마지막 열린 회차 · ② 스캔 시작 때의 최대 id)에 닿으면 **풀 스캔 1회**가 끝난다 — 스캔 시간(스캔 시작 실행의 DB 시각 → 끝 실행의 DB 시각)을 기록하고 커서를 처음으로 돌린다. 진행 중 스캔 나이가 `lap-warn`(1시간)을 넘으면 WARN 1회 + 지표.
-5. 예산을 넘으면 그 청크까지만 하고 탐지를 멈춘다. 처음 안은 '이 실행에서 찾은 키는 모두 이 실행에서 고친다(R7이 + 그 실행의 복구 시간을 허용)'였다 — 한 청크에서 수천 키가 불일치가 생기면 실행 시간에 상한이 없다(rv41 codex M5). 그래서 **복구 상한 + 이월 대기열**로 바꾼다:
+5. 예산을 넘으면 그 청크까지만 하고 탐지를 멈춘다. 처음 안은 '이 실행에서 찾은 키는 모두 이 실행에서 고친다(R7이 + 그 실행의 복구 시간을 허용)'였다 — 한 청크에서 수천 키에 불일치가 생기면 실행 시간에 상한이 없다(rv41 codex M5). 그래서 **복구 상한 + 이월 대기열**로 바꾼다:
    - 실행당 복구는 `repair-budget`(1초 — 복구 트랜잭션 DB 시간 합)과 `repair-cap`(500건) 중 먼저 닿는 곳까지다(키 하나가 끝날 때마다 본다). 복구 순서 = 이월 대기열 먼저(들어온 순서) → 이번 실행에서 찾은 키(회차, 사용자).
-   - 남은 키는 **이월 대기열**(메모리 · (회차, 사용자) 중복 없음 · 상한 `carry-cap` 10만)에 넣는다. 대기열 등록이 끝나야 커서가 전진한다(위 커서 전진 규칙 — 청크를 지나도 키를 잃지 않는다). 다음 실행은 탐지보다 먼저 대기열을 고친다(이월 복구). 대기열이 넘치면 넣지 못한 키 수를 `carry_dropped`로 기록·WARN한다 — 그 키는 전체 커서가 다시 찾는다(무음 아님).
+   - 남은 키는 **이월 대기열**(메모리 · (회차, 사용자) 중복 없음 · 상한 `carry-cap` 10만)에 넣는다. 대기열 등록이 끝나야 커서가 전진한다(위 커서 전진 규칙 — 청크를 지나도 키를 잃지 않는다). 다음 실행은 탐지보다 먼저 대기열을 고친다(이월 복구). 대기열이 넘치면 넣지 못한 키 수를 `carry_dropped`로 기록·WARN한다 — 그 키는 전체 커서가 다시 찾는다(조용히 넘기지 않음).
    - 재시작하면 대기열은 사라진다 — 그 키는 폴백 스캔이 다시 찾는다(최근 창 또는 전체 커서 · `restart=true` 행이 그 구간을 드러낸다).
 6. 기록: `counter_reconcile_run` 1행 + `counter_safety_run` 1행(같은 `run_id`). **`record_ms`·`db_ms_total`에는 그 실행이 쓴 다른 기록(복구의 `counter_drift_log` · `counter_reconcile_run`)까지 넣고 `counter_safety_run` 자기 행의 INSERT는 뺀다** — 자기 INSERT가 끝나기 전에는 그 시간을 알 수 없다(rv41 재점검 codex M-b). 자기 INSERT 시간은 지표 `…safety.self_record`(타이머)로 따로 남기고, R7 허용식에서는 '+ 자기 기록 INSERT(지표 최대값)'로 더한다. 테스트 12의 합계 일치는 자기 INSERT를 뺀 블록 합으로 본다. 실행 순서를 다시 적으면 열린 회차 조회 → 이월 복구 → 다시 읽기 → 최근 창 → 전체 커서 → 이번 실행 복구 → 기록이다.
 
@@ -470,13 +470,13 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 | 이름 | 종류 | 뜻 |
 |---|---|---|
 | `seat.hold.counter.reconcile.incremental.tick` | timer | 틱 벽시계 |
-| `seat.hold.counter.reconcile.incremental.borrows` | counter | 틱의 커넥션 빌림(기록 INSERT 포함) |
+| `seat.hold.counter.reconcile.incremental.borrows` | counter | 틱의 커넥션 획득(기록 INSERT 포함) |
 | `seat.hold.counter.reconcile.incremental.candidates` | counter | 후보 키 |
 | `seat.hold.counter.reconcile.incremental.window_clamped` | counter | ⓑⓒ 겹침 상한에 걸린 틱 |
 | `seat.hold.counter.reconcile.incremental.errors{stage}` | counter | 후보·청크·기록 실패 |
 | `seat.hold.counter.reconcile.incremental.memory.size` · `.memory.overflow` · `.memory.requeued` | gauge · counter · counter | ⓐ 집합 |
 | `seat.hold.counter.safety.run` · `.safety.db_ms` | timer · summary | 실행 벽시계 · 실행 DB 시간 |
-| `seat.hold.counter.safety.borrows` | counter | 폴백 스캔 빌림(표본 포함) |
+| `seat.hold.counter.safety.borrows` | counter | 폴백 스캔 커넥션 획득(표본 포함) |
 | `seat.hold.counter.safety.recent.lag_ids` · `.recent.cursor_age_seconds` | gauge | 최근 창 적체 |
 | `seat.hold.counter.safety.recent.skipped_ids` | counter | 2시간 경계 건너뜀 |
 | `seat.hold.counter.safety.lap_seconds` · `.lap_overdue` · `.expedited` · `.errors{stage}` | gauge · counter · counter · counter | 스캔 · 1시간 초과 · 앞당김 · 실패 |
@@ -485,7 +485,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 
 - **등록 시점**(rv41 Opus L8): 새 지표는 **그 설정 옵션이 켜질 때만** 등록한다 — 게이지는 등록 순간 actuator metrics 목록에 나타나므로, 증분·폴백 스캔 빈이 설정 옵션 조건(`@ConditionalOnProperty` 또는 스케줄러 생성 시점 등록)으로만 만들어지게 한다. 설정 옵션 꺼짐이면 새 이름이 하나도 없다(§3-4 · 테스트 15).
 
-**하네스 ⑤(허용 출처·빌림 차감)에 필요한 변경(목록만 — 이 task에서 고치지 않는다)**: summarize의 기대 출처(`RECONCILE_SOURCE` — `summarize.py:750`)에 새 조건 → {증분 source, 폴백 스캔 source} · 효과 셀 허용 출처(`summarize.py:1105` `allowed`)에 같은 두 값 + `expiry-repair` · L2·H 복구 출처 검사(:1108-1109)를 '그 셀의 증분 또는 폴백 스캔'으로 · `borrow_per_request`(:649-680)의 차감 키에 `incremental_borrows`·`safety_borrows` 추가(업무 앱 풀만 — M3 외부 앱의 빌림은 업무 앱 Hikari에 없으므로 빼지 않는다) · run.sh가 회차 끝 지표에서 두 키를 모은다.
+**하네스 ⑤(허용 출처·커넥션 획득 차감)에 필요한 변경(목록만 — 이 task에서 고치지 않는다)**: summarize의 기대 출처(`RECONCILE_SOURCE` — `summarize.py:750`)에 새 조건 → {증분 source, 폴백 스캔 source} · 효과 셀 허용 출처(`summarize.py:1105` `allowed`)에 같은 두 값 + `expiry-repair` · L2·H 복구 출처 검사(:1108-1109)를 '그 셀의 증분 또는 폴백 스캔'으로 · `borrow_per_request`(:649-680)의 차감 키에 `incremental_borrows`·`safety_borrows` 추가(업무 앱 풀만 — M3 외부 앱의 커넥션 획득은 업무 앱 Hikari에 없으므로 빼지 않는다) · run.sh가 회차 끝 지표에서 두 키를 모은다.
 
 #### 4.2.7 측정 전용 앱 경로 주입
 
@@ -506,7 +506,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 - **시계**(rv41 Opus L12): 창·표본은 DB 시계다(4.2.3). 그러나 열린 회차 판정(`starts_at > ?` — 증분 순서 2 · 폴백 스캔 순서 1)과 복구 트랜잭션의 마감 재확인은 지금 C와 같이 **앱 `Clock`** — 외부 앱이면 .158 시계 — 을 쓴다. 두 서버 시계 차만큼 마감 직전·직후 회차의 포함 여부가 업무 앱과 다를 수 있다(한계 §7-12). 크기는 하네스 ⑥(외부 앱 표본)의 .158 ↔ .164 시계 차로 기록한다. 측정 부하(S4c)는 회차 시작이 측정 끝보다 한참 뒤라 영향이 없다.
 - 폴더: `reconciler-app/Dockerfile`(빌드 문맥 = 저장소 루트 — 루트 `Dockerfile`처럼 settings·`reconcile-core`·`reconciler-app`만 복사해 `:reconciler-app:bootJar` → `eclipse-temurin:21-jre`) · `reconciler-app/compose.yml`(서비스 `reconciler` 하나 — DB·Redis 없음).
 - compose 모양: 프로젝트 `seatlab-reconciler` · 포트 `8103:8103`(actuator health·configprops·metrics만) · `cpus: ${RECONCILER_CPUS:-1}` · `mem_limit: ${RECONCILER_MEM:-1g}`(F와 같은 구성 — §8.3 'F는 테일 레이턴시를 키운다'를 같은 조건에서 본다) · JVM 옵션은 F와 같게 `[구현 검증]` · 환경: `DB_URL=jdbc:postgresql://<.164>:15432/seat?ApplicationName=seatlab-reconciler-ext` · `DB_USERNAME`·`DB_PASSWORD`는 **compose 파일에 값을 쓰지 않고** `${DB_USERNAME:?}`·`${DB_PASSWORD:?}`로 받는다 · `SPRING_APPLICATION_JSON`으로 방식·주기·탐지 모양만.
-- Hikari: `maximum-pool-size=4`(증분 1 · 폴백 스캔 1 · 여유 2 — 동시 빌림은 스레드 2개뿐) · `application_name`은 URL의 `ApplicationName`(`pg_stat_activity`에서 업무 앱·F와 가른다 — 문장 1의 `o`에도 들어가는 세션이다).
+- Hikari: `maximum-pool-size=4`(증분 1 · 폴백 스캔 1 · 여유 2 — 동시 커넥션 획득은 스레드 2개뿐) · `application_name`은 URL의 `ApplicationName`(`pg_stat_activity`에서 업무 앱·F와 가른다 — 문장 1의 `o`에도 들어가는 세션이다).
 - 하네스가 띄우고 내리는 법(PC가 지휘): ① PC에서 이미지 빌드(`seatlab-reconciler:<sha>`) → `docker save | ssh .158 docker load` ② `~/labs/seat-reservation-lab-reconciler/`에 compose 파일만 동기화 ③ 비밀번호는 표준 입력으로 넘긴다 — `ssh .158 'read -r DB_PASSWORD; export DB_PASSWORD; cd ~/labs/seat-reservation-lab-reconciler && docker compose -p seatlab-reconciler up -d'`(명령 인자·파일·셸 이력에 남지 않음) ④ 회차 끝·실패 시 `docker compose -p seatlab-reconciler down`을 정리 함정(trap)에 둔다 ⑤ 로그는 `docker compose logs`를 gz로 받는다. .158에서는 이 프로젝트의 컨테이너·이미지만 다룬다(명세 §4).
 
 
@@ -520,7 +520,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 |---|---|
 | ③ 증분 스캔 기록 · source | run.sh 새 조건 `A+I`(A + 앱 안 증분 + 폴백 스캔) · `A+X`(A + 외부 앱) · 플래그 `--incremental mem|trg|stmt` · `--incremental-interval 1s|5s` — 조건·방식에 맞춰 `FLYWAY_LOCATIONS`(4.2.2)와 `SPRING_APPLICATION_JSON` 키를 지정할 때만 넣는다(미지정 = 렌더 그대로) · `--reconcile-shape`를 `A+I`·`A+X`에도 허용 · 설정 검사 `incremental-config-mismatch`(configprops `counterDrift.reconcile.incremental.*`·`safetyNet.enabled` — **M3(외부 앱 증분 보정 — .158)는 두 앱 모두**: 업무 앱(8080) `method` = 외부 앱(8103) `method` · 업무 앱 `enabled=false`·`safetyNet.enabled=false` · 외부 앱 `enabled=true`·`safetyNet.enabled=true`, 하나라도 다르면 회차 사유 — rv41 Opus M3) · 스키마 검사 `schema-mismatch`(열·트리거·테이블이 방식과 맞나) · `lib.sh wait_reconcile_run`에 새 source · drift-db.json에 `counter_safety_run`·`counter_inc_gap`(rv41) · tail.py ⑦에 source별 증분 틱 시간(R2(증분 스캔 시간 일정 가설) — 첫 5분 대 마지막 5분 중앙값)과 폴백 스캔 실행 DB 시간·청크 최대·복구 시간(R7(폴백 스캔 실행 비용 가설)) · 틱 결손 검사(`reconcile_gaps`)를 증분 주기로 · campaign 세트 `adr012s2`(2단계) · `adr012s2x`(2') · `adr012eff`(효과) |
 | ④ 경로별 탐지 시간 | run.sh `--inject-app on`(효과 셀만 · loadtest 프로필) · 효과 셀에서 `track-inject=true`(두 앱) · lib.sh가 `counter_app_inject` 수집 · S3e 주입 때 `counter_app_inject`에 `path='db'` 행(4.2.7 — rv41) · summarize effect.json에 종류 AH·AL·AE·L1·L2·H·D(앱 경로 주입 3종 · S3e 주입 4종)와 첫 탐지 출처·시간 · 첫 후보 시각(R6(증분 경로 탐지 가설)) · `counter_inc_gap` 구간 분류(보장 안/밖) · R4(효과·탐지 시간 가설) 시간 기준(증분 갈래이면서 보장 안 = 주기 + 10초 · 폴백 스캔 갈래 **또는 보장 밖**(사용자 결정 2026-10-20 D1) = 적체에 따라 2분 또는 2 × 스캔 시간)으로 판정 |
-| ⑤ 허용 출처 · 빌림 차감 | 4.2.6 끝의 목록 |
+| ⑤ 허용 출처 · 커넥션 획득 차감 | 4.2.6 끝의 목록 |
 | ⑥ M3(외부 앱 증분 보정 — .158) 표본 | .158 docker stats 표본기(`host-sampler.sh`를 ssh로) · 외부 앱 Hikari(8103 actuator `hikaricp.connections.*`) · .158 ↔ .164 시계 차(회차 시작·끝 — `counter_drift_log.at`·스캔 시각 보정용) |
 | ⑦ C(앱 내 전체 스캔 보정) 스캔 중 Hikari pending | 1단계에 이미 있음(그대로) |
 | ⑧ HOT · 인덱스 크기 | 회차 시작·끝 `pg_stat_user_tables`(`user_hold_quota`의 `n_tup_upd`·`n_tup_hot_upd`) · `pg_relation_size('idx_user_hold_quota_updated_at')` → tail.py R5(updated_at 선점 비용 가설) 칸 |
@@ -529,7 +529,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 
 모두 관측 가능한 동작으로 적는다. 테스트는 공개 진입점(`IncrementalReconciler.tick(source)` · 폴백 스캔 `runOnce()` · 앱 API·직접 SQL)과 DB 결과(`counter_drift_log` · `counter_reconcile_run` · `counter_safety_run` · 쿼터 cnt)만 본다.
 
-1. **커밋 지연에도 유실 없음(ⓑⓒ — 트리거·앱 문장)**: 쿼터를 바꾼 트랜잭션을 틱 k의 읽기 전에 시작하고 틱 k 뒤에 커밋한다(여러 틱에 걸쳐 열어 둠 포함 — `max-overlap` 안). 그 키의 불일치는 커밋 뒤 첫 틱이 잡는다. **보장 밖 반례**(사용자 결정 2026-10-20 D1): `max-overlap`보다 오래 열어 두고 커밋한 변경은 증분 후보가 되지 않을 수 있고, 그때 `counter_inc_gap` kind `window_clamped` 행이 남으며 폴백 스캔이 고친다(무음 누락 0).
+1. **커밋 지연에도 유실 없음(ⓑⓒ — 트리거·앱 문장)**: 쿼터를 바꾼 트랜잭션을 틱 k의 읽기 전에 시작하고 틱 k 뒤에 커밋한다(여러 틱에 걸쳐 열어 둠 포함 — `max-overlap` 안). 그 키의 불일치는 커밋 뒤 첫 틱이 잡는다. **보장 밖 반례**(사용자 결정 2026-10-20 D1): `max-overlap`보다 오래 열어 두고 커밋한 변경은 증분 후보가 되지 않을 수 있고, 그때 `counter_inc_gap` kind `window_clamped` 행이 남으며 폴백 스캔이 고친다(조용한 누락 0).
 2. **겹침 창**: 틱 사이에 커밋된 모든 변경(시작 시각이 앞 틱 읽기 전이든 뒤든)이 다음 틱 후보에 든다. `max-overlap`보다 오래 열린 세션이 있으면 그 틱에 `window_clamped` 기록이 남는다.
 3. **커밋 뒤 등록(ⓐ — 메모리 집합)**: 롤백된 선점·만료의 키는 후보가 되지 않는다. 커밋 전에는 후보가 아니다 — 커밋 전 틱이 그 키를 '맞음'으로 보고 지우는 일이 없다(커밋 뒤 첫 틱이 잡는다). 자동 커밋 경로(쿼터 행 준비)도 등록된다.
 4. **넘침**: 상한을 넘긴 등록은 넘침 지표·로그·`counter_inc_gap` kind `memory_overflow` 행으로 남고, 폴백 스캔이 바로 한 번 더 돈다. 넘친 키의 불일치도 결국 고쳐진다(폴백 스캔).
@@ -544,7 +544,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
    (rv43 반영) 허용식의 '예산 + `chunk_ms_max`'는 `max(예산 + chunk_ms_max, db_ms_open + 예산/2 + 3 × chunk_ms_max)`로 본다(갈래마다 첫 블록 강제 — §4.2.13 #10 · §5 R7(폴백 스캔 실행 비용 가설) rv43 줄). 합계의 다시 읽기는 §4.2.13 #5대로 따로 열 `db_ms_reread`다.
 13. **폴백 스캔 이어서 스캔**: 여러 번 돌리면 전체 커서가 모든 열린 회차의 쿼터 행·행 없음 범위를 한 번씩 지나 스캔이 끝나고 `lap_seconds`가 남는다. 스캔 나이가 `lap-warn`을 넘으면 경고 기록이 남는다.
 14. **최근 창 경계·다시 읽기**: 커서가 2시간 경계 밖이면 건너뛴 범위가 기록된다. 앞 실행이 지나간 뒤 늦게 커밋한 작은 id 행(트랜잭션 ≤ 60초 — 다시 읽기 130초 안)은 그 뒤의 실행이 잡는다(앞당김 실행이 끼어도 같다). 건너뛴 범위 기록은 `(lo, hi]` 표기와 같다(`recent_skip_ids = hi − lo`).
-15. **미지정 = 이전과 같음**: 새 키 미지정이면 전체 스캔 보정 C의 문장·스캔 기록·빌림 수·configprops의 기존 경로 값이 지금과 같고, 증분·폴백 스캔 스케줄러·새 지표가 없다.
+15. **미지정 = 이전과 같음**: 새 키 미지정이면 전체 스캔 보정 C의 문장·스캔 기록·커넥션 획득 수·configprops의 기존 경로 값이 지금과 같고, 증분·폴백 스캔 스케줄러·새 지표가 없다.
 16. **외부 앱 동등성**: 같은 DB 상태에서 외부 앱의 증분·폴백 스캔이 앱 안과 같은 키를 같은 결과로 고친다(source만 `inc-ext-*`·`safety-ext` — 외부 앱 증분·폴백 스캔). 외부 앱은 `method=memory`·`reconcile.enabled=true`를 기동 때 거부한다.
 17. **탐지 모양 동등성(증분)**: 같은 스냅숏에서 `Users` 선택자의 one-shot·split·group이 같은 불일치한 키 집합을 낸다(§4.1 계약을 `Users`로 넓힌 것). 쿼터 행 없는 사용자는 결과에 없다.
 18. **앱 경로 주입**: loadtest 프로필 + 설정 옵션 켬에서만 주입되고, 주입마다 `counter_app_inject` 1행이 남는다. 롤백된 선점의 주입은 없다. 주입 키는 ⓐⓑⓒ 모두 증분 source로 먼저 고쳐진다. **rv41**: `track-inject=true`면 주입 키의 `first_candidate_at`·`first_candidate_source`(증분 source)가 채워진다 — 폴백 스캔을 먼저 돌려 그 키를 고친 뒤에도 다음 증분 틱이 채운다. `track-inject=false`면 그 열은 NULL이고 문장도 나가지 않는다.
