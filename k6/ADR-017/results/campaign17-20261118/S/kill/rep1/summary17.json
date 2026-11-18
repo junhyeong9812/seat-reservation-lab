@@ -1,0 +1,178 @@
+{
+ "cand": "S",
+ "cell": "kill",
+ "rep": 1,
+ "status": "ok",
+ "reasons": [],
+ "sessions": {
+  "n": 1100,
+  "planned": {
+   "ok": 660,
+   "late": 220,
+   "noconf": 55,
+   "abandon": 110,
+   "retry": 55
+  },
+  "by_kind": {
+   "abandon": {
+    "not_paid": 105,
+    "app_dead": 5
+   },
+   "ok": {
+    "success": 621,
+    "app_dead": 39
+   },
+   "retry": {
+    "success": 54,
+    "app_dead": 1
+   },
+   "noconf": {
+    "wronged_refunded": 54,
+    "app_dead": 1
+   },
+   "late": {
+    "app_dead": 11,
+    "wronged_refunded": 158,
+    "wronged_substituted": 51
+   }
+  },
+  "invalid_detail": {},
+  "integrity": {},
+  "mode_fail": {}
+ },
+ "uids": {
+  "seat_paid": 676,
+  "refunded": 232,
+  "closed_unpaid": 105,
+  "substituted": 51
+ },
+ "g1": {
+  "ok": true,
+  "items": {
+   "orphan": 0,
+   "double_reservation": 0,
+   "double_refund": 0,
+   "refunded_with_seat": 0,
+   "voided_with_seat": 0,
+   "auth_open": 0,
+   "open_unpaid": 0,
+   "substituted_unpaid": 0,
+   "no_ledger": 0,
+   "no_intent": 0,
+   "seat_moneyless": 0,
+   "dead_tasks": 0,
+   "open_after_drain": 0,
+   "unfinished_tasks": 0,
+   "consistency_pay": {
+    "pay_multi_reservation_intents": 0,
+    "pay_rejection_state_mismatch": 0,
+    "pay_reserved_with_close": 0,
+    "pay_capture_and_close": 0,
+    "pay_rejected_without_task": 0,
+    "pay_dead_tasks": 0,
+    "pay_open_unheld_intents": 0
+   },
+   "consistency_v_sum": 0,
+   "integrity": 0,
+   "wronged_open": 0,
+   "mode_fail": 0,
+   "record_pay_ok_not_in_ledger": 0,
+   "record_pay_ok_no_intent": 0,
+   "record_ledger_paid_without_k6_pay": 0
+  }
+ },
+ "g2": {
+  "n": 337,
+  "p50_s": 0.670467041015625,
+  "p90_s": 0.97922705078125,
+  "p99_s": 1.1405859375,
+  "max_s": 1.143348876953125,
+  "by_source": {
+   "REJECTION": {
+    "n": 0,
+    "p99_s": null
+   },
+   "SWEEP": {
+    "n": 337,
+    "p99_s": 1.1405859375
+   }
+  },
+  "substitute_n": 51
+ },
+ "g3": {
+  "db_cpu_mean": null,
+  "confirm_p99_ms": null,
+  "pay_start_p99_ms": null
+ },
+ "m17_6": {
+  "late_rejections": 209,
+  "noconf_sweep_closes": 54
+ },
+ "cost": {
+  "moneyless": 0,
+  "substitute_ratio": 0.24401913875598086,
+  "money_lost_s": {
+   "n": 232,
+   "p50": 568.9060949707032,
+   "p99": 607.309673828125,
+   "max": 615.9431770019531
+  },
+  "pg_deadline_409": 0,
+  "tasks_by_source": {
+   "REJECTION": 0,
+   "SWEEP": 337,
+   "CONFIRM": 0
+  },
+  "attempts": {
+   "1": 337
+  },
+  "uid_conflict": null,
+  "legacy": null,
+  "app_dead": 57,
+  "void_time_s": {
+   "n": 0,
+   "p50": null,
+   "p99": null,
+   "max": null
+  },
+  "app_dead_shapes": {
+   "none": 36,
+   "refunded": 20,
+   "seat_paid": 1
+  }
+ },
+ "drain": {
+  "reason": "empty",
+  "len_s": 11.863
+ },
+ "kill": {
+  "events": 2,
+  "restarted": true,
+  "timing_ok": true,
+  "valid": true,
+  "left_intents": 0
+ },
+ "record": {
+  "k6_pay_ok": 959,
+  "ledger_paid": 959,
+  "db_intents": 1064,
+  "pay_ok_not_in_ledger": 0,
+  "pay_ok_no_intent": 0,
+  "ledger_paid_without_k6_pay": 0,
+  "ps_linked_uids": 0
+ },
+ "inject": null,
+ "send_lag_ms": {
+  "n": 905,
+  "p50": 0.7626953125,
+  "p99": 1.950927734375,
+  "max": 3.144287109375,
+  "over": 0
+ },
+ "pc_mem": {
+  "min_kb": 26818628,
+  "n": 177,
+  "gap_max_s": 6.0
+ },
+ "app_metric": null
+}

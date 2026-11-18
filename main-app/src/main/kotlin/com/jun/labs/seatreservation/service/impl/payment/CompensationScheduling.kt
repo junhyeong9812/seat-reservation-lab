@@ -24,6 +24,7 @@ import java.time.Duration
 /**
  * ADR-017 보상 워커 · 안전망 스케줄러(설계-4.4 · 4.5 — CounterDriftScheduling과 같은 '켜질 때만 전용 스케줄러' 패턴).
  * - 기동 검사([check] — 컨텍스트가 뜨기 전): 모드 ≠ none ⇒ PG 주소 필수 · 확정 모드는 payment-start가 있는 ① · ④(intent를 만드는 모드).
+ *   설정만 보는 검사라 HoldStrategyMigrationGate가 Flyway migrate 앞에서도 부른다(거부된 기동이 스키마를 바꾸지 않게 — ADR-017 §결정).
  * - 안전망: 늘 돈다(none이면 탐지 지표만 — Q1). 워커: 모드 ≠ none일 때만(PG 호출은 그때만 — N17-12).
  * - `scheduler-enabled=false`면 둘 다 시작하지 않는다(테스트는 runOnce를 직접 부른다). 실패는 로그로 남기고 다음 주기에 다시 한다.
  * - 지표 `seat.compensation.oldest_pending_seconds`(게이지 — 가장 오래 기다린 PENDING의 나이 · 정체 탐지 · RD17-5).
@@ -85,7 +86,8 @@ class CompensationScheduling(
             check(props.sweep.batch > 0 && props.sweep.interval > java.time.Duration.ZERO) { "seat.compensation.sweep 값 범위: batch > 0 · interval > 0 (ADR-017 설계-4.5)" }
             if (!props.mode.createsTasks) return
             check(payment.pgEnabled) {
-                "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 seat.payment.pg.base-url이 있어야 한다(보상은 PG를 부른다 · ADR-017 설계-5)"
+                "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 seat.payment.pg.base-url이 있어야 한다(보상은 PG를 부른다 · ADR-017 설계-5) — " +
+                    "PG 없이 띄우려면 seat.compensation.mode=none을 명시하라(기본 refund · 자동 후퇴 없음 — ADR-017 §결정)"
             }
             // 워커는 리스 안에 못 끝낼 작업을 부르지 않는다 — 작업 하나의 PG 시간 상한보다 리스가 짧으면 아무것도 처리하지 못한다
             val pgBudget = payment.pg.connectTimeout.plus(payment.pg.readTimeout).multipliedBy(2)
@@ -94,7 +96,7 @@ class CompensationScheduling(
             }
             check(confirm.mode.paymentStartEnabled) {
                 "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 결제 시작이 있는 확정 모드(conditional · conditional-extend)여야 한다 — 지금 ${confirm.mode} " +
-                    "(intent는 payment-start가 만든다 · ADR-017 설계-4.2)"
+                    "(intent는 payment-start가 만든다 · ADR-017 설계-4.2) — current 등 다른 확정 모드로 띄우려면 seat.compensation.mode=none도 함께 명시하라(기본 refund — ADR-017 §결정)"
             }
             // S는 카운터를 앱 문장으로 맞춘다(홀드 → 대체 예약 옮김 · 없으면 upsert) — 카운터를 그렇게 다루는 매수 방식만(설계-5 · N17-9)
             // S는 판매 마감이면 대체하지 않는다(N17-9) — 마감 판정(회차 FOR SHARE)을 끈 구성에서는 그 판정을 할 수 없다
