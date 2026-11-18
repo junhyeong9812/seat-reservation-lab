@@ -342,7 +342,7 @@ POST /api/holds/{holdId}/confirm {paymentUid}
   - ADR-016 N16-1 '① payment-start는 아무 행도 쓰지 않는다' → '홀드 · 좌석 · 쿼터 · 표지는 쓰지 않는다 — intent 행 하나만 만든다'.
   - ADR-015 ④ 'not_needed 뒤 호출은 연장' → intent가 생긴 뒤에는 연장하지 않는다(RD17-2 — 남은 시간이 이미 W 이상이라 결제 시간은 W − M 이상 보장).
   - Flyway 기본 위치 마지막 버전 13 → 15. 결제 시작 모드(① · ④)는 target ≥ 15가 필요하다(기동 검사).
-- **옛 하네스 주의**: ADR-015 · 016 하네스(N16-1 쓰기 탐침 · payment-start 본문 키 대조)는 이 커밋 뒤 이미지에서 intent INSERT · `paymentUid`를 '예상 밖'으로 본다. 재측정은 측정 이미지(커밋 앞 APP_TAG)로 한다(ADR-016 §결정의 옛 하네스 주의와 같은 처방). 또 payment-start를 부른 홀드는 발급 uid(`paymentUid`)로만 확정된다 — 옛 하네스처럼 `pay-…` uid를 보내면 409 SEAT_NOT_HELD다(기존 테스트 5개는 확정 인자만 발급 uid로 바꿨다 — 사용자 승인 2026-11-14).
+- **옛 하네스 주의**: ADR-015 · 016 하네스(N16-1 쓰기 probe · payment-start 본문 키 대조)는 이 커밋 뒤 이미지에서 intent INSERT · `paymentUid`를 '예상 밖'으로 본다. 재측정은 측정 이미지(커밋 앞 APP_TAG)로 한다(ADR-016 §결정의 옛 하네스 주의와 같은 처방). 또 payment-start를 부른 홀드는 발급 uid(`paymentUid`)로만 확정된다 — 옛 하네스처럼 `pay-…` uid를 보내면 409 SEAT_NOT_HELD다(기존 테스트 5개는 확정 인자만 발급 uid로 바꿨다 — 사용자 승인 2026-11-14).
 - **구현에서 정한 세부(리뷰 반영)**:
   - 옛 경로(intent 없는 uid)도 확정 트랜잭션 앞에 `payment_intent` 조회 1문장(커넥션 1회 더 커넥션 획득)이 붙는다 — N17-10의 '같은 SQL'은 확정 트랜잭션 안의 문장을 뜻한다. 옛 경로 비용을 재면 이 차이가 섞인다. V15 앞 스키마(베이스라인 재현 — current + target 7)에서는 표가 없음을 한 번 보고 조회 없이 옛 경로로 간다.
   - 거부 롤백과 재잠금 사이(A2 창)에 폴백 스캔이 먼저 intent를 닫으면, 재잠금 쪽은 폴백 스캔이 저장한 코드(HOLD_NOT_FOUND · HOLD_EXPIRED)를 재생한다 — 처음 난 거부 코드와 다를 수 있고 거부 기록은 없다. 이중 결과는 없다(state 하나).

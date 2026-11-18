@@ -288,7 +288,7 @@ ADR-015 ① `conditional`은 늦은 확정을 **명확한 거부**로 바꿨다(
 - **G-모형**(명세 §1-3 — 세션마다 `predict` = 관측 분류): paid 6회차 · 19,800세션(① 4흐름 · ④ 2흐름 × 1,100 × 3)에서 띠 밖 불일치 0이다. 모든 회차 · 흐름의 `g_model`이 ok이고 bad 0이다. 설명으로 보면 비율도 모형과 같은 자리에 있다. 예를 들어 ① 좌석 손실은 관측 11.09%, 모형 11.37%(CAP 10분)다.
 - **G-정합**: paid · race · cost 모두 True다.
   - k6 결제 성공 세션과 끝 상태 reservation의 결정표 불일치 0, 409 SEAT_NOT_HELD 0, N16-5 대조 통과다.
-  - N16-1은 격리 탐침에서 payment-start 구간 쓰기 0, (a) ① 회차 seat_hold UPDATE 증분 0, (b) 허용 목록 밖 쓰기 0, (c) payment-start 5xx 0이다. (a)에서 선점 외래키 채우기는 뺐다(결과-6).
+  - N16-1은 격리 probe에서 payment-start 구간 쓰기 0, (a) ① 회차 seat_hold UPDATE 증분 0, (b) 허용 목록 밖 쓰기 0, (c) payment-start 5xx 0이다. (a)에서 선점 외래키 채우기는 뺐다(결과-6).
 - **ⓒ 경계 흐름**(M이 δ + 시계 차를 덮는가): 마감 전 송신 nd 227 · 219 · 221, bcd 212 × 3, ed 210 · 222 · 221 중 좌석 손실 0이다.
   - δ̂(확정 응답 시간 = 수신 − 송신, 서버 `:now`까지의 상한 — 명세 DV-7)는 p99.9 7~8ms, 최대 16ms다. 회차별 시계 오차(err)는 3~67.5ms다.
   - M 1초는 이 둘의 합을 크게 덮는다. 격자 x = 0의 마감 전 송신은 회차마다 1건 이상이다(`grid_ok` 전부 True).
@@ -346,7 +346,7 @@ ADR-015 ① `conditional`은 늦은 확정을 **명확한 거부**로 바꿨다(
 
 - **스모크가 찾은 것**(task 07 고정 커밋 전에 고침 — 1fc3e22f · cc265e4f · 022b42b8):
   - S1 N16-1(a)가 JPA 외래키 채우기 `update seat_hold set seat_id=$1 where id=$2`(ProductSeat의 단방향 `@OneToMany @JoinColumn` — 선점 수와 같다)를 ① 쓰기로 셌다.
-  - S2 격리 탐침 pgss가 배경 작업 표(counter_reconcile_run · counter_safety_run)를 셌다.
+  - S2 격리 probe pgss가 배경 작업 표(counter_reconcile_run · counter_safety_run)를 셌다.
   - S3 경계 격자 x = 0의 마감 전 송신 비율 25~41% 때문에 경계 흐름이 늘 '판정 불가'였다.
 - **고정 커밋 리뷰가 찾은 것**(캠페인과 병행 — 요약기 보강 4e428358 · 1683c8e1 · d481d98a, 캠페인 뒤 반영):
   - FX-1 외래키 채우기 rows = seat_hold n_tup_ins 증분을 요구한다.

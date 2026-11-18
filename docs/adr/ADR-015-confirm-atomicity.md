@@ -124,7 +124,7 @@
 
 - **15-02 실측(`current` — Adr015ReproSmokeTest)**: FM1 = X 확정 `ObjectOptimisticLockingFailureException` ← `StaleObjectStateException` → 롤백(예약 INSERT · 좌석 UPDATE 함께 사라짐) → **HTTP 500**(Spring 기본 오류 JSON — `ApiExceptionHandler` 밖) · 끝 상태 좌석 HELD · Y 홀드 1 · 예약 0 · 정합성 검증기 전부 0. FM3 = 배치가 같은 예외로 **틱 전체 롤백**(가드 감소도 사라짐 · `seat.hold.expiry.tick{outcome=failed}` +1) · X 확정 성공 · 정합성 검증기 전부 0. 정정: FM3의 '배치 DELETE가 X를 기다린 뒤 0행'은 이번 순서(X가 L-B 대기 중 커밋)에선 기다림 없이 0행이었고, flush가 좌석 UPDATE를 먼저 보내므로 X 커밋 전이면 배치가 기다리는 곳은 좌석 행이다(추정 — 미실측). 진 배치는 낡은 `AVAILABLE` 좌석 UPDATE를 **실제로 실행한 뒤** 롤백된다 — '가드가 없으면' 칸의 덮어쓰기 모양과 같다.
 - **새 모드(①~④ + A′ 배치)의 기대**: FM1 → 404(C1 · P1 · O2가 0행) · FM2 → 404(뒤 쪽이 홀드 행에서 기다린 뒤 0행 — 예약 INSERT 앞이라 V12 유무와 무관) · FM3 → 확정 성공 · A′ 배치는 그 홀드를 0행으로 지나가고(감소 0 · 좌석 되돌림 0행) **틱은 커밋**(다른 좌석 만료는 그대로 진행) · FM5 → A′ 배치의 조건부 DELETE가 EPQ로 연장된 `expires_at`을 다시 보고 지우지 않는다(잃음 0).
-- 정리 ①과 확정은 기다림만 있다(정리 ①이 회차 행 `FOR UPDATE`를 쥐는 동안 A5의 FK 검사가 기다린다 — QuotaCleanup.kt:120-123 주석) — 이중 결과 모양이 아니므로 재현 대상에서 뺀다(교착 점검은 §설계-3.5).
+- 정리 ①과 확정은 기다림만 있다(정리 ①이 회차 행 `FOR UPDATE`를 잡는 동안 A5의 FK 검사가 기다린다 — QuotaCleanup.kt:120-123 주석) — 이중 결과 모양이 아니므로 재현 대상에서 뺀다(교착 점검은 §설계-3.5).
 - 선점 쪽이 '예약된 좌석 위에 홀드'(§함께 검증할 경합 첫 항목)를 만드는 길은 기본 조합 A에 없다(추정): 선점은 좌석을 `FOR UPDATE NOWAIT`로 잠근 **뒤** `AVAILABLE`을 다시 보고(DbLockHoldStrategies.kt:54 → HoldSeatProcess.kt:74-77), 확정은 좌석을 `AVAILABLE`로 만들지 않으며 홀드 삭제와 좌석 `RESERVED`를 한 트랜잭션에서 한다. 그래서 초안 후보 '선점 시 좌석 행 `FOR SHARE`'는 지금 잠금(`FOR UPDATE NOWAIT`)보다 약한 것으로 바꾸는 셈이라 **넣지 않는다**(재현 테스트에 '확정 커밋 직후 선점' 칸만 둔다 — 기대 409).
 
 ### 설계-3 선택지 넷 — 데이터 모델 · 문장 순서 · 잠금 · 배치 · 카운터 · 에러 · 교착 · 되돌리기
@@ -162,7 +162,7 @@ VALUES (:s, :seat, :u, :paymentUid, 'CONFIRMED', :now) RETURNING id;
 ```
 
 - 잠금 순서: 홀드 행(C1) → 좌석 행(C2) → FK 검사(C3). C1을 C2보다 먼저 두는 이유: ⓐ 배치와 같은 순서(교착 없음) ⓑ 에러 순서 HOLD_EXPIRED → SEAT_NOT_HELD를 문장 순서가 그대로 만든다.
-- 왜 충분한가(A 불변식 ② 'HELD ⇔ 홀드 정확히 1개' 위 — ADR-000 §2.1): 기본 조합 A에서 좌석이 다시 선점되려면 먼저 배치가 그 좌석의 홀드(내 것)를 지워야 한다(선점은 `AVAILABLE`만 잡는다). 그 삭제가 C1보다 먼저 커밋됐으면 C1은 0행(FM1 → 404). C1이 먼저면 C1이 홀드 행을 쥐어 배치 DELETE가 기다린다 → 그동안 좌석은 `AVAILABLE`이 될 수 없다. 홀드 id는 BIGSERIAL이라 다시 쓰이지 않아(V1__init.sql:25) Y의 새 홀드가 내 id로 보이는 ABA(값이 A → B → A로 돌아와 변경을 못 알아채는 문제)가 없다. 같은 홀드 이중 확정(FM2)은 뒤 쪽 C1이 앞 쪽 커밋을 기다린 뒤 0행 → 404.
+- 왜 충분한가(A 불변식 ② 'HELD ⇔ 홀드 정확히 1개' 위 — ADR-000 §2.1): 기본 조합 A에서 좌석이 다시 선점되려면 먼저 배치가 그 좌석의 홀드(내 것)를 지워야 한다(선점은 `AVAILABLE`만 잡는다). 그 삭제가 C1보다 먼저 커밋됐으면 C1은 0행(FM1 → 404). C1이 먼저면 C1이 홀드 행을 잡아 배치 DELETE가 기다린다 → 그동안 좌석은 `AVAILABLE`이 될 수 없다. 홀드 id는 BIGSERIAL이라 다시 쓰이지 않아(V1__init.sql:25) Y의 새 홀드가 내 id로 보이는 ABA(값이 A → B → A로 돌아와 변경을 못 알아채는 문제)가 없다. 같은 홀드 이중 확정(FM2)은 뒤 쪽 C1이 앞 쪽 커밋을 기다린 뒤 0행 → 404.
 - 배치와(이 모드에서는 A′ 배치 — §3.6): FM3(확정이 먼저)에서 A′의 조건부 DELETE는 홀드 행을 기다린 뒤 0행 → 그 키는 감소 0 · 좌석은 되돌림 대상에 들지 않는다 → **틱은 커밋**(정정 — 초안의 '틱 전체 롤백이 남는다'는 A 배치 무변경 전제였다). 배치가 먼저면 C1 0행 → 404(지금 A의 '배치 뒤 확정 = 404'와 같은 응답).
 - 문장 수: 성공 3(지금 A2 · A3 · A5 · A6 · A7 = 5 — 추정 `[구현 검증]` #2) · 실패 +1(진단).
 - 되돌리기: 설정 옵션을 `current`로(스키마 없음).
@@ -185,7 +185,7 @@ INSERT INTO reservation (…) VALUES (…) RETURNING id;     -- C3과 같다
 ```
 
 - **잠금 순서 = 홀드 → 좌석**(초안 '좌석 → 홀드'를 바꾼다 — Q2). 좌석을 먼저 잡으면: ① ②가 좌석 S를 잠금 ② A′ 배치 B3이 내 홀드 h를 DELETE(행 잠금 획득) 뒤 B5 좌석 S UPDATE에서 ②를 기다림 ③ ②의 P1이 h에서 배치를 기다림 → **고리(40P01 — 교착 탐지로 한쪽 롤백)**. A′가 홀드 → 좌석 순서로 쓰기 때문이다(§3.6 · `[구현 검증]` #3). 정정 15-02: JPA 배치(`current`)는 좌석 → 홀드 순이라 '좌석 → 홀드' 판과 고리가 닫히지 않는다 — 대조판은 A′ 배치와 짝지어 보인다. ADR-014 B·C·D 확정(`LazyConfirmProcess` — 좌석 K2 → 홀드 K3)은 좌석 → 홀드지만, 그쪽 배치는 좌석을 `SKIP LOCKED`로 먼저 잡거나(C) 좌석을 쓰지 않아(D) 고리가 없다(ADR-014 §3.2) — A 배치는 그렇지 않다. 재현 테스트에 '좌석 → 홀드' 대조판을 넣어 40P01이 나는 것을 한 번 보인다(§설계-7 #9).
-- ①과의 차이: 확인을 문장 조건이 아니라 잠근 뒤 메모리에서 한다. 잠금 읽기 2문장이 늘고(성공 6), 좌석 잠금을 P2부터 커밋까지 쥔다 — 그동안 같은 좌석 선점은 NOWAIT로 진다(어차피 `HELD`라 선조회 409가 먼저다 — UserLimitStrategies.kt:340).
+- ①과의 차이: 확인을 문장 조건이 아니라 잠근 뒤 메모리에서 한다. 잠금 읽기 2문장이 늘고(성공 6), 좌석 잠금을 P2부터 커밋까지 잡는다 — 그동안 같은 좌석 선점은 NOWAIT로 진다(어차피 `HELD`라 선조회 409가 먼저다 — UserLimitStrategies.kt:340).
 - 배치와(A′): P1이 먼저면 A′ DELETE가 기다린 뒤 0행 → 그 키만 건너뛰고 틱 커밋(①과 같다). 배치가 먼저면 P1 행 없음 → 404.
 - 되돌리기: 설정 옵션.
 
@@ -262,7 +262,7 @@ RETURNING expires_at;
   - 클라이언트(k6 — §설계-8.2): `payment-start` 200이 준 `expiresAt`보다 앞(여유 1초)에 보낸 확정이 404 · 409 HOLD_EXPIRED면 `ext_then_lost` +1(서버 지표와 교차 확인 · 기대 0).
   - 판정(끝 · DB 직접): `SELECT count(*) FILTER (WHERE extended_at IS NOT NULL), max(expires_at - held_at) FILTER (WHERE extended_at IS NOT NULL) FROM seat_hold` — 살아 있는 연장 홀드 수 · 최대 수명(상한 `TTL + window` 이하여야 한다 — N9).
 - 잠금: 홀드 행 하나(E1). 배치가 그 행을 기다릴 수 있으나 연장은 아무것도 기다리지 않는다 → 고리 없음.
-- 카운터: 없음(홀드 행 수 그대로). 대가: 연장된 홀드는 매수 한도와 좌석을 더 오래 쥔다 — 지표(홀드 수명 분포 · 만료로 풀린 좌석 수).
+- 카운터: 없음(홀드 행 수 그대로). 대가: 연장된 홀드는 매수 한도와 좌석을 더 오래 잡는다 — 지표(홀드 수명 분포 · 만료로 풀린 좌석 수).
 - 되돌리기: 설정 옵션(API가 사라진다 — 클라이언트는 404를 받는다 · 확정은 연장 없이도 동작). V13 열은 남는다(무해 — `current`는 읽지도 쓰지도 않는다).
 
 #### 3.5 잠금 순서 · 교착 점검표 (A · 기본 조합 — 15-01b 다시 점검: 확정 ①~④ · current · A′ 배치 · JPA 배치 · 선점 · 정리 ① · 연장)
@@ -283,12 +283,12 @@ RETURNING expires_at;
 | 확정(①~④) ↔ A′ 배치 | 아니다 | 같은 방향(홀드 → 좌석). 확정은 쿼터 행을 잡지 않으므로 B2가 확정을 기다리게 할 수 없다. 좌석 KEY SHARE(FK)는 B5의 좌석 UPDATE(`FOR NO KEY UPDATE` 급)와 충돌하지 않는다 (추정 #4) |
 | 확정 current ↔ JPA 배치 | 아니다 | 지금과 같다(무변경 — `current` 모드에서는 A′가 돌지 않는다) |
 | ② '좌석 → 홀드' 판 ↔ 배치(JPA · A′ 모두) | **닫힌다** | §3.2 — 그래서 고르지 않는다(대조 테스트로만) |
-| A′ 배치 ↔ 선점 | 아니다 | B2가 Y의 쿼터 행을 기다릴 수 있으나 Y는 쿼터 행 뒤에 NOWAIT(좌석)만 있어 기다리지 않고 끝난다. 선점은 A′가 쥔 홀드 행 · 좌석 행을 기다리지 않는다(NOWAIT) |
+| A′ 배치 ↔ 선점 | 아니다 | B2가 Y의 쿼터 행을 기다릴 수 있으나 Y는 쿼터 행 뒤에 NOWAIT(좌석)만 있어 기다리지 않고 끝난다. 선점은 A′가 잡은 홀드 행 · 좌석 행을 기다리지 않는다(NOWAIT) |
 | A′ 배치 ↔ 정리 ① | 아니다 | A′는 회차 행을 잡지 않는다. 정리 ①은 A′가 커밋 전이면 지운 홀드가 아직 보여(RC) 쿼터 행을 지우지 않고 끝나고(QuotaCleanup.kt:133-136), 커밋 뒤면 잠금이 없다 (추정 — 동시성 테스트 #9) |
-| A′ 배치 ↔ 연장 | 아니다 | 연장은 홀드 행 하나만 쥐고 아무것도 기다리지 않는다. B3이 그 행을 기다린 뒤 EPQ로 재확인(FM5 — 지우지 않음) |
+| A′ 배치 ↔ 연장 | 아니다 | 연장은 홀드 행 하나만 잡고 아무것도 기다리지 않는다. B3이 그 행을 기다린 뒤 EPQ로 재확인(FM5 — 지우지 않음) |
 | A′ 배치 ↔ A′ 배치 | 해당 없음 | 만료 틱은 앱 1대 · 한 스레드(ExpiryCounters.kt:42-47 주석) — 여러 대가 되면 B2 정렬 잠금이 같은 순서를 지킨다 |
-| 확정 ↔ 선점 | 아니다 | 선점의 좌석 잠금은 NOWAIT(확정이 쥔 좌석이면 즉시 409). 확정이 기다리는 좌석을 선점이 쥐었다면 선점은 그 뒤 기다리는 것이 없다(새 홀드 INSERT의 FK는 회차 · 좌석 — 자기 쥔 행 · 회차 공유) |
-| 확정 ↔ 정리 ① | 아니다 | 확정이 홀드 행을 쥔 채 FK 검사로 회차를 기다려도, 정리 ①은 홀드가 보이면(지워졌어도 커밋 전이라 보인다 — RC) 쿼터 행을 지우지 않고 끝난다(QuotaCleanup.kt:133-136) → 정리 ①이 기다리는 행이 없다 (추정 — 동시성 테스트 #9) |
+| 확정 ↔ 선점 | 아니다 | 선점의 좌석 잠금은 NOWAIT(확정이 잡은 좌석이면 즉시 409). 확정이 기다리는 좌석을 선점이 잡았다면 선점은 그 뒤 기다리는 것이 없다(새 홀드 INSERT의 FK는 회차 · 좌석 — 자기 잡은 행 · 회차 공유) |
+| 확정 ↔ 정리 ① | 아니다 | 확정이 홀드 행을 잡은 채 FK 검사로 회차를 기다려도, 정리 ①은 홀드가 보이면(지워졌어도 커밋 전이라 보인다 — RC) 쿼터 행을 지우지 않고 끝난다(QuotaCleanup.kt:133-136) → 정리 ①이 기다리는 행이 없다 (추정 — 동시성 테스트 #9) |
 | 확정 ↔ 확정(같은 홀드) | 아니다 | 뒤 쪽이 홀드 행에서 기다린 뒤 0행(`current` + V12면 뒤 쪽이 예약 INSERT의 유니크 검사에서 기다린 뒤 23505 — FM2) |
 | 확정 current ↔ 선점 | 아니다(관찰 사항) | 확정의 A5 FK KEY SHARE가 커밋까지 좌석 행에 남아 그동안 같은 좌석 선점의 `FOR UPDATE NOWAIT`가 진다(55P03 → 409 nowait) — Hibernate의 `PESSIMISTIC_WRITE`가 `FOR UPDATE`면 그렇고 `FOR NO KEY UPDATE`면 아니다 (추정 #4) |
 
@@ -327,8 +327,8 @@ RETURNING st.id;
 --   지표 seat.hold.expiry.revert{path=sweep,result=reverted|not_held|kept_active}(revertSeats 지표와 같은 이름 — LazyHoldProcess.kt:197-198 · 시각만 :now라 ExpiryRule.ACTIVE_ON_SEAT(DB now() — ExpiryRule.kt:10)는 쓰지 않는다)
 ```
 
-- **카운터 = 실제로 지운 행**: 지금은 감소(JDBC 즉시)가 flush DELETE보다 앞이라 '고른 행' 기준이다(§설계-1). A′는 B3의 `RETURNING`을 센 뒤 B4에서 내린다 — FM3(확정이 먼저 홀드를 지움)이면 그 키는 0행 · 감소 0이고, 확정이 홀드 −1 · 예약 +1을 했으므로 cnt = 홀드 + 확정이 그대로 맞는다. 잠금 순서는 B2(쿼터) → B3(홀드) → B5(좌석)로 지금 배치와 같다(감소 문장이 B3 뒤로 옮겨 가도 쿼터 행 잠금은 B2에서 먼저 쥔다 — ADR-014 §2.4 규칙 ①과 같은 뜻).
-- **FM3 · FM5에서**: B3이 확정 · 연장이 쥔 홀드 행을 기다린 뒤 0행(확정이 지움) · 지우지 않음(연장이 늘림) → 그 키 · 좌석만 건너뛰고 **틱 커밋**. 이것으로 'FM3 때문에 틱 전체 롤백'은 새 모드에서 사라진다. 남는 틱 롤백 원인(B3b 불일치 · 40P01 · CHECK)은 지표로 재고 NEXT.
+- **카운터 = 실제로 지운 행**: 지금은 감소(JDBC 즉시)가 flush DELETE보다 앞이라 '고른 행' 기준이다(§설계-1). A′는 B3의 `RETURNING`을 센 뒤 B4에서 내린다 — FM3(확정이 먼저 홀드를 지움)이면 그 키는 0행 · 감소 0이고, 확정이 홀드 −1 · 예약 +1을 했으므로 cnt = 홀드 + 확정이 그대로 맞는다. 잠금 순서는 B2(쿼터) → B3(홀드) → B5(좌석)로 지금 배치와 같다(감소 문장이 B3 뒤로 옮겨 가도 쿼터 행 잠금은 B2에서 먼저 잡는다 — ADR-014 §2.4 규칙 ①과 같은 뜻).
+- **FM3 · FM5에서**: B3이 확정 · 연장이 잡은 홀드 행을 기다린 뒤 0행(확정이 지움) · 지우지 않음(연장이 늘림) → 그 키 · 좌석만 건너뛰고 **틱 커밋**. 이것으로 'FM3 때문에 틱 전체 롤백'은 새 모드에서 사라진다. 남는 틱 롤백 원인(B3b 불일치 · 40P01 · CHECK)은 지표로 재고 NEXT.
 - **구현 형태(권장)**: 새 클래스(예: `SweepConditionalBatch`)가 `LazyExpiryBatch`의 키 잠금 · MISSING · 감소 갈래를 그대로 쓰고(공용 함수로 꺼내기 — 사다리 ② 재사용) 시각만 `:now` 인자로 받는다. `ExpireHoldsService.expire`는 :38 트랜잭션 몸통에서 모드로 가른다(`current`면 :39-44 그대로). 측정 주입(`afterExpiryDecrement` — ExpiryCounters.kt:60)은 A′ 경로에 없다(`decrementDeleted`는 부르지 않는다 — :117 주석) → `inject-app.enabled=true` + `mode ≠ current`는 기동 거부(§설계-5 규칙 5).
 - 되돌리기: 설정 옵션을 `current`로(스키마 없음 — A′는 V13 열을 읽기만 한다).
 
@@ -343,7 +343,7 @@ CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE
 - **번호**: 기존 최대는 V11(선택 위치 `db/migration-seat-map` — V11__seat_map_index.sql) → **V12**(이 인덱스 · 기본 위치) · **V13**(④ 표지 열 `seat_hold.extended_at` · 기본 위치 — §3.4) · **V14**(③ 버전 트리거 · 선택 위치 `db/migration-confirm-version` — §3.3). 기본 위치 파일은 V1·V2·V3·V5·V6·V7(+V12·V13), 선택 위치는 V4(unique) · V8(trigger) · V9(두 판 — migration-updated-at · migration-updated-at-trigger) · V10(incremental) · V11(seat-map)(+V14). 선택 위치 V14를 기본 위치 V12·V13보다 위에 두는 까닭: 나중에 ③을 켜려고 위치를 더해도 '적용된 버전보다 낮은 미적용'(아래 순서 함정)이 되지 않는다.
 - **막는 것 · 못 막는 것**: FM2(같은 좌석 CONFIRMED 2건)만 막는다. FM1(내 예약 1건 + 남의 홀드)과 FM3(예약 + 좌석 `AVAILABLE`)은 예약이 1건이라 이 인덱스로 보이지 않는다 — 원자성은 §설계-3이 맡고, 이 인덱스는 앱 로직이 뚫린 중복 확정만 받는다.
 - **위반 응답**: 409 SEAT_NOT_HELD + ERROR 로그 + 지표 `seat.confirm.unique_violation`(기대 0 — 0이 아니면 앱 가드가 뚫린 것 · 측정에서 실패로 센다). 인덱스 이름과 SQLSTATE 23505가 모두 맞을 때만 바꾸고, 다른 무결성 오류는 그대로 올린다(DbLockHoldStrategies.kt:104-111과 같은 방식). **적용 = A 확정만, `current` 포함**(Q6 권장안 채택 — JPA 경로는 IDENTITY INSERT라 save 자리(ConfirmReservationService.kt:49-58)에서 예외가 난다 (추정 #13)). `current`에서는 FM2(같은 홀드 이중 확정)가 V12 아래에서 이 갈래로 끝나므로 `current` 셀의 `unique_violation`은 0이 아닐 수 있다 — 측정에서 '실패'로 세는 것은 새 모드 넷의 값뿐이다(§설계-8). **B·C·D 확정의 23505는 500 그대로**(매핑하지 않음 · 조용히 넘기지 않음 — §설계-3 공통 규칙 · 받아들인 한계).
-- **적용 락(ADR-013 §7.3 원칙 '락을 쥐는 시간은 트랜잭션 경계가 정한다')**: 트랜잭션 안 `CREATE UNIQUE INDEX`는 `reservation`에 SHARE 락을 끝까지 쥔다 → 그동안 확정(예약 INSERT)이 멈춘다(선점 · 배치는 `reservation`을 쓰지 않는다). 운영 크기 사본에서 시간을 먼저 재고 `[구현 검증]` #5, 짧으면 Flyway 트랜잭션 안 그대로 · 길면 `CONCURRENTLY` 판(`V12__….sql.conf`의 `executeInTransaction=false` · 기동 검사가 `pg_index.indisvalid`를 본다 — ADR-013 §4.4 INVALID 규칙과 같은 뜻). **`CONCURRENTLY` 실패 뒤 재시도 절차**(운영 · 한 단계씩 확인): ① 앱을 띄우지 않은 채 `DROP INDEX CONCURRENTLY IF EXISTS uq_reservation_confirmed_seat`(INVALID 인덱스 제거 — 트랜잭션 밖) ② **`flyway repair`**(같은 위치 · 같은 SHA — 실패로 남은 V12 이력 행을 지운다. 지우지 않으면 다음 migrate가 '실패한 마이그레이션이 있다'로 멈춘다 — Flyway 11.7.2가 PostgreSQL의 비트랜잭션 실패를 이력에 남기는지 `[구현 검증]` #5) ③ R0 다시(실패 원인이 23505 중복이면 R1부터) ④ 앱 기동 → V12 다시 적용 → `indisvalid` 확인. ②를 건너뛰고 이력 표를 손으로 고치지 않는다.
+- **적용 락(ADR-013 §7.3 원칙 '락을 잡는 시간은 트랜잭션 경계가 정한다')**: 트랜잭션 안 `CREATE UNIQUE INDEX`는 `reservation`에 SHARE 락을 끝까지 잡는다 → 그동안 확정(예약 INSERT)이 멈춘다(선점 · 배치는 `reservation`을 쓰지 않는다). 운영 크기 사본에서 시간을 먼저 재고 `[구현 검증]` #5, 짧으면 Flyway 트랜잭션 안 그대로 · 길면 `CONCURRENTLY` 판(`V12__….sql.conf`의 `executeInTransaction=false` · 기동 검사가 `pg_index.indisvalid`를 본다 — ADR-013 §4.4 INVALID 규칙과 같은 뜻). **`CONCURRENTLY` 실패 뒤 재시도 절차**(운영 · 한 단계씩 확인): ① 앱을 띄우지 않은 채 `DROP INDEX CONCURRENTLY IF EXISTS uq_reservation_confirmed_seat`(INVALID 인덱스 제거 — 트랜잭션 밖) ② **`flyway repair`**(같은 위치 · 같은 SHA — 실패로 남은 V12 이력 행을 지운다. 지우지 않으면 다음 migrate가 '실패한 마이그레이션이 있다'로 멈춘다 — Flyway 11.7.2가 PostgreSQL의 비트랜잭션 실패를 이력에 남기는지 `[구현 검증]` #5) ③ R0 다시(실패 원인이 23505 중복이면 R1부터) ④ 앱 기동 → V12 다시 적용 → `indisvalid` 확인. ②를 건너뛰고 이력 표를 손으로 고치지 않는다.
 - **기존 중복 사전 검사(운영 절차 · 배포 전 — ADR-013 원칙: 기존 데이터 사본에서 먼저)**:
 
 ```sql
@@ -373,7 +373,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 --    (판정기 문장을 DB에서 직접 — LoadtestDataService.kt:140-210)
 ```
 
-  - **다시 세기가 맞는 까닭(정정 — 초안의 `cnt − n` 차감은 그 키의 cnt가 이미 어긋나 있으면 불일치를 그대로 옮긴다)**: 그 키의 실제 값을 바꾸는 경로는 모두 쿼터 행을 먼저 잠그거나(선점 upsert · 배치 감소 — 지금 배치는 감소가 flush보다 앞이라 R1이 잠금을 쥐면 배치는 감소에서 기다리고, 그때 그 배치의 홀드는 아직 지워지지 않아 ③이 센다 · A′는 B2), 한 트랜잭션에서 홀드 −1 · 예약 +1을 함께 한다(확정 — 한 문장 스냅숏에는 둘 다 보이거나 둘 다 안 보인다). 그래서 ① 잠금 아래 ③의 한 문장 값이 그 키의 정의 값이다. 상한(max-per-user)을 넘는 값도 그대로 둔다(V6:4와 같다).
+  - **다시 세기가 맞는 까닭(정정 — 초안의 `cnt − n` 차감은 그 키의 cnt가 이미 어긋나 있으면 불일치를 그대로 옮긴다)**: 그 키의 실제 값을 바꾸는 경로는 모두 쿼터 행을 먼저 잠그거나(선점 upsert · 배치 감소 — 지금 배치는 감소가 flush보다 앞이라 R1이 잠금을 잡으면 배치는 감소에서 기다리고, 그때 그 배치의 홀드는 아직 지워지지 않아 ③이 센다 · A′는 B2), 한 트랜잭션에서 홀드 −1 · 예약 +1을 함께 한다(확정 — 한 문장 스냅숏에는 둘 다 보이거나 둘 다 안 보인다). 그래서 ① 잠금 아래 ③의 한 문장 값이 그 키의 정의 값이다. 상한(max-per-user)을 넘는 값도 그대로 둔다(V6:4와 같다).
   - 좌석은 `RESERVED` 그대로(확정 1건이 남는다). 취소한 예약은 행으로 남긴다(지우지 않는다 — 결제 uid 추적 · ADR-017 입력). 다시 센 값은 0 이상이라 V5 CHECK(V5__user_hold_quota.sql:6)에 걸릴 일이 없다.
   - R0과 V12 사이에 새 중복이 생겨도 V12가 23505로 실패하고 앱이 뜨지 않는다(조용히 넘기지 않음) → R0부터 다시.
 - **기본 위치에 두어서 생기는 일(사용자 결정의 대가 — 코드 사실)**:
@@ -394,9 +394,9 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
   3. `loadtest.delay > 0`이면 loadtest 프로필이어야 한다(측정 장치 — `inject-app`과 같은 원칙).
   4. `conditional-extend`면 `payment-window > 0` · `0 ≤ extend-min-remaining < payment-window`.
   5. `mode ≠ current`이면 `seat.hold.loadtest.inject-app.enabled=false`여야 한다 — 주입 이음새 `afterExpiryDecrement`(ExpiryCounters.kt:60)는 JPA 배치의 가드 감소에만 있고 A′(`decrementDeleted` — ExpiryCounters.kt:117 주석)에는 없어, 함께 켜면 주입이 조용히 빠진다(ADR-014 checkExpiryModeConfig와 같은 원칙 — HoldStrategyStartupCheck.kt:195-198).
-  6. **③ 트리거(V14) 짝 — 설정으로 판정(마이그레이션 앞)**: 위치 목록(`spring.flyway.locations` — 목록 전체를 덮어쓰는 값 · HoldStrategyStartupCheck.kt:362-363)에 `classpath:db/migration-confirm-version`이 있고 `target`이 14에 닿으면 '트리거가 생긴다'로 본다(Flyway 관문의 `reaches` 판정 — HoldStrategyStartupCheck.kt:51과 같은 규칙). ⓐ `mode = optimistic`이면 그 위치가 있어야 한다 ⓑ 그 위치가 있으면 `strategy ≠ optimistic`(ADR-003 낙관락 선점 — §3.3 (가)의 충돌). 이미 트리거가 적용된 DB는 관문의 '내다본 스키마'(DB 사실 읽기 + 위치 — HoldStrategyStartupCheck.kt:55-58)에서 같은 규칙을 본다. 둘 다 `flyway.migrate()`(:60) **앞**이라 거부된 기동은 스키마를 바꾸지 않는다(HoldStrategyStartupCheck.kt:31-35 원칙 — 초안의 '`run`에서 검사'는 V14가 이미 적용된 뒤라 이 원칙을 어긴다 · 정정).
+  6. **③ 트리거(V14) 짝 — 설정으로 판정(마이그레이션 앞)**: 위치 목록(`spring.flyway.locations` — 목록 전체를 덮어쓰는 값 · HoldStrategyStartupCheck.kt:362-363)에 `classpath:db/migration-confirm-version`이 있고 `target`이 14에 닿으면 '트리거가 생긴다'로 본다(Flyway 관문의 `reaches` 판정 — HoldStrategyStartupCheck.kt:51과 같은 규칙). ⓐ `mode = optimistic`이면 그 위치가 있어야 한다 ⓑ 그 위치가 있으면 `strategy ≠ optimistic`(ADR-003 낙관락 선점 — §3.3 (가)의 충돌). 이미 트리거가 적용된 DB는 관문의 '내다본 스키마'(DB에 저장된 데이터 읽기 + 위치 — HoldStrategyStartupCheck.kt:55-58)에서 같은 규칙을 본다. 둘 다 `flyway.migrate()`(:60) **앞**이라 거부된 기동은 스키마를 바꾸지 않는다(HoldStrategyStartupCheck.kt:31-35 원칙 — 초안의 '`run`에서 검사'는 V14가 이미 적용된 뒤라 이 원칙을 어긴다 · 정정).
   7. **새 모드 + V12 없음 = 기동 거부(WARN 아님)**: `mode ≠ current`인데 `spring.flyway.target`이 12 미만으로 주어졌으면 거부. 예외는 **`seat.confirm.unique-index-optional=true`**(기본 false) 하나 — 이 키는 `target`이 12 미만으로 **명시**됐을 때만 받는다(아니면 그 자체로 거부 — 일반 배포에서 인덱스 없음을 가리는 데 쓸 수 없다). 쓰는 곳은 재현 테스트의 'V12 없음' 판(§설계-8.1)뿐이다(.164 측정은 V12 있음 — 키를 주지 않는다).
-- **DB 상태 검사(`run` — 마이그레이션 뒤 · Flyway가 꺼진 구성에서도 빠지지 않게 — HoldStrategyStartupCheck.kt:40)**: ③ 트리거(V14) — 규칙 6을 DB 사실로 다시(있으면 `strategy ≠ optimistic` · `mode = optimistic`이면 있어야 함 · 그 밖의 모드에서 남는 것은 무해 — §3.3 되돌리기). V12 인덱스 — **INVALID면 모든 모드 거부** · 없으면 `mode = current`는 WARN(베이스라인 재현 `target=7`(T12) — ADR-001·003 조건) · `mode ≠ current`는 `unique-index-optional=true`가 아니면 **거부**(규칙 7과 같은 뜻 · Q14 정정). V13 열 — `mode = conditional-extend`면 있어야 한다(없으면 거부 · `target` 12 이하로 띄운 경우).
+- **DB 상태 검사(`run` — 마이그레이션 뒤 · Flyway가 꺼진 구성에서도 빠지지 않게 — HoldStrategyStartupCheck.kt:40)**: ③ 트리거(V14) — 규칙 6을 DB에 저장된 데이터로 다시(있으면 `strategy ≠ optimistic` · `mode = optimistic`이면 있어야 함 · 그 밖의 모드에서 남는 것은 무해 — §3.3 되돌리기). V12 인덱스 — **INVALID면 모든 모드 거부** · 없으면 `mode = current`는 WARN(베이스라인 재현 `target=7`(T12) — ADR-001·003 조건) · `mode ≠ current`는 `unique-index-optional=true`가 아니면 **거부**(규칙 7과 같은 뜻 · Q14 정정). V13 열 — `mode = conditional-extend`면 있어야 한다(없으면 거부 · `target` 12 이하로 띄운 경우).
 - 적용 범위: 업무 앱만. reconciler 프로필(F — 보정 전용 프로세스)은 컨트롤러가 없다(ReservationController.kt:15).
 
 ### 설계-6 새 동작 불변식 (설계 선검증 대상 — 코드베이스에 없던 것만)
@@ -430,7 +430,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 8. ④ 연장을 잃는 창(FM5 — 배치 후보 읽기 → 연장 커밋 → 배치 DELETE) — L-E + L-B′ 래치: A′에서 지우지 않음(EPQ 재확인) · 보정 배치에서 지움(잃음 1) · `extend-min-remaining` 기본값.
 9. 교착 테스트 — 40P01 0: 확정(①~④) ↔ 배치 · 확정 ↔ 정리 ①(마감 회차 확정 중 정리) · ② 대조판.
 10. 확정이 이긴 경합(FM3)에서 `current`(JPA 배치)의 틱 전체 롤백 빈도 · 밀린 만료 수(`seat.hold.expiry.tick{outcome=failed}` — ExpireHoldsService.kt:48) 대 새 모드(A′)의 0. A′의 남은 틱 롤백 원인(B3b 불일치 · 40P01 · CHECK) 빈도 — NEXT 판단 입력.
-11. 지연 주입 자리의 모드별 의미(§설계-8.2) — 주입이 잠금을 쥔 채 도는지(②) 아닌지(①).
+11. 지연 주입 자리의 모드별 의미(§설계-8.2) — 주입이 잠금을 잡은 채 도는지(②) 아닌지(①).
 12. .164 앱 Clock과 DB 시계 차(모든 모드가 앱 Clock — 정합성 검증기 `active_on_reserved_seats`는 DB `now()` 기준이라 경계 표본이 갈릴 수 있다 — LoadtestDataService.kt:224).
 13. `current` 경로의 유니크 위반이 save 자리에서 `DataIntegrityViolationException`으로 오는지(IDENTITY 즉시 INSERT) · **FM2의 V12 유무별 결과**(SQL 로그로 확인): V12 있음 = 늦은 쪽 INSERT가 유니크 검사에서 앞 쪽 커밋을 기다린 뒤 23505(A6 앞 — 409 매핑) · V12 없음 = 두 INSERT 통과 뒤 늦은 쪽 A6 DELETE 0행 예외(500). 어느 문장이 던졌는지를 로그의 문장 · SQLSTATE로 가른다.
 14. V13 열이 JPA에 무해한가 — `ddl-auto: validate`가 매핑 안 된 `extended_at`을 무시하는지 · JPA 선점 INSERT가 NULL로 넣는지 · `ALTER TABLE … ADD COLUMN … NULL`이 .164 크기 `seat_hold`에서 표를 다시 쓰지 않는지(잠금 길이).
@@ -447,7 +447,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 | 래치 | 멈추는 쪽 · 자리 | 이음새 |
 |---|---|---|
-| L-C | 확정 '확인 뒤 · 첫 쓰기 앞': `current` = `seat.confirm` 뒤 save 앞(ConfirmReservationService.kt:47과 :49 사이) · ① · ④ = `:now` 뒤 C1 앞 · ② = P2 뒤 P3 앞(잠금을 쥔 채) · ③ = O1 뒤 O2 앞 · 대조 확정 = 확인 뒤 쓰기 앞 | 새 테스트 전용 훅(확정 모드 공용) |
+| L-C | 확정 '확인 뒤 · 첫 쓰기 앞': `current` = `seat.confirm` 뒤 save 앞(ConfirmReservationService.kt:47과 :49 사이) · ① · ④ = `:now` 뒤 C1 앞 · ② = P2 뒤 P3 앞(잠금을 잡은 채) · ③ = O1 뒤 O2 앞 · 대조 확정 = 확인 뒤 쓰기 앞 | 새 테스트 전용 훅(확정 모드 공용) |
 | L-B(JPA) | `current`의 JPA 배치 '후보 읽기(ExpireHoldsService.kt:40) · 가드 감소 뒤 · flush(홀드 DELETE) 앞' | **기존 이음새** `AppPathInjectHook.afterExpiryDecrement`(ExpiryCounters.kt:60 · 인터페이스 AppPathInjectHook.kt:11-12) — 테스트가 자기 `AppPathInjectHook` 빈을 둔다(`ObjectProvider` — ExpiryCounters.kt:30 · loadtest의 `AppPathInjector`(AppPathInjector.kt:56)는 띄우지 않는다). **조건**: `expiry-repair=true`(application.yml:57)이고 그 키의 가드 감소가 1행일 때만 불린다(:56-60 — 복구 갈래 :57 · 옛 경로 :89-98에서는 안 불린다) → FM3 테스트는 쿼터 행이 맞는 상태에서 돈다 |
 | L-B′ | A′ 배치 '후보 읽기 · 키 잠금(B1 · B2 · B2b) 뒤 · B3 DELETE 앞' | 새 테스트 전용 이음새(A′ 안 — 감소는 B3 뒤라 '감소 뒤'가 아니다) |
 | L-B(대조) | 보정 배치 '후보 읽기 · 후보 수만큼 감소 뒤 · 무조건 DELETE 앞' | 보정 배치 자신(테스트 소스) |
@@ -467,7 +467,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 #### 8.2 .164 부하 측정 (확정 경합)
 
-- 시나리오 `confirm-contention`(k6 — 새 디렉토리 `k6/ADR-015`): 짧은 TTL(초 단위) · 확정 요청을 만료 경계 부근에 몰리게 보내는 흐름(선점 → 대기 ≈ TTL → 확정) · 만료 직후 같은 좌석을 노리는 재선점 VU · 같은 홀드 이중 확정 비율 · ④ 셀은 확정 전에 `payment-start`. 확정 지연 주입 `seat.confirm.loadtest.delay`(loadtest 프로필 전용 · 자리 = 모드별 '확인 뒤 · 첫 쓰기 앞': current = ProductSeat.confirm 뒤 save 앞(ConfirmReservationService.kt:47과 :49 사이) · ① = `:now` 뒤 C1 앞 · ② = P2 뒤 P3 앞(잠금을 쥔 채) · ③ = O1 뒤 O2 앞).
+- 시나리오 `confirm-contention`(k6 — 새 디렉토리 `k6/ADR-015`): 짧은 TTL(초 단위) · 확정 요청을 만료 경계 부근에 몰리게 보내는 흐름(선점 → 대기 ≈ TTL → 확정) · 만료 직후 같은 좌석을 노리는 재선점 VU · 같은 홀드 이중 확정 비율 · ④ 셀은 확정 전에 `payment-start`. 확정 지연 주입 `seat.confirm.loadtest.delay`(loadtest 프로필 전용 · 자리 = 모드별 '확인 뒤 · 첫 쓰기 앞': current = ProductSeat.confirm 뒤 save 앞(ConfirmReservationService.kt:47과 :49 사이) · ① = `:now` 뒤 C1 앞 · ② = P2 뒤 P3 앞(잠금을 잡은 채) · ③ = O1 뒤 O2 앞).
 - 지표: 확정 처리량 · 확정 p99(상위 1% 응답 시간) · 선점 p99 · DB CPU · 응답 코드 분포(404 · 409 HOLD_EXPIRED · 409 SEAT_NOT_HELD · 5xx) · 40P01 수 · 배치 틱 실패 수 · 배치 틱 시간 · 문장 수(JPA 대 A′ — #15) · `seat.hold.expiry.revert{result}` · `seat.confirm.unique_violation`(새 모드 기대 0 · `current`는 FM2 몫이 있을 수 있다) · `seat.confirm.unexpected` · **`seat.confirm.converted_after_expiry{clock=db|app}`**(건수 · `전환 시각 − expires_at` 최대 — 기대값 없음 · 모드별 분포) · (④) `seat.confirm.extend{result}` · `seat.confirm.extension_lost` · `seat.hold.expiry.deleted{extended}` · k6 `ext_then_lost` · 연장 수 · 홀드 수명.
 - **이중 결과 수 = 0**(끝 정합성 검증기 — LoadtestDataService.kt:140-234): `v_duplicate_confirmed_seats` · `v_reserved_without_confirmed` · `v_confirmed_on_unreserved_seat` · `v_hold_on_unheld_seat` · `active_on_reserved_seats` · `double_sold_seats` · `v_counter_mismatch` — 모두 기대 0. .164에는 V12가 있으므로 앱 가드가 뚫린 중복 확정은 `unique_violation`으로 보인다 → 그것도 0이어야 한다.
 - 하네스: ADR-014 §결정-3의 keep-alive 수정(긴 생각 시간 앞 `Connection: close`)을 먼저 넣는다 — 같은 EOF가 5xx 지표를 흐리지 않게.
@@ -501,7 +501,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | T2 | N11 '`target=11` + 키 → 기동' | **새 모드는 V13 열이 있어야 한다**(A′ B3 `RETURNING extended_at` — 모든 새 모드) → 규칙 7을 '`mode ≠ current`이면 `spring.flyway.target`이 주어졌을 때 13 이상'으로, `run` 검사의 V13 없음 거부를 ④만이 아니라 **새 모드 전부**로 넓힌다. `target=11`은 `current` 베이스라인 재현 전용 |
 | T3 | 거부 메시지 | `IllegalStateException` · 메시지에 위반한 키 이름(`seat.confirm.*` · `seat.hold.*`)을 넣는다 — 테스트는 원인 사슬의 ISE + 'confirm' 포함으로 본다 |
 | T4 | 기대 0 지표의 '등록 안 됨' | 없는 지표 = 0으로 읽는 것을 허용(늘어나야 하는 칸은 없으면 실패). `unique_violation`은 태그 없이 하나 |
-| T5 | ② L-C 자리 | **P1(`… FOR UPDATE`) 앞**으로 옮긴다(P2 뒤면 배치가 홀드 행에서 기다려 FM1을 만들 수 없다). '잠금을 쥔 채' 칸은 교착 점검 래치(L-S)가 맡는다. 부하 지연 주입 자리(§8.2 ② = P2 뒤 P3 앞)는 그대로 — 측정의 뜻(잠금 보유 비용)이 다르다 |
+| T5 | ② L-C 자리 | **P1(`… FOR UPDATE`) 앞**으로 옮긴다(P2 뒤면 배치가 홀드 행에서 기다려 FM1을 만들 수 없다). '잠금을 잡은 채' 칸은 교착 점검 래치(L-S)가 맡는다. 부하 지연 주입 자리(§8.2 ② = P2 뒤 P3 앞)는 그대로 — 측정의 뜻(잠금 보유 비용)이 다르다 |
 | T6 | `payment-window` · `extend-min-remaining` 기본값 | 테스트는 2m · 5s 명시. 앱 기본값은 측정 task가 고정 — 그 전까지 ④ 모드는 두 키를 명시해야 기동(규칙 4가 `payment-window > 0`을 요구 · 기본 0) |
 | T7 | `payment-start` 200 본문 | `{holdId, expiresAt}` · `expiresAt` = ISO-8601(지금 홀드 응답과 같은 Jackson 기본) |
 | T8 | 규칙 3 범위 | 모드 무관(`current` + delay도 loadtest 프로필이 아니면 거부) |
@@ -571,7 +571,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 - **TTL 30초 · 배치 주기 10초**: TTL = ADR-014 t30 셀 선례(plan14 MAIN · 측정-2 :546) · 주기 = application.yml:40 기본값(ADR-014 측정-1 :534 '모든 셀 고정'과 같다).
 - **Flyway = 업무 앱 기본 위치(application.yml:16 — migration · updated-at-trigger · incremental) · target 없음(최신 — V12 · V13 적용)** · `optimistic`만 `classpath:db/migration-confirm-version`(V14 트리거 — 규칙 6) 추가. 회차마다 V12 인덱스 유효(indisvalid · indisunique · 부분 조건) · V13 열 · V14 트리거 유무(③만)를 시드 확인에서 대조(`schema-mismatch`). `unique-index-optional`은 주지 않는다(.164는 V12 있음 — §설계-5 규칙 7).
 - **주입**: `seat.confirm.loadtest.delay`(§설계-11 자리 — current = `seat.confirm` 뒤 save 앞 · ①④ = `:now` 뒤 C1 앞 · ② = P2 뒤 P3 앞 · ③ = O1 뒤 O2 앞)만. race 200ms · cost 0(D-1). `inject-app`은 끈다(규칙 5).
-- **연결 상한 · nofile**: Tomcat `max-connections` 20,000 · 앱 nofile 65,536(ADR-014 측정-1 재해석 :540 그대로 — 동시 VU가 keep-alive 연결을 쥔다).
+- **연결 상한 · nofile**: Tomcat `max-connections` 20,000 · 앱 nofile 65,536(ADR-014 측정-1 재해석 :540 그대로 — 동시 VU가 keep-alive 연결을 잡는다).
 - **keep-alive 처방(ADR-014 §결정-3 :1090 · lib14.js `closeBeforeLongThink`)**: 생각 시간 ≥ 50초인 요청 앞은 `Connection: close`. 이 측정의 생각 시간은 약 TTL(30초)이라 지금 값에서는 붙지 않지만 모든 '잠들기 앞' 요청(선점 · payment-start)에 건다 — TTL을 늘려도 같은 EOF가 5xx 지표를 흐리지 않게. 그래도 시간 초과가 아닌 코드 0이 1건이라도 나오면 하네스 무효(`k6-code0` — G-H).
 - **이미지 고정 · k6 바이너리 고정 · 측정기(`--probes`) 켬 · 마감 없음** — ADR-014 측정-1 :537-539 그대로(run.sh가 ADR-014 lib14 · ADR-009 lib를 동결 사본에서 쓴다).
 - **pg_stat_statements(D-4 — 사용자 결정 켬)**: 다섯 모드 모두 같게(`shared_preload_libraries` — compose.confirm.yml `PG_PRELOAD` · plan15 `PGSS_DEFAULT = 1`). #15가 읽는다(② B3 max는 fix2부터 설명 열 — 판정은 아래 B3 대기 표본). `pgss=0`이면 dry-run이 막는다(fix1 — 그대로 둔다: #15 결측).
@@ -645,13 +645,13 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | (fix1) ④ 경계 흐름 비율 race 0.5 · cost 0 | 측정-3.1 | race: ④ 경계 win 단독 ≈ 20 × 600 × 0.5 × 0.25 × 0.9 ≈ 1,350세션 → 경합 약 13건/회차(추정) + 나머지 절반이 ext_then_lost를 잰다 · cost: 경계 세션이 약 110초 더 살아 VU가 약 2만 늘어난다(300/s × 0.5 × 110) → 비용 셀에 넣지 않는다 | 설계(추정) · **D-12** |
 | (fix1) ④ race gracefulStop 160초 | 측정-2 | 50 + 창 120 − 리드 10(경계 세션 끝 ≈ e′ + 재선점 13초) | 설계 |
 | (fix1) 재선점 조밀 구간 e − 20ms ~ e + delay + 100ms · 20ms | 측정-3.2 | 경합 창 ⊂ [e, e + delay) · 확정 응답 끝 여유 100ms · 간격 20ms = 창 평균(100ms)의 1/5(로컬: 조밀 201이 시도 4~17번째에 났다) | 설계 · **D-13** |
-| (fix1 → fix2 대체) 실패한 요청 계약 코드 = 404 HOLD_NOT_FOUND만(HOLD_EXPIRED 제외) | 측정-0 경합 증거 | 배치가 먼저 지운 홀드 → C1 · O2 0행 → 진단 '없음' 404(AtomicConfirmProcess.kt:71-78 · :90-99 · :154-157) · SEAT_NOT_HELD는 홀드를 먼저 쥔 뒤라 경합 표지가 아니다. fix2: 계획 win 묶음 대신 아래 서버 시각 조건을 붙인다 | 코드 |
+| (fix1 → fix2 대체) 실패한 요청 계약 코드 = 404 HOLD_NOT_FOUND만(HOLD_EXPIRED 제외) | 측정-0 경합 증거 | 배치가 먼저 지운 홀드 → C1 · O2 0행 → 진단 '없음' 404(AtomicConfirmProcess.kt:71-78 · :90-99 · :154-157) · SEAT_NOT_HELD는 홀드를 먼저 잡은 뒤라 경합 표지가 아니다. fix2: 계획 win 묶음 대신 아래 서버 시각 조건을 붙인다 | 코드 |
 | (fix1 → fix2 설명 열) ② pgss B3 max_exec_time ≥ delay × 0.25 | 설명(`pess_b3`) | 문장 **전체** 실행 시간이라 삭제 작업 · CPU · I/O도 든다(codex 루프 2 F2 · 감사) — 판정에서 뺐다. 기록만(로컬 fix2: ② 142ms) | 실측(로컬) |
 | (fix1 → fix2 대체) k6 404 · 403 = `HTTP404` · `HTTP403` | — | fix2: k6가 상태와 무관하게 본문 code를 읽고(lib15 `confirmCodeOf`) 요약기가 (상태, code) 키를 본다(아래 fix2 행). ADR-009 common.js는 고치지 않는다 | — |
 | **(fix2) ①③④ 서버 논리 증거: 단독 `404 HOLD_NOT_FOUND` ∧ te + ε − delay + 여유 < e ∧ te − ts ≥ delay** | 측정-0 · G1 | ①④: `:now`(AtomicConfirmProcess.kt:41) 바로 뒤에 지연을 잔다(:69 → ConfirmReservationService.kt:122-124 `Thread.sleep` ≥ delay) → 참 `:now` ≤ 참 te − delay ≤ te + ε − delay < e − 여유. 그러면 C1(:73 `id · user_id · expires_at > :now`)의 조건은 그 행이 있으면 참이다(④ 연장은 expires_at을 늘리기만 한다) → 0행 = 행이 사라졌다 → 진단(:91-94)도 '없음' 404(만료면 HOLD_EXPIRED). 단독이라 같은 홀드의 다른 확정이 없고, 배치는 앱 Clock으로 expires_at ≤ 배치 now인 행만 지운다(§설계-3 '시각' · ExpireHoldsService.kt:47 `now = clock.instant()` → A′ B1 SweepConditionalBatch.kt:38 · B3 :61 · B3b :72가 모두 `expires_at <= :now` — M15-35 정정). **sweep에서 seat_hold를 지우는 자리 전수**: A′ = B3 `DELETE … USING unnest`(SweepConditionalBatch.kt:60-62) · B3b `DELETE … WHERE id = ANY`(:72) 둘뿐 · current = JPA 고아 DELETE(ExpireHoldsService.kt:51-52 → ProductSeat.kt:79-84 `isExpired(now)` 홀드 `removeAll` · orphanRemoval :40 — 틱 커밋 flush) → **지연 중 배치가 지웠다(FM1 자리)**. ③: O1(:141-147)은 지연 **앞**이라 404가 지연 없이도 난다 → te − ts ≥ delay(지연을 잤다)를 함께 요구(로컬 fix2: 계획 win 404 7건 중 2건이 지연 안 잔 O1 404). **송신 기준식(ts + ε < e − 여유 — 메인 루프 2 방향)은 송신 → `:now` 사이(앞단 대기 · 풀 대기 — 트랜잭션 시작 뒤 :now)가 묶이지 않아 증명이 아니다** → 응답 끝 기준으로 바꾸고 송신 기준 값은 설명 열(`evidence_desc.send_based`) | 코드 · 실측(로컬) |
 | (fix2) 여유 20ms | 위 식 | ADR-014 측정-4 :672 시계 오차 허용(왕복/2 ≤ 20ms)과 같은 값 · Thread.sleep ms 해상도 · 컨테이너 시계 흔들림 몫(엄밀 증명에는 0이어도 되나 보수적으로 둔다) | 선례 · 보수적 선택 |
 | (fix2) ε = max(\|준 값 − 앞\|, \|준 값 − 뒤\|) + 왕복/2 최대 + 1ms | 측정-0 · 위 식 · 잘못된 거부 | 참 시계 차가 회차 앞 · 뒤 표본 사이에 있다고 본다(drift 단조 — ADR-014 `clock-offset-bad`가 drift > 100ms · 왕복/2 > 20ms면 회차를 무효로 한다) · 1ms = 정수 ms 반올림 · Date.now 해상도 | 선례(ADR-014 측정-4) |
-| **(fix2) ② B3 대기 표본 20ms(race 다섯 모드)** | 측정-0 · G1 | 계산(추정): ② win 단독 확정은 만료 뒤 L = delay + c ~ U(0, 200ms] 동안 잠금을 쥔다 → 동시에 '만료 뒤 잠긴 홀드' 기대 = 20/s × 0.25 × 0.9 × 0.1초 = 0.45 → 틱(10초 · 600초에 60번)이 그런 행을 만날 확률 1 − e^−0.45 ≈ 0.36 → 대기 틱 약 22. 틱이 만난 순간의 남은 지연 w는 길이 편향 잔여 분포 f(w) = (1 − w/200)/100(평균 약 67ms)라 주기 p 표본이 한 대기를 잡을 확률 = E[min(1, w ÷ p)]: **p = 20ms → 약 0.90** · ADR-009 대기 표본(0.5초) → E[w] ÷ 500 ≈ **0.13**. 회차당 잡힌 에피소드 기대 20ms ≈ 20 · 0.5초 ≈ 2.9(회차당 0일 확률 약 5.5% · 3회 중 하나라도 0 약 16% — ②가 근거 없이 판정 불가로 갈 수 있다) → 20ms를 고른다. 막은 세션 조건(idle in transaction ∧ 마지막 문장 P2 `SELECT status FROM product_seat WHERE id = $1 FOR UPDATE` — :118, 그 바로 뒤가 지연 :121)으로 ②의 지연 중 확정만 센다(다른 대기 · 다른 모드 제외 — 로컬 fix2: ①③④ 0). 관측 불가(표본 없음 · 깨짐) = `b3wait-missing`(G-H — ②만) · 에피소드 0 = 판정 불가(D-15) | 설계(추정) · 실측(로컬) |
+| **(fix2) ② B3 대기 표본 20ms(race 다섯 모드)** | 측정-0 · G1 | 계산(추정): ② win 단독 확정은 만료 뒤 L = delay + c ~ U(0, 200ms] 동안 잠금을 잡는다 → 동시에 '만료 뒤 잠긴 홀드' 기대 = 20/s × 0.25 × 0.9 × 0.1초 = 0.45 → 틱(10초 · 600초에 60번)이 그런 행을 만날 확률 1 − e^−0.45 ≈ 0.36 → 대기 틱 약 22. 틱이 만난 순간의 남은 지연 w는 길이 편향 잔여 분포 f(w) = (1 − w/200)/100(평균 약 67ms)라 주기 p 표본이 한 대기를 잡을 확률 = E[min(1, w ÷ p)]: **p = 20ms → 약 0.90** · ADR-009 대기 표본(0.5초) → E[w] ÷ 500 ≈ **0.13**. 회차당 잡힌 에피소드 기대 20ms ≈ 20 · 0.5초 ≈ 2.9(회차당 0일 확률 약 5.5% · 3회 중 하나라도 0 약 16% — ②가 근거 없이 판정 불가로 갈 수 있다) → 20ms를 고른다. 막은 세션 조건(idle in transaction ∧ 마지막 문장 P2 `SELECT status FROM product_seat WHERE id = $1 FOR UPDATE` — :118, 그 바로 뒤가 지연 :121)으로 ②의 지연 중 확정만 센다(다른 대기 · 다른 모드 제외 — 로컬 fix2: ①③④ 0). 관측 불가(표본 없음 · 깨짐) = `b3wait-missing`(G-H — ②만) · 에피소드 0 = 판정 불가(D-15) | 설계(추정) · 실측(로컬) |
 | (fix2 → fix3 기준 el) 잘못된 거부: 단독 ∧ te + ε < **el** ∧ 상태 ≠ 200 | 측정-6 G-F | 확정의 모든 문장이 el 전에 끝났다(fix3 M15-32: el = 그 확정 앞에 서버가 준 가장 늦은 expiresAt — ④ 기준 흐름은 payment-start 200의 e′. 연장 전 e로 재면 e < te < e′ 사이 거부를 놓친다 · ④ 확정에 el이 없으면 `k6-csv-missing`) — 배치는 expires_at ≤ 배치 now(≥ e)인 행만 지우고 좌석은 HELD라 재선점(NOWAIT)도 못 잡는다 → 200 말고는 잘못된 거부(시간 초과 · 5xx 포함). 계획 c(pre 묶음 · '− 여유') 대신 실측 te를 쓴다(k6가 늦게 깨면 pre 세션도 실제로는 창 안일 수 있다) | 코드 |
 | (fix2) 계약 = (상태, code) 키 {200 OK · 404 HOLD_NOT_FOUND · 403 HOLD_NOT_OWNED · 409 HOLD_EXPIRED · 409 SEAT_NOT_HELD} | M1 · G-F | §설계-3 공통 에러 계약 · N4 · ApiExceptionHandler.kt:46-55. 본문 없음(NOCODE) · 엉뚱한 키(409 HOLD_NOT_FOUND 등)은 계약 밖 | 설계 · 코드 |
 | (fix2) V12 모양 = 앱 기동 관문과 같은 기준 | 측정-6 `schema-mismatch` | HoldStrategyStartupCheck.kt:335-361(`confirmedSeatIndexState` · `normalizePredicate`): 유효 · 유니크 · 표 reservation · 열 seat_id 하나 · 식 열 없음 · 부분 조건(괄호 · 공백 · `::text` · `::character varying` 제거)이 `status='CONFIRMED'`(로컬 fix2: 정확 1 · 다른 열 · 열 둘 · `<>` · 다른 값 · 조건 없음 · 비유니크 · 식 열 · 다른 표 모두 0) | 코드 · 실측(로컬) |
@@ -749,17 +749,17 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | 관문 | 조건 |
 |---|---|
 | G1 | 성공(측정-7) |
-| G2 이긴다 | 다음 중 하나: (a) current에 A 결함(G-F의 정합성 검증기 · API 이중 결과 · **40P01** — M15-13)이 있고 X에는 없다 · (b) race 확정 5xx(상태 ≥ 500 — M2)가 current보다 범위 비겹침으로 낮다(계약 — N4) · (c) race 틱 실패가 current보다 범위 비겹침으로 낮다(N5 — FM3 틱 롤백). **(b)(c)의 current 값 = app.log 0행 DELETE 갈래로 귀속된 수 · X 값 = 전체**(M15-29 — 원인 없는 current 5xx · 틱 실패로 X가 이기지 않는다 · current 로그를 못 읽어 값이 None이면 판정 불가). **(b)(c)를 '이긴다'로 보는 것은 사용자 결정(D-10 · 2026-11-05) — 단 G3 비용 조건은 그대로다**. 셋 다 아니고 범위를 낼 수 없는 값이 있으면 '못 넘음'이 아니라 판정 불가 |
+| G2 성공한다 | 다음 중 하나: (a) current에 A 결함(G-F의 정합성 검증기 · API 이중 결과 · **40P01** — M15-13)이 있고 X에는 없다 · (b) race 확정 5xx(상태 ≥ 500 — M2)가 current보다 범위 비겹침으로 낮다(계약 — N4) · (c) race 틱 실패가 current보다 범위 비겹침으로 낮다(N5 — FM3 틱 롤백). **(b)(c)의 current 값 = app.log 0행 DELETE 갈래로 귀속된 수 · X 값 = 전체**(M15-29 — 원인 없는 current 5xx · 틱 실패로 X가 이기지 않는다 · current 로그를 못 읽어 값이 None이면 판정 불가). **(b)(c)를 '성공한다'로 보는 것은 사용자 결정(D-10 · 2026-11-05) — 단 G3 비용 조건은 그대로다**. 셋 다 아니고 범위를 낼 수 없는 값이 있으면 '못 넘음'이 아니라 판정 불가 |
 | G3 비용 | 3단의 세 지표(cost 셀 — M15-33) 어디서도 X ≫ current가 없다. X ≫ current인 지표가 있으면 판정 불가 지표가 함께 있어도 '걸림'(ADR-014 :801 끝) · 걸린 지표 없이 범위를 낼 수 없는 지표가 있으면 판정 불가 |
 | G4 캠페인 유효 | current 두 셀 유효 3회 · **current race 양성 대조**: 회차마다 경합 증거(**app.log 0행 DELETE 귀속 확정 5xx + 틱 실패** — 측정-0 · M15-29 · 시간 초과 제외 · M15-3a) ≥ 1 · 로그를 못 읽은 회차(None)가 있으면 G4 실패(판정 불가). 유니크 위반(FM2)은 짝 설계로 거의 늘 생겨 이 증거에 넣지 않는다(로컬 스모크: 짝 6건 = unique_violation 6 · 5xx 0). current FM1 겹침은 기록만(구조상 드물다 — 측정-14) |
 
 - **교체가 성립하면**: `seat.confirm.mode` 기본값 = X를 **별도 커밋**(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — ADR-014 측정-8 :798과 같은 선례). ③이면 V14 위치를 기본 위치 목록에 더함 · ④면 payment-window · extend-min-remaining 앱 기본값(D-6)과 클라이언트의 payment-start 호출이 함께 필요하다. 기존 운영 전환은 측정-11 절차. `current`는 설정 옵션으로 되돌릴 수 있게 둔다.
-- **교체 후보가 여럿 이기면**: 위 순위(2단 → 3단 → 4단)의 앞 후보부터 관문을 대고 **처음 통과한 하나**만 교체한다. 그보다 앞 순위 후보의 G2 · G3가 판정 불가(확정적으로 걸리지 않음)면 그 후보가 이겼을 수 있으므로 **교체 선정을 멈추고** 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — ADR-014 측정-8 :801 ⓒ · :802 ⓓ · M15-2).
-- **판정 불가 결론**(기본값 `current` 그대로 두되 'current가 이겼다'로 적지 않는다 — 사용자 보고 뒤 사용자가 정한다): ⓐ G4 실패 ⓑ 위 '앞 순위 관문 판정 불가' ⓒ 측정-7 판정 불가 후보('A도 같은 문턱' · 유효 반복 부족 · 양성 보정 없음 · 범위 없음 — 어느 사유든)가 있고 그 후보가 관문에서 확정적으로 걸리지 않았다(G2 확정 실패 · G3 걸림이 아니면 그 후보가 이겼을 수 있다 — M15-1 · M15-14 · M15-17). 판정 불가 후보가 확정적으로 걸렸으면 나머지 규칙대로 간다.
+- **교체 후보가 여럿 이기면**: 위 순위(2단 → 3단 → 4단)의 앞 후보부터 관문을 대고 **처음 통과한 하나**만 교체한다. 그보다 앞 순위 후보의 G2 · G3가 판정 불가(확정적으로 걸리지 않음)면 그 후보가 성공했을 수 있으므로 **교체 선정을 멈추고** 결론은 '판정 불가 → 사용자 보고'(잠정 결과를 함께 적는다 — ADR-014 측정-8 :801 ⓒ · :802 ⓓ · M15-2).
+- **판정 불가 결론**(기본값 `current` 그대로 두되 'current가 성공했다'로 적지 않는다 — 사용자 보고 뒤 사용자가 정한다): ⓐ G4 실패 ⓑ 위 '앞 순위 관문 판정 불가' ⓒ 측정-7 판정 불가 후보('A도 같은 문턱' · 유효 반복 부족 · 양성 보정 없음 · 범위 없음 — 어느 사유든)가 있고 그 후보가 관문에서 확정적으로 걸리지 않았다(G2 확정 실패 · G3 걸림이 아니면 그 후보가 성공했을 수 있다 — M15-1 · M15-14 · M15-17). 판정 불가 후보가 확정적으로 걸렸으면 나머지 규칙대로 간다.
   - **재측정 상한 소진은 사유와 무관하게 측정-7 ⓐ(판정 불가)로 간다(M15-28)** — ADR-014는 환경 상한 소진만 판정 불가(:800 ⓑ)이고 하네스 상한 소진은 'A 유지 ⑤ superseded'였다. 이 측정은 둘을 가르지 않는다: 어느 쪽이든 그 후보는 **측정되지 않았고** 기본값은 current 그대로라 효과는 같지만, 'current 유지'로 적으면 측정하지 못한 후보가 진 것으로 남는다(D-15와 같은 이유). 그래서 15-09의 'current 유지 ④(superseded)' 갈래는 없앴다(ⓐ에 흡수 — 요약기에도 없다).
 - **current 유지**(기본값 `current` 그대로 · 위 판정 불가가 아닐 때만 — 판정 불가 후보는 여기 올 때 모두 관문에서 확정적으로 걸렸다 · 사유는 사실대로 — M15-34): ① **G1 성공 후보 없음**(실패 후보 목록 · 판정 불가였으나 관문에서 확정적으로 걸린 후보와 그 관문을 함께 적는다) ② **성공 후보가 모두 관문에서 확정적으로 걸림**(후보마다 G2 False 또는 G3 hit 지표를 적는다 — 섞여도 ②). 결과 문서는 모드별 실패 항목 · 원인 후보를 적는다(조용히 넘기지 않는다).
 - **#5 V12 관문(M15-30 — 측정-10)**: 결론 옆에 늘 V12 상태를 적는다 — 판정이 서면 `#5 V12: <판정>` · 단계 누락(`--skip-v12` 포함) · 실패 · 필수 값 결측이면 **'V12 판정 불가(사유)'** · 교체 결론이면 여기에 **'— 운영 적용 전 V12 판정 필요'**(교체 자체는 그대로 · 교체 커밋 · 운영 적용 앞에 #5를 다시 잰다).
-- **주의(측정 전에 밝혀 둔다 — ADR-014 측정-8 :803과 같은 꼴)**: 15-02 실측으로 current의 정합은 '우연한 가드(0행 DELETE → 예외 → 롤백)'가 지킨다. 그래서 G2(a)는 A 결함이 새로 드러날 때만 서고, 교체 여부는 사실상 **G2(b)(c) — 실패한 요청이 5xx 대신 계약 코드로 끝나는가 · 배치 틱이 롤백되지 않는가 — 와 G3(비용)** 이 정한다. **사용자 결정(D-10 · 2026-11-05)**: 맞다 — (b)(c)를 '이긴다'로 본다 · G3 비용 조건은 유지.
+- **주의(측정 전에 밝혀 둔다 — ADR-014 측정-8 :803과 같은 꼴)**: 15-02 실측으로 current의 정합은 '우연한 가드(0행 DELETE → 예외 → 롤백)'가 지킨다. 그래서 G2(a)는 A 결함이 새로 드러날 때만 서고, 교체 여부는 사실상 **G2(b)(c) — 실패한 요청이 5xx 대신 계약 코드로 끝나는가 · 배치 틱이 롤백되지 않는가 — 와 G3(비용)** 이 정한다. **사용자 결정(D-10 · 2026-11-05)**: 맞다 — (b)(c)를 '성공한다'로 본다 · G3 비용 조건은 유지.
 
 ### 측정-9 시작 조건 · 재측정 · 멈춤
 
@@ -780,10 +780,10 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 ### 측정-10 #5 V12 운영 크기 생성 시간 · 쓰기 차단 길이 (이 캠페인 안 — 부하 회차 뒤 한 번)
 
 - **크기**: 예약 N행(CONFIRMED · 좌석마다 1행 — 인덱스 크기 최대 쪽 · 보수적 선택) · N ∈ {1,000,000 · 5,000,000}(D-5 — ADR-002 규모 축 100만 · S5 상단 500만 — docs/adr/ADR-002-db-baseline.md:769) · 크기마다 3회.
-- **절차**(`scripts/v12-build.sh`): 새 DB(V1~V13 — 앱 current로 한 번 띄워 Flyway 적용) → 앱 정지(다른 쓰기 없음) → 인덱스 DROP → 시드(좌석 N + 1,000 · 예약 N · ANALYZE) → ① 세션 A: `BEGIN; CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'; COMMIT;`(V12 파일과 같은 문장 — Flyway 기본 = 스크립트마다 트랜잭션 하나) · 50ms 뒤 세션 B: 예약 1행 INSERT(쓰기 하나 — 시작 · 끝 `clock_timestamp()`) → ② DROP 뒤 `CREATE UNIQUE INDEX CONCURRENTLY` + 같은 탐침 B → 끝에 `indisvalid AND indisunique` 확인(둘 다).
-- **측정 SQL의 값**: 생성 시간 = A의 두 `clock_timestamp()` 차 · **쓰기 차단 길이 = max(트랜잭션 안 생성 시간, 탐침이 구간 안에서 떴으면 탐침 대기)** — SHARE 락은 문장 끝 · 커밋까지 쥐므로 그 순간 도착한 쓰기는 생성 시간만큼 기다린다(로컬 시험: 30만 행 생성 190ms < 탐침 지연 300ms라 탐침이 구간 밖에서 떴다 → 탐침만으로는 못 잰다 · 지연을 50ms로 줄이고 생성 시간을 하한 없이 쓴다).
-- **판정**(`summarize.py --v12`): **계획한**(v12-build.sh가 남긴 `v12-plan.json` — 크기 목록 · 반복) 가장 큰 N의 3회 쓰기 차단 최대 ≤ 2,000ms(D-5 — ADR-013 :186) → **트랜잭션 안 판 유지** · > 2,000ms → **CONCURRENTLY 판 후속**(V12 `.conf` `executeInTransaction=false` + `indisvalid` 기동 검사 · §설계-4 재시도 절차 — 새 task). **계획한 모든 (크기, 반복) 자리**마다 파일 · 시드 종료 코드 0 · 시드 실측 행 수(예약 = N · 좌석 = N + 1,000) · 값 · indisvalid가 맞아야 한다 — 하나라도 빠지면 판정 불가(관측 파일 중 가장 큰 N으로 판정하지 않는다 · M15-7 · M15-8). **필수 값(fix3 M15-31)**: 트랜잭션 판 `build_ms` · `probe_blocked_ms` · `probe_started_inside` · **CONCURRENTLY 판 `build_ms` · `probe_ms` · `probe_started_inside`** · 두 판 `valid` — 하나라도 없으면(측정 오류 `error` 포함) 판정 불가. **이 판정은 캠페인 완료 관문이다(M15-30 — 측정-8 끝 'V12 관문')**: 단계 누락 · 실패 · 판정 불가면 결론 옆 'V12 판정 불가' · 교체면 '운영 적용 전 V12 판정 필요'. CONCURRENTLY 쪽 탐침 대기(쓰기를 막지 않아야 한다)와 생성 시간도 함께 적는다(Flyway 비트랜잭션 실패 이력 · `flyway repair`는 #5의 나머지 몫 — CONCURRENTLY 판을 고를 때 그 task가 잰다).
-- **로컬 신호(.164 값 아님 · 판정에 쓰지 않는다)**: 이 PC 로컬 PG 16(tmpfs 아님)에서 100만 행 3회 생성 582~670ms · 탐침 대기 532~637ms · CONCURRENTLY 768~874ms(탐침 7~9ms). 선형이면 500만 행 약 3초 → 2초 문턱을 넘을 수 있다 — 결과가 'CONCURRENTLY 판 후속'으로 갈 가능성을 메인이 미리 알아 둔다.
+- **절차**(`scripts/v12-build.sh`): 새 DB(V1~V13 — 앱 current로 한 번 띄워 Flyway 적용) → 앱 정지(다른 쓰기 없음) → 인덱스 DROP → 시드(좌석 N + 1,000 · 예약 N · ANALYZE) → ① 세션 A: `BEGIN; CREATE UNIQUE INDEX uq_reservation_confirmed_seat ON reservation (seat_id) WHERE status = 'CONFIRMED'; COMMIT;`(V12 파일과 같은 문장 — Flyway 기본 = 스크립트마다 트랜잭션 하나) · 50ms 뒤 세션 B: 예약 1행 INSERT(쓰기 하나 — 시작 · 끝 `clock_timestamp()`) → ② DROP 뒤 `CREATE UNIQUE INDEX CONCURRENTLY` + 같은 probe B → 끝에 `indisvalid AND indisunique` 확인(둘 다).
+- **측정 SQL의 값**: 생성 시간 = A의 두 `clock_timestamp()` 차 · **쓰기 차단 길이 = max(트랜잭션 안 생성 시간, probe가 구간 안에서 떴으면 probe 대기)** — SHARE 락은 문장 끝 · 커밋까지 쥐므로 그 순간 도착한 쓰기는 생성 시간만큼 기다린다(로컬 시험: 30만 행 생성 190ms < probe 지연 300ms라 probe가 구간 밖에서 떴다 → probe만으로는 못 잰다 · 지연을 50ms로 줄이고 생성 시간을 하한 없이 쓴다).
+- **판정**(`summarize.py --v12`): **계획한**(v12-build.sh가 남긴 `v12-plan.json` — 크기 목록 · 반복) 가장 큰 N의 3회 쓰기 차단 최대 ≤ 2,000ms(D-5 — ADR-013 :186) → **트랜잭션 안 판 유지** · > 2,000ms → **CONCURRENTLY 판 후속**(V12 `.conf` `executeInTransaction=false` + `indisvalid` 기동 검사 · §설계-4 재시도 절차 — 새 task). **계획한 모든 (크기, 반복) 자리**마다 파일 · 시드 종료 코드 0 · 시드 실측 행 수(예약 = N · 좌석 = N + 1,000) · 값 · indisvalid가 맞아야 한다 — 하나라도 빠지면 판정 불가(관측 파일 중 가장 큰 N으로 판정하지 않는다 · M15-7 · M15-8). **필수 값(fix3 M15-31)**: 트랜잭션 판 `build_ms` · `probe_blocked_ms` · `probe_started_inside` · **CONCURRENTLY 판 `build_ms` · `probe_ms` · `probe_started_inside`** · 두 판 `valid` — 하나라도 없으면(측정 오류 `error` 포함) 판정 불가. **이 판정은 캠페인 완료 관문이다(M15-30 — 측정-8 끝 'V12 관문')**: 단계 누락 · 실패 · 판정 불가면 결론 옆 'V12 판정 불가' · 교체면 '운영 적용 전 V12 판정 필요'. CONCURRENTLY 쪽 probe 대기(쓰기를 막지 않아야 한다)와 생성 시간도 함께 적는다(Flyway 비트랜잭션 실패 이력 · `flyway repair`는 #5의 나머지 몫 — CONCURRENTLY 판을 고를 때 그 task가 잰다).
+- **로컬 신호(.164 값 아님 · 판정에 쓰지 않는다)**: 이 PC 로컬 PG 16(tmpfs 아님)에서 100만 행 3회 생성 582~670ms · probe 대기 532~637ms · CONCURRENTLY 768~874ms(probe 7~9ms). 선형이면 500만 행 약 3초 → 2초 문턱을 넘을 수 있다 — 결과가 'CONCURRENTLY 판 후속'으로 갈 가능성을 메인이 미리 알아 둔다.
 
 ### 측정-11 모드 전환 절차 (셀 사이 — §3.5 '모드 혼합 금지')
 
@@ -800,7 +800,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
   - 틱당 문장 수 · 시간(M15-9 — 실측): 요약기 `batch_statements`가 pgss 모든 행(상위 N행 아님)에서 배치 문장을 **정규화 문장 앞머리**로 골라(summarize.py `BATCH_STMTS` — fix1 로컬 PG 16 실측 문장에서 옮김) 묶음별 calls · total_ms · max_ms를 내고, **틱당 = 배치 전용 묶음 합 ÷ 틱 수**(같은 구간 — k6 직전 pgss 0 → 회차 끝 · 틱 = act15 tick ok + failed 증분)를 낸다. A′ = B1 · B2 · B2b · B3 · B3b · B4(감소) · B5 · B5d(전부 배치 전용). JPA = 후보 조회(J1 — `select distinct … left join seat_hold`) · 감소(J4) 만 배치 전용이고, 홀드 컬렉션 로딩 · 좌석 UPDATE · 홀드 DELETE(J2 · J3 · J5)는 **확정 · 선점과 같은 문장**이라 글자로 배치 몫을 가를 수 없다 → `shared`로 따로 적고 틱당 값에서 뺀다(JPA 틱당 값은 하한 — 측정-14). 틱 시간은 DB 쪽 하한(앱 쪽 틱 타이머 없음 — ExpireHoldsService.kt:59 · :63). 로컬 신호(배치 10초 · 20/s): JPA 틱당 전용 문장 약 153 · 15.7ms 대 A′ 약 82 · 13.7ms(.164 값 아님).
   - 지운 홀드 수: DB `pg_stat_user_tables seat_hold n_tup_del` 증분으로 견준다(아래 태그 차이 때문).
 - **`seat.hold.expiry.deleted` 태그 키 차이(경로별 메모)**: JPA 배치(current)는 이 지표를 **내지 않는다** · A′는 `{path=sweep, extended=true|false}`(SweepConditionalBatch.kt:95-96) · ADR-014 B·C·D 경로는 `{path=reclaim}`(LazyHoldProcess.kt:143) · `{path=batch}`(LazyExpiryBatch.kt:100) · 정리 ①은 다른 이름(`seat.hold.counter.cleanup.deleted{mode}` — QuotaCleanup.kt:80 · :232). ADR-014 actsnap14는 `path=reclaim|batch`만 읽으므로 이 측정에서는 늘 0이다 — actsnap15가 `path=sweep` 두 태그를 따로 읽는다.
-- **#11 지연 주입 자리의 모드별 의미**: ②는 P2 뒤(좌석 · 홀드 잠금을 쥔 채) 잔다 — race 셀에서 ②만 잠금 보유 비용이 섞인다(같은 좌석 재선점은 NOWAIT라 기다리지 않고 409 — 비용은 확정 p99 · DB CPU로만 보인다). ①④③은 잠금 없이 잔다.
+- **#11 지연 주입 자리의 모드별 의미**: ②는 P2 뒤(좌석 · 홀드 잠금을 잡은 채) 잔다 — race 셀에서 ②만 잠금 보유 비용이 섞인다(같은 좌석 재선점은 NOWAIT라 기다리지 않고 409 — 비용은 확정 p99 · DB CPU로만 보인다). ①④③은 잠금 없이 잔다.
 - **#12 앱−DB 시계 차**: 회차 앞뒤 `app-db-clock-{before,after}.json`(lib14 `app_db_clock`) — `converted_after_expiry{clock=db}` 대 `{clock=app}` 차와 함께 적는다(#17).
 - **#10 틱 롤백 빈도**: current race 틱 실패(M3 — 지표 · 0행 DELETE 귀속 수 · 귀속 안 된 수) 대 새 모드 0 — G2(c) 자료(귀속 수).
 - **M9 분포**: 모드별 `converted_after_expiry` 건수 · lateness 감쇠 최대(창 끝 스냅숏) · 평균(win 묶음 크기의 표지 — 경합 증거가 아니다: 새 모드의 성공 수는 실제 충돌이 아니라 '창이 열렸다'일 뿐이다 · M15-3b).
@@ -827,7 +827,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 - **(fix2) ③ 서버 논리 증거의 잔여 한계**: ③은 O1(지연 앞)에서도 404가 난다 — te − ts ≥ delay로 '지연을 잤다'를 요구하지만, 앞단 대기(Tomcat · 풀 — 트랜잭션 시작 앞)가 delay 이상인 O1 404는 가를 수 없다(그 확정은 송신이 e − 여유보다 앞이고 서버가 송신 뒤 delay 이상 늦게 :now를 잡았으며, 그 사이 배치 틱이 들어야 한다 — 드물다(추정)). ①④는 지연이 `:now` 바로 뒤라 이 한계가 없다.
 - **(fix2) 시계 차 오차 ε는 회차 앞 · 뒤 두 표본 사이를 단조로 본다** — 회차 중 시계가 튀면(NTP 계단) 증거 · 잘못된 거부의 시각 조건이 틀릴 수 있다. ADR-014 `clock-offset-bad`(앞뒤 차 > 100ms)가 큰 계단은 회차 무효로 막는다.
 - 열린 모델이라 '확정 처리량'(M4)은 도착률과 성공 비율의 곱이다 — 처리 능력 비교는 cost 셀 p99 · DB CPU로 대신한다.
-- **(fix1) FM1-Y(배치가 푼 좌석을 남이 잡은 뒤 그 확정이 쓴다)는 current와 ②에서 부하가 재지 않는다(재현 테스트 몫 — Adr015ReproSmokeTest)**: current는 JPA 배치가 겹친 확정 때문에 틱 롤백(FM3)으로 지는 쪽이 잦아 좌석이 풀리지 않는다(로컬 배치 10초 · 2분: 틱 실패 6/14 · FM1 겹침 0) · ②는 확정이 홀드 · 좌석 잠금을 쥐어 재선점이 NOWAIT 409로 끝난다(로컬 FM1 겹침 0). 그래서 M12(API 수준 이중 결과)는 두 모드에서 G-F 문턱으로만 쓰고 'FM1-Y에 안전하다'의 근거로 쓰지 않는다. ①③④는 FM1 겹침 합 ≥ 1을 G1 조건으로 둔다(로컬 ① 7건/2분).
+- **(fix1) FM1-Y(배치가 푼 좌석을 남이 잡은 뒤 그 확정이 쓴다)는 current와 ②에서 부하가 재지 않는다(재현 테스트 몫 — Adr015ReproSmokeTest)**: current는 JPA 배치가 겹친 확정 때문에 틱 롤백(FM3)으로 지는 쪽이 잦아 좌석이 풀리지 않는다(로컬 배치 10초 · 2분: 틱 실패 6/14 · FM1 겹침 0) · ②는 확정이 홀드 · 좌석 잠금을 잡아 재선점이 NOWAIT 409로 끝난다(로컬 FM1 겹침 0). 그래서 M12(API 수준 이중 결과)는 두 모드에서 G-F 문턱으로만 쓰고 'FM1-Y에 안전하다'의 근거로 쓰지 않는다. ①③④는 FM1 겹침 합 ≥ 1을 G1 조건으로 둔다(로컬 ① 7건/2분).
 - **(fix3) current 원인 귀속은 앱 로그 형식에 기댄다(M15-29)**: Spring 기본 오류 기록(`dispatcherServlet` · `TaskUtils$LoggingErrorHandler`)과 Hibernate 6.6 예외 문구 · 스택 프레임으로 가른다(앱 코드 무변경 조건 — 원인 표지 지표를 새로 내지 않는다). 로그 형식이 바뀌면 귀속 0 · 머리 줄 0이면 None → G4 판정 불가로 드러난다(무음 성공 아님). 귀속은 0행 DELETE가 '누가 먼저 지웠나'까지는 말하지 않는다 — current 기간에 seat_hold를 지우는 쪽이 확정 · 배치뿐이고 짝 실패한 요청은 유니크 인덱스에서 먼저 막힌다(측정-4 fix3 행)는 코드 사실에 기댄다.
 - **(fix2) ② 경합 표지는 표본이다** — B3 대기 표본(20ms)이 잡은 에피소드 수라 실제 대기 수의 하한이다(잡을 확률 약 0.9 — 측정-4 fix2 행). 실패한 요청 응답이 없는 설계라 응답 · 앱 지표로는 잴 수 없다(앱 코드 무변경 조건). 표본기 부하는 race 다섯 모드에 같게 든다.
 - **(fix1) ④ 경계 흐름은 race 셀에만 있다** — cost 셀 ④는 기준 흐름(e − 10초 payment-start + e + c 확정)만이라 연장 뒤 경계 경합 비용은 cost 지표에 없다.
@@ -847,7 +847,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | D-7 | ④의 post 묶음 성공 · 재선점 손실은 **설명만** | 흐름 구성상 정해지는 값(측정-14) |
 | D-8 | D_arr **race 600 · cost 300** | 경합 추정 약 30건/회차 · 총 시간 |
 | D-9 | 단순성 **① > ② > ③ > ④** | 더하는 부품 수(측정-4) |
-| D-10 | '계약 코드로 진다(5xx 0)' · '틱 롤백 없음'을 **이긴다로 본다(G2 b · c) — 단 G3 비용 조건 유지** | §문제 · Q1(15-02 실측 — current 정합은 우연한 가드) |
+| D-10 | '계약 코드로 진다(5xx 0)' · '틱 롤백 없음'을 **성공한다로 본다(G2 b · c) — 단 G3 비용 조건 유지** | §문제 · Q1(15-02 실측 — current 정합은 우연한 가드) |
 | D-11 | 시작 조건 ① 스모크 **7회**(다섯 모드 × race + current · conditional × cost) | cost는 VU · 처리 상한 확인이 목적 |
 
 - 측정 규모 약 8시간 그대로(사용자) · cost 셀 ④는 payment-start 포함 그대로 비교(사용자 — 대가는 측정-14).
@@ -873,10 +873,10 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 | D-4 | pg_stat_statements(#15) | 켬(다섯 모드 같게) · 끔(문장 수는 코드 읽기 + missing_pairs만) | **켬** | #15는 '문장 수 · 틱 시간'을 요구하는데 앱에 틱 타이머가 없다 · 대가: ADR-014 이전 DB 조건과 갈린다(이 ADR 안 비교는 같다) |
 | D-5 | #5 운영 크기 · 문턱 | 크기 {100만, 500만} · {100만}만 / 문턱 2초(ADR-013 :186) · race 확정 p99 기준 | **{100만, 500만} · 판정은 500만 · 2초** | ADR-002 규모 축 선례 · 로컬 신호상 500만이 문턱 근처 |
 | D-6 | ④ payment-window · extend-min-remaining(측정값 · 앱 기본값) | 2m · 5s(T6 테스트 값) · 측정 근거로 새로 | **측정 2m · 5s · 앱 기본값은 0 유지 — ④가 이기면 교체 커밋에서 2m · 5s** | §설계-10 T6 '앱 기본값은 측정 task가 고정' — 결제 시간 분포 자료가 없다 |
-| D-7 | ④의 post 묶음 성공 · 재선점 손실을 G2 · G3에 넣나 | 넣는다 · 설명만 | **설명만** | 흐름 구성상 정해지는 값(측정-14) — 넣으면 ④는 G2(d)로 늘 이기고 G3 재선점으로 늘 진다 |
+| D-7 | ④의 post 묶음 성공 · 재선점 손실을 G2 · G3에 넣나 | 넣는다 · 설명만 | **설명만** | 흐름 구성상 정해지는 값(측정-14) — 넣으면 ④는 G2(d)로 늘 성공하고 G3 재선점으로 늘 진다 |
 | D-8 | D_arr | race 600 · cost 300 / race 300 · cost 300 | **race 600 · cost 300** | 경합 추정 약 30건/회차(600초) 대 약 15건(300초) · 총 시간 5.8 대 4.6시간 |
 | D-9 | 단순성 순서 | ① > ② > ③ > ④ · ① > ③ > ② > ④ | **① > ② > ③ > ④** | 더하는 부품 수(측정-4) |
-| D-10 | '계약 코드로 진다(5xx 0)'와 '틱 롤백 없음'을 '이긴다'로 보나 | 그렇다(G2 b · c) · 정합(a)만 | **그렇다 — 사용자 확인** | §문제 · Q1(15-02 실측: current 정합은 우연한 가드가 지킨다 — 실패한 요청 500 · 틱 롤백이 남은 차이) · ADR-014 MQ3과 같은 성격 |
+| D-10 | '계약 코드로 진다(5xx 0)'와 '틱 롤백 없음'을 '성공한다'로 보나 | 그렇다(G2 b · c) · 정합(a)만 | **그렇다 — 사용자 확인** | §문제 · Q1(15-02 실측: current 정합은 우연한 가드가 지킨다 — 실패한 요청 500 · 틱 롤백이 남은 차이) · ADR-014 MQ3과 같은 성격 |
 | D-11 | 시작 조건 ① 스모크 구성 | 다섯 모드 × race + current · conditional × cost(7회 약 1.4시간) · 다섯 × 두 셀(10회 약 2시간) | **7회** | cost는 VU · 처리 상한 확인이 목적 — 모드 둘이면 충분(추정) |
 
 </details>
@@ -921,12 +921,12 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 ### 결과-3 판정 — 요약기 '판정 불가'와 수동 판정
 
-- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '이겼을 수 있다'로 막았다(summarize.py `undet_block`).
+- **요약기 결론**: '판정 불가 → 사용자 보고(후보 판정 불가 — ④ 유효 반복 부족 race 2/3) · 잠정 ① · 순위 ① > ③ > ②'(②는 3단에서 빠짐). 측정-8 판정 불가 ⓒ — 판정 불가 후보 ④가 관문에서 확정적으로 걸리지 않았으므로 '성공했을 수 있다'로 막았다(summarize.py `undet_block`).
 - **고정 규칙의 결론은 지금도 '판정 불가'다**(측정-8 ⓒ를 글자 그대로 — ④는 G2 None · G3 True라 관문에서 확정적으로 걸리지 않았다 · `result.json` new_default = null).
-- **ⓒ의 근거('④가 이겼을 수 있다') 반증**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다(④를 넣고 eliminate를 돌리면 3단에서 빠지는 쪽 {② · ④} · 남는 쪽 {① · ③} · 순환 없음 — 결과 문서 리뷰 재계산).
-  - 2단(race 확정 5xx · 틱 실패 — 범위 비겹침으로 낮아야 이긴다): ①은 두 지표 모두 [0, 0] → 0보다 낮을 수 없다.
+- **ⓒ의 근거('④가 성공했을 수 있다') 반증**(사용자 질문 '재측정이 의미가 있나?' — 2026-11-06): 같은 고정 규칙을 ④가 race 3회 유효였다고 가정하고 대어 보면 ④는 어떤 값이 나와도 ①을 빼지 못한다(④를 넣고 eliminate를 돌리면 3단에서 빠지는 쪽 {② · ④} · 남는 쪽 {① · ③} · 순환 없음 — 결과 문서 리뷰 재계산).
+  - 2단(race 확정 5xx · 틱 실패 — 범위 비겹침으로 낮아야 성공한다): ①은 두 지표 모두 [0, 0] → 0보다 낮을 수 없다.
   - 3단(cost 세 지표 — X ≫ Y = 범위 비겹침 ∧ 중앙값 비 > 1.10 · ④ cost 3회는 모두 유효라 재측정과 무관): cost DB CPU ④ 중앙값 28.94 대 ① 25.86 = **1.119 · 범위 비겹침 → ④ ≫ ①** → 3단 규칙상 ④는 ①을 뺄 수 없고 오히려 ①이 ④를 뺀다. ① ≫ ④인 지표는 없다(확정 p99 · 선점 p99 중앙값 비 ①/④ = 1.068 < 1.10).
-  - 따라서 ④가 성공 · 실패 · 판정 불가 어느 쪽이든 순위 첫자리는 ①이고(④가 성공이라 가정하면 순위 ① · ③ · ② · ④ · 지금 실제 순위는 ④ 없이 ① · ③ · ②), ①은 G1 성공 · G2 이긴다((b) 5xx [0, 0] < current [18, 26] · (c) 틱 [0, 0] < [1, 7]) · G3 걸림 없음(cost 세 지표 어디서도 ① ≫ current 아님 — 확정 p99는 current보다 낮다).
+  - 따라서 ④가 성공 · 실패 · 판정 불가 어느 쪽이든 순위 첫자리는 ①이고(④가 성공이라 가정하면 순위 ① · ③ · ② · ④ · 지금 실제 순위는 ④ 없이 ① · ③ · ②), ①은 G1 성공 · G2 성공한다((b) 5xx [0, 0] < current [18, 26] · (c) 틱 [0, 0] < [1, 7]) · G3 걸림 없음(cost 세 지표 어디서도 ① ≫ current 아님 — 확정 p99는 current보다 낮다).
 - **사용자 결정**(측정-8 '판정 불가 → 사용자 보고 뒤 사용자가 정한다' 경로 — log 11-06 12:14 '멈추고 그렇게 마무리'): 위 반증을 근거로 ①을 새 기본값으로 정했다. **고정 규칙의 자동 통과가 아니다** — 명세 '측정 전에 고정한 규칙으로 기본값을 정한다'에 대해, 규칙이 멈춘 자리를 사용자가 같은 규칙의 계산으로 메운 것이다.
 - **받아들인 한계**: 입력 = `result.json` · rep-summary 원자료(계산은 log 11-06 행 · 결과 문서 리뷰가 재계산으로 확인). ④는 race 판정 불가로 남는다(측정되지 않은 후보 — 'current 유지'처럼 '④가 졌다'로 적지 않는다 · 결정에는 영향 없음). 3단 DB CPU 비 1.119는 문턱 1.10에 가깝다 — ④ race 재측정과 무관한 cost 값이라 결론은 이 데이터로 고정된다.
 
@@ -937,7 +937,7 @@ RETURNING q.schedule_id, q.user_id, q.cnt;                                      
 
 ## 결정
 
-- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치) — **사용자 결정**(2026-11-06): 요약기 결론은 판정 불가(측정-8 ⓒ — ④ race 유효 2/3)였고, ④가 어떤 값이어도 승자가 ①임을 같은 규칙으로 보인 뒤 사용자가 정했다(결과-3). ① 자신은 G1 성공 · G2 이긴다 · G3 걸림 없음 · G4 ok. current는 설정 옵션으로 되돌릴 수 있게 남긴다.
+- **새 기본값 = ① `conditional`**(조건부 문장 확정 + A′ 배치) — **사용자 결정**(2026-11-06): 요약기 결론은 판정 불가(측정-8 ⓒ — ④ race 유효 2/3)였고, ④가 어떤 값이어도 승자가 ①임을 같은 규칙으로 보인 뒤 사용자가 정했다(결과-3). ① 자신은 G1 성공 · G2 성공한다 · G3 걸림 없음 · G4 ok. current는 설정 옵션으로 되돌릴 수 있게 남긴다.
 - **V12 = 트랜잭션 안 판 유지**(500만 행 쓰기 차단 최대 712ms ≤ 2초). CONCURRENTLY 판은 후속(NEXT).
 - **② · ③ · ④는 기본값이 아니다**: ②는 3단에서 빠짐(cost 확정 p99 ② ≫ ① — 중앙값 비 1.166 · 범위 비겹침) · ③은 남았으나 단순성 순서(①>②>③>④ — D-9)에서 뒤 · ④는 race 판정 불가(결정에 영향 없음 — 결과-3).
 - **기본값 교체 = 별도 커밋 a68d9518**(측정-8 · ADR-012 §3 선례 — 2026-11-06): `seat.confirm.mode` 기본 current → conditional. **범위 밖 구성은 `seat.confirm.mode=current` 명시 강제 — 자동 후퇴 없음**(사용자 결정 2026-11-06 — '우연한 가드로 해결되면 안 된다 · 결제 뒤 500은 문제 · 404로 명확히'): B · C · D 만료 방식 · 기본 밖 좌석 · 매수 전략 · 앱 경로 주입 · Flyway target 12 이하는 키가 없으면 기동 검사 규칙 1 · 2 · 5 · 7이 거부한다(계약 `Adr015DefaultModeContractTest`). 기존 테스트 35파일 · 옛 측정 하네스 compose 11개(ADR-001~014) · 운영 절차(ops/expiry-mode-cutover · ops/confirm-unique-v12)에 current 명시 · 안내를 더했다 · 전체 테스트 1116/0/0/20 + reconciler 6/0.
