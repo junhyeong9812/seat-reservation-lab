@@ -1,15 +1,15 @@
 # ADR-014: 선점 후 이탈 — 홀드 만료와 좌석 상태의 원천 (Q3)
 > 번호 이동(2026-10-12, 5차): 운영 중 매수 방식 전환을 새 ADR-010으로 넣으며 기존 ADR-010~015를 011~016으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-12, 4차): 카운터 어긋남 탐지·격리·복구를 새 ADR-009로 넣으며 기존 ADR-009~014를 010~015로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-12, 4차): 카운터 불일치 탐지·격리·복구를 새 ADR-009로 넣으며 기존 ADR-009~014를 010~015로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-11, 3차): counter-upsert-precheck 기본 적용·검증을 새 ADR-008로 넣으며 기존 ADR-008~013을 009~014로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-09, 2차): ADR-006 처리량 벽 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-09): counter 1문장 upsert 재측정을 새 ADR-006으로 넣으며 기존 ADR-006~011을 007~012로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-09, 2차): ADR-006 처리량 급락 진단을 새 ADR-007로 넣으며 기존 ADR-007~012를 008~013으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-09): counter 단일 쿼리 upsert 재측정을 새 ADR-006으로 넣으며 기존 ADR-006~011을 007~012로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-04): 임계 구역 길이·락 보유 시간을 새 ADR-004로 넣으며 기존 ADR-004~010을 005~011로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 > 번호 이동(2026-10-15, 6차): 앱 JVM GC·메모리 기준을 새 ADR-010으로 넣으며 기존 ADR-010~016을 011~017로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-16, 7차): 측정 환경 꼬리 지연 원인을 새 ADR-011로 넣으며 기존 ADR-011~017을 012~018로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-18, 8차): 카운터 증분 대조·Kafka/복제본 대조를 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 대조(옛 ADR-013)를 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
-> 번호 이동(2026-11-07, 10차): 억울한 사용자 최소화(결제했는데 좌석을 잃음 — 예방 · 보상 설계)를 새 ADR-016으로 넣으며 기존 ADR-016~020을 017~021로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-16, 7차): 측정 환경 테일 레이턴시 원인을 새 ADR-011로 넣으며 기존 ADR-011~017을 012~018로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-18, 8차): 카운터 증분 보정·Kafka/복제본 보정을 새 ADR-012·013으로 넣으며 기존 ADR-012~018을 014~020으로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-10-23, 9차): Kafka·읽기 복제본 보정(옛 ADR-013)을 착수 조건이 생기는 오픈 폭주 뒤로 보내 ADR-020으로 옮기고, 기존 ADR-014~020을 013~019로 당겼다 — 이 문서의 번호 참조는 새 번호다.
+> 번호 이동(2026-11-07, 10차): 결제하고 좌석을 잃은 사용자 최소화(결제했는데 좌석을 잃음 — 예방 · 보상 설계)를 새 ADR-016으로 넣으며 기존 ADR-016~020을 017~021로 옮겼다 — 이 문서의 번호 참조는 새 번호다.
 
 - 상태: **결정(2026-11-04)** — 기본 만료 방식 = **A(sweep) 유지**(요약기 결론 **'A 유지 ③ — G2를 넘은 후보가 모두 G3에서 걸린다'** · 앞 캠페인 `20261103-adr014-fd494aea` 48자리 + 재측정 `20261104-adr014-r7-4d0117de` 12자리를 합친 집계(명세 R7) · 앞 캠페인 단독 결론 'A 유지 ①'은 하네스 결함으로 superseded(결과-9) · 사용자 확정 'A 유지') · 기본값을 바꾸지 않으므로 DB 전환 없음(§결정). 이력: §설계(task 01 · 2026-10-26 · 설계 선검증 듀얼 + 재점검 마감) · §측정 전 고정 규칙(task 02 · 듀얼 1패스 + 재점검 마감 · 캠페인 60회 약 21.2시간 추정 — 사용자 재확인 2026-10-26) · 측정 2026-11-03~04(§실험 결과)
 - 명세: `docs/plans/2026-10-26/adr-014-hold-expiry/requirement-spec.md` · 기록: 같은 폴더 `log.md`
@@ -18,7 +18,7 @@
 
 ## 문제
 
-기준선은 좌석에 `HELD`를 저장하고 `@Scheduled` 배치가 만료분을 `AVAILABLE`로 되돌린다(sweep). 만료 시각과 배치 실행 사이에 좌석은 팔 수 있는데 팔리지 않는다. 배치가 늦거나 실패하면 "만료됐는데 HELD" 좌석이 남는다.
+베이스라인은 좌석에 `HELD`를 저장하고 `@Scheduled` 배치가 만료분을 `AVAILABLE`로 되돌린다(sweep). 만료 시각과 배치 실행 사이에 좌석은 팔 수 있는데 팔리지 않는다. 배치가 늦거나 실패하면 "만료됐는데 HELD" 좌석이 남는다.
 
 ## 가설
 
@@ -30,7 +30,7 @@
 
 | 선택지 | "좌석이 비었다"의 판정 | 예상 장단점 |
 |--------|----------------------|------------|
-| A. `HELD` 저장 + sweep (기준선) | `status = AVAILABLE` | 조회 단순 / 배치 주기만큼 실시간성 손실 |
+| A. `HELD` 저장 + sweep (베이스라인) | `status = AVAILABLE` | 조회 단순 / 배치 주기만큼 실시간성 손실 |
 | B. `HELD` 저장 + 조회 시 만료 판정 (lazy) | `AVAILABLE` 또는 (`HELD` 이고 만료) | 실시간 / 저장된 `HELD`가 거짓일 수 있음 |
 | C. 혼합 (판정 lazy + 정리 sweep) | B와 같음 | B + 정리 / 같은 규칙이 두 곳 |
 | D. 좌석엔 영속 사실만, 홀드는 유도 | `AVAILABLE` 이고 활성 홀드(`expires_at > now()`) 없음 | 실시간, 거짓 상태 없음 / 조회 시 홀드 조인, 경합 지점이 홀드 행으로 이동 |
@@ -50,25 +50,25 @@
 | 남은 만료 홀드 | 만료됐지만(`expires_at <= now()`) 아직 지워지지 않은 홀드 행 |
 | 비어 있음 | 선점할 수 있는 좌석. A: `status = 'AVAILABLE'` · B·C·D: `status <> 'RESERVED'` 이고 활성 홀드 없음(§설계-2.1) |
 | 회수 | 선점 트랜잭션이 그 (회차, 사용자)의 남은 만료 홀드를 지우고, 같은 트랜잭션에서 지운 수만큼 cnt를 내리는 것(명세 §0 · §2) |
-| 쌍 잠금 | (회차, 사용자) 쿼터 행 `user_hold_quota`를 `FOR UPDATE`로 잠그는 것. 그 쌍의 '홀드 행 삭제 + cnt 변경'을 한 번에 한 트랜잭션으로 묶는 자물쇠다 |
-| 기본 조합 | 좌석 경합 방식 `pessimistic-nowait`(좌석 행 `FOR UPDATE NOWAIT` — 잠겨 있으면 기다리지 않고 진다 · ADR-003 3b) + 매수 방식 `counter-upsert-precheck`(잠금 없는 좌석 선조회 + 쿼터 한 문장 upsert · ADR-008) |
-| 판정기 | `/internal/consistency`(`LoadtestDataService.consistency` — ADR-001의 끝 시점 정합 검사) |
+| 키 잠금 | (회차, 사용자) 쿼터 행 `user_hold_quota`를 `FOR UPDATE`로 잠그는 것. 그 키의 '홀드 행 삭제 + cnt 변경'을 한 번에 한 트랜잭션으로 묶는 자물쇠다 |
+| 기본 조합 | 좌석 경합 방식 `pessimistic-nowait`(좌석 행 `FOR UPDATE NOWAIT` — 잠겨 있으면 기다리지 않고 진다 · ADR-003 3b) + 매수 방식 `counter-upsert-precheck`(잠금 없는 좌석 선조회 + 쿼터 단일 쿼리 upsert · ADR-008) |
+| 정합성 검증기 | `/internal/consistency`(`LoadtestDataService.consistency` — ADR-001의 끝 시점 정합 검사) |
 | RC | READ COMMITTED. 이 앱의 격리 수준이고, 문장마다 새 스냅숏(그 순간까지 커밋된 것)을 본다 |
 | EPQ | EvalPlanQual. RC에서 잠그거나 고치려던 행이 그 사이 다른 트랜잭션에 바뀌었으면, 그 행의 최신 버전으로 **그 행의 조건만** 다시 보는 PostgreSQL 동작. 다른 테이블을 읽는 하위 질의는 문장 시작 스냅숏 그대로다 |
 | TTL | 홀드 유효 시간(`seat.hold.ttl` — 지금 5분, application.yml:34) |
 
-### 설계-1 지금 코드의 사실 (A — 기준선 · 기본 조합)
+### 설계-1 지금 코드의 사실 (A — 베이스라인 · 기본 조합)
 
 | 경로 | 문장 순서 | 잠금 | 시각 출처 |
 |---|---|---|---|
 | 선점 | ① 마감 판정 `SELECT starts_at FROM product_schedule … FOR SHARE`(SalesCloseGate.kt:50-52) ② 잠금 없는 좌석 선조회 `SELECT status FROM product_seat` — `AVAILABLE`이 아니면 409(UserLimitStrategies.kt:335-341) ③ 쿼터 upsert `cnt + 1 <= max`(:283-287 — 0행이면 ②를 다시 보고 매수 초과 :322-325) ④ 좌석 `FOR UPDATE NOWAIT`(ProductSeatRepository.kt:31-34 · 55P03이면 409 — DbLockHoldStrategies.kt:57) ⑤ `assertHoldable` = `status != AVAILABLE`이면 409(ProductSeat.kt:44-48) ⑥ `seat.hold` → flush = 홀드 INSERT + 좌석 `status='HELD'` UPDATE(HoldSeatProcess.kt:86-89) | 회차(공유) → 쿼터 행(배타) → 좌석 행(배타 · NOWAIT)(HoldSeatProcess.kt:47 주석) | `held_at`·`expires_at` = 앱 Clock + TTL(HoldSeatProcess.kt:87 · ProductSeat.kt:53) |
 | 확정 | `findByHoldsId`(잠금 없음 — ProductSeatRepository.kt:16) → 내 것인가 · `isExpired(앱 now)` · `status == HELD`(ProductSeat.kt:59-73) → 좌석 RESERVED · 홀드 삭제(orphanRemoval — ProductSeat.kt:40) · 예약 INSERT가 한 트랜잭션(ConfirmReservationService.kt:32-58) | 없음(확인과 전환 사이의 경합은 ADR-015) | 앱 Clock(ConfirmReservationService.kt:36) |
 | 좌석 조회 | **API 없음**(컨트롤러는 선점 · 확정 · `/internal`뿐). `product_seat(schedule_id)` 인덱스도 없다(V1·V2 — 좌석 테이블에는 PK 인덱스뿐) | — | — |
-| 만료 배치 | `@Scheduled(fixedDelay = expiry-interval)` 10초(HoldExpiryScheduler.kt:15 · application.yml:36). **틱 하나 = 트랜잭션 하나**(ExpireHoldsService.kt:31-38): `findDistinctByHoldsExpiresAtLessThanEqual(앱 now)`로 좌석·홀드를 잠금 없이 읽고(ProductSeatRepository.kt:18) → `expireHolds` = 만료 홀드 제거 + `status == HELD`면 `AVAILABLE`(ProductSeat.kt:76-86 — **남은 활성 홀드가 있는지는 보지 않는다**. 좌석당 홀드가 0..1인 A에서만 맞다) → `onHoldsExpired` = 쌍 정렬 가드 감소 `cnt >= n` · 0행이면 PairRepair 복구(ExpiryCounters.kt:49-63) | 쿼터 행(정렬 · JDBC 즉시) → 커밋 때 flush(홀드 DELETE · 좌석 UPDATE) (추정 — JdbcTemplate 문장은 JPA flush를 일으키지 않으므로 쿼터 UPDATE가 먼저 나간다) | 앱 Clock(ExpireHoldsService.kt:32) |
+| 만료 배치 | `@Scheduled(fixedDelay = expiry-interval)` 10초(HoldExpiryScheduler.kt:15 · application.yml:36). **틱 하나 = 트랜잭션 하나**(ExpireHoldsService.kt:31-38): `findDistinctByHoldsExpiresAtLessThanEqual(앱 now)`로 좌석·홀드를 잠금 없이 읽고(ProductSeatRepository.kt:18) → `expireHolds` = 만료 홀드 제거 + `status == HELD`면 `AVAILABLE`(ProductSeat.kt:76-86 — **남은 활성 홀드가 있는지는 보지 않는다**. 좌석당 홀드가 0..1인 A에서만 맞다) → `onHoldsExpired` = 키 정렬 가드 감소 `cnt >= n` · 0행이면 PairRepair 복구(ExpiryCounters.kt:49-63) | 쿼터 행(정렬 · JDBC 즉시) → 커밋 때 flush(홀드 DELETE · 좌석 UPDATE) (추정 — JdbcTemplate 문장은 JPA flush를 일으키지 않으므로 쿼터 UPDATE가 먼저 나간다) | 앱 Clock(ExpireHoldsService.kt:32) |
 | 카운터 회수 | 배치에서만. 선점은 남은 만료 홀드를 회수하지 않는다 — 가설 2의 원인 | — | — |
 
-- **카운터·대조가 세는 '실제 값' = 홀드 행 전부(만료 여부 무관) + CONFIRMED 예약**: `PairRepair.actualOf`(PairRepair.kt:120-130) · 대조 one-shot 문장(ChunkDetector.kt:77-90) · split·group(ChunkDetector.kt:204 주석 '홀드는 expires_at으로 거르지 않는다') · V6 백필 정의(V6__backfill_user_hold_quota.sql 머리 주석) · 판정기 `v_counter_mismatch`. 그래서 지금은 남은 만료 홀드가 cnt와 실제 값 양쪽에 똑같이 들어가 어긋남이 아니다.
-- **판정기 항목 중 만료와 닿는 것**(LoadtestDataService.kt:140-183): `v_duplicate_hold_seats`(좌석당 홀드 **행** > 1) · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats`(DB `now()` − 유예) · `v_over_limit_users`(홀드 행 + 확정 > 한도). 모두 'HELD 저장 + 좌석당 홀드 0..1'(A)을 전제로 정의돼 있다.
+- **카운터·대조가 세는 '실제 값' = 홀드 행 전부(만료 여부 무관) + CONFIRMED 예약**: `PairRepair.actualOf`(PairRepair.kt:120-130) · 대조 one-shot 문장(ChunkDetector.kt:77-90) · split·group(ChunkDetector.kt:204 주석 '홀드는 expires_at으로 거르지 않는다') · V6 백필 정의(V6__backfill_user_hold_quota.sql 머리 주석) · 정합성 검증기 `v_counter_mismatch`. 그래서 지금은 남은 만료 홀드가 cnt와 실제 값 양쪽에 똑같이 들어가 불일치가 아니다.
+- **정합성 검증기 항목 중 만료와 닿는 것**(LoadtestDataService.kt:140-183): `v_duplicate_hold_seats`(좌석당 홀드 **행** > 1) · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats`(DB `now()` − 유예) · `v_over_limit_users`(홀드 행 + 확정 > 한도). 모두 'HELD 저장 + 좌석당 홀드 0..1'(A)을 전제로 정의돼 있다.
 - **A가 가설 3을 막는 방식**: A에서는 저장된 `HELD`가 남아 있는 동안 아무도 그 좌석을 다시 잡지 못한다(②·⑤). 배치 두 틱(앱 2대 등)이 같은 홀드를 지우면 늦은 쪽 틱이 롤백된다 — ADR-013 §4.2의 기술('한쪽 틱이 롤백된다 — 이중 감소는 없다') (추정 — 근거는 Hibernate의 삭제 행 수 검사이고 이 저장소 테스트로는 확인하지 않았다 `[구현 검증]`).
 
 ### 설계-2 B·C·D 공통 규칙
@@ -114,20 +114,20 @@ RC에서 `SELECT … FOR UPDATE [NOWAIT]` 한 문장 안의 `EXISTS (SELECT … 
 - 같은 이유로 C 배치의 좌석 되돌리기를 `UPDATE … WHERE status = 'HELD' AND NOT EXISTS (활성 홀드)` 한 문장(먼저 잠그지 않음)으로 하지 않는다 — 좌석 행 잠금을 기다린 뒤 EPQ가 `status`만 다시 보고, 막 커밋된 재선점 홀드는 못 봐 `AVAILABLE`로 되돌릴 수 있다(가설 3의 B·C판 — §설계-5).
 - 잠금 없는 선조회(H1)는 걸러내기일 뿐이고, 최종 판정은 H8이다.
 
-#### 2.4 쌍 잠금과 '지운 만큼만 내린다' — 회수와 배치의 이중 감소 방지
+#### 2.4 키 잠금과 '지운 만큼만 내린다' — 회수와 배치의 이중 감소 방지
 
-- **규칙 ①**: (회차, 사용자)의 홀드 행을 **지우는** 경로(회수 · C·D 배치)는 먼저 그 쌍의 쿼터 행을 `FOR UPDATE`로 잠근다. 여러 쌍이면 `(schedule_id, user_id)` 순(ExpiryCounters.kt:52-53과 같은 순서). 홀드를 **만드는** 선점은 이미 upsert로 같은 행을 잠그고, 대조 복구도 같은 행을 잠근다(PairRepair.kt:110-112). → 그 쌍의 '행 삭제 + cnt 변경'은 한 번에 한 트랜잭션이다.
+- **규칙 ①**: (회차, 사용자)의 홀드 행을 **지우는** 경로(회수 · C·D 배치)는 먼저 그 키의 쿼터 행을 `FOR UPDATE`로 잠근다. 여러 키면 `(schedule_id, user_id)` 순(ExpiryCounters.kt:52-53과 같은 순서). 홀드를 **만드는** 선점은 이미 upsert로 같은 행을 잠그고, 대조 복구도 같은 행을 잠근다(PairRepair.kt:110-112). → 그 키의 '행 삭제 + cnt 변경'은 한 번에 한 트랜잭션이다.
 - **규칙 ②**: 감소량 = 그 트랜잭션의 `DELETE … RETURNING`이 실제로 돌려준 행 수. 같은 행을 두 트랜잭션이 지우려 하면 뒤 쪽은 앞 쪽 커밋을 기다렸다가 행이 없어 0행을 받고 0만큼 내린다. 그래서 회수와 배치가 같은 홀드를 두 번 빼지 않는다(규칙 ①이 있으면 그 기다림도 쿼터 행에서 먼저 일어난다).
 - **규칙 ③**: 삭제와 감소는 같은 트랜잭션이다. 선점이 뒤 단계(NOWAIT 패배 · 매수 초과 · 좌석 불가)에서 실패하면 회수도 함께 롤백된다(부분 반영 0 — 명세 §2). 대가: 실패한 선점의 회수는 남지 않는다(다음 선점 · 배치 몫).
-- 가드 감소 `cnt >= n`이 0행이면(cnt가 이미 어긋남) A와 같은 방식으로 그 자리에서 `PairRepair.repairInCurrentTx(pendingDecrement = n)`을 부른다 — 행을 이미 지웠으므로 `excludeHoldIds`는 비운다(오탐 판정식 `locked == actual + pendingDecrement` — PairRepair.kt:101 — 이 그대로 성립. 매개변수 뜻은 PairRepair.kt:66-70 주석) (선검증 DS14-7). 기록 출처 이름 후보: 회수 `hold-reclaim` · C·D 배치 `expiry-repair`(A와 같은 이름). `expiry-repair=false`면 A의 옛 경로처럼 실패한다(트랜잭션 롤백 — ExpiryCounters.kt:89-98과 같은 뜻). 회수(H3)와 배치(C·D)에서 쿼터 행이 **없는** 쌍(MISSING — 어긋남 모양 '행 없음')은 지운 뒤가 아니라 지우기 **앞에서** 부른다(§3.1 H3 · §3.4 C3b — A와 같은 순서 · 회수 쪽은 메인 종합 DS14-8). 회수 쪽 MISSING 복구와 배치 MISSING 복구가 같은 쌍에서 만나면 한쪽이 40P01로 롤백될 수 있다(무음 아님 — 선점은 5xx가 아니라 재시도 대상인지 [구현 검증]).
-- **감소 문장 · 등록은 A 경로를 재사용한다(선검증 DS14-6)**: 회수 H5와 배치 C5의 가드 감소는 `ExpiryCounters`의 증분 방식별 문장을 그대로 쓴다 — `method = stmt`(ADR-012 ⓒ — 앱 문장이 표시를 남기는 방식, `IncrementalMethod` — ReconcileProperties.kt:39)면 `UPDATE … SET cnt = cnt - ?, updated_at = now() …`(GUARD_STMT_SQL), 아니면 `SET cnt = cnt - ?`(GUARD_SQL) — 고르는 곳 ExpiryCounters.kt:33-35 · 문장 ExpiryCounters.kt:142-143. 감소가 1행이면 같은 경로로 `changes.changed(회차, 사용자)`(ADR-012 ⓐ 메모리 집합 등록 — 커밋 뒤에만 넣는다)를 부른다(ExpiryCounters.kt:59). 복구 갈래는 PairRepair가 등록한다(PairRepair.kt:100 — ExpiryCounters.kt:59 주석과 같음). 문장을 새로 적지 않는 이유: 방식별 표시(ⓐ 등록 · ⓒ `updated_at`)를 빠뜨리면 증분 대조가 그 쌍의 변경을 못 본다. 같은 줄의 측정 주입 `afterExpiryDecrement`(ExpiryCounters.kt:60)는 부르지 않는다(B·C·D와 주입은 기동 거부 — Q13).
+- 가드 감소 `cnt >= n`이 0행이면(cnt가 이미 불일치) A와 같은 방식으로 그 자리에서 `PairRepair.repairInCurrentTx(pendingDecrement = n)`을 부른다 — 행을 이미 지웠으므로 `excludeHoldIds`는 비운다(오탐 판정식 `locked == actual + pendingDecrement` — PairRepair.kt:101 — 이 그대로 성립. 매개변수 뜻은 PairRepair.kt:66-70 주석) (선검증 DS14-7). 기록 출처 이름 후보: 회수 `hold-reclaim` · C·D 배치 `expiry-repair`(A와 같은 이름). `expiry-repair=false`면 A의 옛 경로처럼 실패한다(트랜잭션 롤백 — ExpiryCounters.kt:89-98과 같은 뜻). 회수(H3)와 배치(C·D)에서 쿼터 행이 **없는** 키(MISSING — 불일치 모양 '행 없음')은 지운 뒤가 아니라 지우기 **앞에서** 부른다(§3.1 H3 · §3.4 C3b — A와 같은 순서 · 회수 쪽은 메인 종합 DS14-8). 회수 쪽 MISSING 복구와 배치 MISSING 복구가 같은 키에서 만나면 한쪽이 40P01로 롤백될 수 있다(무음 아님 — 선점은 5xx가 아니라 재시도 대상인지 [구현 검증]).
+- **감소 문장 · 등록은 A 경로를 재사용한다(선검증 DS14-6)**: 회수 H5와 배치 C5의 가드 감소는 `ExpiryCounters`의 증분 방식별 문장을 그대로 쓴다 — `method = stmt`(ADR-012 ⓒ — 앱 문장이 표시를 남기는 방식, `IncrementalMethod` — ReconcileProperties.kt:39)면 `UPDATE … SET cnt = cnt - ?, updated_at = now() …`(GUARD_STMT_SQL), 아니면 `SET cnt = cnt - ?`(GUARD_SQL) — 고르는 곳 ExpiryCounters.kt:33-35 · 문장 ExpiryCounters.kt:142-143. 감소가 1행이면 같은 경로로 `changes.changed(회차, 사용자)`(ADR-012 ⓐ 메모리 집합 등록 — 커밋 뒤에만 넣는다)를 부른다(ExpiryCounters.kt:59). 복구 갈래는 PairRepair가 등록한다(PairRepair.kt:100 — ExpiryCounters.kt:59 주석과 같음). 문장을 새로 적지 않는 이유: 방식별 표시(ⓐ 등록 · ⓒ `updated_at`)를 빠뜨리면 증분 보정이 그 키의 변경을 못 본다. 같은 줄의 측정 주입 `afterExpiryDecrement`(ExpiryCounters.kt:60)는 부르지 않는다(B·C·D와 주입은 기동 거부 — Q13).
 
 #### 2.5 ADR-009·012 대조와 '남은 만료 홀드' — 오탐 0 조건
 
 - **대조의 실제 값 정의를 바꾸지 않는다**: 홀드 행 전부(만료 무관) + 확정(§설계-1). B·C·D에서도 cnt는 '행이 있는 동안' 그 홀드를 센다. 행 삭제와 cnt 감소가 규칙 ①~③으로 한 트랜잭션이므로 어느 스냅숏에서도 cnt = 홀드 행 수 + 확정이다 → 오탐 0 · 끝 불일치 0(명세 §2 '카운터 정합'). reconcile-core는 무변경이다(대조 기본 경로 문장은 '한 글자도 바꾸지 않는다' — ChunkDetector.kt:77 주석).
 - 실제 값을 '활성 홀드만'으로 바꾸면 틀린다: 남은 만료 홀드마다 cnt > 실제(above)로 탐지되고, 복구가 cnt를 활성 수로 덮은 뒤 회수·배치가 그 행을 지우며 한 번 더 내린다 → 이중 감소(below).
 - **명세 §2 '카운터 = 활성 홀드 수'의 해석**(열린 질문 Q2): 대조 기준 = 홀드 행 수(만료 무관) + 확정. **매수 판정** = 회수 뒤의 cnt — 그 순간 그 사용자의 홀드 행은 이 트랜잭션 `now()` 기준으로 모두 활성이므로 '활성 홀드 수 + 확정'과 같다. 둘은 회수 직후에 같아진다.
-- 증분(ADR-012 ⓑ 트리거 방식): 회수·배치의 cnt 감소는 쿼터 행 UPDATE라 V9 트리거가 `updated_at`을 남긴다(V9__quota_updated_at_trigger.sql) → 증분이 본다. 홀드 행 삭제 자체에는 표시가 없지만(같은 파일 주석 '행 삭제는 표시가 없다') 같은 트랜잭션의 쿼터 UPDATE가 표시를 남긴다. ⓒ(stmt — 앱 문장 `updated_at = now()`)·ⓐ(memory — 메모리 집합 등록)도 A와 같은 문장·등록 경로를 쓰므로 같게 성립한다(§2.4 마지막 항목 — 선검증 DS14-6). 안전망 최근 창은 홀드·예약 **id 범위**로 새 행을 본다(SafetyNetReconciler.kt:772 `HOLD_PAIRS_SQL`) — B·C·D가 홀드를 늘 새 행(새 id)으로 만들면 그대로 성립한다(D 후보 (나) '덮어쓰기'는 여기서 어긋난다 — §설계-4).
+- 증분(ADR-012 ⓑ 트리거 방식): 회수·배치의 cnt 감소는 쿼터 행 UPDATE라 V9 트리거가 `updated_at`을 남긴다(V9__quota_updated_at_trigger.sql) → 증분이 본다. 홀드 행 삭제 자체에는 표시가 없지만(같은 파일 주석 '행 삭제는 표시가 없다') 같은 트랜잭션의 쿼터 UPDATE가 표시를 남긴다. ⓒ(stmt — 앱 문장 `updated_at = now()`)·ⓐ(memory — 메모리 집합 등록)도 A와 같은 문장·등록 경로를 쓰므로 같게 성립한다(§2.4 마지막 항목 — 선검증 DS14-6). 폴백 스캔 최근 창은 홀드·예약 **id 범위**로 새 행을 본다(SafetyNetReconciler.kt:772 `HOLD_PAIRS_SQL`) — B·C·D가 홀드를 늘 새 행(새 id)으로 만들면 그대로 성립한다(D 후보 (나) '덮어쓰기'는 여기서 어긋난다 — §설계-4).
 
 ### 설계-3 선택지별 데이터 모델과 다섯 경로 (기본 조합에서만)
 
@@ -181,7 +181,7 @@ UPDATE product_seat SET status = 'HELD' WHERE id = :seat AND status = 'AVAILABLE
 - **잠금 순서**: 회차(공유) → 자기 쿼터 행 → 자기 만료 홀드 행 → (C만: 회수한 다른 좌석 · SKIP LOCKED) → 대상 좌석 행(NOWAIT) → 새 홀드 행. **남의 쿼터 행은 잡지 않는다**(교착 고리를 만들지 않는다 — Q4). 기다리는 잠금은 회차(공유) · 자기 쿼터 행 · **회수 H4가 지우려는 자기 만료 홀드 행** 셋이고, 좌석 잠금은 모두 기다리지 않는다(NOWAIT · SKIP LOCKED) (선검증 DS14-4 — 초안은 셋째를 빠뜨렸다).
   - **대기 간선 'H4 → 확정 K3가 쥔 홀드 행'**: 같은 사용자의 확정이 그 홀드 행을 K3 `FOR UPDATE`로 쥐고 있으면(만료 직전 시작한 확정 — 시각 역전, 또는 만료로 거부되어 롤백 중인 확정) H4의 DELETE가 확정 트랜잭션의 끝을 기다린다. 확정이 성공하면 행이 사라져 H4는 그 행을 0행으로 받고(규칙 ② — 그만큼 내리지 않는다), 거부되면 H4가 지운다.
   - **고리가 닫히지 않는 이유**: 확정이 이후에 기다릴 수 있는 것은 K5·K6의 자기 행(이미 쥠)과 K7 예약 INSERT의 FK 검사(회차 · 좌석 행 `FOR KEY SHARE`)뿐이다. 회수 쪽이 쥔 것은 회차 `FOR SHARE`(H0 — `FOR KEY SHARE`와 충돌하지 않는다) · 자기 쿼터 행(확정은 쿼터 행을 잡지 않는다 — UserLimitStrategies.kt:51) · 이미 지운 만료 홀드 행뿐이다. 좌석은 아직 잡지 않았다(H7은 H4 뒤). → 확정은 회수가 쥔 것을 기다리지 않는다 (추정 — 동시성 테스트 대상 · §설계-10 #12).
-  - **꼬리 영향**: 회수가 쿼터 행을 쥔 채 확정의 끝을 기다리는 동안, 같은 사용자의 다른 선점(H3 · H6 upsert)과 대조 복구(PairRepair.kt:110-112)가 그 쿼터 행에서 줄을 선다 — 상한 = 확정 트랜잭션 길이. 같은 사용자의 '확정 중 다른 좌석 선점'에서만 생긴다. 지표 후보: 회수 H4 대기 시간 · 대기 건수(§설계-8.2).
+  - **테일 레이턴시 영향**: 회수가 쿼터 행을 쥔 채 확정의 끝을 기다리는 동안, 같은 사용자의 다른 선점(H3 · H6 upsert)과 대조 복구(PairRepair.kt:110-112)가 그 쿼터 행에서 줄을 선다 — 상한 = 확정 트랜잭션 길이. 같은 사용자의 '확정 중 다른 좌석 선점'에서만 생긴다. 지표 후보: 회수 H4 대기 시간 · 대기 건수(§설계-8.2).
 - **에러 순서**: 마감 → 좌석(H1) → 매수(H6) — 지금과 같다. 회수는 H1 통과 뒤 · H6 앞(명세 '회수하고 카운터를 내린 뒤 판정').
 - **자기 좌석 재선점**(가설 2): H1이 거짓 `HELD`(B·C)·자기 만료 홀드를 비어 있음으로 보고 → H4가 그 홀드를 지우고 cnt를 내린 뒤 → H6·H8을 통과한다.
 - **문장 수**(지금 대비): 남은 만료 홀드가 없는 요청은 H2 · H8 두 문장이 늘고 H1에 하위 질의가 붙는다. 회수하는 요청은 H3~H5 세 문장이 더 는다. D는 좌석 UPDATE가 없어진다(잠금만). 비용은 측정한다 `[구현 검증]`.
@@ -244,7 +244,7 @@ FROM product_seat st WHERE schedule_id = :s ORDER BY id;
 | A | **무변경**(§설계-1) |
 | B | 주기 배치 없음 — 회수는 선점에서만. 정리 ①(마감 회차 쿼터 행 삭제)이 지금 '그 회차에 홀드 행이 하나라도 있으면 건너뛴다'(QuotaCleanup.kt:129-133)라서 B에서는 마감 회차의 남은 만료 홀드 때문에 쿼터 행이 영영 안 지워진다 → B의 정리 ①은 회차 행 `FOR UPDATE` 뒤 **활성 홀드가 없으면** 그 회차의 만료 홀드 행을 지우고, 홀드 행이 하나도 남지 않았을 때만 쿼터 행을 같은 트랜잭션에서 지운다(마감 회차는 카운터를 쓰지 않으므로 감소 없음 — 명세(ADR-009) §10). 홀드 삭제는 **`FOR UPDATE SKIP LOCKED`로 고른 행만** 지운다(아래 B1~B3 — 확정 K3가 쥔 행을 기다리면 교착 · §3.2 '정리 ①과의 교착') (선검증 DS14-3). 지운 홀드 수 · 건너뛴 수는 로그·지표로(열린 질문 Q7) |
 | C | 틱마다 청크 트랜잭션 반복(아래 C1~C6) — 기존 `expiry-interval`(10초)을 그대로 쓴다 |
-| D | 쌍 단위 청크(아래 D1~D5 — 좌석 잠금·좌석 쓰기 없음). C의 C3~C5와 같은 규칙을 쌍 후보에 쓴다 (선검증 DS14-5) |
+| D | 키 단위 청크(아래 D1~D5 — 좌석 잠금·좌석 쓰기 없음). C의 C3~C5와 같은 규칙을 키 후보에 쓴다 (선검증 DS14-5) |
 
 ```sql
 -- B 정리 ① (회차 :s 하나 = 트랜잭션 하나 · 지금 cleanSchedule의 회차 FOR UPDATE · 마감 재확인 뒤 — QuotaCleanup.kt:115-127 그대로)
@@ -312,12 +312,12 @@ DELETE FROM seat_hold WHERE id = ANY(:missingIds) RETURNING id;                 
 -- D5 = C5(쌍별 가드 감소 · 방식별 문장 · 등록)
 ```
 
-- **MISSING을 지우기 앞에서 복구하는 이유(C3b · D3)**: 행이 없는 쌍은 C3·D2가 잠그지 못한다. 그 쌍의 홀드를 먼저 지우고 C5에서 0행 → 복구로 가면, 그 사이 그 사용자의 선점 H6 upsert가 행을 새로 만들어(cnt 1 — 기다릴 행이 없다) 커밋할 수 있고, C5의 가드 감소가 그 cnt를 내려 어긋남(below)을 조용히 만든다. PairRepair가 행을 먼저 만들고 잠그면(PairRepair.kt:88-94 — INSERT한 행은 커밋까지 이 트랜잭션이 쥔다) 그 선점의 upsert가 이 트랜잭션 끝을 기다린다 → 규칙 ①이 MISSING 쌍에도 선다 (추정 — 동시성 테스트 대상). `:missingIds` 삭제가 넘긴 수보다 적게 지우면(그 사이 다른 트랜잭션이 지움 — 이미 덮은 cnt가 틀린다) 청크를 롤백하고 ERROR 로그 + 지표(`seat.hold.expiry.tick{outcome}` 실패 · A의 틱 롤백과 같은 처리 — ExpiryCounters.kt:123-136 skipped 기록)로 남긴다(무음 금지).
+- **MISSING을 지우기 앞에서 복구하는 이유(C3b · D3)**: 행이 없는 키는 C3·D2가 잠그지 못한다. 그 키의 홀드를 먼저 지우고 C5에서 0행 → 복구로 가면, 그 사이 그 사용자의 선점 H6 upsert가 행을 새로 만들어(cnt 1 — 기다릴 행이 없다) 커밋할 수 있고, C5의 가드 감소가 그 cnt를 내려 불일치(below)을 조용히 만든다. PairRepair가 행을 먼저 만들고 잠그면(PairRepair.kt:88-94 — INSERT한 행은 커밋까지 이 트랜잭션이 쥔다) 그 선점의 upsert가 이 트랜잭션 끝을 기다린다 → 규칙 ①이 MISSING 키에도 선다 (추정 — 동시성 테스트 대상). `:missingIds` 삭제가 넘긴 수보다 적게 지우면(그 사이 다른 트랜잭션이 지움 — 이미 덮은 cnt가 틀린다) 청크를 롤백하고 ERROR 로그 + 지표(`seat.hold.expiry.tick{outcome}` 실패 · A의 틱 롤백과 같은 처리 — ExpiryCounters.kt:123-136 skipped 기록)로 남긴다(조용히 넘기지 않는다).
 - **진행형 커서의 경계**: 커서는 틱 안에서만 산다(다음 틱은 처음부터). 청크 하나가 실패해도(40P01 · MISSING 수 불일치 등) 커서를 그 청크 뒤로 옮겨 다음 청크를 계속한다. 틱당 청크 상한 · `k`는 `[구현 검증]`(§설계-10 #7).
   - **틱당 청크 상한(코드 리뷰 CR14-2)**: `seat.hold.expiry-max-chunks-per-tick`(기본 100 · 1 미만은 기동 거부). 닿으면 틱을 끝내고 **커서를 다음 틱에 넘긴다** — 다음 틱은 처음이 아니라 그 커서 뒤부터 이어 가고, 후보 끝에 닿으면 커서를 버린다(그다음 틱은 처음부터). 늘 처음부터 시작하면 앞쪽에서 계속 건너뛰는(SKIP LOCKED) · 실패하는 후보가 상한을 다 써서 뒤쪽 후보가 밀린다. 넘긴 커서는 앱마다(빈 상태) 따로다. 닿은 틱 수는 지표 `seat.hold.expiry.chunk_cap_reached`. 기본 100의 근거: 측정 회차 전부(주 회차 1만 석 + 탐침 회차 1만 석 — §측정-3.1·3.2)가 한 틱에 만료돼도 `k` = 500이면 40청크라 측정 부하에서는 닿지 않는다 — 장애 뒤 밀림처럼 그보다 큰 경우에만 틱 길이를 묶는다(값은 #7).
-- **D4의 대기**: D는 좌석을 잠그지 않으므로 D4 DELETE가 확정 K3가 쥔 홀드 행(시각 역전 확정)을 기다릴 수 있다 — 고리는 없다(확정은 쿼터 행을 잡지 않는다 · §3.1 DS14-4와 같은 이유). 그동안 청크의 다른 쌍 쿼터 행이 잡혀 있어 그 사용자들의 선점이 기다린다(꼬리 지표 — §설계-8.2).
+- **D4의 대기**: D는 좌석을 잠그지 않으므로 D4 DELETE가 확정 K3가 쥔 홀드 행(시각 역전 확정)을 기다릴 수 있다 — 고리는 없다(확정은 쿼터 행을 잡지 않는다 · §3.1 DS14-4와 같은 이유). 그동안 청크의 다른 키 쿼터 행이 잡혀 있어 그 사용자들의 선점이 기다린다(테일 레이턴시 지표 — §설계-8.2).
 
-- C 배치 잠금 순서: 좌석(SKIP LOCKED — 기다리지 않음) → 쿼터 행(정렬 — 기다림) → 홀드 행. 선점의 순서(쿼터 → 좌석 NOWAIT)와 반대지만, 좌석 쪽은 양쪽 모두 기다리지 않으므로 고리가 생기지 않는다(추정 — 동시성 테스트 대상). 배치를 쥔 동안 같은 좌석의 선점은 NOWAIT로 지고(경합 오류 지표), 배치가 기다리는 쿼터 행의 주인 선점은 배치 청크가 끝날 때까지 기다린다(꼬리 지표).
+- C 배치 잠금 순서: 좌석(SKIP LOCKED — 기다리지 않음) → 쿼터 행(정렬 — 기다림) → 홀드 행. 선점의 순서(쿼터 → 좌석 NOWAIT)와 반대지만, 좌석 쪽은 양쪽 모두 기다리지 않으므로 고리가 생기지 않는다(추정 — 동시성 테스트 대상). 배치를 쥔 동안 같은 좌석의 선점은 NOWAIT로 지고(경합 오류 지표), 배치가 기다리는 쿼터 행의 주인 선점은 배치 청크가 끝날 때까지 기다린다(테일 레이턴시 지표).
 - 잠긴 좌석 L 위에는 다른 트랜잭션이 홀드를 새로 만들 수 없고(선점은 좌석 잠금 뒤 INSERT), 트랜잭션 안 `now()`는 고정이라 C3과 C4 사이에 `expires_at <= now()`인 행이 늘지 않는다.
 - 청크 크기 `k` 기본값 · 틱당 청크 상한은 `[구현 검증]`. 앱 2대에서 두 배치가 돌아도 좌석은 SKIP LOCKED로 나뉘고 쿼터 행은 정렬 순서로 잠근다.
 
@@ -325,8 +325,8 @@ DELETE FROM seat_hold WHERE id = ANY(:missingIds) RETURNING id;                 
 
 | | 회수 주체 | 같은 홀드를 두 번 빼지 않는 방법 |
 |---|---|---|
-| A | 배치만(틱 트랜잭션 · JPA 삭제 + 쌍 정렬 가드 감소) | 늦은 쪽 틱 롤백(§설계-1 — 추정) |
-| B | 선점 회수(H2~H5) + 마감 정리 ①(감소 없음) | 쌍 잠금 + `DELETE … RETURNING` 행 수만큼(§2.4) |
+| A | 배치만(틱 트랜잭션 · JPA 삭제 + 키 정렬 가드 감소) | 늦은 쪽 틱 롤백(§설계-1 — 추정) |
+| B | 선점 회수(H2~H5) + 마감 정리 ①(감소 없음) | 키 잠금 + `DELETE … RETURNING` 행 수만큼(§2.4) |
 | C | 선점 회수 + 배치(C3~C5) | 같음 |
 | D | 선점 회수 + 배치(행 + 카운터) | 같음 |
 
@@ -342,9 +342,9 @@ DELETE FROM seat_hold WHERE id = ANY(:missingIds) RETURNING id;                 
 | 만료 직전 시작한 확정 vs 만료 뒤 재선점 | 둘 다 좌석을 잠근다 → K3의 '다른 활성 홀드'로 거부 | 덮어쓴 행 id가 그대로면 확정이 남의 홀드를 자기 id로 찾는다(user_id 검사에 기대야 함) · id를 바꾸면(`id = nextval`) PK 갱신 | 좌석 잠금이 없으면 확정 쪽 가드가 따로 필요 |
 | 배치 vs 재선점 | 배치는 만료 행만 지우고 좌석을 안 건드린다 → 무관 | 배치가 지우려던 행이 덮어써짐 → 같은 행 조건이라 EPQ가 새 `expires_at`을 보고 건너뜀 (추정) | (가)와 같음 |
 | 자기 좌석 재선점 | 회수 H4가 자기 만료 행을 지운 뒤 추가 | 자기 행을 덮어씀(감소 1 · 증가 1을 한 트랜잭션에) | 회수 뒤 추가 |
-| 대조·안전망 | 새 행 = 새 id → 최근 창이 본다(§2.5) | id가 그대로인 덮어쓰기는 최근 창이 못 본다(전체 커서 몫) | 새 id |
+| 대조·폴백 스캔 | 새 행 = 새 id → 최근 창이 본다(§2.5) | id가 그대로인 덮어쓰기는 최근 창이 못 본다(전체 커서 몫) | 새 id |
 | 스키마 | 없음 | 좌석 id 유니크 인덱스(V4 `uq_seat_hold_seat_id`와 **다른 이름**이어야 한다 — 기동 검사가 그 이름의 존재를 UNIQUE 전략과 맞춘다, HoldStrategyStartupCheck.kt:89-102 `run`) · 기존 DB의 중복 행 정리 · 트랜잭션 안 `CREATE UNIQUE INDEX`의 쓰기 차단 | `btree_gist` 확장 필요(`CREATE EXTENSION` 권한 — 확인 못 함) |
-| 판단 | **권장** — 기본 조합이 이미 좌석 행을 NOWAIT로 잠그므로 새 경합 지점이 없다 | 기각 후보(NOWAIT 깨짐 · 남의 카운터 교착 · 안전망) | 기각 후보(대기 · 확장 · 확정 가드 별도). '최후 방어선'(ADR-015의 부분 유니크 인덱스와 같은 자리)으로는 고려할 만하다 — 이번 범위 밖 |
+| 판단 | **권장** — 기본 조합이 이미 좌석 행을 NOWAIT로 잠그므로 새 경합 지점이 없다 | 기각 후보(NOWAIT 깨짐 · 남의 카운터 교착 · 폴백 스캔) | 기각 후보(대기 · 확장 · 확정 가드 별도). '최후 방어선'(ADR-015의 부분 유니크 인덱스와 같은 자리)으로는 고려할 만하다 — 이번 범위 밖 |
 
 - (가)가 성립하는 전제(설계 선검증 대상 — §설계-9 N2): **홀드를 만들거나 좌석을 RESERVED로 바꾸는 모든 경로가 좌석 행 잠금을 먼저 쥔다**(선점 H7 · 확정 K2). 홀드를 지우기만 하는 경로(회수 · 배치)는 활성 여부를 바꾸지 않으므로(만료 행만 지운다) 좌석 잠금이 필요 없다. 이 전제는 기본 조합에서만 확인했다 — 다른 좌석 전략(조건부 UPDATE · 낙관락 · advisory 등)은 좌석 행을 잠그지 않으므로 B·C·D와 섞으면 깨진다(§설계-6의 기동 거부 이유).
 - **(가)의 확정 시점(선검증 DS14-OQ2)**: (가)는 아직 **권장**이다. §설계-10 #2 재현 테스트(RC에서 잠금과 하위 질의를 한 문장으로 하면 막 커밋된 남의 활성 홀드를 못 본다 → D에서 두 번째 활성 홀드가 생긴다 · 잠근 뒤 새 문장(H8)으로 나누면 생기지 않는다)가 green이 된 뒤 확정한다 `[구현 검증]`. (가)가 기대는 '잠근 뒤 새 문장은 잠금을 쥐었던 트랜잭션의 커밋을 본다'를 이 저장소에서 아직 재현하지 않았기 때문이다(§2.3 — 외부 근거만). 테스트가 기대와 다르면 (가)를 다시 열고 (다)를 재검토한다.
@@ -355,36 +355,36 @@ DELETE FROM seat_hold WHERE id = ANY(:missingIds) RETURNING id;                 
 |---|---|---|
 | A | 저장 `HELD`가 남은 동안은 재선점이 없다(선조회 ②·⑤). 배치 틱 두 개가 겹치면 늦은 쪽이 롤백 | 지금 코드(§설계-1 — 추정 · `[구현 검증]`). 가설 3은 A에서 '앱 2대 배치 겹침'으로만 잰다 |
 | B | 주기 배치가 없다 · 회수는 좌석 행을 쓰지 않는다 | 해당 없음(구조) |
-| C | 있다 — 배치가 좌석 상태를 쓴다. 한 문장 조건부 UPDATE면 EPQ 때문에 막 커밋된 재선점을 못 보고 되돌린다(§2.3) | 좌석 `FOR UPDATE SKIP LOCKED`로 먼저 잠그고(C2 — 선점 중인 좌석은 건너뜀) 잠근 뒤 새 문장으로 활성 홀드가 없을 때만 되돌린다(C6) · H4b도 같은 방식. 그래도 잘못 되돌려지면(설계 결함) 비어 있음 규칙이 저장 상태를 쓰지 않으므로 이중 판매로 번지지 않는다 — 판정기 '활성 홀드 있는데 HELD 아님'(B·C 기대 0)이 드러낸다 |
+| C | 있다 — 배치가 좌석 상태를 쓴다. 한 문장 조건부 UPDATE면 EPQ 때문에 막 커밋된 재선점을 못 보고 되돌린다(§2.3) | 좌석 `FOR UPDATE SKIP LOCKED`로 먼저 잠그고(C2 — 선점 중인 좌석은 건너뜀) 잠근 뒤 새 문장으로 활성 홀드가 없을 때만 되돌린다(C6) · H4b도 같은 방식. 그래도 잘못 되돌려지면(설계 결함) 비어 있음 규칙이 저장 상태를 쓰지 않으므로 이중 판매로 번지지 않는다 — 정합성 검증기 '활성 홀드 있는데 HELD 아님'(B·C 기대 0)이 드러낸다 |
 | D | 없다 — 배치가 좌석 행을 쓰지 않는다 | 구조(D 배치 = 행 + 카운터만) |
 
-### 설계-6 적용 범위 · 손잡이 · 기동 검사
+### 설계-6 적용 범위 · 설정 옵션 · 기동 검사
 
-- **손잡이 이름(제안 — Q9)**: `seat.hold.expiry-mode` = `sweep`(A · 기본값) · `lazy`(B) · `lazy-sweep`(C) · `derived`(D). `SeatHoldProperties`의 새 필드(기본 SWEEP — 키를 주지 않으면 지금과 같다). 배치 주기는 기존 `seat.hold.expiry-interval`을 A·C·D가 같이 쓴다(비교 조건 같게). C·D 배치 청크 = 새 `seat.hold.expiry-batch-size`(기본값 `[구현 검증]`). `seat.hold.expiry-scheduler-enabled`(HoldExpiryScheduler.kt:10)는 그대로 — `lazy`에서는 만료 유스케이스가 할 일이 없다(0 반환 · 틱 지표만).
+- **설정 옵션 이름(제안 — Q9)**: `seat.hold.expiry-mode` = `sweep`(A · 기본값) · `lazy`(B) · `lazy-sweep`(C) · `derived`(D). `SeatHoldProperties`의 새 필드(기본 SWEEP — 키를 주지 않으면 지금과 같다). 배치 주기는 기존 `seat.hold.expiry-interval`을 A·C·D가 같이 쓴다(비교 조건 같게). C·D 배치 청크 = 새 `seat.hold.expiry-batch-size`(기본값 `[구현 검증]`). `seat.hold.expiry-scheduler-enabled`(HoldExpiryScheduler.kt:10)는 그대로 — `lazy`에서는 만료 유스케이스가 할 일이 없다(0 반환 · 틱 지표만).
 - **기동 거부(설정 검사 — 마이그레이션 앞)**: `HoldStrategyStartupCheck.checkConfig`(HoldStrategyStartupCheck.kt:145 — Flyway 전에 도는 검사 · HoldStrategyMigrationGate)에 규칙을 더한다: `expiry-mode ≠ sweep`이면 `strategy = PESSIMISTIC_NOWAIT` 이고 `limit-strategy = COUNTER_UPSERT_PRECHECK`여야 한다. 아니면 거부하고 메시지에 바꿀 키를 안내한다(지금 거부 문구 방식). 조용히 A로 돌지 않는다(명세 §2). 이미 있는 규칙(매수 방식 ≠ none → 좌석 3b 필수 — :147)과 합치면 사실상 '매수 = counter-upsert-precheck' 한 조건이 는다.
   - counter-trigger를 빼는 이유: V8 트리거가 홀드 DELETE마다 cnt −1을 하므로(V8__counter_trigger.sql `trg_seat_hold_quota`) 회수 H5의 앱 감소와 겹친다.
   - counter · counter-upsert를 빼는 이유: 범위(명세 §2 — 기본 조합만). 선조회가 없는 방식은 H1의 자리가 없다.
   - `expiry-mode ≠ sweep` + 측정 주입(`seat.hold.loadtest.inject-app.enabled`)도 거부를 권장(Q13) — 주입 'expiry' 경로가 A의 `ExpiryCounters.decrement` 안에 있다(ExpiryCounters.kt:60 · AppPathInjector.kt:56-59).
-- reconciler 프로필(F — 대조 전용 프로세스): 업무 요청·만료 스케줄러가 없고(application-reconciler.yml:12) 대조 정의가 무변경이라 손잡이와 무관하다.
+- reconciler 프로필(F — 보정 전용 프로세스): 업무 요청·만료 스케줄러가 없고(application-reconciler.yml:12) 대조 정의가 무변경이라 설정 옵션과 무관하다.
 - **한계(코드 리뷰 CR14-17)**: C·D인데 `seat.hold.expiry-scheduler-enabled=false`(reconciler 프로필 아님)면 주기 배치가 돌지 않아 만료 홀드 행이 회수(그 사용자의 다음 선점)로만 지워진다 — 기동은 허용하고(테스트가 스케줄러를 끈다) WARN 로그만 남긴다(`HoldStrategyStartupCheck.expirySchedulerOffWarning`).
 
 ### 설계-7 스키마 변경 · 기존 DB 전환
 
 | 버전 | 내용 | 위치(제안 — Q8) | 대상 |
 |---|---|---|---|
-| V11 | `CREATE INDEX idx_product_seat_schedule_id ON product_seat (schedule_id);`(좌석 맵 — 지금은 이 조회가 좌석 표 전체를 훑는다) | 새 선택 위치 `classpath:db/migration-seat-map` · **application.yml 기본 위치 목록(:16)에는 넣지 않는다** — 측정 때 모든 방식 셀의 `spring.flyway.locations`에 같게 더하고, 기본 위치 편입은 기본값(`expiry-mode`)을 교체할 때 함께 한다 (선검증 DS14-OQ1) | 측정: 모든 방식(A 포함 — 비교 조건 같게) |
+| V11 | `CREATE INDEX idx_product_seat_schedule_id ON product_seat (schedule_id);`(좌석 맵 — 지금은 이 조회가 좌석 표 전체를 스캔한다) | 새 선택 위치 `classpath:db/migration-seat-map` · **application.yml 기본 위치 목록(:16)에는 넣지 않는다** — 측정 때 모든 방식 셀의 `spring.flyway.locations`에 같게 더하고, 기본 위치 편입은 기본값(`expiry-mode`)을 교체할 때 함께 한다 (선검증 DS14-OQ1) | 측정: 모든 방식(A 포함 — 비교 조건 같게) |
 | (V12) | D 후보 (나)·(다)를 고를 때만(유니크 · 배제 제약) | 별도 선택 위치 | D |
 
 - **추가형**: B·C·D 데이터 모델은 열·표를 더하지 않는다(좌석 `status` 값 집합 · 홀드 열 그대로 — 새 의미만). V11은 인덱스 추가뿐이고 행을 다시 쓰지 않는다. V1~V10 무변경(명세 §4).
 - **V11의 락**: 트랜잭션 안 `CREATE INDEX`는 `SHARE` 락으로 product_seat 쓰기(선점 H10 · 확정 K5 · A 배치)를 끝날 때까지 막는다(ADR-013 §4.4의 외부 근거 · §7.3 '락을 쥐는 시간은 트랜잭션 경계가 정한다'). ADR-013 원칙대로 시드 크기 사본(S4c 시드 — 회차 1,000 × 1만 석 ≈ 1,000만 좌석)에서 시간을 먼저 재고 `[구현 검증]`, 짧으면 Flyway 트랜잭션 안 그대로(ADR-013 ③과 같은 단순한 길), 길면 `CONCURRENTLY` 판(`V11__….sql.conf`의 `executeInTransaction=false` · 실패 시 INVALID 인덱스 처리 규칙)으로 간다.
-- **기본 위치 목록(application.yml:16)에 넣지 않는 이유(선검증 DS14-OQ1 — 메인 결정)**: 명세 §2 '기존 동작 보존'(손잡이 기본값을 바꾸기 전까지 기존 기본값 동작 그대로). 손잡이 기본이 `sweep`(A)인 배포에 스키마 변경(인덱스 생성 · 그동안의 쓰기 차단 — 아래 'V11의 락')을 붙이지 않는다. 측정은 모든 셀에 같게 켜므로 비교 조건은 같다. 기본값을 교체할 때(task 06) V11 위치를 기본 목록에 더하는 것과 그 배포의 V11 시간 측정(아래)을 함께 한다.
+- **기본 위치 목록(application.yml:16)에 넣지 않는 이유(선검증 DS14-OQ1 — 메인 결정)**: 명세 §2 '기존 동작 보존'(설정 옵션 기본값을 바꾸기 전까지 기존 기본값 동작 그대로). 설정 옵션 기본이 `sweep`(A)인 배포에 스키마 변경(인덱스 생성 · 그동안의 쓰기 차단 — 아래 'V11의 락')을 붙이지 않는다. 측정은 모든 셀에 같게 켜므로 비교 조건은 같다. 기본값을 교체할 때(task 06) V11 위치를 기본 목록에 더하는 것과 그 배포의 V11 시간 측정(아래)을 함께 한다.
 - **위치를 기본 위치(`db/migration`)에 두지 않는 이유**: K2(옛 방식 — `db/migration`만, V1~V7) DB에 V11이 먼저 붙으면, 뒤에 V9·V10 위치를 더할 때 '적용되지 않은 낮은 버전'으로 Flyway 검증이 실패한다(outOfOrder 기본 false — 추정 `[구현 검증]`). 새 선택 위치면 K2·K3 안내(application.yml:45-46)가 그대로 성립한다. 기동 검사의 위치 예측(`IncrementalSchemaCheck.afterLocations` — IncrementalSchemaCheck.kt:69-80)은 모르는 위치를 무시하므로 영향이 없다. 기존 테스트는 `PIN_FLYWAY_BASE`(`db/migration`만 — IntegrationTest.kt:40)라 V11이 붙지 않는다.
 - **ADR-013 §7.3 원칙 대입 — 기존 데이터 수렴**: A가 쌓은 행(`HELD` + 홀드 0..1)은 B·C·D 규칙에서 그대로 유효하다(백필 없음 — '새로 건드린 행만 새 형태'). D는 옛 `HELD`를 '예약 아님'으로 읽고 활성 여부는 홀드 행으로 본다(옛 형태를 맡는 경로 = 비어 있음 규칙).
 - **혼재 — A와 B·C·D는 한 DB에서 함께 돌면 안 된다**(설계 사실 — 실코드 근거):
   - B·C·D가 만든 '좌석당 여러 홀드 행'(남은 만료 + 활성) 위에서 A의 배치는 만료분을 지운 뒤 활성 홀드가 남아도 `HELD → AVAILABLE`로 바꾼다(ProductSeat.kt:76-86). A의 선점은 저장 상태만 믿으므로(ProductSeat.kt:44-48 · UserLimitStrategies.kt:340) 그 좌석을 다시 판다 → 이중 판매.
   - D가 만든 활성 홀드의 좌석은 `AVAILABLE`로 저장돼 있다 → A의 선점이 비어 있음으로 본다 → 이중 판매.
   - B·C·D끼리는 비어 있음 규칙이 같아 선점·확정 판정은 갈리지 않는다(추정). 그러나 **보이는 상태와 저장 `HELD`의 뜻은 갈린다** — D는 활성 홀드 좌석을 `AVAILABLE`로 두므로 D가 쌓은 DB 위에서 B·C의 좌석 맵 빠른 길(§3.3)은 활성 홀드 좌석을 `AVAILABLE`로 보이고, B·C의 C6·H4b·H10도 저장 `HELD`가 활성 홀드를 덮는다는 전제(§3.3)에 선다. 그래서 B·C·D 사이 전환에도 정리가 필요하다 (선검증 DS14-2 — 초안의 '섞여도 괜찮다'를 좁힌다).
-  - → **방식 전환 절차(Q12 — 선검증 DS14-2로 넓힘)**: **방식 사이 전환은 모두**(A ↔ B·C·D만이 아니라 B·C ↔ D · B ↔ C 포함) ADR-013의 ①(멈추고 바꾸기 — 모든 앱을 내리고, 아래 정리를 돌리고, 손잡이를 바꿔 올린다)만 허용한다. 롤링 배포로 손잡이를 바꾸는 길은 두지 않는다. 한 DB에 다른 방식 앱이 붙는 것을 막는 장치(DB 방식 표시 + 기동 검사)는 이번에 만들지 않는다(NEXT 후보로 제안).
+  - → **방식 전환 절차(Q12 — 선검증 DS14-2로 넓힘)**: **방식 사이 전환은 모두**(A ↔ B·C·D만이 아니라 B·C ↔ D · B ↔ C 포함) ADR-013의 ①(멈추고 바꾸기 — 모든 앱을 내리고, 아래 정리를 돌리고, 설정 옵션을 바꿔 올린다)만 허용한다. 롤링 배포로 설정 옵션을 바꾸는 길은 두지 않는다. 한 DB에 다른 방식 앱이 붙는 것을 막는 장치(DB 방식 표시 + 기동 검사)는 이번에 만들지 않는다(NEXT 후보로 제안).
 - **방식 전환 정리 — 좌석 기준 재계산 하나(선검증 DS14-2)**: 방향(B·C·D → A · D → B·C · B·C → D · B ↔ C)마다 SQL을 따로 두지 않고 정지 상태에서 같은 두 단계를 한 트랜잭션으로 돌린다(정지 상태라 잠금 경합이 없다 · 시각은 DB `now()` 하나).
 
 ```sql
@@ -401,10 +401,10 @@ UPDATE product_seat st
  WHERE st.status <> 'RESERVED';
 ```
 
-  - **마감 회차를 감소하지 않는 이유(재점검 DS14-9 기각 근거)**: 마감 회차는 카운터 불변식 범위 밖이다 — 판정기 `v_counter_mismatch`가 마감 회차(`starts_at <= 시각`)를 빼고(LoadtestDataService.kt:190·203), 정리 ①이 마감 회차 쿼터 행을 지운다(QuotaCleanup.kt:86-87). 그래서 T1 뒤 마감 회차의 `cnt`가 홀드 행 수와 달라도 위반이 아니고, 확인의 '열린 회차만'은 이 범위 정의 그대로다.
-  - 감소가 음수가 되면 V5 CHECK(`cnt >= 0` — V5__user_hold_quota.sql:6)가 문장을 실패시킨다(트랜잭션 롤백 — 조용히 0으로 자르지 않는다). 쿼터 행이 없는 열린 쌍은 T1의 UPDATE에 걸리지 않으므로 아래 대조가 잡는다.
+  - **마감 회차를 감소하지 않는 이유(재점검 DS14-9 기각 근거)**: 마감 회차는 카운터 불변식 범위 밖이다 — 정합성 검증기 `v_counter_mismatch`가 마감 회차(`starts_at <= 시각`)를 빼고(LoadtestDataService.kt:190·203), 정리 ①이 마감 회차 쿼터 행을 지운다(QuotaCleanup.kt:86-87). 그래서 T1 뒤 마감 회차의 `cnt`가 홀드 행 수와 달라도 위반이 아니고, 확인의 '열린 회차만'은 이 범위 정의 그대로다.
+  - 감소가 음수가 되면 V5 CHECK(`cnt >= 0` — V5__user_hold_quota.sql:6)가 문장을 실패시킨다(트랜잭션 롤백 — 조용히 0으로 자르지 않는다). 쿼터 행이 없는 열린 키는 T1의 UPDATE에 걸리지 않으므로 아래 대조가 잡는다.
   - D로 갈 때도 같은 T2를 돌린다 — D는 `HELD`를 쓰지 않고 읽지도 않으므로(옛 `HELD` = '예약 아님') 판정에 영향이 없고, 남은 `HELD`는 §8.3의 '옛 데이터 `HELD`'로 따로 센다.
-  - **확인(앱을 올리기 전 · 하나라도 어기면 올리지 않는다)**: `v_held_without_hold = 0`(A로 갈 때 — T2 뒤 `HELD`는 활성 홀드가 있는 좌석뿐) · `v_duplicate_hold_seats = 0`(T1 뒤 남은 홀드는 모두 활성이고 좌석당 활성 ≤ 1 — N2) · 카운터 대조 불일치 0(`v_counter_mismatch` — 열린 회차 · LoadtestDataService.kt:203). 판정기 항목 정의는 LoadtestDataService.kt:140-203 그대로(그 문장을 DB에서 직접 돌린다 — 판정기 엔드포인트는 앱이 떠 있어야 한다).
+  - **확인(앱을 올리기 전 · 하나라도 어기면 올리지 않는다)**: `v_held_without_hold = 0`(A로 갈 때 — T2 뒤 `HELD`는 활성 홀드가 있는 좌석뿐) · `v_duplicate_hold_seats = 0`(T1 뒤 남은 홀드는 모두 활성이고 좌석당 활성 ≤ 1 — N2) · 카운터 보정 불일치 0(`v_counter_mismatch` — 열린 회차 · LoadtestDataService.kt:203). 정합성 검증기 항목 정의는 LoadtestDataService.kt:140-203 그대로(그 문장을 DB에서 직접 돌린다 — 정합성 검증기 엔드포인트는 앱이 떠 있어야 한다).
   - 초안의 방향별 절차(B·C → A = C 배치 SQL 한 번 · D → A = 그에 더해 '활성 홀드 좌석 `HELD` 표시')는 위 두 단계로 바뀐다 — C 배치 SQL은 좌석 잠금 · 청크 · SKIP LOCKED를 전제로 해서 정지 상태의 일괄 정리에 맞지 않고, '활성이면 HELD'만 쓰는 단계는 '거짓 `HELD` → AVAILABLE'을 빠뜨린다(A로 가면 거짓 `HELD`는 A의 배치가 다시 고르지 못한다 — 홀드 행이 없다).
 
 ### 설계-8 측정 설계 — 뼈대 (고정값 · 판정 규칙은 task 02)
@@ -425,12 +425,12 @@ UPDATE product_seat st
 | 판매 | 매진 시각 · 잔여석 구간 길이 · 확정 수 | k6 · DB |
 | 묶인 좌석 | **팔 수 있는데 묶인 좌석·초** — '홀드가 만료됐고 예약도 없는데 선점이 거절되는' 좌석 × 초. A = 저장 `HELD`이고 활성 홀드 없는 좌석 수의 1초 표본 합 · B·C·D = 정의상 0에 가깝고 남는 것은 잠금 경합 몫 | 1초 표본 질의(하네스 — 부하 영향 `[구현 검증]`) |
 | 사용자 | 자기 좌석 재선점 실패율(`SEAT_NOT_AVAILABLE` · `HOLD_LIMIT_EXCEEDED` 나눠서) · 만료 뒤 확정 응답 분포(404 대 409 `HOLD_EXPIRED`) | k6 |
-| 경합 | 409 중 NOWAIT 패배(55P03) 비율 — 지금은 같은 응답이라 앱 지표 태그가 필요 · 40P01 수 · 배치 틱 실패 수(`seat.hold.expiry.tick{outcome}` — ExpireHoldsService.kt:54) · SKIP LOCKED로 건너뛴 좌석 수 · **회수 H4가 확정 K3의 홀드 행을 기다린 시간 · 건수**(그동안 같은 사용자의 쿼터 행 줄 — §3.1 · 선검증 DS14-4) · D4가 K3의 홀드 행을 기다린 시간(§3.4) · B 정리 ①이 SKIP LOCKED로 건너뛴 홀드 수 · 미룬 회차 수(§3.4 · 선검증 DS14-3) · C·D 배치의 MISSING 쌍 수 · `:missingIds` 불일치 롤백 수(§3.4 · 선검증 DS14-5) | 앱 지표 |
+| 경합 | 409 중 NOWAIT 패배(55P03) 비율 — 지금은 같은 응답이라 앱 지표 태그가 필요 · 40P01 수 · 배치 틱 실패 수(`seat.hold.expiry.tick{outcome}` — ExpireHoldsService.kt:54) · SKIP LOCKED로 건너뛴 좌석 수 · **회수 H4가 확정 K3의 홀드 행을 기다린 시간 · 건수**(그동안 같은 사용자의 쿼터 행 줄 — §3.1 · 선검증 DS14-4) · D4가 K3의 홀드 행을 기다린 시간(§3.4) · B 정리 ①이 SKIP LOCKED로 건너뛴 홀드 수 · 미룬 회차 수(§3.4 · 선검증 DS14-3) · C·D 배치의 MISSING 키 수 · `:missingIds` 불일치 롤백 수(§3.4 · 선검증 DS14-5) | 앱 지표 |
 | 비용 | 선점 · 확정 · 좌석 맵 p99(상위 1% 응답 시간) · DB CPU · 선점당 문장 수 · 회수 비율·건수 · 배치 틱 시간·행 수 · WAL(로그 선행 기록) 양 | 앱 · `pg_stat_*` |
 | 시각 | 판정 문장의 `clock_timestamp() − now()` 분포(가정 1) | 스모크 |
-| 정합 | 카운터 대조 출처별 기록(repaired · false-positive — 기대 0) | `counter_drift_log` |
+| 정합 | 카운터 보정 출처별 기록(repaired · false-positive — 기대 0) | `counter_drift_log` |
 
-#### 8.3 record-level 끝 검사 — 방식별 기대값 (판정기를 방식별로 나눈다 — 하네스는 task 04)
+#### 8.3 record-level 끝 검사 — 방식별 기대값 (정합성 검증기를 방식별로 나눈다 — 하네스는 task 04)
 
 | 항목 | A | B | C | D |
 |---|---|---|---|---|
@@ -443,22 +443,22 @@ UPDATE product_seat st
 | **활성** 홀드가 있는데 `HELD` 아님 | 0 | 0 | 0(되돌리기는 활성 없을 때만) | 항목 제외(정의상 활성 홀드 좌석은 `AVAILABLE` 저장) |
 | 수렴 뒤(TTL + 배치 주기 + 유예 대기 뒤) 남은 만료 홀드 행 | 0 | > 0 | 0 | 0 |
 
-- 기존 `v_*` 항목의 정의는 바꾸지 않는다 — 방식별 기대값은 **새 키**로 판정한다(코드 리뷰 CR14-3 — 초안의 '`v_hold_on_unheld_seat`을 활성 홀드로 정의를 바꾼다'를 구현과 맞춘다). 새 키(판정기 `expiryStates` — LoadtestDataService.kt:221-234 · `v_` 접두어 없음): `double_sold_seats`(1행) · `multi_active_seats`(4행) · `held_no_active`(5행) · `active_not_held`(7행 · D 제외) · `expired_hold_rows`(8행) · `active_on_reserved_seats`(활성 홀드 + `RESERVED` — 모든 방식 0) · `expiry_mode`. ADR-014 요약기는 위 표의 방식별 기대값을 이 새 키로 대조한다. 홀드 행 · 저장 `HELD`를 A 전제로 세는 `v_*`(`v_duplicate_hold_seats` · `v_excess_hold_rows` · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats`)는 B·C·D에서 0보다 클 수 있다(예: `v_hold_on_unheld_seat`은 남의 만료 홀드가 남은 채 확정된 좌석에서도 걸린다) — B·C·D 판정에 쓰지 않고 기록만 한다. 2·3행(`v_counter_mismatch` · `v_over_limit_users`)은 지금 정의 그대로 모든 방식에서 기대 0이다. 기대값과 다르면 회차 판정 자료로 남긴다(무음 금지).
+- 기존 `v_*` 항목의 정의는 바꾸지 않는다 — 방식별 기대값은 **새 키**로 판정한다(코드 리뷰 CR14-3 — 초안의 '`v_hold_on_unheld_seat`을 활성 홀드로 정의를 바꾼다'를 구현과 맞춘다). 새 키(정합성 검증기 `expiryStates` — LoadtestDataService.kt:221-234 · `v_` 접두어 없음): `double_sold_seats`(1행) · `multi_active_seats`(4행) · `held_no_active`(5행) · `active_not_held`(7행 · D 제외) · `expired_hold_rows`(8행) · `active_on_reserved_seats`(활성 홀드 + `RESERVED` — 모든 방식 0) · `expiry_mode`. ADR-014 요약기는 위 표의 방식별 기대값을 이 새 키로 대조한다. 홀드 행 · 저장 `HELD`를 A 전제로 세는 `v_*`(`v_duplicate_hold_seats` · `v_excess_hold_rows` · `v_held_without_hold` · `v_hold_on_unheld_seat` · `v_stale_held_seats`)는 B·C·D에서 0보다 클 수 있다(예: `v_hold_on_unheld_seat`은 남의 만료 홀드가 남은 채 확정된 좌석에서도 걸린다) — B·C·D 판정에 쓰지 않고 기록만 한다. 2·3행(`v_counter_mismatch` · `v_over_limit_users`)은 지금 정의 그대로 모든 방식에서 기대 0이다. 기대값과 다르면 회차 판정 자료로 남긴다(조용히 넘기지 않는다).
 
 ### 설계-9 새 동작 불변식 (설계 선검증 대상 — 코드베이스에 없던 것만)
 
 | # | 불변식 | 강제 위치 | 검증 위치 |
 |---|---|---|---|
 | N1 | **B·C·D에서 만료 판정·기록은 DB `now()` 하나** — 앱 Clock이 바뀌어도 B·C·D의 선점·확정·조회·배치·회수 결과가 같다 | §2.1 표의 #1~#6 문장 | blind 테스트(MutableClock을 옮겨도 판정 불변 · 만료 상태는 DB 기준 상대 시각 `now() - interval`로 행을 직접 써서 만든다 — Q10) |
-| N2 | **좌석당 활성 홀드 ≤ 1 · 활성 홀드와 확정은 한 좌석에 공존하지 않는다**(B·C·D) | 홀드를 만들거나 RESERVED로 바꾸는 경로는 좌석 행 잠금 먼저(H7 · K2) + 잠근 뒤 새 문장 판정(H8 · K3) | 동시성 테스트: 같은 좌석 동시 선점 · **시각 역전**(만료 직전 시작한 확정이 만료 뒤 재선점 커밋 뒤에 진행) · **시각 역전 + 남의 확정**(X 확정 시작 → Y 재선점·확정 커밋 → X가 K2에서 RESERVED를 받아 409 SEAT_NOT_HELD — §3.2 판정 순서 · 선검증 DS14-1) · D에서 잠금·판정 한 문장이면 실패함을 보이는 대조 테스트(§2.3) · 판정기 1번째 행 |
+| N2 | **좌석당 활성 홀드 ≤ 1 · 활성 홀드와 확정은 한 좌석에 공존하지 않는다**(B·C·D) | 홀드를 만들거나 RESERVED로 바꾸는 경로는 좌석 행 잠금 먼저(H7 · K2) + 잠근 뒤 새 문장 판정(H8 · K3) | 동시성 테스트: 같은 좌석 동시 선점 · **시각 역전**(만료 직전 시작한 확정이 만료 뒤 재선점 커밋 뒤에 진행) · **시각 역전 + 남의 확정**(X 확정 시작 → Y 재선점·확정 커밋 → X가 K2에서 RESERVED를 받아 409 SEAT_NOT_HELD — §3.2 판정 순서 · 선검증 DS14-1) · D에서 잠금·판정 한 문장이면 실패함을 보이는 대조 테스트(§2.3) · 정합성 검증기 1번째 행 |
 | N3 | **회수는 원자적이다** — 회수 삭제와 cnt 감소는 같은 트랜잭션이고, 선점이 실패하면 함께 롤백된다 | H3~H10이 한 트랜잭션 | 회수 뒤 NOWAIT 패배 · 매수 초과 · 좌석 불가를 일으켜 홀드 행 · cnt 무변경 |
 | N4 | **매수 판정은 회수 뒤** — 자기 만료 홀드 때문에 매수 초과가 나지 않는다(그 트랜잭션 `now()` 기준) | H2~H5가 H6 앞 | max-per-user 2 · 만료 홀드 2개인 사용자의 선점이 통과 |
-| N5 | **한 홀드 행의 삭제는 cnt를 정확히 한 번 내린다**(회수 · 배치 · 동시) | 쌍 잠금(규칙 ①) + `DELETE … RETURNING` 행 수만큼(규칙 ②) | 회수 · 배치 동시 테스트 → `v_counter_mismatch` 0 · 대조 오탐 0 |
-| N6 | **배치는 활성 홀드가 있는 좌석의 상태를 바꾸지 않는다**(C) · **D 배치는 좌석 행을 쓰지 않는다** | C2 SKIP LOCKED 잠금 + C6 새 문장 · H4b 같음 / D 배치에 좌석 문장 없음 | 동시성 테스트(배치 틱 중 재선점) · 판정기 '활성 홀드 있는데 HELD 아님' 0 |
+| N5 | **한 홀드 행의 삭제는 cnt를 정확히 한 번 내린다**(회수 · 배치 · 동시) | 키 잠금(규칙 ①) + `DELETE … RETURNING` 행 수만큼(규칙 ②) | 회수 · 배치 동시 테스트 → `v_counter_mismatch` 0 · 대조 오탐 0 |
+| N6 | **배치는 활성 홀드가 있는 좌석의 상태를 바꾸지 않는다**(C) · **D 배치는 좌석 행을 쓰지 않는다** | C2 SKIP LOCKED 잠금 + C6 새 문장 · H4b 같음 / D 배치에 좌석 문장 없음 | 동시성 테스트(배치 틱 중 재선점) · 정합성 검증기 '활성 홀드 있는데 HELD 아님' 0 |
 | N7 | **기본 조합 밖에서 `expiry-mode ≠ sweep`이면 기동을 거부하고 스키마를 바꾸지 않는다** | `checkConfig`(마이그레이션 앞) | 기동 테스트(조합표) — 기존 '거부된 기동은 스키마를 바꾸지 않는다' 불변식 안에서 |
 | N8 | **만료 뒤 확정은 같은 규칙으로 거부한다**(B·C·D) — K3 `expires_at > now()`가 아니면 409, 행이 이미 지워졌으면 404 | K3 | blind 테스트 |
 
-- 코드베이스에 이미 있는 불변식(다시 세우지 않는다): 같은 쌍 복구의 쿼터 행 직렬화(`PairRepair` — ADR-012 §3-2) · 거부된 기동은 스키마를 바꾸지 않는다(HoldStrategyMigrationGate — HoldStrategyStartupCheck.kt 머리 주석) · 손잡이를 주지 않으면 이전과 같다(명세 §2 '기존 동작 보존' — A 경로 코드 무변경 · 기존 테스트 green) · 대조 실제 값 정의(§2.5 — 무변경).
+- 코드베이스에 이미 있는 불변식(다시 세우지 않는다): 같은 키 복구의 쿼터 행 직렬화(`PairRepair` — ADR-012 §3-2) · 거부된 기동은 스키마를 바꾸지 않는다(HoldStrategyMigrationGate — HoldStrategyStartupCheck.kt 머리 주석) · 설정 옵션을 주지 않으면 이전과 같다(명세 §2 '기존 동작 보존' — A 경로 코드 무변경 · 기존 테스트 green) · 대조 실제 값 정의(§2.5 — 무변경).
 
 ### 설계-10 `[구현 검증]` 목록
 
@@ -470,12 +470,12 @@ UPDATE product_seat st
 4. 좌석 맵 세 문장의 실행 계획(`EXPLAIN (ANALYZE, BUFFERS)`) — 회차 1만 석 · V11 · D의 좌석마다 홀드 탐색 비용.
 5. V11 `CREATE INDEX` 시간 · 쓰기 차단 길이(시드 크기 사본 — §설계-7).
 6. Flyway: V11을 기본 위치에 둘 때 K2 DB의 검증 실패 여부(outOfOrder 기본값) — 선택 위치를 고른 근거 확인.
-7. C 배치 청크 크기 `k` · 틱 시간 · SKIP LOCKED 건너뜀 수 · 배치가 기다리게 한 선점 꼬리 · 틱당 청크 상한 기본 100(`seat.hold.expiry-max-chunks-per-tick` — 상한에 닿은 틱 수 `seat.hold.expiry.chunk_cap_reached` · 코드 리뷰 CR14-2).
+7. C 배치 청크 크기 `k` · 틱 시간 · SKIP LOCKED 건너뜀 수 · 배치가 기다리게 한 선점 테일 레이턴시 · 틱당 청크 상한 기본 100(`seat.hold.expiry-max-chunks-per-tick` — 상한에 닿은 틱 수 `seat.hold.expiry.chunk_cap_reached` · 코드 리뷰 CR14-2).
 8. A의 '늦은 쪽 틱 롤백'(Hibernate 삭제 행 수 검사 — §설계-1 추정).
 9. B·C·D 경로를 JDBC로 쓸 때 같은 트랜잭션의 JPA 엔티티 상태와 섞이지 않는지(§3.1).
 10. 묶인 좌석·초 1초 표본 질의의 DB 부하 — 방식마다 다르다(B의 만료 행 누적 · 측정-5 머리의 사전 기준 · 측정-11 #16 — 리뷰 MR-1).
 11. .164 앱 Clock과 DB `now()`의 차.
-12. 교착 점검(§3.2 · §3.4 '고리 없음' 추정)을 동시성 테스트로 — 40P01 0. 넣을 간선: 확정 K3 ↔ 회수 H4(같은 사용자 · §3.1 — 선검증 DS14-4) · 확정 K3·K7 ↔ B 정리 ①(마감 회차 확정 중 정리 실행 — SKIP LOCKED가 없으면 40P01이 나는 대조 테스트 포함 · 선검증 DS14-3) · 확정 K3 ↔ D 배치 D4 · C·D 배치 MISSING 복구(C3b · D3)의 INSERT ↔ 같은 쌍 선점 H6 upsert(선검증 DS14-5).
+12. 교착 점검(§3.2 · §3.4 '고리 없음' 추정)을 동시성 테스트로 — 40P01 0. 넣을 간선: 확정 K3 ↔ 회수 H4(같은 사용자 · §3.1 — 선검증 DS14-4) · 확정 K3·K7 ↔ B 정리 ①(마감 회차 확정 중 정리 실행 — SKIP LOCKED가 없으면 40P01이 나는 대조 테스트 포함 · 선검증 DS14-3) · 확정 K3 ↔ D 배치 D4 · C·D 배치 MISSING 복구(C3b · D3)의 INSERT ↔ 같은 키 선점 H6 upsert(선검증 DS14-5).
 13. C·D 배치 진행형 커서(C1 · D1)의 실행 계획 — `expires_at <= now()` 범위 + `seat_id > :after` · `(schedule_id, user_id) > (…)` 정렬에서 V2 `idx_seat_hold_expires_at`가 어떻게 쓰이는지(선검증 DS14-5).
 14. 방식 전환 정리 T1·T2(§설계-7)의 시드 크기 사본 소요 시간 · 확인 3항목 0(선검증 DS14-2).
 
@@ -494,10 +494,10 @@ UPDATE product_seat st
 | Q6 | C의 회수가 회수한 다른 좌석의 거짓 `HELD`도 고치나(H4b) | **고친다**(SKIP LOCKED · 대상 좌석 제외) — 안 고치면 C 배치는 행이 없어진 좌석을 다시 못 찾는다(후보 = 만료 홀드 행). 대안: `product_seat (id) WHERE status = 'HELD'` 부분 인덱스로 배치 후보를 하나 더 두기 | 메인 |
 | Q7 | B의 마감 회차 정리 ① | **활성 홀드가 없으면 만료 홀드 행 + 쿼터 행을 같은 트랜잭션에서 지운다**(B만 · 감소 없음 · 지운 수는 로그·지표). 홀드 삭제는 `FOR UPDATE SKIP LOCKED`로 고른 행만 · 건너뛴 행이 남으면 쿼터 행 삭제는 다음 실행으로(§3.4 B1~B3 — 확정 K3와의 교착 방지 · 선검증 DS14-3) | 메인 |
 | Q8 | V11(좌석 맵 인덱스)의 위치 · 적용 범위 | **새 선택 위치 `db/migration-seat-map` · 기본 위치 목록(application.yml:16)에는 넣지 않는다 · 측정 때 모든 방식 셀에 같게 켠다 · 기본 위치 편입은 기본값 교체 때 함께**(§설계-7 — 명세 §2 '기존 동작 보존': 기본 sweep 배포에 스키마 변경을 붙이지 않는다) (선검증 DS14-OQ1 — 초안 '기본 목록에 더한다'를 바꿈) | 메인 |
-| Q9 | 손잡이 이름 · 값 | **`seat.hold.expiry-mode` = sweep · lazy · lazy-sweep · derived**(기본 sweep) · 청크 `seat.hold.expiry-batch-size` | 메인 |
+| Q9 | 설정 옵션 이름 · 값 | **`seat.hold.expiry-mode` = sweep · lazy · lazy-sweep · derived**(기본 sweep) · 청크 `seat.hold.expiry-batch-size` | 메인 |
 | Q10 | B·C·D 테스트에서 시각을 다루는 법 | **운영 SQL에 시각 바꾸기 훅을 두지 않는다** — 만료 상태는 DB 기준 상대 시각(`now() - interval`)으로 행을 직접 써서 만들고, 경계는 짧은 TTL로 본다(counter-trigger의 `seatlab.counter_now` 같은 세션 설정을 따라 하지 않는다) | 메인 |
 | Q11 | 좌석 맵 응답 계약 | **`GET /api/schedules/{id}/seats` → `[{seatId, section, rowNo, seatNo, status}]` · 페이지 없음(회차당 1만 석) · 보이는 상태만**(§3.3) | 사용자 |
-| Q12 | 방식 전환 · 되돌리기 절차(혼재 위험 — §설계-7) | **방식 사이 전환은 모두 ①(멈추고 바꾸기)만**(A ↔ B·C·D · B·C ↔ D · B ↔ C) · **정리 = 좌석 기준 재계산 하나**(T1 남은 만료 홀드 삭제 + 감소 → T2 `status <> 'RESERVED'` 좌석을 활성 홀드 유무로 `HELD`/`AVAILABLE`) · 확인 `v_held_without_hold = 0`(A로 갈 때) · `v_duplicate_hold_seats = 0` · 카운터 대조 불일치 0 · 혼재 감지 장치는 NEXT 후보 (선검증 DS14-2 — 초안 'A ↔ B·C·D만 · 방향별 SQL'을 넓힘. 사용자 채택안(R4)보다 엄격한 쪽으로의 변경) | 사용자(R4) · 넓힘은 선검증 |
+| Q12 | 방식 전환 · 되돌리기 절차(혼재 위험 — §설계-7) | **방식 사이 전환은 모두 ①(멈추고 바꾸기)만**(A ↔ B·C·D · B·C ↔ D · B ↔ C) · **정리 = 좌석 기준 재계산 하나**(T1 남은 만료 홀드 삭제 + 감소 → T2 `status <> 'RESERVED'` 좌석을 활성 홀드 유무로 `HELD`/`AVAILABLE`) · 확인 `v_held_without_hold = 0`(A로 갈 때) · `v_duplicate_hold_seats = 0` · 카운터 보정 불일치 0 · 혼재 감지 장치는 NEXT 후보 (선검증 DS14-2 — 초안 'A ↔ B·C·D만 · 방향별 SQL'을 넓힘. 사용자 채택안(R4)보다 엄격한 쪽으로의 변경) | 사용자(R4) · 넓힘은 선검증 |
 | Q13 | 측정 주입(`inject-app`)과 `expiry-mode ≠ sweep` | **기동 거부** — 이번 측정에 주입이 필요한지는 task 02가 정한다 | 메인 |
 | Q14 | 회수가 지운 홀드의 늦은 확정이 409 `HOLD_EXPIRED`가 아니라 404 `HOLD_NOT_FOUND`가 되는 비율이 늘어난다 | **계약 그대로**(지금도 배치 뒤 확정은 404) · 분포만 지표로(§8.2) | 메인 |
 
@@ -530,14 +530,14 @@ UPDATE product_seat st
 
 - **서버 .164 하나 · 앱 1대 · lb(로드 밸런서 — nginx) 없음**: k6 PC → 앱 8101 직접(ADR-009 하네스 기본 — k6/ADR-009/scenarios/lib/common.js:7). lb가 필요 없는 이유: 이 측정에는 앱 혼재·롤링이 없다(방식 전환은 ①만 — Q12). A의 가설 3 '앱 2대 배치 겹침'(§설계-5)은 이번에 재지 않는다(측정-10-1). 그래서 ADR-013 §5.8-3b의 lb 아티팩트 · nginx 수동 장애 판정 규칙은 적용 대상이 없다.
 - **자원**: L4(앱·DB CPU 4개) · DB tmpfs(DB를 메모리에 둔 측정 조건) 12g(DB 메모리 14g) · 앱 메모리 2g · 세대형 ZGC(가비지 컬렉터) — ADR-010 결정 · ADR-013 측정 조건과 같다(k6/ADR-013/README.md H10 행).
-- **카운터 구성 = 업무 앱 기본값 그대로**(application.yml:49-61 — A(만료 배치 쌍 단위 견딤) 켬 · 증분 대조 ⓑ 트리거 1초 · 안전망 · split 탐지 · C 끔 · 정리 ① schedule). 하네스는 카운터 키를 넣지 않고 configprops로 이 기대값을 대조한다(`cond-config-mismatch`). ADR-009 `run.sh --cond default`는 ADR-012 기본값 교체 뒤 SHA를 계획 단계에서 거부하므로(k6/ADR-009/README.md 조건 표 `default` 행) 그대로 쓰지 않는다 — ADR-014 하네스가 조건을 따로 렌더한다(측정-3.6).
+- **카운터 구성 = 업무 앱 기본값 그대로**(application.yml:49-61 — A(만료 배치가 실패한 키만 스킵) 켬 · 증분 보정 ⓑ 트리거 1초 · 폴백 스캔 · split 탐지 · C 끔 · 정리 ① schedule). 하네스는 카운터 키를 넣지 않고 configprops로 이 기대값을 대조한다(`cond-config-mismatch`). ADR-009 `run.sh --cond default`는 ADR-012 기본값 교체 뒤 SHA를 계획 단계에서 거부하므로(k6/ADR-009/README.md 조건 표 `default` 행) 그대로 쓰지 않는다 — ADR-014 하네스가 조건을 따로 렌더한다(측정-3.6).
 - **방식 축**: `seat.hold.expiry-mode` ∈ `sweep`(A) · `lazy`(B) · `lazy-sweep`(C) · `derived`(D)(Q9). 회차마다 configprops로 대조(`expiry-mode-mismatch`).
 - **TTL 축**: `HOLD_TTL` ∈ {5m, 30s} · **`EXPIRY_INTERVAL` 10s는 모든 셀 고정**(application.yml:36). ADR-009의 `scaled` 설정(TTL 30s · 배치 1s — k6/ADR-009/scripts/run.sh:482)은 쓰지 않는다. 배치 주기를 TTL과 함께 줄이면 TTL 30초 칸이 키우려던 '배치 주기만큼 묶임'이 사라진다(§설계-8.1).
 - **Flyway 위치**: 기본 위치 + `classpath:db/migration-seat-map`(V11 — 좌석 맵 인덱스)를 **모든 셀**(A 포함)에 같게 둔다(§설계-7 · Q8). 회차마다 인덱스 존재를 확인한다(`seat-map-index-missing`).
 - **주입 없음**: S3e SQL 주입 · 앱 경로 주입(`inject-app`) 모두 끈다. B·C·D와 `inject-app`은 기동 거부다(Q13).
 - **마감 없음**: 시드 회차 `starts_at` = 2026-12-31 19:00+09(LoadtestDataService.kt:72)라 측정 중에는 판매 마감이 없다. run.sh는 2026-12-31T09:00Z부터 회차를 거부한다(k6/ADR-009/scripts/run.sh:186) — 캠페인은 그 전에 끝낸다.
-- **k6**: ADR-012·013 캠페인과 같은 바이너리(plan.json에 version·sha256 고정 — ADR-011 손잡이). **`--probes` 켬**(ADR-011 서버·PC 측정기 — 50/s `GET /actuator`, DB를 거치지 않는다 — k6/ADR-009/README.md ADR-011 절). 쓰임은 환경 정지 분류(측정-9)다.
-- **이미지 고정**: 측정 SHA의 앱 이미지 하나를 plan.json에 고정한다(ADR-013 DS-11 선례). 네 방식은 같은 이미지에서 손잡이만 다르다.
+- **k6**: ADR-012·013 캠페인과 같은 바이너리(plan.json에 version·sha256 고정 — ADR-011 설정 옵션). **`--probes` 켬**(ADR-011 서버·PC 측정기 — 50/s `GET /actuator`, DB를 거치지 않는다 — k6/ADR-009/README.md ADR-011 절). 쓰임은 환경 정지 분류(측정-9)다.
+- **이미지 고정**: 측정 SHA의 앱 이미지 하나를 plan.json에 고정한다(ADR-013 DS-11 선례). 네 방식은 같은 이미지에서 설정 옵션만 다르다.
 - **측정 전 재해석(2026-10-30 · 확인 스모크 — 명세 R5 ①) — 앱 연결 상한 · 파일 기술자 한도**: 측정 compose(`k6/ADR-014/compose.expiry.yml`)에서만 앱 `server.tomcat.max-connections`를 **20,000**으로, 앱 컨테이너 nofile을 **65,536**(soft = hard)으로 둔다 — 네 방식 · 모든 셀(비용 셀 포함) 같게. 업무 앱 설정(`application*.yml`)은 그대로라 앱 기본값은 Tomcat 기본 8,192다. 다른 Tomcat 키(accept-count · 스레드 · keep-alive)는 바꾸지 않는다. 회차마다 configprops `server.tomcat.maxConnections` = 20,000과 앱 PID 1의 nofile soft·hard ≥ 21,000(연결 + 1,000)을 대조하고, 다르거나 없으면 `cond-config-mismatch`(하네스 — 무효 → 재측정 · 원문 사유 그대로)다. **근거**: 확인 스모크(`k6/ADR-014/results/confirm14-20261030`) a50-t300 D에서 동시 VU 최대 9,254가 VU마다 keep-alive 연결을 쥐어 기본 상한을 넘었다(그 회차 `app-config.json` maxConnections 8192 · k6 첫 30초 새 연결 8,153 직후부터 선점 응답 없음 · 서버 쪽 측정기도 200 아닌 응답 11,714 → `app-metric-missing` 등으로 무효). TTL 30초 칸(VU 약 4,700)은 상한 밑이라 그 칸의 기존 스모크 결과와 조건이 달라지는 것은 상한 값뿐이다. 상한은 연결을 받는 한도라 그 밑에서 도는 부하의 처리 경로는 바꾸지 않는다(추정). 서버 .164의 `somaxconn` · `ip_local_port_range` · 데몬 nofile 기본값은 확인하지 않았다(다음 스모크 전 확인).
 
 ### 측정-2 셀 설계 — 셀 수 · 반복 · 길이 · 시간
@@ -550,7 +550,7 @@ UPDATE product_seat st
 - **회차 수 3**: ADR-010~013과 같다. '범위 비겹침' 판정의 최소 단위다. 4회면 캠페인이 약 7.1시간 늘어난다(아래 표 ÷ 3 — 리뷰 MR-13의 a50-t300 D_arr 반영) — 늘리지 않는다.
 - **합계 = 20셀 × 3회 = 60회**.
 - **좌석 맵 조회는 축이 아니다**: 주 셀은 모두 지도 흐름을 섞는다(측정-3.4 — 명세 §0 '조회 부하 포함'). 지도가 없는 비교는 비용 셀(S4c — 지도 없음)이 맡는다. 비용 셀은 선점 경로의 고정 비용(H1 하위 질의 · H2 · H8)만 떼어 본다. S4c는 요청마다 새 사용자·새 좌석이라(k6/ADR-009/scenarios/s4-throughput.js:57-62) 회수 H3~H5와 배치 일이 생기지 않는다.
-- **비용 셀이 필요한 이유**: 주 셀의 선점 201은 많아야 초당 수백 건이다(좌석 1만 석이 약 40초에 다 잡힘 — k6/ADR-009/README.md 주입 절). 선점 경로 문장 증가의 비용은 처리량 벽 근처(S4c(초당 4,200 선점 고부하) — ADR-007)에서 드러난다. 기준값 비교가 ADR-009·012의 같은 셀과 이어진다(MQ1).
+- **비용 셀이 필요한 이유**: 주 셀의 선점 201은 많아야 초당 수백 건이다(좌석 1만 석이 약 40초에 다 잡힘 — k6/ADR-009/README.md 주입 절). 선점 경로 문장 증가의 비용은 처리량 급락 근처(S4c(초당 4,200 선점 고부하) — ADR-007)에서 드러난다. 기준값 비교가 ADR-009·012의 같은 셀과 이어진다(MQ1).
 - **D_arr 근거(라운드 모형 — 추정)**: 첫 약 40초에 만석이 되면, 그 뒤 빈 좌석은 이탈 홀드의 만료로만 생긴다. 만료로 풀린 좌석은 곧 다시 잡히고, 그중 a가 다시 이탈한다. 그래서 라운드 k(만석 뒤 k번째 만료 물결 · 시각 ≈ k × TTL)가 지나면 판매율 ≈ 1 − a^(k+1)이다. A는 라운드마다 배치 지연(주기 10초의 위상 — 평균 약 5초 + 틱 시간 · 추정)이 더해진다.
 
 | 셀 | T95 라운드 | T95(B·C·D) 추정 | A 지연 몫 추정 | T99 추정 | D_arr | 여유(T95 대비) |
@@ -597,13 +597,13 @@ UPDATE product_seat st
 |---|---|---|---|
 | **PR-1 자기 좌석** | 사용자 u가 좌석 s 선점(201 · 만료 e) → 확정하지 않음 → 서버 시각 e + δ에 s를 다시 선점 | δ ∈ {1, 3, 5, 8, 12, 20}초(차례대로 돌림) | A: 배치 전이면 저장 `HELD`로 409 `SEAT_NOT_AVAILABLE` · B·C·D: 201(H1이 자기 만료 홀드를 비어 있음으로 보고 H4가 회수 — §3.1) |
 | **PR-2 한도** | u가 s1·s2 선점(cnt 2 = 한도) → 확정하지 않음 → 서버 시각 max(e1, e2) + δ에 새 좌석 s3 선점 | δ 같음 | A: 배치가 둘 다 지우기 전이면 409 `HOLD_LIMIT_EXCEEDED` · B·C·D: 201(회수 뒤 매수 판정 — N4) |
-| **PR-3 API 계약 양성 대조**(리뷰 MR-8 — 초안 이름 '확정 경합') | u가 s 선점(e) → 경쟁자 v가 서버 시각 e + 0.3초에 s 선점(확정하지 않음) · u는 e + δc에 확정 | δc ∈ {−1.0, −0.3, +0.3, +1.0}초 | 'u 확정 200'과 'v 선점 201'이 둘 다 나오면 위반(API 수준 관측 — 나오면 P7 반증). δc > 0의 확정 200은 위반(N8 계약). δc < 0의 확정 200은 양성 대조(확정 경로가 산다). **주장 범위**: 요청을 보낸 시각 기준의 계약(만료 전 확정 성공 · 만료 뒤 확정 거부)만이다. 만료 전 확정(δc < 0)과 v 선점(e + 0.3초) 사이 간격이 0.6초 이상이라(δc = +0.3은 v와 같은 순간이지만 둘 다 만료 뒤 시작이라 시각 역전이 아니다) 트랜잭션이 겹치는 시각 역전 경합(만료 직전 시작한 확정이 만료 뒤 재선점 커밋 뒤에 진행 — §설계-9 N2)은 사실상 만들지 못한다(확정 처리 시간 ≪ 0.6초 — 추정). 그 경합의 이중 판매 0은 동시성 테스트(§설계-9 N2 · §설계-10 #12)가 보장하고, 그 green이 캠페인 시작 조건이다(측정-9 ⑦). 경합을 부하로 만들 측정 지연 손잡이는 넣지 않는다(Q13 주입 거부 유지 — 메인 결정) |
+| **PR-3 API 계약 양성 대조**(리뷰 MR-8 — 초안 이름 '확정 경합') | u가 s 선점(e) → 경쟁자 v가 서버 시각 e + 0.3초에 s 선점(확정하지 않음) · u는 e + δc에 확정 | δc ∈ {−1.0, −0.3, +0.3, +1.0}초 | 'u 확정 200'과 'v 선점 201'이 둘 다 나오면 위반(API 수준 관측 — 나오면 P7 반증). δc > 0의 확정 200은 위반(N8 계약). δc < 0의 확정 200은 양성 대조(확정 경로가 산다). **주장 범위**: 요청을 보낸 시각 기준의 계약(만료 전 확정 성공 · 만료 뒤 확정 거부)만이다. 만료 전 확정(δc < 0)과 v 선점(e + 0.3초) 사이 간격이 0.6초 이상이라(δc = +0.3은 v와 같은 순간이지만 둘 다 만료 뒤 시작이라 시각 역전이 아니다) 트랜잭션이 겹치는 시각 역전 경합(만료 직전 시작한 확정이 만료 뒤 재선점 커밋 뒤에 진행 — §설계-9 N2)은 사실상 만들지 못한다(확정 처리 시간 ≪ 0.6초 — 추정). 그 경합의 이중 판매 0은 동시성 테스트(§설계-9 N2 · §설계-10 #12)가 보장하고, 그 green이 캠페인 시작 조건이다(측정-9 ⑦). 경합을 부하로 만들 측정 지연 설정 옵션은 넣지 않는다(Q13 주입 거부 유지 — 메인 결정) |
 
 - **일정**: 시작 칸 = [t0 + 60초, t0 + D_arr − TTL − 25초)(TTL 30초는 t0 + 10초부터). 칸 안에서 고정 간격으로 시작한다 — TTL 5분: PR-1 0.25/초 · PR-2 0.25/초 · PR-3 0.2/초 / TTL 30초: 셋 다 1/초. 마지막 요청은 t0 + D_arr − 5초보다 앞이다(δ 최대 20초 + 여유 5초 — dry-run으로 확인 · 측정-9 시작 조건 ③).
 - **계획 수(회차마다)**: a20-t300 PR-1 약 204(δ마다 약 34) · PR-3 약 163(δc마다 약 41) / a50-t300 PR-1 약 459(약 76) · PR-3 약 367(약 92)(리뷰 MR-13 D_arr 2,220초 — 초안 354 · 283) / a20-t30 PR-1 약 175(약 29) · PR-3 약 175(약 44) / a50-t30 PR-1 약 295(약 49) · PR-3 약 295(약 74). PR-2는 PR-1과 같은 수. 탐침 회차 좌석 사용 최대 약 2,200석(a50-t300 — PR-2가 3석씩 · 초안 약 1,700석) < 1만 석.
 - **서버 시각 맞추기**: 서버 시각 = PC 시각 + 시계 차(lib.sh `clock_offset` — 왕복이 가장 짧은 표본 · k6/ADR-009/scripts/lib.sh:160). k6 시작 직전에 잰 값을 환경변수로 넘긴다(S3c `CLOCK_OFFSET_MS` 선례 — s3-full-flow.js:3·25). 판정은 요약기가 회차 앞뒤 `clock-offset.json`으로 다시 한다. 시각 오차 허용은 측정-9 `clock-offset-bad`.
 - **실제 송신 시각 대조(리뷰 MR-2)**: 주 k6 CSV의 요청 시각은 초 단위라(k6/ADR-009/scenarios/probe-ping.js:8 머리 주석 — '주 k6 CSV는 이전처럼 초 단위') 탐침 판정에 못 쓴다. 탐침 요청마다 보내기 직전 PC 시각(ms)을 태그로 남긴다(S3c `hold_code` 행의 `t0` 태그 선례 — s3-full-flow.js:1-2). 요약기는 송신 서버 시각 = 태그 시각 + 시계 차(회차 앞뒤 `clock-offset.json` 평균)로 환산해 계획 서버 시각(PR-1·PR-2 = e + δ · PR-3 u 확정 = e + δc · PR-3 v 선점 = e + 0.3초)과의 오차 ε를 낸다. e는 선점 응답이 준 만료 시각이다.
-  - **칸별 허용 오차**: PR-1·PR-2 |ε| ≤ 100ms(δ 최소 1초의 10% — 측정-4 시계 행과 같은 근거) · PR-3(u 확정과 v 선점 모두) |ε| ≤ 50ms(δc 최소 0.3초의 1/6 — 시계 오차 허용 20ms를 더해도 70ms < 0.3초의 1/4이라 δc 부호와 '만료 전 · 뒤'가 바뀌지 않는다). 허용을 넘은 탐침은 판정(M3 · M5 ④ · M7)의 분자·분모에서 빼고 `probe-timing-dropped`로 수를 남긴다(무음 금지).
+  - **칸별 허용 오차**: PR-1·PR-2 |ε| ≤ 100ms(δ 최소 1초의 10% — 측정-4 시계 행과 같은 근거) · PR-3(u 확정과 v 선점 모두) |ε| ≤ 50ms(δc 최소 0.3초의 1/6 — 시계 오차 허용 20ms를 더해도 70ms < 0.3초의 1/4이라 δc 부호와 '만료 전 · 뒤'가 바뀌지 않는다). 허용을 넘은 탐침은 판정(M3 · M5 ④ · M7)의 분자·분모에서 빼고 `probe-timing-dropped`로 수를 남긴다(조용히 넘기지 않는다).
   - **회차 무효**: 한 회차에서 (탐침 종류, δ 또는 δc) 칸 하나라도 뺀 비율 > 10%면 `probe-timing-bad`(하네스 — 측정-9). 10% 근거: 칸당 회차 계획 수 약 29~92개(위 계획 수)라 10%를 빼도 칸마다 26개 이상이 남는다. 빠짐이 부하 몰림과 함께 생기면 남은 표본이 치우치므로 상한을 작게 둔다(보수적 선택).
 - 탐침 사용자는 탐침마다 새 번호다(PR-2 사용자는 그 회차 cnt 2로 시작해 한도에 닿는다).
 
@@ -636,7 +636,7 @@ ADR-013 선례대로 `k6/ADR-009/` 하네스는 **고치지 않는다**. 측정 
 | 재사용 | compose(앱·DB·tmpfs 오버레이) · 기동·내림 · `/internal/reset` 시드 · 예열 뒤 재시드 · 시작 대기(시드 끝 → 첫 요청 87 ± 5초) · 시계 차 · DB 대기 표본(0.5초) · 호스트 표본 · docker stats 10초 · Hikari 1초 · GC 로그(`gc*,safepoint`) · I/O·WAL 스냅숏 · 데드락 증분(`pg_stat_database.deadlocks` — run.sh:774·1189) · 끝 판정 `consistency` · `counter_drift_log` 덤프 · 앱 지표 스냅숏(actsnap) · 측정기(`--probes`) · 회차 합격 사유 중 S3e·S3c·C·F 전용이 아닌 것 | k6/ADR-009/scripts/run.sh · lib.sh · README '회차 합격' 표 |
 | 재사용 | 선점·확정 호출과 응답 분류(태그 · 코드 행) | k6/ADR-009/scenarios/lib/common.js |
 | 재사용 | 재선점·중복 선점 가르기(같은 좌석의 다음 성공이 앞 홀드 만료 뒤인가 — `hold_ok_seat` 좌석·만료 시각) | k6/ADR-009/scripts/summarize.py:362-432 |
-| 재사용 | 1초 p99 · 느린 초 | k6/ADR-009/scripts/tail.py |
+| 재사용 | 1초 p99 · 스파이크 초 | k6/ADR-009/scripts/tail.py |
 | 재사용 | S4c4200 셀 그대로(s4-throughput.js · 시드 200회차 × 1만 석) | run.sh:488·521 |
 | 재사용 | 캠페인 골격 — `--sha` 동결(git archive · 해시를 plan.json에) · 이어서 실행 대조 · 재측정(무효만 · 자리마다 2번) · 루프 안 run.sh `< /dev/null` · 끝 집계 전 미실행 자리 검사 | k6/ADR-013/scripts/campaign.sh · hhash.sh(ADR-013 §6.1 대체된 캠페인의 수정 ed2af264) |
 | 새로 | 주 시나리오 `s14-flow.js`(맹목 · 지도 · 재방문 · 탐침 PR-1~3 — k6 여러 시나리오 한 실행) · 공통 난수 · 서버 시각 일정 | 측정-3.1~3.5 |
@@ -645,7 +645,7 @@ ADR-013 선례대로 `k6/ADR-009/` 하네스는 **고치지 않는다**. 측정 
 | 새로 | 조건 렌더: `expiry-mode` · TTL · `EXPIRY_INTERVAL` 10s · Flyway 위치 + `db/migration-seat-map` · configprops 기대값(카운터 = 업무 앱 기본값) | 측정-1 |
 | 새로 | 테이블 통계 스냅숏(`pg_stat_user_tables` `product_seat`·`seat_hold` `n_tup_upd`·`n_tup_del`·`n_dead_tup` — k6 직전 · 직후 · 수렴 대기 끝(끝 판정 앞)). '직후'는 k6 마지막 응답 뒤 업무 요청 연결이 10초 넘게 쉰 뒤에 찍는다(리뷰 MR-12 — 측정-6 P6) | P6 |
 | 새로 | 요약기 `summarize14.py`: M1~M14 · 탐침 분류 · 진행 중 이중 판매 재구성 · 성공 · 고르는 규칙 · 교체 관문 · `RESULT.md` | 측정-5~8 |
-| 새로(task 04 — 앱) | 방식별 판정기(§설계-8.3) · 앱 지표: NOWAIT 패배(55P03) 태그 · 선점 409 원인 표지(판정 409 대 배치 잠금 409 — 측정-5 M3 · 리뷰 MR-5) · H4 회수 문장 표지(측정-5 M10 · 리뷰 MR-13) · 회수 건수·시간(H3~H5) · C6·H4b가 활성 홀드 때문에 되돌리지 않은 좌석 수(되돌림 기회) · SKIP LOCKED 건너뜀 · C·D 배치 청크 행 수·MISSING 쌍·`:missingIds` 불일치 롤백 · B 정리 ① 지운 수 | §설계-8.2 · 측정-11 #19 |
+| 새로(task 04 — 앱) | 방식별 정합성 검증기(§설계-8.3) · 앱 지표: NOWAIT 패배(55P03) 태그 · 선점 409 원인 표지(판정 409 대 배치 잠금 409 — 측정-5 M3 · 리뷰 MR-5) · H4 회수 문장 표지(측정-5 M10 · 리뷰 MR-13) · 회수 건수·시간(H3~H5) · C6·H4b가 활성 홀드 때문에 되돌리지 않은 좌석 수(되돌림 기회) · SKIP LOCKED 건너뜀 · C·D 배치 청크 행 수·MISSING 키·`:missingIds` 불일치 롤백 · B 정리 ① 지운 수 | §설계-8.2 · 측정-11 #19 |
 | 쓰지 않음 | S3e 주입 · S3c 마감 · `inject-app` · ADR-013 전환 장치(lb · 슬롯 · 적용판 · 한도 탐침) · ADR-009 `scaled`·`default` 조건 | 측정-1 |
 
 ### 측정-4 고정값과 근거 (측정 뒤 바꾸지 않는다)
@@ -671,7 +671,7 @@ ADR-013 선례대로 `k6/ADR-009/` 하네스는 **고치지 않는다**. 측정 
 | DB CPU 표본: 창 안 DB 컨테이너 행 ≥ ⌈창 초 ÷ 15⌉ · 최대 공백(양끝 포함) ≤ 30초(리뷰 MR-3) | M9 · 측정-9 | 표본 간격 10초(run.sh:600-602) + `docker stats` 호출 시간 — 한 번 빠져도 평균 간격 15초 안 · 30초 = ADR-009 `path-gap` 경계(run.sh:1341)와 같다 | 선례(30초) · 15초는 **보수적 선택** |
 | k6 maxVUs: 흐름마다 max(14,000, ⌈스모크 VU 최대 × 1.5⌉) · 판정 창 안 `dropped_iterations` > 0이면 무효(리뷰 MR-11) | 3.1 · 측정-9 | S3의 maxVUs 14,000(s3-full-flow.js:33) · 여유 1.5배는 스모크가 a50-t30만 돌아 TTL 5분 칸의 VU 모양을 못 보는 몫 | 선례 · 1.5배는 **보수적 선택** |
 | 시계 오차: 왕복/2 ≤ 20ms · 회차 앞뒤 차 ≤ 100ms | 3.2 · 측정-9 | δ 최소 1초의 10% = 100ms · δc 0.3초의 1/15 = 20ms | 설계 |
-| 환경 정지: 5초 이상 연속 정지 초 · 측정기 공백 > 5초 · GC 정지 최대 < 100ms · DB 쪽 원인 없음(업무 세션 Lock 대기 0 · Hikari pending 0 · 활성 < 최대 — 리뷰 MR-6) | 측정-9 | ADR-013 §6.6-6 환경 정지 덩어리(약 11~13초 연속 · 31회 중 9회 · DB 표본 정상)를 잡고, 1~2초 짧은 꼬리(배치 틱 · GC)는 거르는 경계. DB 쪽 조건은 '잠금·풀 고갈로 앱이 멈춘 방식 정지'를 환경으로 숨기지 않게 한다 | 선례 · 값은 **보수적 선택** |
+| 환경 정지: 5초 이상 연속 정지 초 · 측정기 공백 > 5초 · GC 정지 최대 < 100ms · DB 쪽 원인 없음(업무 세션 Lock 대기 0 · Hikari pending 0 · 활성 < 최대 — 리뷰 MR-6) | 측정-9 | ADR-013 §6.6-6 환경 정지 덩어리(약 11~13초 연속 · 31회 중 9회 · DB 표본 정상)를 잡고, 1~2초 짧은 테일 레이턴시(배치 틱 · GC)는 거르는 경계. DB 쪽 조건은 '잠금·풀 고갈로 앱이 멈춘 방식 정지'를 환경으로 숨기지 않게 한다 | 선례 · 값은 **보수적 선택** |
 | L4 · tmpfs 12g · 2g ZGC | 측정-1 | ADR-010 결정 · ADR-012·013 측정 조건 | 선례 |
 
 ### 측정-5 지표 정의 · 원자료 · 계산식
@@ -703,16 +703,16 @@ WHERE st.schedule_id = 1;
 |---|---|---|---|---|
 | M1 | **팔 수 있는데 묶인 좌석·초 W** | 상태 표본 `held_no_active` | 창 [t0, t_e)(t_e = t0 + D_arr · t0은 PC 시각이므로 시계 차를 더해 서버 시각으로 바꾼다 — 표본 `t`는 DB `clock_timestamp()`) 안의 표본 t₁ < … < tₙ으로 **계단 함수**를 만든다: 값 `held_no_active`(tᵢ)는 [tᵢ, tᵢ₊₁)에 머문다 · **앞끝** [t0, t₁)은 t₁ 값으로 채운다(t0 직전은 시드 직후라 기대값 0 — 영향 ≤ 3초 × 그 값) · **뒤끝** [tₙ, t_e)는 tₙ 값으로 채운다. W = `held_no_active`(t₁) × (t₁ − t0) + Σᵢ₌₁ⁿ⁻¹ `held_no_active`(tᵢ) × (tᵢ₊₁ − tᵢ) + `held_no_active`(tₙ) × (t_e − tₙ)(리뷰 MR-4). **최대 간격 검사**는 t0 → t₁ · 이웃 표본 사이 · tₙ → t_e를 모두 넣어 하나라도 > 3초면 회차 무효(`state-sampler-gap` — gapcheck.py:33-34와 같은 양끝 처리). 표본기는 t0보다 먼저 시작한다. T_x(M2)도 같은 창 안 표본만 쓴다. **A만 묶임이다**(A의 선점은 저장 `HELD`를 거절한다 — ProductSeat.kt:44-48). B·C의 같은 값은 '거짓 `HELD` 좌석·초'(거절하지 않음 — 비어 있음 규칙이 저장 상태를 읽지 않는다 · §설계-2.1)로 따로 이름 붙여 기록만 한다. D는 0이어야 한다(`HELD`를 쓰지 않는다). 보조: L_A = W ÷ N_exp(N_exp = 판정 창 안에 만료된 주 회차 홀드 수 — k6 `hold_ok_seat`의 만료 시각이 창 안이고 확정 200이 없는 홀드) = 만료 홀드 하나가 묶인 평균 초 | P1 · G4(양성 대조) |
 | M2 | **매진 시간 T95**(잔여석 구간 매진) | 상태 표본 `reserved` | T95 = `reserved` ≥ 9,500인 첫 표본 시각 − t0. 창 안에 없으면 '창 밖'(+∞로 센다 — 가장 나쁨). 기록: T90 · T99 · T100 · 잔여석 구간 길이 T95 − T90 | 측정-8 2단 · G2(a) · P2 |
-| M3 | **자기 좌석 재선점 부당 실패율** | k6 탐침 행(PR-1·PR-2 — 응답 코드 · 보낸 시각 · e) | (탐침 종류, δ)마다 = 409 수 ÷ (201 + 409) 수. 탐침 회차는 주 부하가 없어 409는 모두 부당 실패다. 코드별(`SEAT_NOT_AVAILABLE` · `HOLD_LIMIT_EXCEEDED`)로 나눈다. 판정용 값 = TTL 묶음(t300 · t30)마다 δ 전체 합의 비율. 5xx·코드 0 응답 탐침 · 송신 오차 초과 탐침(3.2 — 리뷰 MR-2)은 분모에서 빼고 각각 M11 · `probe-timing-dropped`로 센다.<br>**원인 나누기(리뷰 MR-5)**: 409를 **판정 409**와 **배치 잠금 409**(측정-0)로 나눠 M3ᵣ(판정 409 비율) · M3ᵦ(배치 잠금 409 비율)로 따로 낸다 — M3 = M3ᵣ + M3ᵦ. 둘 다 실제 사용자 실패다. 가르는 방법(계약 무변경 · `[구현 검증]` 측정-11 #22): 측정 프로필(`loadtest`)에서만 켜는 응답 헤더 `X-Seatlab-Reject: rule | nowait`(본문 `{code, message}`와 상태 코드는 그대로 — ApiExceptionHandler.kt:16-18·32-35) + 같은 갈래를 세는 앱 지표 `seat.hold.rejected{cause}`. `nowait` 갈래는 DbLockHoldStrategies.kt:55-57(55P03 → `seatTaken()`)에서 붙인다. PR-1·PR-2의 좌석은 그 탐침 사용자만 쓰므로(3.2), 탐침 409의 `nowait`는 C 배치 C2가 쥔 잠금으로만 생긴다 → C의 `nowait` = 배치 잠금 409.<br>**분류 불가(무음 금지)**: ① B·D의 탐침 `nowait`(좌석 행을 잠그는 배치가 없다 — 쥔 쪽을 설명할 수 없다) ② 헤더가 없거나 `rule`·`nowait` 밖의 값인 탐침 409 → 둘 다 **판정 409로 센다**(P4 쪽 — 실패를 숨기지 않는 쪽) + 이름표 `reject-cause-unknown`(수 · 탐침 id를 결과에 적는다). ③ k6 실행 전체(모든 흐름)의 헤더 합과 k6 직전 → 직후 앱 지표 `seat.hold.rejected{cause}` 증분이 갈래마다 다르거나, **그 회차에 409가 1건 이상인데** 헤더가 한 번도 안 나옴 → 하네스 `app-metric-missing`(측정-9 · 409가 0인 회차는 이 검사를 건너뛴다 — 재점검 MR-17). **설명**: 주 회차 재방문 409를 '정당'(e ~ 보낸 시각 사이에 다른 사용자의 그 좌석 201 또는 확정 200이 있음 — k6 기록) · '부당'(그 밖)으로 나눈 비율 | P3 · P4 · G2(b) |
-| M4 | **배치 경합(가설 3)** | 상태 표본 `active_not_held` · 끝 판정기 · 앱 지표 '되돌림 기회'(C6·H4b가 활성 홀드 때문에 되돌리지 않은 좌석 수) · 테이블 통계 | C: `active_not_held` > 0인 표본 수와 최대 · 끝 '활성 홀드 있는데 `HELD` 아님'(§설계-8.3 7행) · 기회 수. D: Δ`n_tup_upd`(product_seat) − 확정 성공 수(DB) = 0(D의 좌석 쓰기는 확정 K4뿐 — 추정 `[구현 검증]` #18). B: 주기 배치 없음 → 해당 없음. A: 앱 1대라 구조상 생기지 않음 → 기록만 | P5 · P6 |
-| M5 | **이중 판매** | 끝 판정기(방식별 — §설계-8.3 1행) · 상태 표본 · k6 `hold_ok_seat`·확정 200 · PR-3 | 다음 합이 0이어야 한다: ① 끝 — 좌석당 확정 ≥ 2(`v_duplicate_confirmed_seats` — LoadtestDataService.kt:164) · 좌석당 활성 홀드 ≥ 2 · 활성 홀드 + 확정 공존 ② 표본 — `multi_active` > 0 · `active_on_reserved` > 0인 표본 ③ 진행 중(k6 재구성) — 같은 좌석 두 201의 활성 구간 [만료 − TTL, 만료)이 겹침(`duplicate` — summarize.py:383과 같은 가름) · 확정 200 뒤 그 좌석 201 ④ PR-3 — u 확정 200 + v 선점 201 ⑤ DB 확정 수 < k6 확정 200 수(응답은 성공인데 행이 없음). 기회 수(기록): 남의 만료 홀드 행이 남은 좌석 위의 재선점 수(B·C·D). **PR-3 실행 수는 기회 수가 아니다**(리뷰 MR-8 — 초안 '기회 수 = PR-3 회차 수'를 고침) — PR-3은 만료 전 확정과 v 선점 사이가 0.6초 이상인 API 계약 양성 대조라 시각 역전 경합(트랜잭션이 겹치는 이중 판매 기회)을 만들지 못한다. PR-3 실행 수는 ④의 분모로만 따로 적는다. 시각 역전 경합의 0은 동시성 테스트(§설계-9 N2 · §설계-10 #12 — 시작 조건 ⑦)가 맡는다 | P7 |
-| M6 | **카운터 대조 불일치·오탐** | 끝 판정기 `v_counter_mismatch`(열린 회차 1·2 — LoadtestDataService.kt:203) · `counter_drift_log`(drift-db.json — 시드 끝 ~ 끝 판정) · 증분 틱·안전망 실행 기록 | 끝 불일치 수 · `repaired` 기록 수(출처 무관 — 주입이 없으므로 모든 `repaired`는 실제 어긋남 또는 오탐 복구다) · `false-positive` 기록 수(기록 — 탐지 스냅숏 경합으로 설계상 생긴다 · ADR-013 P4) · 생존 = 증분 틱 수 > 0 이고 안전망 실행 수 > 0 | P8 |
+| M3 | **자기 좌석 재선점 부당 실패율** | k6 탐침 행(PR-1·PR-2 — 응답 코드 · 보낸 시각 · e) | (탐침 종류, δ)마다 = 409 수 ÷ (201 + 409) 수. 탐침 회차는 주 부하가 없어 409는 모두 부당 실패다. 코드별(`SEAT_NOT_AVAILABLE` · `HOLD_LIMIT_EXCEEDED`)로 나눈다. 판정용 값 = TTL 묶음(t300 · t30)마다 δ 전체 합의 비율. 5xx·코드 0 응답 탐침 · 송신 오차 초과 탐침(3.2 — 리뷰 MR-2)은 분모에서 빼고 각각 M11 · `probe-timing-dropped`로 센다.<br>**원인 나누기(리뷰 MR-5)**: 409를 **판정 409**와 **배치 잠금 409**(측정-0)로 나눠 M3ᵣ(판정 409 비율) · M3ᵦ(배치 잠금 409 비율)로 따로 낸다 — M3 = M3ᵣ + M3ᵦ. 둘 다 실제 사용자 실패다. 가르는 방법(계약 무변경 · `[구현 검증]` 측정-11 #22): 측정 프로필(`loadtest`)에서만 켜는 응답 헤더 `X-Seatlab-Reject: rule | nowait`(본문 `{code, message}`와 상태 코드는 그대로 — ApiExceptionHandler.kt:16-18·32-35) + 같은 갈래를 세는 앱 지표 `seat.hold.rejected{cause}`. `nowait` 갈래는 DbLockHoldStrategies.kt:55-57(55P03 → `seatTaken()`)에서 붙인다. PR-1·PR-2의 좌석은 그 탐침 사용자만 쓰므로(3.2), 탐침 409의 `nowait`는 C 배치 C2가 쥔 잠금으로만 생긴다 → C의 `nowait` = 배치 잠금 409.<br>**분류 불가(조용히 넘기지 않는다)**: ① B·D의 탐침 `nowait`(좌석 행을 잠그는 배치가 없다 — 쥔 쪽을 설명할 수 없다) ② 헤더가 없거나 `rule`·`nowait` 밖의 값인 탐침 409 → 둘 다 **판정 409로 센다**(P4 쪽 — 실패를 숨기지 않는 쪽) + 이름표 `reject-cause-unknown`(수 · 탐침 id를 결과에 적는다). ③ k6 실행 전체(모든 흐름)의 헤더 합과 k6 직전 → 직후 앱 지표 `seat.hold.rejected{cause}` 증분이 갈래마다 다르거나, **그 회차에 409가 1건 이상인데** 헤더가 한 번도 안 나옴 → 하네스 `app-metric-missing`(측정-9 · 409가 0인 회차는 이 검사를 건너뛴다 — 재점검 MR-17). **설명**: 주 회차 재방문 409를 '정당'(e ~ 보낸 시각 사이에 다른 사용자의 그 좌석 201 또는 확정 200이 있음 — k6 기록) · '부당'(그 밖)으로 나눈 비율 | P3 · P4 · G2(b) |
+| M4 | **배치 경합(가설 3)** | 상태 표본 `active_not_held` · 끝 정합성 검증기 · 앱 지표 '되돌림 기회'(C6·H4b가 활성 홀드 때문에 되돌리지 않은 좌석 수) · 테이블 통계 | C: `active_not_held` > 0인 표본 수와 최대 · 끝 '활성 홀드 있는데 `HELD` 아님'(§설계-8.3 7행) · 기회 수. D: Δ`n_tup_upd`(product_seat) − 확정 성공 수(DB) = 0(D의 좌석 쓰기는 확정 K4뿐 — 추정 `[구현 검증]` #18). B: 주기 배치 없음 → 해당 없음. A: 앱 1대라 구조상 생기지 않음 → 기록만 | P5 · P6 |
+| M5 | **이중 판매** | 끝 정합성 검증기(방식별 — §설계-8.3 1행) · 상태 표본 · k6 `hold_ok_seat`·확정 200 · PR-3 | 다음 합이 0이어야 한다: ① 끝 — 좌석당 확정 ≥ 2(`v_duplicate_confirmed_seats` — LoadtestDataService.kt:164) · 좌석당 활성 홀드 ≥ 2 · 활성 홀드 + 확정 공존 ② 표본 — `multi_active` > 0 · `active_on_reserved` > 0인 표본 ③ 진행 중(k6 재구성) — 같은 좌석 두 201의 활성 구간 [만료 − TTL, 만료)이 겹침(`duplicate` — summarize.py:383과 같은 가름) · 확정 200 뒤 그 좌석 201 ④ PR-3 — u 확정 200 + v 선점 201 ⑤ DB 확정 수 < k6 확정 200 수(응답은 성공인데 행이 없음). 기회 수(기록): 남의 만료 홀드 행이 남은 좌석 위의 재선점 수(B·C·D). **PR-3 실행 수는 기회 수가 아니다**(리뷰 MR-8 — 초안 '기회 수 = PR-3 회차 수'를 고침) — PR-3은 만료 전 확정과 v 선점 사이가 0.6초 이상인 API 계약 양성 대조라 시각 역전 경합(트랜잭션이 겹치는 이중 판매 기회)을 만들지 못한다. PR-3 실행 수는 ④의 분모로만 따로 적는다. 시각 역전 경합의 0은 동시성 테스트(§설계-9 N2 · §설계-10 #12 — 시작 조건 ⑦)가 맡는다 | P7 |
+| M6 | **카운터 보정 불일치·오탐** | 끝 정합성 검증기 `v_counter_mismatch`(열린 회차 1·2 — LoadtestDataService.kt:203) · `counter_drift_log`(drift-db.json — 시드 끝 ~ 끝 판정) · 증분 틱·폴백 스캔 실행 기록 | 끝 불일치 수 · `repaired` 기록 수(출처 무관 — 주입이 없으므로 모든 `repaired`는 실제 불일치 또는 오탐 복구다) · `false-positive` 기록 수(기록 — 탐지 스냅숏 경합으로 설계상 생긴다 · ADR-013 P4) · 생존 = 증분 틱 수 > 0 이고 폴백 스캔 실행 수 > 0 | P8 |
 | M7 | **만료 뒤 확정**(API 계약 양성 대조 — 리뷰 MR-8) | PR-3 확정 응답(송신 오차 초과 제외 — 3.2) · 주 회차 확정 응답 | δc ∈ {+0.3, +1.0}의 확정 200 수(기대 0) · δc ∈ {−1.0, −0.3}의 확정 200 비율(양성 대조) · 확정 거절의 404 `HOLD_NOT_FOUND` 대 409 `HOLD_EXPIRED` 분포(Q14 — 기록) | P9 |
-| M8 | **선점 · 확정 · 좌석 맵 p99** | k6 CSV 요청 행(`http_req_duration` · name · status) | 주 셀: 판정 창 안 선점 201 p99 · 선점 409 p99(기록) · 확정 200 p99 · 지도 200 p99 — 맹목·지도·재방문 합산, 탐침 제외. 비용 셀: 정상 구간(램프 60초 뒤 — ADR-007 고정 셀 정의) 선점 p99. 기록: 1초 p99 최대 · 느린 초(tail.py) | 측정-8 3단 · G3 · P10 · P11 |
-| M9 | **DB CPU** | docker stats DB 컨테이너(10초 간격 — `timeline-server.jsonl`) | 판정 창(주 셀) · 정상 구간(비용 셀) 평균 CPU% · 표본 수. 앱 CPU · k6 PC CPU(`timeline-client.jsonl`)는 기록.<br>**결측 규칙(리뷰 MR-3)**: 셀마다(주 셀 · 비용 셀 모두) 그 창 안의 **DB 컨테이너 행**(이름 `seatlab-db-1` · `CPUPerc`를 숫자로 읽을 수 있는 행)이 ⌈창 초 ÷ 15⌉개 이상(a20-t30 16 · a50-t30 24 · a20-t300 80 · a50-t300 148 · 비용 셀 정상 구간 360초 24)이고, 창 시작 → 첫 행 · 이웃 행 사이 · 마지막 행 → 창 끝 공백이 모두 ≤ 30초여야 한다. 아니면 `db-cpu-missing`(하네스 — 측정-9) — **G3 · 3단 평가 전에** 그 회차는 무효다. 이유: 지금 수집 루프는 `docker stats` 오류를 버리고(run.sh:600-601 — `2>/dev/null`) 서버 시각 줄(`{"t":…,"load":…}`)은 docker stats 실패와 무관하게 쓴다. 기존 `path-gap`(run.sh:1341)은 `{"t"`로 시작하는 줄만 세므로(gapcheck.py:26) DB 행이 빠져도 통과한다 — 결측을 보는 판정기가 없다 | 측정-8 3단 · G3 |
+| M8 | **선점 · 확정 · 좌석 맵 p99** | k6 CSV 요청 행(`http_req_duration` · name · status) | 주 셀: 판정 창 안 선점 201 p99 · 선점 409 p99(기록) · 확정 200 p99 · 지도 200 p99 — 맹목·지도·재방문 합산, 탐침 제외. 비용 셀: 정상 구간(램프 60초 뒤 — ADR-007 고정 셀 정의) 선점 p99. 기록: 1초 p99 최대 · 스파이크 초(tail.py) | 측정-8 3단 · G3 · P10 · P11 |
+| M9 | **DB CPU** | docker stats DB 컨테이너(10초 간격 — `timeline-server.jsonl`) | 판정 창(주 셀) · 정상 구간(비용 셀) 평균 CPU% · 표본 수. 앱 CPU · k6 PC CPU(`timeline-client.jsonl`)는 기록.<br>**결측 규칙(리뷰 MR-3)**: 셀마다(주 셀 · 비용 셀 모두) 그 창 안의 **DB 컨테이너 행**(이름 `seatlab-db-1` · `CPUPerc`를 숫자로 읽을 수 있는 행)이 ⌈창 초 ÷ 15⌉개 이상(a20-t30 16 · a50-t30 24 · a20-t300 80 · a50-t300 148 · 비용 셀 정상 구간 360초 24)이고, 창 시작 → 첫 행 · 이웃 행 사이 · 마지막 행 → 창 끝 공백이 모두 ≤ 30초여야 한다. 아니면 `db-cpu-missing`(하네스 — 측정-9) — **G3 · 3단 평가 전에** 그 회차는 무효다. 이유: 지금 수집 루프는 `docker stats` 오류를 버리고(run.sh:600-601 — `2>/dev/null`) 서버 시각 줄(`{"t":…,"load":…}`)은 docker stats 실패와 무관하게 쓴다. 기존 `path-gap`(run.sh:1341)은 `{"t"`로 시작하는 줄만 세므로(gapcheck.py:26) DB 행이 빠져도 통과한다 — 결측을 보는 정합성 검증기가 없다 | 측정-8 3단 · G3 |
 | M10 | **회수 · 회수 대기**(§설계-8.2) | 앱 지표(회수 건수 · H3~H5 구간 시간 — task 04) · 0.5초 DB 대기 표본의 **회수 전용** 문장 표지(리뷰 MR-13): 초안 표지 `DELETE … expires_at <= now()`는 배치 문장(C4 · D4 `DELETE FROM seat_hold h USING unnest(…) … h.expires_at <= now()` · B2 `DELETE FROM seat_hold WHERE id IN (…)` — §3.4)에도 맞아 섞인다. 그래서 H4 문장 앞에 측정용 SQL 주석 `/* seatlab:h4-reclaim */`을 붙이고(문장 의미 · API 계약 무변경) 대기 표본의 `pg_stat_activity.query`에서 그 주석만 센다. 주석이 표본에 보이는지는 `[구현 검증]`(측정-11 #24) — 안 보이면 `app-metric-missing` | 회수 건수 · 회수한 행 수 · 선점 중 회수 비율 · H3~H5 시간 p99·최대 · H4가 락을 기다린 표본 수. 기대: 이 부하에는 '같은 사용자의 확정 중 다른 좌석 선점'이 없어 H4 대기 ≈ 0(측정-10-7) | 설명 |
 | M11 | **5xx · 40P01(데드락) · 배치 실패** | k6 CSV · `pg_stat_database.deadlocks` 증분(run.sh:774·1189) · 앱 로그 · 앱 지표 `seat.hold.expiry.tick{outcome}`(ExpireHoldsService.kt:54) | 요청 종류별 5xx · 코드 0 수 · 데드락 증분 · 앱 로그 `40P01`/`deadlock detected` 줄 · 틱 실패 수 · `:missingIds` 불일치 롤백 수(§3.4) · 정지 초(완료 응답 0인 초). **세는 창은 판정 창 안**(주 셀 [t0, t0 + D_arr) · 비용 셀 정상 구간 — 리뷰 MR-9). 창 밖(gracefulStop · 수렴 대기)의 같은 수는 기록만 | P12 · 측정-9 |
-| M12 | **남은 만료 홀드 행** | 상태 표본 `expired_rows` · 끝 판정기(§설계-8.3 5·6·8행) | 시간 곡선 · 창 끝 값 · 수렴 뒤 값을 방식별 기대값(§설계-8.3)과 대조. **기대값이 0인 칸은 측정-7 성공 조건(상태 기대값 문턱)이 판정한다**(리뷰 MR-7) · 기대값이 0이 아닌 칸(A '마지막 틱 뒤 만료분만' · B '늘어난다' · '> 0 가능' · C '배치 주기분 + 건너뜀분' 등)만 다르면 `expect-mismatch` 이름표(무음 금지 · 판정 자료) — 한 칸이 두 규칙에 함께 들지 않는다 | P13 · 정합 보조 |
+| M12 | **남은 만료 홀드 행** | 상태 표본 `expired_rows` · 끝 정합성 검증기(§설계-8.3 5·6·8행) | 시간 곡선 · 창 끝 값 · 수렴 뒤 값을 방식별 기대값(§설계-8.3)과 대조. **기대값이 0인 칸은 측정-7 성공 조건(상태 기대값 문턱)이 판정한다**(리뷰 MR-7) · 기대값이 0이 아닌 칸(A '마지막 틱 뒤 만료분만' · B '늘어난다' · '> 0 가능' · C '배치 주기분 + 건너뜀분' 등)만 다르면 `expect-mismatch` 이름표(조용히 넘기지 않는다 · 판정 자료) — 한 칸이 두 규칙에 함께 들지 않는다 | P13 · 정합 보조 |
 | M13 | **NOWAIT 패배 · SKIP LOCKED 건너뜀** | 앱 지표(55P03 태그 · C2·H4b·B 정리 ① 건너뜀 수 — task 04) | 판정 창 합 | 설명 |
 | M14 | **시각** | 회차 앞뒤 `clock-offset.json` · 앱 시각과 DB `now()`의 차(회차마다 1번 — 측정-11 #11) · 스모크의 판정 문장 `clock_timestamp() − now()` 분포 | 왕복 · 앞뒤 차 · 앱−DB 차(A 대 B·C·D 비교에 섞이는 시계 출처 차 — §설계-2.1) | 측정-9 · 기록 |
 
@@ -736,7 +736,7 @@ WHERE st.schedule_id = 1;
 | P6(가설 3 — D · N6) | D 배치는 좌석 행을 쓰지 않는다 | (리뷰 MR-12 — 초안 '≠ 확정 성공 수'를 고침) 다음 중 하나: ① 창 식 위반 — Δ₁ = `n_tup_upd`(product_seat, 직후 − 직전)가 [DB 확정 성공 수, 확정 시도 수] 밖(확정 시도 수 = k6가 보낸 확정 요청 수 · 코드 0 포함 — 앱에 닿았을 수 있다) ② 배치 쪽 증거 위반 — Δ₂ = `n_tup_upd`(product_seat, 수렴 대기 끝 − 직후) > 0(그 구간에는 업무 요청이 없고 D 배치 · 대조만 돈다 — 대조는 좌석 행을 쓰지 않는다 · 추정 `[구현 검증]` #18). **식이 이 꼴인 이유(외부 지식 — PostgreSQL 통계 수집기 동작 · 이 저장소 재현은 #18)**: `n_tup_upd`는 롤백된 트랜잭션의 UPDATE도 센다(커밋 여부와 무관하게 '시도한 행 연산'을 센다) — 그래서 등식이 아니라 '≤ 확정 시도 수'다. 또 백엔드는 쌓인 수를 트랜잭션이 끝나 쉴 때 내보내고 짧은 간격 안에서는 미루므로(경합이 있으면 더 늦어질 수 있다) 반영이 늦을 수 있다 — 그래서 '직후'를 업무 요청 연결이 10초 넘게 쉰 뒤에 찍는다(측정-3.6) | M4 · 테이블 통계 | 테이블 통계 결측 → 회차 무효 · 스모크에서 반영 지연이 '직후' 뒤까지 남는 것이 보이면(#18) 시작 전에 대기 길이를 늘린다(log 1행) | **성공** |
 | — | (가설 3 — A · B) | A: 앱 1대라 구조상 생기지 않는다(§설계-5 — 이번 측정 밖 · 측정-10-1) · B: 주기 배치 없음 | — | — | 기록 |
 | P7(N2 — 이중 판매 0) | 이 부하에서 어느 방식에서도 이중 판매가 관측되지 않는다 — 남의 만료 홀드 위 재선점이 실제로 일어나도 · PR-3 API 계약 양성 대조에서 'u 확정 200 + v 선점 201'이 없다. **주장 범위(리뷰 MR-8)**: 끝 · 표본 · 진행 중 재구성 · API 계약 수준까지다. 시각 역전 경합(만료 전 시작한 확정 대 만료 뒤 재선점)의 0은 이 가설이 주장하지 않는다 — 동시성 테스트(§설계-9 N2 · §설계-10 #12) green이 캠페인 시작 조건(측정-9 ⑦)으로 보장한다 | M5 ①~⑤ 합 ≥ 1 | M5 | B·C·D에서 남의 만료 홀드 위 재선점 0(3회 합 — 이 부하가 그 경로를 만들지 못함) · PR-3 실행 < 계획 | **성공**(B·C·D) · A는 기록(A의 위반은 ADR-015 몫 — 측정-8 G2(c)) |
-| P8(N3·N5 — 카운터 정합) | 회수·배치·대조가 함께 돌아도 끝 불일치 0 · `repaired` 0 | M6 끝 불일치 > 0 · `repaired` > 0 · `v_over_limit_users` > 0 | M6 · 판정기 | 생존 0(증분 틱 또는 안전망 실행 없음) → 회차 무효(하네스 — 대조가 돌지 않았다) | **성공** |
+| P8(N3·N5 — 카운터 정합) | 회수·배치·대조가 함께 돌아도 끝 불일치 0 · `repaired` 0 | M6 끝 불일치 > 0 · `repaired` > 0 · `v_over_limit_users` > 0 | M6 · 정합성 검증기 | 생존 0(증분 틱 또는 폴백 스캔 실행 없음) → 회차 무효(하네스 — 보정이 돌지 않았다) | **성공** |
 | P9(N8 — 만료 뒤 확정 거부 · API 계약) | B·C·D는 만료 뒤 보낸 확정을 받지 않고, 만료 전에 보낸 확정은 받는다. **주장 범위(리뷰 MR-8)**: 보낸 시각 기준의 API 계약(PR-3 — API 계약 양성 대조)만이다. 만료 경계를 넘나드는 트랜잭션 겹침은 동시성 테스트 몫(측정-9 ⑦) | δc ∈ {+0.3, +1.0} 확정 200 ≥ 1 · **어느 회차든** δc ∈ {−1.0, −0.3} 확정 중 200이 아닌 것 ≥ 1(송신 오차 초과 탐침 제외 — 탐침 회차엔 경쟁 부하가 없어 만료 전 확정은 모두 받아야 한다 · 재점검 MR-14) | M7 | PR-3 실행 < 계획 | **성공**(B·C·D) · A 기록 |
 | P10(비용 — 선점 경로) | B·C·D의 비용 셀 선점 p99와 DB CPU는 A ≫가 아니다(추가 문장 H1 하위 질의 · H2 · H8 — §3.1 '문장 수') | 비용 셀 M8·M9에서 X ≫ A | M8 · M9 | 비용 셀 유효 < 3 | 설명(교체는 G3이 직접 본다) |
 | P11(조회 비용) | 좌석 맵 p99 중앙값은 A ≤ B·C < D(D는 `RESERVED`가 아닌 좌석마다 홀드 탐색 — §3.3) | D가 B·C보다 범위 비겹침으로 낮다 · B 또는 C ≫ A | M8(지도) | — | 설명 |
@@ -749,17 +749,17 @@ WHERE st.schedule_id = 1;
 
 - **B·C·D 성공** = P4 · P7 · P8 · P9 · P12 성립 + C는 P5 · D는 P6 성립 + 아래 상태 기대값 문턱 성립(리뷰 MR-7) + 주 셀 4개 × 3회 · 비용 셀 × 3회가 모두 유효. **판정 불가인 성공 가설이 하나라도 있으면 성공이 아니다**(ADR-012 §6 · ADR-013 §5.4 방식).
 - **정합 위반은 1건이라도 실패다** — 이중 판매(M5) · 카운터 끝 불일치 · `repaired`(오탐 복구 포함 — M6) · 한도 초과 · 만료 뒤 확정 성공(M7) · C의 되돌림 위반(M4). 어느 셀 어느 회차든, 1건이면 그 방식은 성공이 아니다. 문턱으로만 쓰고 순위에는 쓰지 않는다(0이 아니면 이미 탈락이다).
-  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-20)**: 위 목록에 판정기의 좌석 ↔ 확정 짝 두 항목을 더한다 — `v_reserved_without_confirmed`(좌석 `RESERVED`인데 확정 예약 없음) · `v_confirmed_on_unreserved_seat`(확정 예약인데 좌석 `RESERVED` 아님 — 키 이름 LoadtestDataService.kt `consistency`). 확정만 `RESERVED`를 쓰는 규칙은 네 방식이 같아(D도 좌석에 `RESERVED`만 쓴다 — §설계-3) 모든 방식에서 기대값이 0이다. A의 위반은 다른 정합 위반처럼 A 결함(MQ9 — G2(c)에 든다)이다.
-  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-21)**: 위 목록에 끝 판정기의 `active_on_reserved_seats`(활성 홀드가 있는데 좌석이 `RESERVED` — 상태 표본 `active_on_reserved`와 같은 뜻의 끝 값 · 측정-5 표본 SQL '기대 0(N2)')를 더한다. 네 방식 모두 기대값이 0이라(확정만 `RESERVED`를 쓰고 확정은 그 홀드를 소비한다 — §설계-3) 1건이면 정합 위반이고, A의 위반은 위와 같이 A 결함(MQ9 · G2(c))이다. 표본 값(`active_on_reserved_samples`)은 이미 정합 위반이었고 끝 값만 빠져 있었다. 이 열도 아래 CR14-8의 정합 문턱 열이다(없거나 숫자가 아니면 `end-check-failed`).
-  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-8)**: 정합 문턱(위 목록 · 아래 상태 기대값 문턱 · P6 아래 끝)에 쓰는 판정기 열이 하나라도 없거나 숫자가 아니면 그 회차는 0으로 채우지 않고 무효(`end-check-failed` — 측정-9 ADR-009 사유)다.
-- **상태 기대값 문턱(리뷰 MR-7)** — §설계-8.3에서 그 방식의 기대값이 0인 칸은 모두 성공 조건이다. 끝 판정기(수렴 뒤) 값과, 상태 표본에 같은 열이 있으면 판정 창의 모든 표본이 0이어야 한다. 1건이라도 있으면 그 방식은 성공이 아니다(정합 위반과 같이 문턱으로만 쓴다):
+  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-20)**: 위 목록에 정합성 검증기의 좌석 ↔ 확정 짝 두 항목을 더한다 — `v_reserved_without_confirmed`(좌석 `RESERVED`인데 확정 예약 없음) · `v_confirmed_on_unreserved_seat`(확정 예약인데 좌석 `RESERVED` 아님 — 키 이름 LoadtestDataService.kt `consistency`). 확정만 `RESERVED`를 쓰는 규칙은 네 방식이 같아(D도 좌석에 `RESERVED`만 쓴다 — §설계-3) 모든 방식에서 기대값이 0이다. A의 위반은 다른 정합 위반처럼 A 결함(MQ9 — G2(c)에 든다)이다.
+  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-21)**: 위 목록에 끝 정합성 검증기의 `active_on_reserved_seats`(활성 홀드가 있는데 좌석이 `RESERVED` — 상태 표본 `active_on_reserved`와 같은 뜻의 끝 값 · 측정-5 표본 SQL '기대 0(N2)')를 더한다. 네 방식 모두 기대값이 0이라(확정만 `RESERVED`를 쓰고 확정은 그 홀드를 소비한다 — §설계-3) 1건이면 정합 위반이고, A의 위반은 위와 같이 A 결함(MQ9 · G2(c))이다. 표본 값(`active_on_reserved_samples`)은 이미 정합 위반이었고 끝 값만 빠져 있었다. 이 열도 아래 CR14-8의 정합 문턱 열이다(없거나 숫자가 아니면 `end-check-failed`).
+  - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-8)**: 정합 문턱(위 목록 · 아래 상태 기대값 문턱 · P6 아래 끝)에 쓰는 정합성 검증기 열이 하나라도 없거나 숫자가 아니면 그 회차는 0으로 채우지 않고 무효(`end-check-failed` — 측정-9 ADR-009 사유)다.
+- **상태 기대값 문턱(리뷰 MR-7)** — §설계-8.3에서 그 방식의 기대값이 0인 칸은 모두 성공 조건이다. 끝 정합성 검증기(수렴 뒤) 값과, 상태 표본에 같은 열이 있으면 판정 창의 모든 표본이 0이어야 한다. 1건이라도 있으면 그 방식은 성공이 아니다(정합 위반과 같이 문턱으로만 쓴다):
 
   | 항목(§설계-8.3 행) | 기대 0인 방식 | 자료 |
   |---|---|---|
-  | 만료됐는데 `HELD` 저장(5행) | D(옛 데이터 `HELD`는 따로 센다 — 시드가 모두 `AVAILABLE`이라 이 측정에서는 0이어야 한다) | 끝 판정기 · 표본 `held_no_active`(D) |
-  | `HELD`인데 홀드 행 없음(6행 · `v_held_without_hold`) | A · D | 끝 판정기 |
-  | **활성** 홀드가 있는데 `HELD` 아님(7행) | A · B · C(C는 P5와 같은 자료 — **C의 7행은 P5 정합 위반으로만 판정하고 아래 'A도 같은 문턱' 규칙을 적용하지 않는다** · 재점검 MR-15) | 끝 판정기 · 표본 `active_not_held` |
-  | 수렴 뒤 남은 만료 홀드 행(8행) | A · C · D | 끝 판정기 · 수렴 뒤 `expired_rows` |
+  | 만료됐는데 `HELD` 저장(5행) | D(옛 데이터 `HELD`는 따로 센다 — 시드가 모두 `AVAILABLE`이라 이 측정에서는 0이어야 한다) | 끝 정합성 검증기 · 표본 `held_no_active`(D) |
+  | `HELD`인데 홀드 행 없음(6행 · `v_held_without_hold`) | A · D | 끝 정합성 검증기 |
+  | **활성** 홀드가 있는데 `HELD` 아님(7행) | A · B · C(C는 P5와 같은 자료 — **C의 7행은 P5 정합 위반으로만 판정하고 아래 'A도 같은 문턱' 규칙을 적용하지 않는다** · 재점검 MR-15) | 끝 정합성 검증기 · 표본 `active_not_held` |
+  | 수렴 뒤 남은 만료 홀드 행(8행) | A · C · D | 끝 정합성 검증기 · 수렴 뒤 `expired_rows` |
   | (1~4행 — 이중 판매 · cnt · 한도 · 활성 홀드 > 1) | 모든 방식 | 이미 M5 · M6 · P8의 정합 문턱 |
 
   기대값이 0이 아닌 칸은 이 문턱이 아니라 `expect-mismatch`(M12 · 측정-9 — 판정 자료)로만 본다. 한 칸이 두 규칙에 함께 들지 않는다.
@@ -785,7 +785,7 @@ WHERE st.schedule_id = 1;
 - **왜 W(M1)가 순위에 없나**: B·C·D는 정의상 묶임이 0이다(저장 상태로 거절하지 않는다 — §설계-2.1). W는 A의 비용을 재는 원인 지표다 — P1과 G4(양성 대조)에 쓴다.
 - **왜 2단에 탐침은 M3ᵦ만 있나**(리뷰 MR-5 — 초안 '탐침 없음'을 고침): 판정 409(M3ᵣ)는 성공 조건(P4)에서 이미 모두 0이다. 배치 잠금 409(M3ᵦ)는 P4 문턱 밖이지만 사용자가 자기 좌석을 못 잡는 실제 실패라 매진 시간과 같은 단(사용자에게 보이는 결과)에 둔다. 구조상 C에서만 생긴다(B는 주기 배치가 없고 · D 배치는 좌석 행을 잠그지 않는다 — §3.4) — 분류 불가 409는 M3ᵦ가 아니라 판정 409로 센다(M3).
 - **왜 3단은 범위 비겹침 + 10%인가**: 범위 비겹침만 쓰면 범위가 좁을 때 +2% 같은 작지만 일정한 차이로 빠진다 — 허용선(+10%)이 허락하려던 크기다. +10%만 쓰면 흔들림이 큰 지표에서 우연으로 빠진다. 둘 다 = '실제로 있고 크기도 의미 있는' 차이다. 지도 p99는 a50-t300 한 셀만 쓴다 — 남은 만료 행이 가장 많이 쌓여 B·D 조회 비용 차이가 가장 크게 드러나는 셀이다(추정).
-- **왜 단순성이 D > B > C인가**(측정 전 고정): 셈 = 저장 `HELD` 힌트를 쓰거나 고치는 경로 수 + 주기 배치 유무 — D 0 + 1 = 1(힌트 없음 · 배치는 행 + 카운터만) · B 1(H10) + 0 = 1 · C 3(H10 · H4b · C6) + 1 = 4. B와 D가 같으면 '남은 만료 행이 시간에 비례해 쌓이지 않는다'(D — 배치가 지움 · B는 쌓임 — P13)로 D를 앞에 둔다. **전제 조건(리뷰 MR-7)**: 'D 배치가 지움'은 D의 '수렴 뒤 남은 만료 홀드 행 = 0'(측정-7 상태 기대값 문턱)이 성립할 때만 근거가 된다. 4단에 닿은 D는 성공 후보라 이 문턱을 이미 통과했다(문턱을 못 넘었거나 판정 불가인 D는 성공이 아니라 4단에 오지 않는다). 결과 문서에는 이 전제가 성립한 자료(D의 수렴 뒤 `expired_rows` · 끝 판정기 8행)를 함께 적는다.
+- **왜 단순성이 D > B > C인가**(측정 전 고정): 셈 = 저장 `HELD` 힌트를 쓰거나 고치는 경로 수 + 주기 배치 유무 — D 0 + 1 = 1(힌트 없음 · 배치는 행 + 카운터만) · B 1(H10) + 0 = 1 · C 3(H10 · H4b · C6) + 1 = 4. B와 D가 같으면 '남은 만료 행이 시간에 비례해 쌓이지 않는다'(D — 배치가 지움 · B는 쌓임 — P13)로 D를 앞에 둔다. **전제 조건(리뷰 MR-7)**: 'D 배치가 지움'은 D의 '수렴 뒤 남은 만료 홀드 행 = 0'(측정-7 상태 기대값 문턱)이 성립할 때만 근거가 된다. 4단에 닿은 D는 성공 후보라 이 문턱을 이미 통과했다(문턱을 못 넘었거나 판정 불가인 D는 성공이 아니라 4단에 오지 않는다). 결과 문서에는 이 전제가 성립한 자료(D의 수렴 뒤 `expired_rows` · 끝 정합성 검증기 8행)를 함께 적는다.
 
 **기본값 교체 관문**(순위 차례로 G1~G4를 대 보고, 처음 모두 통과한 후보가 새 기본값이다 — 명세 §0 '이기면 기본값 교체'):
 
@@ -796,8 +796,8 @@ WHERE st.schedule_id = 1;
 | G3 비용 | 선점 경로 지표 — 비용 셀 선점 p99 · 비용 셀 DB CPU · a50-t300 선점 201 p99 · 확정 p99 · DB CPU — 에서 X ≫ A가 하나도 없다. **평가 전 조건**: DB CPU를 쓰는 셀의 회차는 `db-cpu-missing`(M9 — 리뷰 MR-3)이 아니어야 한다(결측 회차는 G3 평가 전에 무효 → 재측정). a50-t300 DB CPU는 측정-5 머리의 표본 비용 기준으로 분리되면 이 목록과 3단에서 빠진다(리뷰 MR-1). **지도 p99는 관문에 넣지 않는다**(MQ2): A의 지도는 배치 전 좌석을 `HELD`로 보이는 다른 의미라 싸다. 조회 최적화는 ADR-019 몫이다. 대신 결과 문서에 X ÷ A 배수를 적는다 |
 | G4 캠페인 유효 | A의 모든 셀 유효 3회 · P1의 'TTL 30초 두 셀 A W > 0'(3회 모두) 성립 · 탐침·표본 계획 대 실행 일치 |
 
-- **교체가 성립하면**: `seat.hold.expiry-mode` 기본값 = X · V11 위치(`db/migration-seat-map`)를 기본 위치 목록에 더함(§설계-7 · Q8)을 **별도 커밋**으로 한다(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — docs/adr/ADR-012-incremental-reconcile.md:160). 기존 DB 전환은 ①(멈추고 바꾸기) + 정리 T1·T2 + 확인 3항목만이다(§설계-7 · Q12 · ADR-013 §7.3 원칙). 옛 방식(A)은 손잡이로 되돌릴 수 있게 둔다.
-- **A가 남는 조건**(하나라도면 기본값 `sweep` 그대로): ① 성공한 후보가 없다 ② 성공한 후보가 모두 G2를 못 넘는다 — 방식 차이가 판매·사용자 결과로 드러나지 않았다 ③ G2를 넘은 후보가 모두 G3에서 걸린다 — 이득보다 선점 경로 비용이 크다 ④ G4 실패 — 측정 전 규칙으로 고를 수 없다(판정 불가 · 사용자 보고 · NEXT 후보) ⑤ 캠페인이 하네스 결함으로 'superseded'되고 재측정을 마치지 않았다. ①~④에서도 결과 문서는 방식별 실패 항목 · 원인 후보를 적는다(무음 금지).
+- **교체가 성립하면**: `seat.hold.expiry-mode` 기본값 = X · V11 위치(`db/migration-seat-map`)를 기본 위치 목록에 더함(§설계-7 · Q8)을 **별도 커밋**으로 한다(ADR-012 §3 '기본값 교체는 판정 뒤 별도 커밋' — docs/adr/ADR-012-incremental-reconcile.md:160). 기존 DB 전환은 ①(멈추고 바꾸기) + 정리 T1·T2 + 확인 3항목만이다(§설계-7 · Q12 · ADR-013 §7.3 원칙). 옛 방식(A)은 설정 옵션으로 되돌릴 수 있게 둔다.
+- **A가 남는 조건**(하나라도면 기본값 `sweep` 그대로): ① 성공한 후보가 없다 ② 성공한 후보가 모두 G2를 못 넘는다 — 방식 차이가 판매·사용자 결과로 드러나지 않았다 ③ G2를 넘은 후보가 모두 G3에서 걸린다 — 이득보다 선점 경로 비용이 크다 ④ G4 실패 — 측정 전 규칙으로 고를 수 없다(판정 불가 · 사용자 보고 · NEXT 후보) ⑤ 캠페인이 하네스 결함으로 'superseded'되고 재측정을 마치지 않았다. ①~④에서도 결과 문서는 방식별 실패 항목 · 원인 후보를 적는다(조용히 넘기지 않는다).
 - **'A 유지'도 '방식 실패'도 아닌 판정 불가 결론**(리뷰 MR-9 · MR-10): ⓐ 측정-7 'A도 같은 문턱'으로 판정 불가가 된 항목 때문에 후보가 성공을 얻지 못했다 ⓑ `env-stall`(환경) 재측정 상한(측정-9)을 다 써 유효 < 3인 자리가 남았다. 이때 결론은 **'판정 불가 → 사용자 보고'**다 — 추가 재측정 · 조건 수정 여부는 사용자가 정한다. 기본값 설정은 사용자 결정 전까지 손대지 않지만(sweep 그대로), 결과 문서는 이를 'A 유지(A가 이겼다)'나 그 방식의 실패로 적지 않는다. 다른 사유(하네스)의 상한 소진은 이 갈래가 아니라 기존 규칙(측정-9 재측정 · 위 ④)을 따른다.
   - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-18) — ⓒ G3 판정 불가**: G1 · G2 · G4를 넘었고 G3에서 X ≫ A인 지표는 없는데 비용 지표 범위를 낼 수 없어(유효 회차의 값 None 등) G3가 판정 불가인 후보는 'G3에서 걸렸다'가 아니다. 그런 후보만 남아 관문을 넘은 후보가 없으면 결론은 위 ③(A 유지)이 아니라 **'판정 불가 → 사용자 보고'**다. 관문을 넘은 후보가 있어도 그보다 앞 순위에 G3 판정 불가 후보가 있으면(그 후보가 이겼을 수 있다) 같은 결론이다(잠정 결과를 함께 적는다 — ⓐ·ⓑ와 같은 처리). G3에 걸린 지표가 있는 후보는 판정 불가 지표가 함께 있어도 ③ 그대로다.
   - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-24) — ⓓ 고르는 규칙 판정 불가**: 3단(비용)에 남은 후보가 둘 이상인데 어느 (지표, 후보)의 3회 범위를 낼 수 없으면(유효 회차의 값 None 등) 3단 결과는 **판정 불가**다 — 범위를 낼 수 없는 지표를 'X ≫ Y 아님'으로 읽어 빠질 후보를 남기지 않는다. 2단(T95 · M3ᵦ — M3ᵦ 분모 0 포함)도 같은 꼴로 본다(요약기 판정 입력 전수 점검). 후보 줄 세우기는 잠정 결과로 그대로 내고, **관문을 넘은 후보 말고도 관문을 넘었거나 넘었을 수 있는(ⓒ) 후보가 있으면** 그 후보가 앞 순위였을 수 있으므로 결론은 ⓐ·ⓑ·ⓒ와 같은 **'판정 불가 → 사용자 보고'**(잠정 결과를 함께 적는다)다. 다른 후보가 모두 관문에서 걸렸으면 순위와 무관하게 관문을 넘은 후보가 새 기본값이다. 같은 꼴로: G2 (a)·(b)를 셀 범위가 없으면(유효 회차의 값 None) G2는 '못 넘음'이 아니라 판정 불가이고, G3에 걸린 지표가 없으면 ⓒ와 같은 갈래로 본다(A 유지 ②는 G2가 모두 확정 실패일 때만). 측정-5 머리의 표본 비용 분리 여부를 정할 수 없으면(Δc 또는 A의 a50-t300 DB CPU 범위 없음) a50-t300 DB CPU가 3단 결과나 G3 걸림을 가를 때 그 단·관문은 판정 불가다(분리하지 않은 것으로 읽지 않는다).
@@ -811,13 +811,13 @@ WHERE st.schedule_id = 1;
 1. .164 스모크: 네 방식 × a50-t30 1회 + A·D × 비용 셀 1회 — 모두 상태 ok(단 `env-stall`(MR-6 조건을 모두 만족한 환경 정지)만으로 무효인 회차는 시작을 막지 않고 아래 빈도 자료로 센다 — 그 밖의 무효 사유는 시작을 막는다 · 재점검 MR-16) · 탐침·표본 계획 대 실행 일치. 스모크 결과는 판정에 쓰지 않는다.
 2. **캠페인 스모크(ADR-013 교훈 — 루프 stdin)**: `campaign.sh`로 **두 자리 이상**을 돌려 두 자리가 모두 실행됐는지 본다. ADR-013의 첫 캠페인은 회차 루프(`while read … <<< "$ORDER"`) 안의 run.sh(ssh·docker)가 표준 입력을 읽어 남은 29줄을 먹고 1회만 돌았다. run.sh 단독 스모크와 dry-run으로는 못 잡았다(docs/adr/ADR-013-counter-config-cutover.md §6.1 '대체된 캠페인'). 루프 안 run.sh는 `< /dev/null`로 부르고, 끝 집계 전에 미실행 자리가 있으면 멈춘다.
 3. dry-run: 60자리 계획 · 순서 · 예상 시간 · 탐침 일정(모든 셀에서 마지막 탐침 요청 ≤ t0 + D_arr − 5초 — **탐침 경계 교훈**: ADR-013은 사건 실제 길이를 넣자 계획 칸 안 탐침이 경계로 빠졌다 · §5.8-0). 여기서는 탐침이 사건이 아니라 서버 만료 시각 e에 묶이므로, 경계 위험 = '창 끝을 넘는 탐침'과 '시계 오차 > δ'다.
-4. k6 PC 점검: 측정과 무관한 컨테이너·재시작을 되풀이하는 프로세스가 없다(`docker ps` 기록 — ADR-011 §6.1: PC의 `text-es`가 약 24초마다 기동 실패를 되풀이해 꼬리 지표를 오염시켰다).
+4. k6 PC 점검: 측정과 무관한 컨테이너·재시작을 되풀이하는 프로세스가 없다(`docker ps` 기록 — ADR-011 §6.1: PC의 `text-es`가 약 24초마다 기동 실패를 되풀이해 테일 레이턴시 지표에 측정 노이즈를 섞었다).
 5. 측정-11 `[구현 검증]` 결과(#15~#25) — 특히 지도 응답 크기·PC 수신량 · 상태 표본 질의 시간 · 앱−DB 시계 차. 그리고 스모크로 잰 다음 값을 log에 남긴다:
    - (리뷰 MR-1) 방식별 표본 질의 시간 · 표본 CPU 몫 c_X · Δc · R₀와 측정-5 머리 기준의 적용 결과(그대로 · 표본 방식 변경 · 분리).
    - (리뷰 MR-10) **이 구성(lb 없음 · 앱 1대)의 환경 정지 빈도** — 스모크 전 회차(네 방식 × a50-t30 + A·D × 비용 셀 = 6회)에서 `env-stall`로 분류된 덩어리 수 · 그런 회차 수 ÷ 6. 판정에는 쓰지 않는다. 캠페인의 재측정 예상 시간과 아래 환경 상한 소진 가능성을 사용자 보고에 넣는 자료다.
    - (리뷰 MR-11) 흐름별(맹목 · 지도 · 재방문 · 탐침) k6 VU 최대(`vus` 최대 · 흐름별 시나리오 태그). maxVUs = 흐름마다 max(14,000, ⌈VU 최대 × 1.5⌉)로 고정한다(S3 선례 maxVUs 14,000 — s3-full-flow.js:33 · 스모크는 a50-t30만이라 TTL 5분 칸의 긴 생각 시간에서 VU가 더 클 수 있다 — 추정). 스모크에서 판정 창 안 `dropped_iterations` > 0이 하나라도 나오면 maxVUs를 올려 다시 스모크한다.
 6. 시작 전 1번만 바꿀 수 있는 값: 스모크 결과로 D_arr(T95_추정이 D_arr의 60% 초과면 D_arr′ = ⌈T95_추정 ÷ 0.6 ÷ 60⌉ × 60초로 늘림 — 측정-2 · 리뷰 MR-13) · 지도 흐름 속도(PC 수신 > 50MB/s면 줄임 — 1Gbps의 40%)를 고칠 수 있다. 고친 값과 이유를 log에 남긴다. **시작 뒤에는 고정**이다.
-7. **동시성 테스트 green(리뷰 MR-8)**: §설계-9 N2의 동시성 테스트(같은 좌석 동시 선점 · 시각 역전 · 시각 역전 + 남의 확정 · D 한 문장 대조)와 §설계-10 #12 교착 점검이 측정 SHA에서 모두 green이다. P7 · P9는 시각 역전 경합을 주장하지 않으므로(측정-6), 그 경합의 이중 판매 0은 이 조건이 보장한다. 측정 지연 손잡이로 부하에서 경합을 만들지 않는다(Q13 — 메인 결정). green이 아니면 캠페인을 시작하지 않는다.
+7. **동시성 테스트 green(리뷰 MR-8)**: §설계-9 N2의 동시성 테스트(같은 좌석 동시 선점 · 시각 역전 · 시각 역전 + 남의 확정 · D 한 문장 대조)와 §설계-10 #12 교착 점검이 측정 SHA에서 모두 green이다. P7 · P9는 시각 역전 경합을 주장하지 않으므로(측정-6), 그 경합의 이중 판매 0은 이 조건이 보장한다. 측정 지연 설정 옵션으로 부하에서 경합을 만들지 않는다(Q13 — 메인 결정). green이 아니면 캠페인을 시작하지 않는다.
 
 **회차 사유**:
 
@@ -836,7 +836,7 @@ WHERE st.schedule_id = 1;
 | `env-stall` — 판정 창에서 정지 초(완료 응답 0인 초)가 5초 이상 이어진 덩어리가 있고, **같은 구간에** 서버 측정기(`GET /actuator` — DB를 거치지 않는다)도 5초 넘게 응답이 없고, 앱 GC 정지 최대 < 100ms(GC가 설명하지 못함) **그리고 DB 쪽 원인 없음**(리뷰 MR-6 — 아래 셋 모두): ① 그 구간의 0.5초 대기 표본(lib.sh:153 `db_sampler` — 서버 쪽 루프라 앱이 멈춰도 돈다)마다 업무 세션(`by_src`의 `app|` 갈래 — ApplicationName=seatlab-app · k6/ADR-009/compose.yml:21·71)의 `Lock:*` 대기 수 = 0 ② Hikari `pending` = 0 ③ Hikari `active` < 최대(`hikaricp.connections.max` — run.sh:543 `app-config.json`). ②③은 1초 Hikari 표본(run.sh:637-641)을 쓴다 — 이 표본은 앱 actuator를 거쳐(`curl --max-time 2`) 앱이 멈춘 구간에는 빌 수 있으므로, 구간 안 표본 + 구간 바로 앞 · 바로 뒤 표본 각 1개로 본다. ①의 표본이 구간에서 빠졌거나(공백 > 1초) ②③의 앞 · 뒤 표본이 없으면 'DB 쪽 원인 없음'을 세우지 못한 것이다 | 하네스(환경) | 무효 → 재측정(환경 상한 — 아래 '재측정'). 근거: ADR-013 §6.6-6 환경 정지 덩어리(약 11~13초 연속 정지 · S4c 31회 중 9회 · 앱 지표 표본 13.5초 빔 · DB 표본 정상 · GC 0 · 원인 미확인). 필요한 표본 수집(업무 세션 갈래 · 앞뒤 Hikari)은 `[구현 검증]`(측정-11 #23) |
 | 정지 덩어리인데 서버 측정기는 응답했다(앱은 살아 있고 DB 경로가 멈춤) · 또는 GC가 설명한다 · **또는 DB 쪽 원인 없음 ①②③ 중 하나라도 어기거나 세우지 못했다**(리뷰 MR-6) · 또는 가르지 못했다 | **방식** | 유효 — **방식 정지**로 두고 유효 회차의 실패로 센다(P12 — M11 정지 초). 실패를 숨기지 않는 쪽(ADR-013 §5.3 '원인을 가르지 못한 `transition-failed` → 절차로 본다'와 같은 규칙) |
 | 정합 위반 · 5xx · 데드락 · 틱 실패(측정-7 · P12) | **방식** | 유효 실패 회차 — 재측정하지 않는다 |
-| `expect-mismatch`(M12 — §설계-8.3 기대값과 다름 · **기대가 0인 칸은 제외**: 그 칸은 측정-7 상태 기대값 문턱이 방식 실패로 판정한다 — 리뷰 MR-7) · `reject-cause-unknown`(M3 — 리뷰 MR-5) · `probe-timing-dropped`(3.2) · 1초 p99 최대 · 느린 초 | 판정 자료 | 회차 사유 아님 — 결과 문서에 원인 · 수를 적는다 |
+| `expect-mismatch`(M12 — §설계-8.3 기대값과 다름 · **기대가 0인 칸은 제외**: 그 칸은 측정-7 상태 기대값 문턱이 방식 실패로 판정한다 — 리뷰 MR-7) · `reject-cause-unknown`(M3 — 리뷰 MR-5) · `probe-timing-dropped`(3.2) · 1초 p99 최대 · 스파이크 초 | 판정 자료 | 회차 사유 아님 — 결과 문서에 원인 · 수를 적는다 |
 
 - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-9 · CR14-10 · CR14-14) — 사유 표의 입력 검사를 좁힌다(새 무효 경로 · 원문 사유 이름 그대로 또는 하나 더함)**: `clock-offset-bad`의 '표본 없음'에 앞뒤 표본의 `rtt_s`가 없거나 음수인 경우를 넣는다(0으로 채우면 왕복/2 문턱을 통과한다). `probe-incomplete`의 '계획된 탐침 요청이 나가지 않음'에 **첫 선점(PR-1 h0 · PR-2 h0a·h0b · PR-3 u0)이 5xx가 아닌 이유로 실패해 판정 요청이 나가지 않은 탐침**을 넣는다(원인은 `probe-anomaly` 이름표로 남긴다 — 첫 선점 5xx는 원문대로 방식 M11). 새 사유 `warmup-failed`(하네스 — 무효 → 재측정): 예열 k6(측정-3.6 `warmup14.js`)가 rc ≠ 0이거나 그 기록이 없다 — 데워지지 않은 앱이 부하를 받는다(측정-9 '차가운 JVM'). 예열 요청의 이름:상태 분포를 회차 폴더에 남긴다.
 - **측정 전 재해석(2026-10-26 · 코드 리뷰 CR14-22 · CR14-23) — `probe-incomplete`에 판정 탐침 쪽 두 경우를 넣는다**: ① **첫 선점 기록 행 자체가 없는 탐침**(PR-1 h0 · PR-2 h0a·h0b · PR-3 u0 행 없음) — 홀드가 섰는지 모르는 채 판정 요청을 정상 탐침처럼 판정하지 않는다(CR14-10의 '첫 선점 실패'와 같은 '판정 요청이 판정 가능한 조건에서 나가지 않음'). ② **판정 불가 응답** — 판정 요청은 나갔는데 응답이 5xx·코드 0 밖의 예상 밖 값(PR-1·2 h1 ∉ {201, 409} · PR-3 다른 사용자 선점 v ∉ {201, 409} · 확정 c ∉ {200, 409} — 400 · 404 등)인 탐침. 그 탐침은 M3 · PR-3 분모에서 빼고, 하나라도 있으면 그 회차는 `probe-incomplete`(하네스 — 무효 → 재측정)다. 원인은 `probe-anomaly` 이름표로 남긴다. **근거**: 사유 표는 나간 탐침 요청의 응답을 '5xx·코드 0 → 방식(M11 · P12)'만 정했고 나머지 예상 밖 응답의 갈래가 없다. 그 응답은 '판정 409인가 201인가'를 셀 수 없으니 판정 탐침 기록이 계획만큼 서지 않은 것('탐침 기록 수 ≠ 계획')으로 읽는다 — 새 사유 이름이 필요 없고 CR14-10과 같은 꼴이다. P12(5xx · 코드 0)로 세면 원문 P12 정의를 넓히게 된다. 방식이 실제로 400·404를 내는 결함이라도 숨지 않는다: 재측정 2번 뒤에도 무효면 그 (방식, 셀)은 유효 < 3 → 판정 불가 → 성공이 아니다(아래 '재측정').
@@ -845,7 +845,7 @@ WHERE st.schedule_id = 1;
 - **측정 전 재해석(2026-10-29 · 스모크 — 사용자 결정) — PC 링크 끊김 = 환경 무효(새 사유 둘)**: `pc-link-down`(**하네스(환경)** — 무효 → 재측정 · **환경 상한**: 아래 '재측정'의 `env-stall` 몫과 같은 몫을 함께 쓴다 — 자리마다 환경 2번): 회차 시작 ~ 끝 사이 k6 PC 커널 로그(`journalctl -k`)에 `eno1: Link is Down` 줄이 1건 이상. 다른 사유와 함께 나와도 환경으로 가른다(끊김이 만든 결과로 본다 — `env-stall`은 원문대로 그것만일 때 환경). `pc-link-missing`(하네스 — 무효 → 재측정): 그 로그를 못 읽음(rc ≠ 0 · 권한 경고 · 이번 부팅 커널 줄 0) · 기록 없음 · 수집 구간이 판정 창을 덮지 않음 — 판정 입력 결측 규칙(위 전수 점검 행 · README 출처 표)대로 '끊김 없음'으로 넘기지 않는다. **근거**: 10-28 첫 스모크 A a50-t30(k6/ADR-014/results/smoke14-20261028)이 PC 유선 eno1 끊김(16:45:56~16:46:16 — 원인은 랜선 · 10-28 21:18 교체)으로 `db-cpu-missing` · `dropped-iterations` · `path-gap` · `probe-incomplete` · `probe-missing`이 함께 나며 무효가 됐다(그 사유들이 끊김의 결과다). 그 뒤 스모크는 끊김 시각을 사람이 피했고, 정식 스모크(10-29)는 회차 중 Link Down 0을 확인했다 — 이 확인을 하네스가 회차마다 기록·판정한다. 링크 끊김은 방식과 무관한 측정 환경 사건이라 방식 실패(P12)나 하네스 결함으로 세지 않는다. 읽기는 sudo 없이 된다(이 PC — 2026-10-29 확인 · `k6/ADR-014/scripts/pclink14.sh`).
 - **측정 전 재해석(2026-10-29 · 정식 스모크) — 시작 조건 ⑤ `dropped_iterations` 처방**: 원문 '판정 창 안 `dropped_iterations` > 0이 하나라도 나오면 maxVUs를 올려 다시 스모크한다'를 **'preAllocatedVUs(미리 만든 VU) · maxVUs를 올려'**로 읽는다. **근거**: 정식 스모크 a50-t30에서 맹목 흐름이 t0 + 17~20초에 7건을 버렸는데 VU 최대는 약 2,244로 maxVUs 14,000에 닿지 않았다 — 원인은 미리 만든 VU 2,000을 넘는 순간 k6가 VU를 실행 중에 늦게 만들며 그 사이 반복을 버린 것이다(커밋 1ac55ffa — blind 2,000 → 4,000 · map 200 → 400). maxVUs만 올리면 같은 결함이 되풀이된다. maxVUs = max(14,000, ⌈VU 최대 × 1.5⌉) 원문은 그대로다. **TTL 5분 칸은 스모크하지 않았다** — 생각 시간 30–240초 · 재방문 대기 ≤ TTL + 20초로 세션이 VU를 오래 쥐어 동시 반복이 TTL 30초 칸(약 2,128~2,244)보다 클 수 있다(첫 만석 약 40~65초 동안 확정할 세션(a20 약 80% · a50 약 50%)이 생각 시간만큼 남는다 — 추정 수천~1만). **미리 만든 VU 4,000이 충분한지는 캠페인 첫 TTL 5분 회차(회차 1의 a20-t300 첫 자리)에서 조기 확인**한다: 그 회차가 `dropped-iterations`로 무효면 캠페인을 멈추고 값을 정한 뒤 처음부터(측정-9 '캠페인 시작 뒤 하네스 결함' — 측정 경로 수정이면 60회 전체를 새 id로).
 
-- **측정 전 재해석(2026-10-30 · 확인 스모크 — 명세 R5 ②) — 시작 조건 ④ · 시작 대기 · 시작 조건 ⑤ 처방 적용 · k6 PC 메모리(새 사유 둘)**: ① **시작 조건 ④에 'k6 PC 다른 부하 없음'을 더한다** — 사람 기록(`docker ps` · 재시작 루프 없음)에 더해 하네스가 시작 · 이어서 실행 때마다 이 PC를 읽어(`k6/ADR-014/scripts/pccheck14.sh`) seatlab 밖 실행 중 컨테이너 0 · 1분 load ≤ 4.0 · MemAvailable ≥ 16GiB가 아니거나 못 읽으면 시작하지 않는다. 캠페인 동안 다른 프로젝트 부하를 멈추는 것은 사용자 몫이다. 문턱 근거: 이 PC 24코어 · 메모리 39.6GB · k6 주 프로세스 최대 9.84코어 · k6 RSS 최대 10.07GiB(VU 13,300 — 확인 스모크 a50-t300 D) → VU 15,300 비례 외삽 11.6GiB(추정) + 아래 회차 중 하한 4GiB. 확인 스모크의 다른 부하는 load 14~36이었다. ② **새 사유 `pc-mem-low`(하네스(환경) — 무효 → 재측정 · 환경 상한: `env-stall` · `pc-link-down`과 같은 몫)**: 판정 창 안 k6 PC MemAvailable(5초 표본 `timeline-client.jsonl`) 최소 < 4GiB(메모리의 약 10%). 다른 사유와 함께 나와도 환경으로 가른다(메모리 부족이 만든 결과로 본다 — `pc-link-down`과 같은 규칙). **새 사유 `pc-mem-missing`(하네스 — 무효 → 재측정)**: 그 표본이 없음 · 깨짐 · 값 결측 · 공백(창 양끝 포함) > 30초 — 판정 입력 결측 규칙(README 출처 표)대로 '부족 없음'으로 넘기지 않는다. 이름표가 아니라 무효인 이유: 확인 스모크에서 PC 부하 아래 A·B p99가 정식 스모크보다 4~8배 높았다 — 지연 · 정지 지표가 PC 쪽 원인으로 오염된 회차를 유효로 세면 방식 비교가 흔들린다. 회차 앞 PC 점검 결과는 이름표만 남긴다(`pc-busy-before`). ③ **시작 대기(87 ± 5초 — 판정 기준 그대로)의 k6 lead를 미리 만든 VU 수로 잡는다**: lead = 0.15초 + VU × 0.37ms(계획 `k6.lead_s` — 전: 고정 1.2초). 확인 스모크 a50-t300 D(미리 만든 VU 13,300)는 k6 실행 → 첫 요청이 6.61초라 시드 → 첫 요청 93.2초(`pre-k6-mismatch`)였다. 식은 결과 11회(PC 한가함 ≈ 0.30ms/VU · 부하 ≈ 0.43ms/VU의 가운데)와 모두 2.5초 안이다. 판정은 원문대로 실측 t0다. ④ **시작 조건 ⑤ 처방 적용(위 2026-10-29 재해석의 조기 확인을 확인 스모크가 대신했다)**: TTL 5분 칸 흐름별 VU 최대 맹목 9,254 · 지도 583 → 미리 만든 VU 맹목 ⌈9,254 × 1.5⌉ = 13,881 → 14,000(= maxVUs 14,000 = max(14,000, 13,881)) · 지도 875 → 1,000 그대로. 그 실측은 연결 상한 실패가 섞인 회차 값이라(실패 세션이 일찍 끝나 VU를 덜 쥐었거나 응답 대기로 더 쥐었을 수 있다) 상한을 올린 다음 스모크에서 VU 최대를 다시 본다.
+- **측정 전 재해석(2026-10-30 · 확인 스모크 — 명세 R5 ②) — 시작 조건 ④ · 시작 대기 · 시작 조건 ⑤ 처방 적용 · k6 PC 메모리(새 사유 둘)**: ① **시작 조건 ④에 'k6 PC 다른 부하 없음'을 더한다** — 사람 기록(`docker ps` · 재시작 루프 없음)에 더해 하네스가 시작 · 이어서 실행 때마다 이 PC를 읽어(`k6/ADR-014/scripts/pccheck14.sh`) seatlab 밖 실행 중 컨테이너 0 · 1분 load ≤ 4.0 · MemAvailable ≥ 16GiB가 아니거나 못 읽으면 시작하지 않는다. 캠페인 동안 다른 프로젝트 부하를 멈추는 것은 사용자 몫이다. 문턱 근거: 이 PC 24코어 · 메모리 39.6GB · k6 주 프로세스 최대 9.84코어 · k6 RSS 최대 10.07GiB(VU 13,300 — 확인 스모크 a50-t300 D) → VU 15,300 비례 외삽 11.6GiB(추정) + 아래 회차 중 하한 4GiB. 확인 스모크의 다른 부하는 load 14~36이었다. ② **새 사유 `pc-mem-low`(하네스(환경) — 무효 → 재측정 · 환경 상한: `env-stall` · `pc-link-down`과 같은 몫)**: 판정 창 안 k6 PC MemAvailable(5초 표본 `timeline-client.jsonl`) 최소 < 4GiB(메모리의 약 10%). 다른 사유와 함께 나와도 환경으로 가른다(메모리 부족이 만든 결과로 본다 — `pc-link-down`과 같은 규칙). **새 사유 `pc-mem-missing`(하네스 — 무효 → 재측정)**: 그 표본이 없음 · 깨짐 · 값 결측 · 공백(창 양끝 포함) > 30초 — 판정 입력 결측 규칙(README 출처 표)대로 '부족 없음'으로 넘기지 않는다. 이름표가 아니라 무효인 이유: 확인 스모크에서 PC 부하 아래 A·B p99가 정식 스모크보다 4~8배 높았다 — 지연 · 정지 지표가 PC 쪽 원인으로 측정 노이즈가 섞인 회차를 유효로 세면 방식 비교가 흔들린다. 회차 앞 PC 점검 결과는 이름표만 남긴다(`pc-busy-before`). ③ **시작 대기(87 ± 5초 — 판정 기준 그대로)의 k6 lead를 미리 만든 VU 수로 잡는다**: lead = 0.15초 + VU × 0.37ms(계획 `k6.lead_s` — 전: 고정 1.2초). 확인 스모크 a50-t300 D(미리 만든 VU 13,300)는 k6 실행 → 첫 요청이 6.61초라 시드 → 첫 요청 93.2초(`pre-k6-mismatch`)였다. 식은 결과 11회(PC 한가함 ≈ 0.30ms/VU · 부하 ≈ 0.43ms/VU의 가운데)와 모두 2.5초 안이다. 판정은 원문대로 실측 t0다. ④ **시작 조건 ⑤ 처방 적용(위 2026-10-29 재해석의 조기 확인을 확인 스모크가 대신했다)**: TTL 5분 칸 흐름별 VU 최대 맹목 9,254 · 지도 583 → 미리 만든 VU 맹목 ⌈9,254 × 1.5⌉ = 13,881 → 14,000(= maxVUs 14,000 = max(14,000, 13,881)) · 지도 875 → 1,000 그대로. 그 실측은 연결 상한 실패가 섞인 회차 값이라(실패 세션이 일찍 끝나 VU를 덜 쥐었거나 응답 대기로 더 쥐었을 수 있다) 상한을 올린 다음 스모크에서 VU 최대를 다시 본다.
 
 - **재측정**: 같은 (방식, 셀, 회차 번호) 자리 최대 2번 — 캠페인 끝에 원래 순서대로 돈다. 결과 표에 'rerun'을 붙이고 앞 회차는 `attemptN/`으로 보존한다(ADR-013 §5.3 · §6.1 선례). 2번 뒤에도 무효면 그 (방식, 셀)은 유효 < 3 → 그 방식 판정 불가 → 성공 아님(A면 G4 실패 → A 유지).
   - **환경 사유 상한은 따로 센다(리뷰 MR-10)**: 자리마다 `env-stall`(재해석 2026-10-29로 `pc-link-down`도 같은 몫) 재측정 최대 2번 · 그 밖의 하네스 사유 재측정 최대 2번을 **따로** 센다(한쪽 소진이 다른 쪽 몫을 줄이지 않는다). 2번은 기존 상한과 같은 값이다(근거: ADR-013 선례 · 환경 정지 빈도는 시작 조건 ⑤ 스모크 기록으로 사용자에게 미리 보고).
@@ -864,12 +864,12 @@ WHERE st.schedule_id = 1;
 3. **TTL 5분 칸의 효과는 작다**: 예측 약 1~2%라 3회 범위 안에 묻힐 수 있다(P2). TTL 30초는 효과를 키우는 장치이지 운영값이 아니다. TTL 30초 창(240·360초)은 짧아 그 칸의 p99·CPU는 첫 몰림이 대부분이다 — 비용 판정은 a50-t300과 비용 셀로만 한다(측정-8).
 4. **B의 장기 누적을 재지 않는다**: 회차는 최대 약 30분이다. B의 남은 만료 행은 회차가 마감될 때까지 늘고(정리 ①만 지운다 — §3.4) 조회·선조회 비용도 함께 는다(추정). 이번에는 창 안 기울기만 기록한다(P13). B가 기본값이 되면 장기 측정을 NEXT 후보로 남긴다(MQ8).
 5. **마감 경로를 재지 않는다**: 시드 회차가 측정 중 마감되지 않아 B의 정리 ①(§3.4 B1~B3)과 마감 회차 확정 경합(DS14-3)은 테스트(§설계-10 #12)만 본다.
-6. **주입 없음**: 카운터 정합은 자연 부하에서만 본다. 어긋남 탐지 효과는 ADR-012 결과를 그대로 믿는다. 대조가 '돌았다'는 생존(M6)으로만 확인한다.
+6. **주입 없음**: 카운터 정합은 자연 부하에서만 본다. 불일치 탐지 효과는 ADR-012 결과를 그대로 믿는다. 대조가 '돌았다'는 생존(M6)으로만 확인한다.
 7. **회수 대기(H4 → K3)를 만드는 부하가 없다**: '같은 사용자의 확정 중 다른 좌석 선점'(§3.1 DS14-4)을 부하에 넣지 않았다 — 타이밍 창이 ms 단위라 흉내가 어렵다. M10 대기는 0에 가까울 것이고(설명 — 회수 전용 표지로만 센다 · 배치 DELETE 대기는 섞이지 않는다 · 리뷰 MR-13), 교착 없음은 동시성 테스트(§설계-10 #12)가 맡는다.
 8. **시계 출처가 섞인다**: A는 앱 Clock · B·C·D는 DB `now()`(명세 §10 R1). A 대 B·C·D 비교에 두 시계의 차가 섞인다 — 회차마다 차를 기록한다(M14). 상태 표본은 DB `now()`로 '활성'을 센다 — A의 W에도 그 차가 섞인다.
 9. **좌석 맵 부하는 작다**: 초당 최대 20번 · 캐시 없음. 반복 조회 폭주(ADR-019 문제 — '20만 명이 좌석맵을 반복 조회')에서 D의 조회 비용이 어떻게 커지는지는 재지 않는다. 지도 p99는 교체 관문에 넣지 않았다(G3 · MQ2).
 10. **해상도**: 상태 표본 1초 · docker stats 약 10초(ADR-012 §7-8) · 탐침 칸 회차당 약 30~70개 × 3회 — 드문 부당 실패(< 1%)는 0으로 보일 수 있다.
-11. **tmpfs**: 디스크 DB의 쓰기 벽(ADR-009 §7)은 없다 — 회수·배치의 WAL 비용은 기록만 한다.
+11. **tmpfs**: 디스크 DB의 쓰기 급락(ADR-009 §7)은 없다 — 회수·배치의 WAL 비용은 기록만 한다.
 12. **라운드 모형과 D_arr는 추정이다**: 첫 몰림 길이 · 찾는 시간 · 확정 시점 분포가 모형과 다르면 T95가 창 밖으로 갈 수 있다 — 시작 조건 ⑥이 스모크로 한 번 고친다. 그 뒤 창 밖이면 +∞로 센다(가장 나쁨 — 그 방식에 불리하게).
 13. **공통 난수는 응답이 갈리기 전까지만 같다**: 409가 갈리면 그 뒤 좌석 선택이 갈린다 — 흔들림을 줄일 뿐 없애지 않는다.
 14. **고정값 일부는 보수적 선택이다**(측정-4 '근거 종류'): 지도 10/초 · ρ 0.2 · DB CPU +10% · P1 15초 · P3 0.1 · 환경 정지 5초 · 시계 20ms/100ms — 측정 뒤 바꾸지 않는다.
@@ -904,7 +904,7 @@ WHERE st.schedule_id = 1;
 | MQ7 | 단순성 순서 D > B > C(측정-8) | **그대로** — 측정 전에 고정한 셈(힌트 경로 수 + 배치 유무, 동률이면 만료 행 누적 없음)이다 | 사용자 |
 | MQ8 | B의 남은 만료 행 장기 누적(측정-10-4)을 성공 조건에 넣나 | **넣지 않는다** — 30분 창에서는 판정할 수 없다. 기록(P13)만 하고, B가 기본값이 되면 장기 측정을 NEXT 후보로 남긴다 | 메인 |
 | MQ9 | A에서 정합 위반이 나오면 | **A의 기존 결함으로 기록해 ADR-015에 넘기고, 같은 캠페인에서 위반 0인 후보는 G2(c)를 채운 것으로 본다** — A 경로는 이번에 고치지 않는다(Q3) | 사용자 |
-| MQ10 | 확정 경합 탐침 PR-3를 넣나(하네스 일이 는다) | **넣는다** — 이중 판매 0(P7)과 만료 뒤 확정 거부(P9)가 '기회가 있었는데 0'임을 보이는 양성 대조다(ADR-013 P8 교훈 — 0이 비어 있는 성립이 되지 않게). 빼면 P7·P9의 판정 불가 조건을 다시 정해야 한다. **(리뷰 MR-8 — 범위 좁힘)** PR-3은 'API 계약 양성 대조'(만료 전 확정 성공 · 만료 뒤 확정 거부)다 — 시각 역전 경합의 기회는 만들지 못하므로 그 0은 동시성 테스트 green(측정-9 ⑦)이 맡는다. 측정 지연 손잡이는 넣지 않는다(Q13 — 메인 결정) | 메인 |
+| MQ10 | 확정 경합 탐침 PR-3를 넣나(하네스 일이 는다) | **넣는다** — 이중 판매 0(P7)과 만료 뒤 확정 거부(P9)가 '기회가 있었는데 0'임을 보이는 양성 대조다(ADR-013 P8 교훈 — 0이 비어 있는 성립이 되지 않게). 빼면 P7·P9의 판정 불가 조건을 다시 정해야 한다. **(리뷰 MR-8 — 범위 좁힘)** PR-3은 'API 계약 양성 대조'(만료 전 확정 성공 · 만료 뒤 확정 거부)다 — 시각 역전 경합의 기회는 만들지 못하므로 그 0은 동시성 테스트 green(측정-9 ⑦)이 맡는다. 측정 지연 설정 옵션은 넣지 않는다(Q13 — 메인 결정) | 메인 |
 
 ## 실험 결과
 
@@ -1016,7 +1016,7 @@ WHERE st.schedule_id = 1;
 4. **하네스 수정 5a2ad147은 재측정으로 확인했다**: 확인 스모크 a50-t300 D가 `app-metric-missing`(창 끝 앱 지표 스냅숏이 창 끝보다 1.07초 앞)으로 무효 → 스냅숏 시각에 k6 lead를 더하도록 고침 → 같은 칸 재확인(confirm14-20261103b) ok · 캠페인 62회 창 끝 지연 3.21~5.00초. 3f2b3399(R6 — 다른 부하는 기록만)는 캠페인 하네스 fd494aea에 들어 있다.
 5. **네트워크 이력(짧게)**: 10-28 스모크 때 PC 유선이 100Mbps로 붙고 약 37분마다 끊겼다(원인 = 랜선 · 10-28 교체 뒤 1Gbps) · 11-02 랜카드 응답 없음 → 11-03 00:20 재부팅 뒤 1Gbps. 캠페인 62회 중 Link Down은 0이다(`pc-link-down` 규칙 — 측정-9).
 6. **측정-10의 한계는 그대로다** — 특히 앱 1대 · 서버 1대(-1) · 흉내 부하(-2) · TTL 5분 효과가 작음(-3) · B 장기 누적 미측정(-4) · 지도 부하가 작음(-9 — ADR-019 반복 조회 폭주는 재지 않았다) · tmpfs(-11).
-7. **판정 자료(측정-9 사유 표 마지막 행 — 회차 사유 아님 · 리뷰 RR14-2)** · 합친 집계(결과-9) 60회 기준: `expect-mismatch` **3**(모두 비용 셀 B — '수렴 뒤 남은 만료 홀드 0(기대 > 0)' · 'held_no_active 0(기대 늘어난다)' · 지도 조회가 없는 비용 셀에서는 B가 만료 행을 읽을 일이 없어 §설계-8.3 기대값이 이 셀에 맞지 않았다 — 방식 결함 아님 · 추정) · `h4-marker-unseen` **35**(B·C·D 주 셀 — 회수는 있었는데 표지가 표본에 없다 · `[구현 검증]` #24 해석 메모) · `probe-timing-dropped` **0** · `reject-cause-unknown` 0 · 1초 p99 최대 **498.1ms**(a20-t300 A rep1 — 재측정 회차 · 앞 캠페인 단독 최대는 1,484.9ms — a20-t300 D rep2로 이번 집계에서 빠진 자리) · 느린 초 최대 **81**(a50-t300 C rep2).
+7. **판정 자료(측정-9 사유 표 마지막 행 — 회차 사유 아님 · 리뷰 RR14-2)** · 합친 집계(결과-9) 60회 기준: `expect-mismatch` **3**(모두 비용 셀 B — '수렴 뒤 남은 만료 홀드 0(기대 > 0)' · 'held_no_active 0(기대 늘어난다)' · 지도 조회가 없는 비용 셀에서는 B가 만료 행을 읽을 일이 없어 §설계-8.3 기대값이 이 셀에 맞지 않았다 — 방식 결함 아님 · 추정) · `h4-marker-unseen` **35**(B·C·D 주 셀 — 회수는 있었는데 표지가 표본에 없다 · `[구현 검증]` #24 해석 메모) · `probe-timing-dropped` **0** · `reject-cause-unknown` 0 · 1초 p99 최대 **498.1ms**(a20-t300 A rep1 — 재측정 회차 · 앞 캠페인 단독 최대는 1,484.9ms — a20-t300 D rep2로 이번 집계에서 빠진 자리) · 스파이크 초 최대 **81**(a50-t300 C rep2).
 8. **비용 셀 D의 DB CPU와 PC load가 거꾸로 움직였다(리뷰 RR14-8 · 미확인)**: 06a `busy_rows.json`에서 D 비용 셀 회차는 PC load가 높을수록 DB CPU가 낮았다. PC가 바빠 k6가 도착률을 덜 만든 것인지(그러면 D 비용 셀 0.76×는 과소평가된 부하의 결과일 수 있다) 우연인지는 가르지 않았다. `dropped_iterations` 0 · 탐침 송신 오차 0이라 도착 모형은 계획대로였지만, 요청 간 간격의 미세 지연은 이 규칙으로 잡히지 않는다. 비용 셀은 재측정 범위가 아니다(R7 ①). 결론(결과-9)은 주 셀 DB CPU로 갈렸으므로 이 한계가 기본값 선택을 바꾸지 않는다.
 
 ### 결과-9 재측정 R7 — 합친 집계 (정식 판정)
@@ -1073,7 +1073,7 @@ WHERE st.schedule_id = 1;
 **결정**: `seat.hold.expiry-mode` 기본값은 **`sweep`(A) 그대로**다. 합친 집계(결과-9 — 명세 R7)에 측정 전 고정 규칙(측정-8)을 그대로 대입한 결론 **'A 유지 ③ — G2를 넘은 후보가 모두 G3에서 걸린다'**를 따른다(사용자 확정 'A 유지' 2026-11-04). 하네스를 고친 뒤 D는 성공(G1 · G2 통과)했지만 주 셀 a50-t300 DB CPU가 A의 1.19×로 G3(문턱 1.10배)에 걸렸다. B · C는 P12로 성공을 얻지 못했고, 성공으로 쳐도 같은 지표로 G3에 걸린다(결과-9 견고성). 앞 캠페인 단독 결론 'A 유지 ① — 성공한 후보가 없다'(결과-3)는 superseded다.
 
 - **DB 전환이 없다**: 기본값이 바뀌지 않으므로 측정-8 '교체가 성립하면'의 별도 커밋(기본값 = X · V11 위치 `db/migration-seat-map` 기본 목록 추가)과 기존 DB 전환(①(멈추고 바꾸기) + 정리 T1·T2 — ADR-013 §7.3 원칙)은 하지 않는다. 운영 중인 DB와 앱 설정에 할 일이 없다.
-- B · C · D 코드는 손잡이(`seat.hold.expiry-mode`)로 남는다 — 기본값이 아닐 뿐 지우지 않는다.
+- B · C · D 코드는 설정 옵션(`seat.hold.expiry-mode`)로 남는다 — 기본값이 아닐 뿐 지우지 않는다.
 - A 정합 위반 0 — ADR-015(확정 원자성)에 새로 넘길 A 결함은 없다(MQ9).
 
 ### 결정-2 고르지 않은 대안과 이유
