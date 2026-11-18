@@ -92,11 +92,11 @@ ADR-016은 이런 일이 생기는 수를 줄였다. 새 기본값 ④ + ⓒ에�
 
 | 호출 | 누가 | 의미 · 규칙 |
 |---|---|---|
-| `POST /intents {uid, userId, amount, deadline}` | 서버(payment-start) | uid 등록 → `REGISTERED`. 같은 uid는 멱등. deadline은 서버 payBy. **이미 `CLOSED`(닫힘 표지)인 uid면 409 — 등록되지 않는다**(RD17-P1) |
+| `POST /intents {uid, userId, amount, deadline}` | 서버(payment-start) | uid 등록 → `REGISTERED`. 같은 uid는 멱등. deadline은 서버 payBy. **이미 `CLOSED`(닫힘 표시)인 uid면 409 — 등록되지 않는다**(RD17-P1) |
 | `POST /payments/{uid}/pay` | 클라이언트(k6) — R · S | `REGISTERED` → `CAPTURED`(승인과 매입을 한 번에). **`now > deadline`이거나 `CLOSED`면 409, 결제 없음**(I4) |
 | `POST /payments/{uid}/authorize` | 클라이언트 — D | `REGISTERED` → `AUTHORIZED`. deadline 규칙은 위와 같다. `authTtl`이 지나면 PG가 스스로 `EXPIRED`로 바꾼다 |
 | `POST /payments/{uid}/capture` | 서버 워커 — D | `AUTHORIZED` → `CAPTURED` |
-| `POST /payments/{uid}/close` | 서버 워커 — 보상 공통 | **uid를 닫는다**. 상태별 결과: `REGISTERED`·`EXPIRED` → `CLOSED`(NOT_PAID — 뒤늦은 결제도 막힌다 · RD17-10 감사) · `AUTHORIZED` → `VOIDED` · `CAPTURED` → `REFUNDED` · 이미 닫힘 → 멱등 200 · **등록되지 않은 uid → 닫힘 표지 `CLOSED`(NOT_PAID)를 남기고 200**(등록이 늦게 도착해도 결제할 수 없다 — RD17-P1) |
+| `POST /payments/{uid}/close` | 서버 워커 — 보상 공통 | **uid를 닫는다**. 상태별 결과: `REGISTERED`·`EXPIRED` → `CLOSED`(NOT_PAID — 뒤늦은 결제도 막힌다 · RD17-10 감사) · `AUTHORIZED` → `VOIDED` · `CAPTURED` → `REFUNDED` · 이미 닫힘 → 멱등 200 · **등록되지 않은 uid → 닫힘 표시 `CLOSED`(NOT_PAID)를 남기고 200**(등록이 늦게 도착해도 결제할 수 없다 — RD17-P1) |
 | `GET /payments/{uid}` · `GET /payments?status=&registeredBefore=` | 서버(결과 모름 조회 · 폴백 스캔) | 상태 조회 |
 | `GET /ledger` · `POST /admin/faults` · `POST /admin/reset` | 하네스 | 원장 덤프 · 주입 설정 · 원장 비우기 |
 
@@ -430,7 +430,7 @@ POST /api/holds/{holdId}/confirm {paymentUid}
 - 시간 행의 표본은 REFUNDED · VOIDED uid 전체다(지연 확정 + 확정 안 보냄 + kill 셀 app_dead 중 닫힌 것 · n R 2,511 · D 2,509 · S 2,017).
 - **약 10분은 보상이 느려서가 아니다.** 지연 확정은 ④가 연장한 홀드(W 611초)가 끝난 뒤에 보낸다(하네스 정의 — `paid-flow17.js` late = 연장 만료 + L). 서버는 그때까지 확정이 올지 모른다. 그래서 세 후보 모두 결제 시각부터 약 W − 결제 시간(p50 약 9.5분) 뒤에 보상이 시작된다. 시작 뒤 CLOSE 완료는 G2 p99로 base · kill 약 1초, PG 주입 셀 약 14.5 ~ 20.4초다.
 - **R · S와 D의 차이는 시간이 아니라 돈의 상태다.** R · S는 그동안 매입된 돈(빠져나간 돈)이 환불을 기다린다. D는 같은 시간 승인 홀드(한도만 묶임)였다가 취소된다. 대신 D는 모든 성공 확정에 매입 작업이 붙고(확정 p99 ×1.22), 매입이 비동기라 PG 승인 만료 · 거절이면 돈 없는 좌석이 생긴다(이번 0 — 흉내 PG 승인 유효 30분 안에서 매입이 다 끝났다. 승인 만료가 짧은 실제 PG에서는 따로 봐야 한다).
-- **S의 대체 비율은 이번 구성의 값이다.** S의 REJECTION 출처 작업이 0이다 — 대체가 실패했다면 거부 기록 트랜잭션이 REJECTION 출처 CLOSE를 만든다(`PaymentConfirmService` 거부 처리). 즉 이번 구성(여유 좌석 ≥ 지연 + 확정 안 보냄 · 판매 마감 없음)에서는 폴백 스캔(5초 주기)보다 먼저 도착한 지연 확정이 모두 대체에 성공했고, 나머지는 폴백 스캔이 먼저 intent를 닫아 환불됐다. 그래서 비율은 L 분포(0.2 ~ 10초)와 폴백 스캔 주기에 묶인다. 좌석이 모자라거나 판매 마감 · 매수 상한에 걸리는 구성의 비율은 이번 측정 밖이다.
+- **S의 대체 비율은 이번 구성의 값이다.** S의 REJECTION 출처 작업이 0이다 — 대체가 실패했다면 거부 기록 트랜잭션이 REJECTION 출처 CLOSE를 만든다(`PaymentConfirmService` 거부 처리). 즉 이번 구성(여유 좌석 ≥ 지연 + 확정 안 보냄 · 판매 마감 없음)에서는 폴백 스캔(5초 주기)보다 먼저 도착한 지연 확정이 모두 대체에 성공했고, 나머지는 폴백 스캔이 먼저 intent를 닫아 환불됐다. 그래서 비율은 L 분포(0.2 ~ 10초)와 폴백 스캔 주기에 따라 달라진다. 좌석이 모자라거나 판매 마감 · 매수 상한에 걸리는 구성의 비율은 이번 측정 밖이다.
 
 ### 결과-6 측정 한계
 
@@ -447,7 +447,7 @@ POST /api/holds/{holdId}/confirm {paymentUid}
   - 확정이 오지 않은 결제(지연 확정 · 확정 안 보냄)는 연장 홀드가 끝날 때까지(p50 약 9.5분 · 최대 약 10.5분) 매입된 돈이 빠진 채로 기다린 뒤 환불된다. D였다면 같은 시간 승인 홀드였다.
   - 고정 규칙에서 D가 떨어진 사유는 확정 지연 +2.2ms(×1.22) 하나다. 비동기 매입의 돈 없는 좌석 위험은 이번 측정이 만들지 못해(결과-6) 규칙 밖이고, 채택 이유에서 따로 고려했다 — 지연 문턱을 맞춰도 이 위험은 남는다. 이 문턱(1.10)은 측정 전 고정이라 이번 결정에서 바꾸지 않는다. '매입된 돈 대 승인 홀드'를 확정 2ms보다 무겁게 볼지는 실제 PG 연동(02 payment-consistency-lab) 때 다시 볼 질문으로 NEXT에 남긴다.
 - **앱 기본값 교체(커밋 335552a04 · 2026-11-18)**: `seat.compensation.mode` 기본 = `refund`(코드 기본값 `CompensationProperties`와 `application.yml` 같은 값 — 계약 테스트 `Adr017DefaultModeContractTest` · 실제 기동 `Adr017DefaultModeBootTest`). D(`auth-capture`) · S(`substitute`)는 측정 · 비교용 설정 옵션으로 남는다.
-  - **PG 주소 필수 — 명시 강제(사용자 결정 2026-11-18 · 자동 후퇴 없음)**: refund는 `seat.payment.pg.base-url`이 있어야 기동한다. PG 없이 띄우는 구성은 `seat.compensation.mode: none`(intent · 거부 기록 · 폴백 스캔 탐지만)을 명시한다. 안 적으면 기동 검사가 그 안내와 함께 거부한다.
+  - **PG 주소 필수 — 명시 강제(사용자 결정 2026-11-18 · 자동 폴백 없음)**: refund는 `seat.payment.pg.base-url`이 있어야 기동한다. PG 없이 띄우는 구성은 `seat.compensation.mode: none`(intent · 거부 기록 · 폴백 스캔 탐지만)을 명시한다. 안 적으면 기동 검사가 그 안내와 함께 거부한다.
   - **거부된 기동은 스키마를 바꾸지 않는다(사용자 결정 2026-11-18)**: 보상 설정 검사(PG 주소 · 확정 모드)를 Flyway migrate **앞**(`HoldStrategyMigrationGate`)에서도 부른다 — 기본값 교체 뒤 가장 흔한 거부(새 jar + PG 주소 없음)가 V15 등을 적용한 뒤 거부되지 않게(ADR-015 '거부된 기동은 스키마를 바꾸지 않는다'와 같은 관례).
   - **current와 함께 쓰기**: 확정 모드 `current`(ADR-015 범위 밖 구성 — B · C · D 만료 · 기본 밖 조합 · V12 앞 베이스라인)는 결제 시작(payment-start)이 없어 refund와 함께 뜨지 않는다. current로 띄울 때는 `seat.compensation.mode: none`도 명시한다(거부 메시지가 안내한다).
   - **테스트 · 로컬**: 테스트 클래스패스는 'test' 프로필(`src/test/resources/application-test.yml`)이 none을 준다 — `bootTestRun`도 같다(거기서 refund를 보려면 mode와 PG 주소를 함께 준다). 기존 테스트 단언은 바꾸지 않았다.

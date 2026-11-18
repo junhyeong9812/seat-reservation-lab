@@ -227,7 +227,7 @@ ADR-014(홀드 만료)·ADR-020(오픈 폭주)처럼 행이 쌓이는 장시간�
 - `ExpiryCounters`(`service/impl/drift/ExpiryCounters.kt`) — JPA 엔티티 `SeatHold`(:3·:40)를 받고, 만료 틱 ThreadLocal(:34-38)이 `ExpireHoldsService.kt:28-49`와 묶여 있다. 외부 앱은 만료를 하지 않는다. core의 `PairRepair`만 부른다(방향 main-app → core).
 - `QuotaCleanup` — 정리는 업무 앱만 한다(F(별도 보정 앱)도 `expiry-repair: false`·`cleanup.mode: none` — `application-reconciler.yml:13-17` · rv41 Opus L6에서 줄 번호 고침). `SeatHoldProperties.cleanup`에 따라 정해진다.
 - `CounterDriftScheduling` — 프로필로 출처를 정하고(:46-47 `Environment`), 정리도 스케줄한다. 증분·폴백 스캔 스케줄 2개가 여기에 더해진다(설정 옵션이 켜질 때만).
-- `SalesCloseGate`·`HoldStrategyStartupCheck`(기동 검사 — 4.2.2의 스키마 검사 호출이 더해진다)·메모리 집합 구현(4.2.2 ⓐ — 트랜잭션 동기화와 업무 쓰기 경로에 묶인다).
+- `SalesCloseGate`·`HoldStrategyStartupCheck`(기동 검사 — 4.2.2의 스키마 검사 호출이 더해진다)·메모리 집합 구현(4.2.2 ⓐ — 트랜잭션 동기화와 업무 쓰기 경로에 따라 달라진다).
 
 **새 이음새(core에 둔다)**:
 - `QuotaChangeListener`(`fun interface changed(scheduleId, userId)`) — core의 `PairRepair`가 쿼터 행을 쓴 뒤 부른다(`ObjectProvider.ifAvailable` — 빈이 없으면 아무것도 안 함). main-app의 메모리 집합 모드만 빈을 둔다.
@@ -431,7 +431,7 @@ interface ChunkDetector { fun detect(scheduleId: Long, selector: QuotaSelector):
 | `lap_no` · `lap_completed` · `lap_seconds` · `lap_age_s` | 스캔 번호 · 이번에 끝났나 · 끝났으면 스캔 시간 · 진행 중 스캔 나이 |
 | `expedited` · `restart` | 앞당김으로 시작했나 · 기동 뒤 첫 실행인가 |
 
-**해석 주의 — M2 대 M3 공정성**(rv41 Opus L11): 예산은 앱 쪽 벽시계라 외부 앱(M3)은 .158 ↔ .164 왕복을 예산 안에 넣는다 — 같은 2초에 하는 DB 일이 앱 안(M2)보다 적다. 실행당 청크 수(`chunks_reread`·`chunks_recent`·`chunks_full`)를 두 셀에서 함께 보고, 최근 창 적체·스캔 시간의 차이가 이 몫인지 가른다(판정식은 그대로).
+**해석 주의 — M2 대 M3 공정성**(rv41 Opus L11): 예산은 앱 쪽 벽시계라 외부 앱(M3)은 .158 ↔ .164 왕복을 예산 안에 넣는다 — 같은 2초에 하는 DB 일이 앱 안(M2)보다 적다. 실행당 청크 수(`chunks_reread`·`chunks_recent`·`chunks_full`)를 두 셀에서 함께 보고, 최근 창 적체·스캔 시간의 차이가 이 몫인지 구분한다(판정식은 그대로).
 
 #### 4.2.6 source 값 · 기록 · 지표
 
