@@ -1,0 +1,224 @@
+{
+  "adr": "017",
+  "cand": "D",
+  "mode": "auth-capture",
+  "cell": "pg",
+  "rep": 1,
+  "fixed": false,
+  "values": {
+    "fixed": false,
+    "n_sessions": 1100,
+    "rate": 20,
+    "kind_weights": {
+      "ok": 60,
+      "late": 20,
+      "noconf": 5,
+      "abandon": 10,
+      "retry": 5
+    },
+    "t_range": [
+      30,
+      240
+    ],
+    "pay_median_s": 45,
+    "pay_sigma": 0.94,
+    "pay_max_s": 300,
+    "conf_gap_range": [
+      0,
+      2
+    ],
+    "retry_gap_range": [
+      0,
+      2
+    ],
+    "late_range": [
+      0.2,
+      10
+    ],
+    "seat_factor": 1.5,
+    "pg_rule": {
+      "delayMs": 200,
+      "failRate": 0.1,
+      "unknownRate": 0.05,
+      "unknownDelayMs": 5000
+    },
+    "pg_fault_ops": [
+      "capture",
+      "close"
+    ],
+    "kill_at_s": [
+      180,
+      760
+    ],
+    "kill_tol_ms": 5000,
+    "send_lag_max_ms": 2000,
+    "pc_mem_run_min_kb": 4194304,
+    "pc_mem_gap_max_s": 30,
+    "drain_cap_s": 300,
+    "g2_x_s": 30,
+    "g2_y_s": 120,
+    "ttl_s": 300,
+    "batch_s": 10,
+    "W_s": 611,
+    "theta_s": 1,
+    "M_s": 1,
+    "compensation": {
+      "worker": {
+        "interval_s": 1,
+        "batch": 50,
+        "lease_s": 30,
+        "max_attempts": 10,
+        "backoff_initial_s": 1,
+        "backoff_max_s": 60
+      },
+      "sweep": {
+        "interval_s": 5,
+        "batch": 200
+      }
+    },
+    "pg_read_timeout_s": 3,
+    "mockpg_auth_ttl": "30m"
+  },
+  "n_total": 1100,
+  "rate": 20,
+  "d_arr_s": 55,
+  "kind_cycle": [
+    "ok",
+    "late",
+    "ok",
+    "ok",
+    "abandon",
+    "ok",
+    "late",
+    "ok",
+    "noconf",
+    "ok",
+    "ok",
+    "retry",
+    "ok",
+    "late",
+    "ok",
+    "ok",
+    "abandon",
+    "ok",
+    "late",
+    "ok"
+  ],
+  "planned": {
+    "ok": 660,
+    "late": 220,
+    "noconf": 55,
+    "abandon": 110,
+    "retry": 55
+  },
+  "params": {
+    "tMin": 30,
+    "tMax": 240,
+    "payMedian": 45,
+    "paySigma": 0.94,
+    "payMax": 300,
+    "gMin": 0,
+    "gMax": 2,
+    "rMin": 0,
+    "rMax": 2,
+    "lMin": 0.2,
+    "lMax": 10
+  },
+  "seed": {
+    "schedules": 1,
+    "seats": 1650,
+    "spare": 550,
+    "sessions_max": 1100,
+    "section": "A"
+  },
+  "app_env": {
+    "CONFIRM_MODE": "conditional-extend",
+    "CONFIRM_DELAY": "0ms",
+    "PAYMENT_WINDOW": "611s",
+    "PAYMENT_MIN_REMAINING": "1s",
+    "PAY_BY_MARGIN": "1s",
+    "HOLD_TTL": "300s",
+    "EXPIRY_INTERVAL": "10s",
+    "COMPENSATION_MODE": "auth-capture",
+    "PG_BASE_URL": "http://mock-pg:8104",
+    "MOCKPG_AUTH_TTL": "30m",
+    "FLYWAY_LOCATIONS": "classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental",
+    "POOL_SIZE": "10",
+    "TOMCAT_MAX_CONNECTIONS": "20000",
+    "APP_NOFILE": "65536",
+    "PG_PRELOAD": "pg_stat_statements"
+  },
+  "grace_s": 891,
+  "life": {
+    "mean_s": 306.2,
+    "max_s": 856.1
+  },
+  "peak_concurrency": 1098,
+  "k6": {
+    "script": "k6/ADR-017/scenarios/paid-flow17.js",
+    "duration_s": 946,
+    "est_s": 910,
+    "pre_vus": 1283,
+    "max_vus": 1925,
+    "lead_s": 0.62,
+    "env": {
+      "REP": "1",
+      "CAND": "D",
+      "COMP_MODE": "auth-capture",
+      "CELL": "pg",
+      "PG_OP": "authorize",
+      "RATE": "20",
+      "D_ARR_S": "55",
+      "N_TOTAL": "1100",
+      "GRACE_S": "891",
+      "KIND_CYCLE": "ok,late,ok,ok,abandon,ok,late,ok,noconf,ok,ok,retry,ok,late,ok,ok,abandon,ok,late,ok",
+      "T_MIN_S": "30",
+      "T_MAX_S": "240",
+      "PAY_MEDIAN_S": "45",
+      "PAY_SIGMA": "0.94",
+      "PAY_MAX_S": "300",
+      "GAP_MIN_S": "0",
+      "GAP_MAX_S": "2",
+      "RETRY_MIN_S": "0",
+      "RETRY_MAX_S": "2",
+      "LATE_MIN_S": "0.2",
+      "LATE_MAX_S": "10",
+      "SCHEDULE": "1",
+      "SEAT_SPARE": "550",
+      "USER_BASE": "1000000",
+      "PRE_VUS": "1283",
+      "MAX_VUS": "1925"
+    }
+  },
+  "pg": {
+    "base_url_app": "http://mock-pg:8104",
+    "faults": {
+      "seed": 1218959823,
+      "rules": {
+        "capture": {
+          "delayMs": 200,
+          "failRate": 0.1,
+          "unknownRate": 0.05,
+          "unknownDelayMs": 5000
+        },
+        "close": {
+          "delayMs": 200,
+          "failRate": 0.1,
+          "unknownRate": 0.05,
+          "unknownDelayMs": 5000
+        }
+      }
+    },
+    "op": "authorize",
+    "auth_ttl": "30m"
+  },
+  "kill": null,
+  "drain": {
+    "cap_s": 300,
+    "poll_s": 5,
+    "est_s": 90
+  },
+  "est_s": 1160,
+  "est_max_s": 1370,
+  "smoke": true
+}
