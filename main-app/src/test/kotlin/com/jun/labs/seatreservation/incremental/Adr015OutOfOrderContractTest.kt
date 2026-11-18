@@ -50,7 +50,7 @@ class Adr015OutOfOrderContractTest : BootTestBase() {
     /** 옛 방식 K2(이 SHA · 기본 위치만) → V1~V7 + V12 · V13 → ADR-013 전환 V9 기록(outOfOrder 1회) */
     private fun oldStyleDbWithV9(url: String, db: JdbcTemplate) {
         flyway(url, LOC_BASE).migrate()
-        assertEquals("1:true 2:true 3:true 5:true 6:true 7:true 12:true 13:true", db.history(), "전제: 기본 위치만 = V1~V7 + V12 · V13")
+        assertEquals("1:true 2:true 3:true 5:true 6:true 7:true 12:true 13:true 15:true", db.history(), "전제: 기본 위치만 = V1~V7 + V12 · V13 · V15")
         val h0 = db.history()
         val e = runCatching { flyway(url, LOC_BASE, LOC_V9_TRG, target = "9").migrate() }.exceptionOrNull()
         assertTrue(e is FlywayValidateException && e.message.orEmpty().contains("Detected resolved migration not applied to database: 9."),
@@ -102,6 +102,6 @@ class Adr015OutOfOrderContractTest : BootTestBase() {
         val db = jdbcFor(url)
         flyway(url, LOC_BASE, target = "7").migrate()
         boot(url, incrementalProps("trigger", LOCS_TRG)).close()
-        assertEquals("1:true 2:true 3:true 5:true 6:true 7:true 9:true 10:true 12:true 13:true", db.history())
+        assertEquals("1:true 2:true 3:true 5:true 6:true 7:true 9:true 10:true 12:true 13:true 15:true", db.history())
     }
 }

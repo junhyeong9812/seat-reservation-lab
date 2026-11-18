@@ -1,6 +1,9 @@
 package com.jun.labs.seatreservation.api
 
+import com.fasterxml.jackson.annotation.JsonInclude
+import com.jun.labs.seatreservation.domain.CompensationView
 import com.jun.labs.seatreservation.domain.ErrorCode
+import com.jun.labs.seatreservation.domain.httpStatusCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import io.micrometer.core.instrument.MeterRegistry
@@ -34,7 +37,7 @@ class ApiExceptionHandler(
             meters.counter(REJECTED_METRIC, "cause", cause).increment()
             response.header(REJECT_HEADER, cause)
         }
-        return response.body(ErrorResponse(code = e.errorCode.name, message = e.errorCode.message))
+        return response.body(ErrorResponse(code = e.errorCode.name, message = e.errorCode.message, compensation = e.compensation))
     }
 
     /**
@@ -48,16 +51,7 @@ class ApiExceptionHandler(
         else -> "rule"
     }
 
-    private fun ErrorCode.httpStatus(): HttpStatus = when (this) {
-        ErrorCode.SEAT_NOT_FOUND, ErrorCode.HOLD_NOT_FOUND -> HttpStatus.NOT_FOUND
-        ErrorCode.HOLD_NOT_OWNED -> HttpStatus.FORBIDDEN
-        ErrorCode.SEAT_NOT_AVAILABLE,
-        ErrorCode.HOLD_LIMIT_EXCEEDED,
-        ErrorCode.HOLD_EXPIRED,
-        ErrorCode.SEAT_NOT_HELD,
-        ErrorCode.SCHEDULE_CLOSED,
-        -> HttpStatus.CONFLICT
-    }
+    private fun ErrorCode.httpStatus(): HttpStatus = HttpStatus.valueOf(httpStatusCode())
 
     companion object {
         const val REJECTED_METRIC = "seat.hold.rejected"
@@ -69,4 +63,7 @@ class ApiExceptionHandler(
 data class ErrorResponse(
     val code: String,
     val message: String,
+    /** ADR-017 설계-4.3 — intent 경로 확정 거부에서 보상 작업이 있을 때만(I11 — 코드는 그대로 · 본문 필드 추가) */
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val compensation: CompensationView? = null,
 )

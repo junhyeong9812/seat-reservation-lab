@@ -253,7 +253,7 @@ class Adr009DefaultBootTest {
             assertEquals(mapOf("updated_at" to false, "trigger" to false, "V10" to false), db.schema())
             // ADR-015: 기본 위치의 V12 · V13(확정 유니크 인덱스 · extended_at)은 옛 방식에도 적용된다 — 선택 위치 버전(V8~V11)만 미적용을 본다
             assertEquals(0, db.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version::int BETWEEN 8 AND 11", Int::class.java), "V8~V11 미적용")
-            assertEquals(listOf("12", "13"), db.queryForList("SELECT version FROM flyway_schema_history WHERE version::int > 11 ORDER BY version::int", String::class.java), "기본 위치 V12 · V13")
+            assertEquals(listOf("12", "13", "15"), db.queryForList("SELECT version FROM flyway_schema_history WHERE version::int > 11 ORDER BY version::int", String::class.java), "기본 위치 V12 · V13 · V15")
             val d = schedulerThreads().mapValues { (k, v) -> v - t0.getValue(k) }
             assertEquals(
                 mapOf("counterReconcileScheduler-" to 1, "counterIncrementalScheduler-" to 0, "counterSafetyNetScheduler-" to 0, "quotaCleanupScheduler-" to 1), d,

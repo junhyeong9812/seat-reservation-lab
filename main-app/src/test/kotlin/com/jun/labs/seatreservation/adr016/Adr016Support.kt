@@ -63,7 +63,8 @@ val EXTEND_RESULTS = listOf("extended", "already", "not_needed", "too_late")
 // ── 응답 필드(명세 §1 · 4) ────────────────────────────────────────────────────────────────────
 val HOLD_KEYS_BASE = setOf("holdId", "seatId", "expiresAt")
 val HOLD_KEYS_PAY = HOLD_KEYS_BASE + setOf("payBy", "payWithinSeconds")
-val PAY_START_KEYS = setOf("holdId", "expiresAt", "payBy", "payWithinSeconds", "extended")
+/** ADR-017 설계-4.2(I13) — 결제 uid가 더해졌다 */
+val PAY_START_KEYS = setOf("holdId", "expiresAt", "payBy", "payWithinSeconds", "extended", "paymentUid")
 val ERROR_KEYS = setOf("code", "message")
 
 /** 없는 홀드 id(시퀀스가 닿지 않는 값) */

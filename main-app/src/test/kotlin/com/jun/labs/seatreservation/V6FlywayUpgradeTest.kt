@@ -41,6 +41,9 @@ class V6FlywayUpgradeTest {
 
     private fun rows(sql: String): List<Map<String, Any?>> = jdbc.queryForList(sql)
 
+    // V5 시점의 예약 열만 비교한다 — 뒤 마이그레이션이 더한 열(V15 intent_id · origin)은 '그대로'의 대상이 아니다
+    private val RESERVATION_COLUMNS = "id, schedule_id, seat_id, user_id, payment_uid, status, created_at"
+
     @Test
     fun `V5까지 올린 DB에 섞인 데이터를 넣고 최신으로 올리면 V6가 성공하고 카운터 = 실제(홀드·예약은 그대로)`() {
         flyway(MigrationVersion.fromVersion("5")).migrate()
@@ -70,7 +73,7 @@ class V6FlywayUpgradeTest {
         // 어긋난 기존 쿼터 행: (1,1) 너무 높음 7 · (2,2) 실제 0인데 5 · (1,9) 실제 0·cnt 0 · (1,3) quota-lock 시절 0인데 실제 2
         jdbc.update("INSERT INTO user_hold_quota (schedule_id, user_id, cnt) VALUES (1, 1, 7), (2, 2, 5), (1, 9, 0), (1, 3, 0)")
         val holdsBefore = rows("SELECT * FROM seat_hold ORDER BY id")
-        val reservationsBefore = rows("SELECT * FROM reservation ORDER BY id")
+        val reservationsBefore = rows("SELECT $RESERVATION_COLUMNS FROM reservation ORDER BY id")
         assertEquals(4L, counterMismatch(jdbc), "전제: 백필 전에는 어긋나 있다")
 
         flyway(MigrationVersion.LATEST).migrate()
@@ -82,7 +85,7 @@ class V6FlywayUpgradeTest {
         // ADR-015 V13(기본 위치)이 seat_hold에 extended_at 열을 더한다 — 비교는 V5 시점 열만(기존 행의 값은 그대로 · 새 열은 NULL)
         assertEquals(holdsBefore, rows("SELECT ${holdsBefore.first().keys.joinToString()} FROM seat_hold ORDER BY id"), "홀드는 그대로")
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM seat_hold WHERE extended_at IS NOT NULL", Int::class.java), "V13 새 열은 NULL")
-        assertEquals(reservationsBefore, rows("SELECT * FROM reservation ORDER BY id"), "예약은 그대로")
+        assertEquals(reservationsBefore, rows("SELECT $RESERVATION_COLUMNS FROM reservation ORDER BY id"), "예약은 그대로")
         val cnt = rows("SELECT schedule_id, user_id, cnt FROM user_hold_quota ORDER BY 1, 2")
             .associate { (it["schedule_id"] as Number).toLong() to (it["user_id"] as Number).toLong() to (it["cnt"] as Number).toInt() }
         assertEquals(

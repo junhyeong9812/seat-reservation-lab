@@ -47,7 +47,7 @@ const val PIN_FLYWAY_BASE = "spring.flyway.locations=classpath:db/migration"
  */
 @SpringBootTest(
     properties = [
-        "seat.hold.expiry-scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
+        "seat.hold.expiry-scheduler-enabled=false", "seat.compensation.scheduler-enabled=false", PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF,
         PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE,
     ],
 )
@@ -65,7 +65,12 @@ abstract class IntegrationTest {
 
     @BeforeEach
     fun resetData() {
+        // ADR-017 V15 표 — 예약 · 거부 기록 · 보상 작업이 intent를 참조하므로 먼저 지운다(앞 버전 스키마를 띄우는 테스트에는 없다)
+        val v15 = jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
+        if (v15) jdbcTemplate.update("DELETE FROM compensation_task")
+        if (v15) jdbcTemplate.update("DELETE FROM confirm_rejection")
         reservationRepository.deleteAllInBatch()
+        if (v15) jdbcTemplate.update("DELETE FROM payment_intent")
         jdbcTemplate.update("DELETE FROM seat_hold")
         // ADR-005 쿼터·카운터 — flyway.target으로 앞 버전 스키마를 띄우는 테스트에는 이 테이블이 없다
         if (jdbcTemplate.queryForObject("SELECT to_regclass('user_hold_quota') IS NOT NULL", Boolean::class.java) == true) {

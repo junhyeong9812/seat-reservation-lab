@@ -19,7 +19,7 @@ class IndexMigrationTest : IntegrationTest() {
 
     @Test
     fun `기본 실행은 V2 일반 인덱스 5개 + V12 확정 예약 부분 유니크 인덱스가 있다`() {
-        assertEquals(EXPECTED + (V12_INDEX to true), indexes(jdbcTemplate))
+        assertEquals(EXPECTED + (V12_INDEX to true) + (V15_INDEX to true), indexes(jdbcTemplate))
     }
 
     @Nested
@@ -62,6 +62,8 @@ class IndexMigrationTest : IntegrationTest() {
 
     companion object {
         const val V12_INDEX = "uq_reservation_confirmed_seat"
+        /** V15 — intent당 예약 ≤ 1(reservation.intent_id UNIQUE) */
+        const val V15_INDEX = "reservation_intent_uk"
         val EXPECTED = mapOf(
             "idx_seat_hold_seat_id" to false,
             "idx_seat_hold_user_id" to false,

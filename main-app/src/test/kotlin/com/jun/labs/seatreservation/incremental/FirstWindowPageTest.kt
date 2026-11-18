@@ -219,7 +219,7 @@ class FirstWindowPageTest : BootTestBase() {
         boot(url, incrementalProps("trigger", LOCS_TRG)).use { _ ->
             V10_TABLES.forEach { t -> assertTrue(db.tableExists(t), "V10($t)") }
             // V9는 다시 돌지 않는다 — 뒤에 붙는 것은 V10과 ADR-015 기본 위치 V12 · V13(준비 단계가 target 9에서 멈췄으므로)
-            assertEquals(listOf("10", "12", "13"), db.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank > (SELECT max(installed_rank) FROM flyway_schema_history WHERE version = '9') ORDER BY installed_rank", String::class.java))
+            assertEquals(listOf("10", "12", "13", "15"), db.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank > (SELECT max(installed_rank) FROM flyway_schema_history WHERE version = '9') ORDER BY installed_rank", String::class.java))
         }
     }
 

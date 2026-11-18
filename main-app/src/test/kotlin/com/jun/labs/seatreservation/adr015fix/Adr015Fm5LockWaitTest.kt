@@ -60,7 +60,7 @@ class Adr015Fm5LockWaitTest : Adr015Base() {
         val pf = paymentStartAsync(hold, x)
         reachedOrFail(lc, what = "L-E-COMMIT(payment-start E1 뒤 · 커밋 앞)")
         val extenderPid = jdbcTemplate.queryForList(
-            "SELECT pid FROM pg_stat_activity WHERE state = 'idle in transaction' AND lower(query) LIKE 'update seat_hold%'", Int::class.java,
+            "SELECT pid FROM pg_stat_activity WHERE state = 'idle in transaction' AND (lower(query) LIKE 'update seat_hold%' OR lower(query) LIKE '%from payment_intent where hold_id%')", Int::class.java,
         ).singleOrNull()
         assertNotNull(extenderPid, "연장 백엔드(E1 실행 · 커밋 전 — idle in transaction)가 하나여야 한다")
 
@@ -86,7 +86,7 @@ class Adr015Fm5LockWaitTest : Adr015Base() {
         assertEquals(lost0, counter(M_EXTENSION_LOST) ?: 0.0, "$M_EXTENSION_LOST 0")
         assertEquals(1, cntOf(x), "지우지 않았으니 감소도 없다(cnt = 홀드 1)")
 
-        val cr = confirmHttp(hold, x)
+        val cr = confirmHttp(hold, x, pr.json!!.get("paymentUid").asText()) // ADR-017: 발급 uid로만 확정
         assertEquals(200, cr.status, "연장 뒤 확정(원래 te 뒤 · 연장 만료 전) 200: $cr")
         assertVerdictClean("FM5 대기 변형")
     }
