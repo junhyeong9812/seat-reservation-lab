@@ -4,12 +4,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 /**
- * ADR-017 보상 손잡이(`seat.compensation.*` — 설계-4.4 · 4.5 · 5 · 명세 부록 A). 기본 `none`(Q1 — 측정 뒤 결정 커밋에서 교체):
- * intent · 거부 기록 · 재생 · 안전망 탐지까지만 하고 보상 작업을 만들지 않는다.
+ * ADR-017 보상 손잡이(`seat.compensation.*` — 설계-4.4 · 4.5 · 5 · 명세 부록 A). 기본 `refund`(R 즉시 환불 — ADR-017 §결정 2026-11-18):
+ * 거부 · 안전망이 CLOSE 작업을 만들고 워커가 PG에 환불한다. PG 주소(`seat.payment.pg.base-url`)가 있어야 기동한다 —
+ * PG 없이 띄우려면 `none`(탐지만 · 보상 작업 없음)을 명시한다(자동 후퇴 없음 · [com.jun.labs.seatreservation.service.impl.payment.CompensationScheduling.checkConfig]).
  */
 @ConfigurationProperties("seat.compensation")
 data class CompensationProperties(
-    val mode: CompensationMode = CompensationMode.NONE,
+    val mode: CompensationMode = CompensationMode.REFUND,
     /** 워커 · 안전망 스케줄러(테스트는 끄고 runOnce를 직접 부른다) */
     val schedulerEnabled: Boolean = true,
     val worker: Worker = Worker(),

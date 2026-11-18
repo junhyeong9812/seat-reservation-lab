@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 
 /*
  * task 01 — V15 · payment-start 필수화(설계-4.2) · ④ conditional-extend(기본 모드 · 확정 키 없음 → W 611초 · θ 1초 · M 1초).
- * 기본 구성 = seat.compensation.mode 없음(none) · seat.payment.pg.base-url 없음(명세 §1 · N17-12).
+ * 기본 구성 = seat.compensation.mode 키 없음(test 프로필 application-test.yml이 none을 준다 — 앱 기본은 refund · ADR-017 §결정) · seat.payment.pg.base-url 없음(명세 §1 · N17-12).
  * 애너테이션 = Adr016DefaultModeContractTest와 같다(컨텍스트 캐시 공유).
  * 홀드 at NOW → e0 = NOW + 5분 · payment-start at NOW → 남은 5분 < W → expiresAt = NOW + 611초 · payBy = NOW + 610초.
  */
@@ -202,11 +202,11 @@ class Adr017PaymentStartIntentTest : Adr017Base() {
     }
 
     @Test
-    fun `N17-12 — 기본 구성(mode none · PG 주소 없음)에서 payment-start는 PG 없이 200 · 보상 작업 0`() {
-        // 기본 구성 전제: 두 키가 없다(테스트 속성도 주지 않는다)
+    fun `N17-12 — test 프로필 구성(mode none · PG 주소 없음)에서 payment-start는 PG 없이 200 · 보상 작업 0`() {
+        // 구성 전제: PG 주소 없음 · 보상 모드는 test 프로필(application-test.yml) none — 이 테스트는 두 키를 주지 않는다
         assertTrue(env.getProperty(PG_BASE_URL_KEY).isNullOrBlank(), "기본 구성은 $PG_BASE_URL_KEY 없음(명세 §1 · N17-12)")
         val mode = env.getProperty(COMPENSATION_MODE_KEY)
-        assertTrue(mode == null || mode == "none", "기본 $COMPENSATION_MODE_KEY = none(Q1): $mode")
+        assertTrue(mode == null || mode == "none", "test 프로필 $COMPENSATION_MODE_KEY = none(앱 기본은 refund — ADR-017 §결정): $mode")
 
         val hold = holdOk(createSeat(1).id!!, x)
         // PG 주소가 없으니 등록 시도 자체가 없어야 한다 — 있으면 연결 실패 → 503(설계-4.2 '실패면 503')

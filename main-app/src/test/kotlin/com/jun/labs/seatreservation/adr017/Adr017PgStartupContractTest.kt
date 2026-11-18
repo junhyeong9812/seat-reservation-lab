@@ -56,7 +56,7 @@ class Adr017PgStartupContractTest : BootTestBase() {
         }
         boots("refund + ④ + base-url", conditionalExtend + (COMPENSATION_MODE_KEY to "refund") + base + sched, failures)
         boots("refund + ① + base-url", conditional + (COMPENSATION_MODE_KEY to "refund") + base + sched, failures)
-        boots("none(기본) + base-url 없음", conditionalExtend + sched, failures)
+        boots("none(test 프로필 — 앱 기본은 refund) + base-url 없음", conditionalExtend + sched, failures)
         check(failures)
     }
 

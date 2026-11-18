@@ -1,8 +1,10 @@
 package com.jun.labs.seatreservation.service.impl.hold
 
+import com.jun.labs.seatreservation.service.CompensationProperties
 import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ExpiryMode
 import com.jun.labs.seatreservation.service.HoldStrategyType
+import com.jun.labs.seatreservation.service.PaymentProperties
 import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties
 import com.jun.labs.seatreservation.service.SeatHoldProperties.CleanupMode
@@ -17,6 +19,7 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_E
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
+import com.jun.labs.seatreservation.service.impl.payment.CompensationScheduling
 import org.flywaydb.core.api.CoreErrorCode
 import org.flywaydb.core.api.MigrationVersion
 import org.slf4j.LoggerFactory
@@ -41,6 +44,7 @@ import org.springframework.stereotype.Component
  *   `target`까지)가 더할 객체를 얹어 내다본 스키마로 판정한다. 그래서 이미 V9 트리거·V10을 적용한 DB의 K3(method=trigger · 위치 기본값)는 그대로 뜬다.
  *   Flyway가 스스로 마이그레이션 전에 막을 조합(두 V9 · 다른 V9로 다시 기동 등)은 ②를 건너뛰고 Flyway의 거부로 둔다.
  * Flyway가 꺼진 구성에서는 이 전략이 불리지 않는다 — 그래서 [HoldStrategyStartupCheck.run]이 같은 검사를 마이그레이션 뒤 DB로 다시 한다(검사가 빠지지 않게).
+ * ADR-017 §결정: 보상 설정 검사([CompensationScheduling.checkConfig] — PG 주소 · 확정 모드)도 ①과 함께 migrate 앞에서 부른다(기본 refund + PG 주소 없음 = 가장 흔한 거부).
  * 이 빈은 DB 접근 빈(JdbcTemplate 등 — Flyway 초기화에 의존)에 기대지 않는다(순환 의존 없음) — DB는 Flyway의 DataSource로 읽는다.
  */
 @Configuration(proxyBeanMethods = false)
@@ -49,9 +53,14 @@ class HoldStrategyMigrationGate {
     fun holdStrategyFlywayMigrationStrategy(
         properties: SeatHoldProperties,
         confirm: SeatConfirmProperties,
+        compensation: CompensationProperties,
+        payment: PaymentProperties,
         environment: Environment,
     ) = FlywayMigrationStrategy { flyway ->
         HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
+        // ADR-017 §결정(기본 refund): 보상 설정 검사(PG 주소 · 확정 모드 — 설정만 본다)도 migrate 앞 — PG 주소 없는 기본 기동이 V15 등을 적용한 뒤 거부되지 않게.
+        // 같은 검사를 CompensationScheduling(@PostConstruct)이 한 번 더 한다(Flyway가 꺼진 구성). reconciler 프로필은 그 빈이 없으니 여기서도 건너뛴다
+        if (RECONCILER_PROFILE !in environment.activeProfiles) CompensationScheduling.checkConfig(compensation, payment, confirm, properties)
         val config = flyway.configuration
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')

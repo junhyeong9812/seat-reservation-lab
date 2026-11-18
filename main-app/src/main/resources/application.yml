@@ -38,11 +38,19 @@ seat:
   #   conditional · pessimistic · optimistic · conditional-extend는 sweep + 기본 조합에서만 · V12(확정 유니크 인덱스) · V13(extended_at) 필요 ·
   #   optimistic은 classpath:db/migration-confirm-version(V14) 위치 필요 — 기동 검사가 거부한다.
   #   current(옛 JPA 확정 · JPA 배치)는 되돌림 · 비교용 손잡이 — B·C·D 만료 방식 · 기본 밖 전략 조합 · V12 앞 기준선은 seat.confirm.mode=current를 명시해야 기동한다(자동 후퇴 없음)
+  #   current는 결제 시작(payment-start)이 없어 보상 기본값 refund와 함께 뜨지 않는다 — current로 띄울 때는 seat.compensation.mode: none도 명시한다(ADR-017 §결정)
   confirm:
     mode: conditional-extend
     payment-window: 611s
     payment-min-remaining: 1s
     pay-by-margin: 1s
+  # 결제 성공 뒤 확정 실패 보상(ADR-017 — CompensationProperties). 기본 = refund(R 즉시 환불 — ADR-017 §결정 2026-11-18):
+  #   확정 거부 · 안전망이 CLOSE 작업을 만들고 워커가 PG에 환불한다. seat.payment.pg.base-url이 있어야 기동한다(기동 검사).
+  #   PG 없이 띄우는 구성은 mode: none을 명시한다(intent · 거부 기록 · 안전망 탐지만 — 자동 후퇴 없음). 거부는 Flyway migrate 앞에서 한다(스키마 무변경).
+  #   테스트 클래스패스(bootTestRun 포함)는 'test' 프로필(src/test/resources/application-test.yml)이 none을 준다 — 거기서 refund를 보려면 mode: refund와 PG 주소를 함께 준다.
+  #   auth-capture(D) · substitute(S)는 측정 · 비교용 손잡이다(ADR-017 결과-4 — 기본 아님).
+  compensation:
+    mode: refund
   hold:
     ttl: 5m
     max-per-user: 2
