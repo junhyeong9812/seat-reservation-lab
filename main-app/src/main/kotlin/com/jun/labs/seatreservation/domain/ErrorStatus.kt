@@ -9,5 +9,8 @@ fun ErrorCode.httpStatusCode(): Int = when (this) {
     ErrorCode.HOLD_EXPIRED,
     ErrorCode.SEAT_NOT_HELD,
     ErrorCode.SCHEDULE_CLOSED,
+    ErrorCode.HOLD_IN_GROUP,
+    ErrorCode.PAYMENT_STARTED,
     -> 409
+    ErrorCode.INVALID_SEAT_SELECTION -> 400
 }

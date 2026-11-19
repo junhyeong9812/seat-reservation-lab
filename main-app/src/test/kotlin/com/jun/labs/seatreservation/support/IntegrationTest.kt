@@ -72,6 +72,10 @@ abstract class IntegrationTest {
         reservationRepository.deleteAllInBatch()
         if (v15) jdbcTemplate.update("DELETE FROM payment_intent")
         jdbcTemplate.update("DELETE FROM seat_hold")
+        // ADR-018 V16 묶음 홀드 — 홀드 · intent가 참조하므로 그 뒤, 회차보다 먼저 지운다(V16 앞 스키마에는 없다)
+        if (jdbcTemplate.queryForObject("SELECT to_regclass('hold_group') IS NOT NULL", Boolean::class.java) == true) {
+            jdbcTemplate.update("DELETE FROM hold_group")
+        }
         // ADR-005 쿼터·카운터 — flyway.target으로 앞 버전 스키마를 띄우는 테스트에는 이 테이블이 없다
         if (jdbcTemplate.queryForObject("SELECT to_regclass('user_hold_quota') IS NOT NULL", Boolean::class.java) == true) {
             jdbcTemplate.update("DELETE FROM user_hold_quota")

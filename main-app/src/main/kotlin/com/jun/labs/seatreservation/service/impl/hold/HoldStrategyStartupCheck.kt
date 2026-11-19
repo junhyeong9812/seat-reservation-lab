@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.service.impl.hold
 import com.jun.labs.seatreservation.service.CompensationProperties
 import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.ExpiryMode
+import com.jun.labs.seatreservation.service.HoldGroupProperties
 import com.jun.labs.seatreservation.service.HoldStrategyType
 import com.jun.labs.seatreservation.service.PaymentProperties
 import com.jun.labs.seatreservation.service.SeatConfirmProperties
@@ -19,6 +20,7 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType.QUOTA_NOWAIT_E
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalMethod
 import com.jun.labs.seatreservation.service.impl.drift.IncrementalSchemaCheck
 import com.jun.labs.seatreservation.service.impl.drift.RECONCILER_PROFILE
+import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupStartupCheck
 import com.jun.labs.seatreservation.service.impl.payment.CompensationScheduling
 import org.flywaydb.core.api.CoreErrorCode
 import org.flywaydb.core.api.MigrationVersion
@@ -55,12 +57,15 @@ class HoldStrategyMigrationGate {
         confirm: SeatConfirmProperties,
         compensation: CompensationProperties,
         payment: PaymentProperties,
+        holdGroup: HoldGroupProperties,
         environment: Environment,
     ) = FlywayMigrationStrategy { flyway ->
         HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
         // ADR-017 §결정(기본 refund): 보상 설정 검사(PG 주소 · 확정 모드 — 설정만 본다)도 migrate 앞 — PG 주소 없는 기본 기동이 V15 등을 적용한 뒤 거부되지 않게.
         // 같은 검사를 CompensationScheduling(@PostConstruct)이 한 번 더 한다(Flyway가 꺼진 구성). reconciler 프로필은 그 빈이 없으니 여기서도 건너뛴다
         if (RECONCILER_PROFILE !in environment.activeProfiles) CompensationScheduling.checkConfig(compensation, payment, confirm, properties)
+        // ADR-018 설계-7: 묶음 홀드를 켠 조합(확정 · 보상 모드)도 migrate 앞 — HoldGroupStartupCheck가 같은 검사를 한 번 더 한다(Flyway가 꺼진 구성)
+        if (RECONCILER_PROFILE !in environment.activeProfiles) HoldGroupStartupCheck.checkConfig(holdGroup, confirm, compensation)
         val config = flyway.configuration
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')

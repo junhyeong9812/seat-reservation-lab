@@ -45,7 +45,9 @@ class PaymentIntents(private val jdbc: JdbcTemplate) {
     /**
      * 홀드의 intent를 만들거나(첫 호출) 이미 있는 것을 돌려준다. 홀드 행에서 회차 · 좌석 · section을 옮겨 적는다(설계-10 RD17-6).
      * 동시 첫 호출은 `hold_id` 유니크에서 한쪽이 기다렸다가 DO NOTHING → 둘 다 같은 행을 읽는다.
-     * 홀드가 그 사이 사라졌으면(만료 배치 · 확정) null.
+     * 홀드가 그 사이 사라졌으면(만료 배치 · 확정 · 해제) null.
+     * 홀드 행을 `FOR KEY SHARE`로 읽는다(ADR-018 설계-3) — 해제의 홀드 행 `FOR UPDATE`와 충돌해 둘 중 먼저 잡은 쪽이 끝난 뒤에 다른 쪽이 진행한다
+     * (해제가 먼저면 여기서 홀드를 찾지 못해 null → 404 · 이쪽이 먼저면 해제가 결제 의도를 보고 409).
      */
     fun openForHold(holdId: Long, userId: Long, payBy: Instant, now: Instant): Intent? {
         jdbc.update(
@@ -54,12 +56,57 @@ class PaymentIntents(private val jdbc: JdbcTemplate) {
             SELECT ?, h.id, h.user_id, h.schedule_id, h.seat_id, s.section, ?, '${State.OPEN}', ?
               FROM seat_hold h JOIN product_seat s ON s.id = h.seat_id
              WHERE h.id = ? AND h.user_id = ?
+               FOR KEY SHARE OF h
             ON CONFLICT (hold_id) DO NOTHING
             """.trimIndent(),
             UUID.randomUUID().toString(), Timestamp.from(payBy), Timestamp.from(now), holdId, userId,
         )
         return findByHold(holdId)
     }
+
+    // ---- ADR-018 묶음 결제 의도(V16 — group_id · seat_count) ----------------------------------------------------------
+
+    /** 묶음의 결제 의도(없으면 null) — 잠금 없음 */
+    fun findByGroup(groupId: Long): GroupIntent? = jdbc.query(
+        "SELECT $GROUP_COLUMNS FROM payment_intent WHERE group_id = ?", GROUP_ROW, groupId,
+    ).singleOrNull()
+
+    /** uid의 결제 의도를 잠근다(묶음 확정의 첫 잠금) — 없으면 null. 1석 결제 의도면 [GroupIntent.groupId]가 null */
+    fun lockForGroup(uid: String): GroupIntent? = jdbc.query(
+        "SELECT $GROUP_COLUMNS FROM payment_intent WHERE uid = ? FOR UPDATE", GROUP_ROW, uid,
+    ).singleOrNull()
+
+    /**
+     * 묶음의 결제 의도를 만들거나(첫 호출) 이미 있는 것을 돌려준다(ADR-018 설계-4). `hold_id` · `seat_id` · `section`은 id가 가장 작은 홀드의 값 · `seat_count = N`.
+     * 묶음의 홀드 행을 모두 id 순으로 `FOR KEY SHARE`로 읽는다(해제와 직렬화 — [openForHold]와 같은 이유). 홀드가 그 사이 사라졌으면 null.
+     * 동시 첫 호출은 `group_id` 유니크에서 한쪽이 기다렸다가 DO NOTHING → 둘 다 같은 행을 읽는다.
+     */
+    fun openForGroup(groupId: Long, userId: Long, seatCount: Int, payBy: Instant, now: Instant): GroupIntent? {
+        jdbc.update(
+            """
+            INSERT INTO payment_intent (uid, hold_id, user_id, schedule_id, seat_id, section, pay_by, state, created_at, group_id, seat_count)
+            SELECT ?, h.id, h.user_id, h.schedule_id, h.seat_id, s.section, ?, '${State.OPEN}', ?, ?, ?
+              FROM (SELECT id, user_id, schedule_id, seat_id FROM seat_hold WHERE group_id = ? AND user_id = ? ORDER BY id FOR KEY SHARE) h
+              JOIN product_seat s ON s.id = h.seat_id
+             ORDER BY h.id LIMIT 1
+            ON CONFLICT DO NOTHING
+            """.trimIndent(),
+            UUID.randomUUID().toString(), Timestamp.from(payBy), Timestamp.from(now), groupId, seatCount, groupId, userId,
+        )
+        return findByGroup(groupId)
+    }
+
+    data class GroupIntent(
+        val uid: String,
+        val holdId: Long,
+        val userId: Long,
+        val scheduleId: Long,
+        val groupId: Long?,
+        val seatCount: Int,
+        val payBy: Instant,
+        val state: State,
+        val resultCode: String?,
+    )
 
     enum class State { OPEN, CONFIRMED, REJECTED, SUBSTITUTED, CLOSING }
 
@@ -78,6 +125,14 @@ class PaymentIntents(private val jdbc: JdbcTemplate) {
     )
 
     companion object {
+        private const val GROUP_COLUMNS = "uid, hold_id, user_id, schedule_id, group_id, seat_count, pay_by, state, result_code"
+        private val GROUP_ROW = org.springframework.jdbc.core.RowMapper { rs, _ ->
+            GroupIntent(
+                uid = rs.getString(1), holdId = rs.getLong(2), userId = rs.getLong(3), scheduleId = rs.getLong(4),
+                groupId = rs.getObject(5) as Long?, seatCount = rs.getInt(6), payBy = rs.getTimestamp(7).toInstant(),
+                state = State.valueOf(rs.getString(8)), resultCode = rs.getString(9),
+            )
+        }
         private const val COLUMNS = "uid, hold_id, user_id, schedule_id, seat_id, section, pay_by, state, result_code, reservation_id, closed_reason"
         private val ROW = org.springframework.jdbc.core.RowMapper { rs, _ ->
             Intent(

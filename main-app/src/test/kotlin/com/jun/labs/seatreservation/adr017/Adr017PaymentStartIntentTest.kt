@@ -98,7 +98,7 @@ class Adr017PaymentStartIntentTest : Adr017Base() {
             indexes("compensation_task").any { it.cols == listOf("status", "next_attempt_at") },
             "compensation_task(status, next_attempt_at) 인덱스(명세 §1 · 1): ${indexes("compensation_task")}",
         )
-        assertTrue(hasUnique("reservation", "intent_id"), "reservation.intent_id UNIQUE(N17-1 · RD17-9): ${indexes("reservation")}")
+        assertTrue(hasUnique("reservation", "intent_id", "seat_id"), "reservation (intent_id, seat_id) UNIQUE(N17-1 · RD17-9 — ADR-018 V16 뒤 N17-1은 결제 의도당 예약 수 ≤ seat_count이고 정합성 검증기가 센다): ${indexes("reservation")}")
         assertTrue(indexes("reservation").none { it.unique && it.cols == listOf("payment_uid") }, "payment_uid 유니크는 두지 않는다(설계-4.1 · RD17-9)")
 
         val nullable = jdbcTemplate.queryForObject(

@@ -21,7 +21,8 @@ import java.time.Instant
 class PgClient(private val props: PaymentProperties, private val mapper: ObjectMapper) {
 
     sealed interface Call {
-        data class Ok(val state: String) : Call
+        /** [amount] = 응답 본문의 등록 금액(없으면 null — 등록 응답의 금액 확인에만 쓴다 · ADR-018 설계-4) */
+        data class Ok(val state: String, val amount: Long? = null) : Call
         data class Rejected(val status: Int, val code: String?, val state: String?) : Call
         data class Unavailable(val reason: String) : Call
     }
@@ -65,7 +66,7 @@ class PgClient(private val props: PaymentProperties, private val mapper: ObjectM
         val node: JsonNode? = if (bytes.isEmpty()) null else runCatching { mapper.readTree(bytes) }.getOrNull()
         val payment = if (wrapped) node?.get("payment") else node
         val state = payment?.get("state")?.takeIf { !it.isNull }?.asText()
-        if (status.is2xxSuccessful && state != null) return Call.Ok(state)
+        if (status.is2xxSuccessful && state != null) return Call.Ok(state, payment?.get("amount")?.takeIf { it.isIntegralNumber }?.asLong())
         if (status.is4xxClientError) return Call.Rejected(status.value(), node?.get("code")?.takeIf { !it.isNull }?.asText(), state)
         return Call.Unavailable("http-${status.value()}")
     }
