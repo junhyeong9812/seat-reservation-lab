@@ -57,6 +57,7 @@ class ExpireHoldsService(
             } catch (e: Throwable) {
                 // 롤백 처리는 트랜잭션 실패에만 — 커밋 뒤 단계(지표·afterCommit)의 예외를 롤백으로 세지 않는다(코드 루프 2 L2-7)
                 meters.counter(TICK_METRIC, "outcome", "failed").increment()
+                DbDeadlock.record(meters, DbDeadlock.PATH_EXPIRY_TICK, e) // ADR-018 2단계 — 40P01 롤백만(관측만)
                 counters.afterRollback(e)
                 throw e
             }

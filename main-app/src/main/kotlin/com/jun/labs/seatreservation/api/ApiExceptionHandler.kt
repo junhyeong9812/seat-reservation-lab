@@ -5,6 +5,7 @@ import com.jun.labs.seatreservation.domain.CompensationView
 import com.jun.labs.seatreservation.domain.ErrorCode
 import com.jun.labs.seatreservation.domain.httpStatusCode
 import com.jun.labs.seatreservation.domain.SeatReservationException
+import com.jun.labs.seatreservation.service.HoldGroupProperties
 import com.jun.labs.seatreservation.service.impl.hold.HoldStrategyStartupCheck
 import io.micrometer.core.instrument.MeterRegistry
 import jakarta.servlet.http.HttpServletRequest
@@ -13,6 +14,8 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.HandlerMethod
+import org.springframework.web.servlet.HandlerMapping
 
 const val USER_ID_HEADER = "X-User-Id"
 
@@ -23,7 +26,10 @@ const val REJECT_HEADER = "X-Seatlab-Reject"
 class ApiExceptionHandler(
     environment: Environment,
     private val meters: MeterRegistry,
+    holdGroup: HoldGroupProperties,
 ) {
+    /** 묶음 선점 거절 지표의 mode 태그 — 설정값은 기동 뒤 바뀌지 않으므로 그 요청을 처리한 방식이다(split · one_shot) */
+    private val groupMode = holdGroup.mode.name.lowercase()
     private val loadtest = HoldStrategyStartupCheck.LOADTEST_PROFILE in environment.activeProfiles
 
     @ExceptionHandler(SeatReservationException::class)
@@ -34,8 +40,15 @@ class ApiExceptionHandler(
         request.setAttribute(ConfirmOutcomeMetrics.REJECTED_STATUS_ATTR, status.value())
         val response = ResponseEntity.status(status)
         rejectCause(e)?.let { cause ->
-            meters.counter(REJECTED_METRIC, "cause", cause).increment()
-            response.header(REJECT_HEADER, cause)
+            if (isGroupHold(request)) {
+                // ADR-018 2단계 — 묶음 선점의 409는 1석 지표 seat.hold.rejected에 섞지 않는다(헤더 값도 group-<cause>)
+                val groupCause = if (e.groupShort) GROUP_SHORT else cause
+                meters.counter(GROUP_REJECTED_METRIC, "mode", groupMode, "cause", groupCause).increment()
+                response.header(REJECT_HEADER, "group-$groupCause")
+            } else {
+                meters.counter(REJECTED_METRIC, "cause", cause).increment()
+                response.header(REJECT_HEADER, cause)
+            }
         }
         return response.body(ErrorResponse(code = e.errorCode.name, message = e.errorCode.message, compensation = e.compensation))
     }
@@ -51,10 +64,19 @@ class ApiExceptionHandler(
         else -> "rule"
     }
 
+    /** 이 예외가 묶음 선점(`POST /api/schedules/{scheduleId}/hold-groups`)에서 났는가 — 핸들러 매핑이 남긴 처리 메서드로 본다 */
+    private fun isGroupHold(request: HttpServletRequest): Boolean =
+        (request.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE) as? HandlerMethod)
+            ?.let { it.beanType == HoldGroupController::class.java && it.method.name == GROUP_HOLD_METHOD } == true
+
     private fun ErrorCode.httpStatus(): HttpStatus = HttpStatus.valueOf(httpStatusCode())
 
     companion object {
         const val REJECTED_METRIC = "seat.hold.rejected"
+        /** ADR-018 2단계 묶음 선점 409 원인 `{mode, cause}` — cause = nowait(split 55P03) · short(one-shot 바뀐 행 < N) · rule(그 밖) */
+        const val GROUP_REJECTED_METRIC = "seat.group.hold.rejected"
+        private const val GROUP_SHORT = "short"
+        private const val GROUP_HOLD_METHOD = "hold"
         /** 선점 경로의 409 코드 — 원인 표지 대상 */
         val HOLD_REJECT_CODES = setOf(ErrorCode.SEAT_NOT_AVAILABLE, ErrorCode.HOLD_LIMIT_EXCEEDED, ErrorCode.SCHEDULE_CLOSED)
     }

@@ -8,6 +8,7 @@ import com.jun.labs.seatreservation.domain.httpStatusCode
 import com.jun.labs.seatreservation.service.CompensationProperties
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.impl.ConfirmReservationService
+import com.jun.labs.seatreservation.service.impl.DbDeadlock
 import com.jun.labs.seatreservation.service.impl.drift.MemoryChangedPairs
 import com.jun.labs.seatreservation.service.impl.payment.CompensationTasks
 import com.jun.labs.seatreservation.service.impl.payment.PaymentConfirmService
@@ -60,6 +61,8 @@ class HoldGroupConfirmService(
             throw e.rejection
         } catch (e: RuntimeException) {
             meters.counter(PaymentConfirmService.RECORD_FAILED_METRIC).increment()
+            // ADR-018 2단계 — 기록 실패가 40P01이면 교착으로도 센다(응답은 아래 거부 그대로 · 예외가 밖으로 안 나가 인터셉터는 다시 세지 않는다)
+            DbDeadlock.record(meters, DbDeadlock.PATH_GROUP_CONFIRM, e)
             log.error("묶음 확정 거부 기록에 실패했다 — 결제 의도는 OPEN으로 남고 안전망이 닫는다 uid={} code={}", paymentUid, rejected.errorCode, e)
             throw rejected
         }

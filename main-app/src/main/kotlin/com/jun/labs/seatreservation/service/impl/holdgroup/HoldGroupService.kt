@@ -114,7 +114,7 @@ class HoldGroupService(
             """.trimIndent(),
             HOLD_ROW, ids, scheduleId, scheduleId, userId, Timestamp.from(now), Timestamp.from(expiresAt), groupId,
         )
-        if (holds.size != n) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE) // 롤백 — 일부만 바뀐 좌석 · 홀드도 되돌린다
+        if (holds.size != n) throw SeatReservationException(ErrorCode.SEAT_NOT_AVAILABLE, groupShort = true) // 롤백 — 일부만 바뀐 좌석 · 홀드도 되돌린다
         return groupId to holds
     }
 
