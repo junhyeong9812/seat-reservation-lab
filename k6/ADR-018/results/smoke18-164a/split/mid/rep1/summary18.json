@@ -1,0 +1,242 @@
+{
+ "method": "split",
+ "cell": "mid",
+ "rep": 1,
+ "status": "ok",
+ "reasons": [],
+ "sessions": {
+  "n": 400,
+  "planned": {
+   "abandon": 60,
+   "ok": 280,
+   "release": 60
+  },
+  "by_kind": {
+   "abandon": {
+    "abandoned": 18,
+    "lost": 42
+   },
+   "ok": {
+    "lost": 214,
+    "success": 66
+   },
+   "release": {
+    "lost": 46,
+    "released": 14
+   }
+  },
+  "invalid_detail": {},
+  "integrity": {},
+  "fail": {},
+  "unexpected": {}
+ },
+ "uids": {
+  "seat_paid": 66
+ },
+ "g1": {
+  "ok": true,
+  "items": {
+   "double_reservation": 0,
+   "double_refund": 0,
+   "refunded_with_seat": 0,
+   "partial_reservation": 0,
+   "amount_mismatch": 0,
+   "seat_moneyless": 0,
+   "orphan": 0,
+   "open_unpaid": 0,
+   "no_ledger": 0,
+   "no_intent": 0,
+   "dead_tasks": 0,
+   "open_after_drain": 0,
+   "unfinished_tasks": 0,
+   "double_sold_seats": 0,
+   "consistency_end": {
+    "pay_multi_reservation_intents": 0,
+    "pay_rejection_state_mismatch": 0,
+    "pay_reserved_with_close": 0,
+    "pay_capture_and_close": 0,
+    "pay_rejected_without_task": 0,
+    "pay_dead_tasks": 0,
+    "pay_open_unheld_intents": 0,
+    "group_partial_holds": 0,
+    "group_expiry_split": 0,
+    "group_partial_reservations": 0
+   },
+   "consistency_k6": {
+    "pay_multi_reservation_intents": 0,
+    "group_partial_holds": 0,
+    "group_expiry_split": 0,
+    "group_partial_reservations": 0
+   },
+   "consistency_v_sum": 0,
+   "consistency_k6_v_sum": 0,
+   "integrity": 0,
+   "integrity_response": 0,
+   "unexpected": 0,
+   "main_5xx": 0,
+   "edge_5xx_non40p01": 0,
+   "edge_5xx_unlinked": 0,
+   "group_cause_bad": 0,
+   "csv_5xx_without_row": 0,
+   "sample_partial": 0,
+   "sample_split": 0,
+   "deadlock": 0,
+   "record_pay_ok_not_in_ledger": 0,
+   "record_pay_ok_no_intent": 0,
+   "record_ledger_paid_without_k6_pay": 0,
+   "record_group_missing": 0,
+   "record_group_extra": 0
+  },
+  "unchecked": []
+ },
+ "hold": {
+  "n": 400,
+  "both": 98,
+  "first": 0,
+  "none": 302,
+  "rate": 0.245,
+  "wilson": [
+   0.20540872953011524,
+   0.289442540580376
+  ],
+  "both_fail_pairs": {
+   "pairs": 0,
+   "both_fail": 0,
+   "ratio": null
+  },
+  "two_seat_ms": {
+   "n": 98,
+   "p50": 5,
+   "p99": 19,
+   "max": 19
+  },
+  "first_only": null
+ },
+ "latency": {
+  "hold": {
+   "n": 98,
+   "p50_ms": 3.915832,
+   "p99_ms": 18.622727
+  },
+  "pay_start": {
+   "n": 66,
+   "p50_ms": 15.473035,
+   "p99_ms": 135.791652
+  },
+  "confirm": {
+   "n": 66,
+   "p50_ms": 5.971362,
+   "p99_ms": 31.545265
+  }
+ },
+ "outcomes": {
+  "success": 66,
+  "released": 14,
+  "abandoned": 18,
+  "lost": 302,
+  "partial_kept": 0,
+  "partial_released": 0,
+  "ps_rejected": 0,
+  "pg_rejected": 0,
+  "confirm_rejected": 0,
+  "confirm_mixed": 0,
+  "edge_5xx": 0,
+  "refunds_done": 0
+ },
+ "edge": null,
+ "burst": null,
+ "hold_samples": {
+  "ok_n": 185,
+  "err_n": 0,
+  "fail_ratio": 0.0,
+  "max_gap_s": 2.95868017578125,
+  "live_n": 185,
+  "partial_max": 0,
+  "split_max": 0,
+  "holds_max": 172,
+  "group_holds_max": 172,
+  "q_ms": {
+   "n": 185,
+   "p50": 1.685,
+   "p99": 2.337,
+   "max": 2.733
+  },
+  "first_t_ms": 1795153553286.646,
+  "last_t_ms": 1795154043375.122,
+  "stock_out_s": null,
+  "last_free_pairs": 40,
+  "free_pairs_min": 4,
+  "available_min": 128,
+  "partial_at": [],
+  "gap_limit_s": 6
+ },
+ "order": {
+  "seq": 5,
+  "rep_cells": [
+   "low",
+   "mid",
+   "high",
+   "edge",
+   "burst"
+  ]
+ },
+ "metric": {
+  "k6_hold_reject": {},
+  "app_hold_reject": {},
+  "k6_group_reject": {
+   "split:rule": 302
+  },
+  "app_group_reject": {
+   "split:rule": 302.0
+  },
+  "k6_group_request": {
+   "hold:ok": 98,
+   "hold:SEAT_NOT_AVAILABLE": 302,
+   "release_group:ok": 14,
+   "pay_start:ok": 66,
+   "confirm:ok": 66
+  },
+  "app_group_request": {
+   "hold:SEAT_NOT_AVAILABLE": 302.0,
+   "hold:ok": 98.0,
+   "pay_start:ok": 66.0,
+   "confirm:ok": 66.0,
+   "release_group:ok": 14.0
+  },
+  "deadlock": {},
+  "expiry_tick": {
+   "ok": 52.0
+  }
+ },
+ "record": {
+  "k6_pay_ok": 66,
+  "ledger_paid": 66,
+  "db_intents": 66,
+  "pay_ok_not_in_ledger": 0,
+  "pay_ok_no_intent": 0,
+  "ledger_paid_without_k6_pay": 0,
+  "k6_groups": 98,
+  "db_groups": 98,
+  "group_missing": 0,
+  "group_extra": 0,
+  "group_extra_unchecked": false,
+  "stray": [],
+  "stray_n": 0
+ },
+ "drain": {
+  "reason": "empty",
+  "len_s": 12.012
+ },
+ "send_lag_ms": {
+  "n": 466,
+  "p50": 2,
+  "p99": 2,
+  "max": 24,
+  "over": 0
+ },
+ "pc_mem": {
+  "min_kb": 26961556,
+  "n": 95,
+  "gap_max_s": 6.0
+ }
+}

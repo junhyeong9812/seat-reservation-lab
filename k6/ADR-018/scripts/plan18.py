@@ -12,8 +12,8 @@ run18.sh · campaign18.sh · outcome18.py · summarize18.py · selftest18.py가 
     plan18.py --fixed                                                             → exit 0 = 측정 전 고정 값(FIXED = True) · 1 = 초안 값(실제 실행 거부)
     plan18.py --session <method> <cell> <rep> <sid>                               → 그 세션의 종류 · 시드 속성 · 좌석 JSON(flow18.js와 같은 값 — 대조용)
 
-**FIXED = False — [초안] 값.** 세션 비율 · 겹침 단계(H) · 경계 셀 앱 눈금 · p99 허용 상한 · 배수 상한은 하네스 설계 문서의 [초안]이고,
-측정 전 고정 커밋(task 03)에서 메인이 확정한다(그 전에는 run18.sh · campaign18.sh가 --dry-run · --simulate · --smoke만 허용).
+**FIXED = True — 측정 전 고정 값(2026-11-20 · .164 스모크 smoke18-164a 뒤 · 사용자 승인).** 세션 비율 · 겹침 단계(H) · 경계 셀 앱 눈금 · p99 허용 상한 ·
+배수 상한 · 첫 5초 지연 표본 제외를 이 파일 한 곳에서 고정했다(이 뒤 바꾸면 캠페인 무효 — M18-7).
 본 셀 앱 눈금(TTL · W · θ · M · 배치 · 워커 · 안전망)은 앱 기본값 그대로다(ADR-017과 같다)."""
 import json
 import math
@@ -31,7 +31,7 @@ def dur(s):
     """초 → Spring Duration 문자열. 정수 초는 '10s', 소수는 '200ms'(Spring의 단순 표기는 정수만 받는다 — 경계 셀 배치 0.2초)."""
     return f"{s:g}s" if float(s).is_integer() else f"{round(s * 1000)}ms"
 
-FIXED = False   # [초안] — 측정 전 고정 커밋(task 03)에서 True로. False면 run18.sh · campaign18.sh는 --dry-run · --simulate · --smoke만 허용
+FIXED = True    # 측정 전 고정(2026-11-20 · smoke18-164a 뒤 · 사용자 승인) — False면 run18.sh · campaign18.sh는 --dry-run · --simulate · --smoke만 허용
 
 # ---- 방식 · 셀 · 반복 ----------------------------------------------------------------------------------------------------------
 METHODS = ["B0", "B1", "split", "one-shot"]
@@ -55,7 +55,7 @@ def methods_of(cell):
 # ---- 앱 눈금(본 셀 = application.yml 기본값 · 경계 셀 = 짧게 — 기존 설정 키만 · 기동 검사 M ≤ θ · θ < TTL · θ < W) ------------------------
 APP = {
     "main": {"ttl_s": 300.0, "batch_s": 10.0, "W_s": 611.0, "theta_s": 1.0, "M_s": 1.0},
-    # [초안] TTL 8초 · 배치 1초 · W 6초 · θ 0초 · M 0초 — θ = 0이어야 E 직전의 결제 시작이 '남은 시간 ≤ θ' 409로 다 막히지 않고 연장 문장까지 간다(메인 보정 2026-11-20)
+    # 고정 — TTL 8초 · 배치 0.2초(아래 줄) · W 6초 · θ 0초 · M 0초 — θ = 0이어야 E 직전의 결제 시작이 '남은 시간 ≤ θ' 409로 다 막히지 않고 연장 문장까지 간다(메인 보정 2026-11-20)
     #   배치 0.2초(재합의 2026-11-20 — 명세 Q18 · 기존 키 seat.hold.expiry-interval · 기동 검사에 하한 없음)
     "edge": {"ttl_s": 8.0, "batch_s": 0.2, "W_s": 6.0, "theta_s": 0.0, "M_s": 0.0},
 }
@@ -69,10 +69,10 @@ MOCKPG_AUTH_TTL = "30m"
 MAX_PER_USER = 2                               # seat.hold.max-per-user(설정 무변경 — 묶음 크기 2)
 POOL = plan15.POOL
 
-# ---- [초안] 값(측정 전 고정에서 확정) ---------------------------------------------------------------------------------------------
+# ---- 측정 전 고정 값(2026-11-20 · smoke18-164a 뒤 · 사용자 승인) ---------------------------------------------------------------------------------------------
 N_SESSIONS = 1100             # 회차 세션 수(ADR-016 · 017과 같은 고정 도착률 — 명세 Q6 · 본 셀 · 동시 경합 셀)
 EDGE_N_SESSIONS = 1000        # 경계 셀 세션 수(재합의 2026-11-20 — 명세 Q18)
-BURST_SIZE = (2, 4)           # [초안] 동시 경합 묶음 크기 ~ 정수 U[2, 4](묶음마다 시드)
+BURST_SIZE = (2, 4)           # 고정 · 동시 경합 묶음 크기 ~ 정수 U[2, 4](묶음마다 시드)
 BURST_BLOCK = 4               # 묶음 하나의 좌석 칸(s, s+1, s+2 + 빈칸 1 — 묶음끼리 좌석이 겹치지 않는다)
 SEATS_PER_ROW = 50            # LoadtestDataService.SEATS_PER_ROW — 좌석 id = (줄 − 1) × 50 + 번호. 좌석 쌍 · 묶음 칸은 한 줄 안에서만(리뷰 H1-6)
 BLOCKS_PER_ROW = SEATS_PER_ROW // BURST_BLOCK   # 12칸(48석) · 줄 끝 2석은 비운다
@@ -81,28 +81,29 @@ HOLD_SAMPLE_GAP_FACTOR = {"main": 3.0, "edge": 5.0}   # k6 창 안 성공 표본
 #   경계 셀 5 = 5초 — 스모크 실측 최대 1.4초 대비 여유 · 메인 결정 2026-11-20)
 HOLD_SAMPLE_FAIL_MAX = 0.10   # 표본 실패(err 줄 · 깨진 줄) 비율 상한 — 넘으면 hold-sample-missing(리뷰 H2-1)
 APP_LOG_MATCH_TOL_MS = 200    # 경계 셀 5xx 응답 ↔ 앱 ERROR 로그 연결 허용 오차(응답 창 [ts, tr] 양쪽 · 서버 시계 — 리뷰 H2-3)
-BURST_LEAD_S = 0.2            # [초안] 묶음 송신 = 스크립트 시작 + (묶음 마지막 세션 번호 ÷ 도착률 + 이 값)초 — 마지막 세션의 반복이 시작될 여유
-BURST_SPREAD_MAX_MS = 5.0     # [초안] 묶음 안 선점 송신 시각 폭 문턱(ms)
-BURST_SPREAD_BAD_FRAC = 0.10  # [초안] 폭이 문턱을 넘는 묶음 비율이 이보다 크면 무효(burst-spread — 동시성이 성립하지 않음)
+BURST_LEAD_S = 0.2            # 고정 · 묶음 송신 = 스크립트 시작 + (묶음 마지막 세션 번호 ÷ 도착률 + 이 값)초 — 마지막 세션의 반복이 시작될 여유
+BURST_SPREAD_MAX_MS = 5.0     # 고정 · 묶음 안 선점 송신 시각 폭 문턱(ms)
+BURST_SPREAD_BAD_FRAC = 0.10  # 고정 · 폭이 문턱을 넘는 묶음 비율이 이보다 크면 무효(burst-spread — 동시성이 성립하지 않음)
 RATE = 20                     # 세션/초 → 도착 구간 55초
 KINDS_MAIN = ("ok", "abandon", "release")
 KINDS_EDGE = ("edge_confirm", "edge_ps")
 KINDS = KINDS_MAIN + KINDS_EDGE
-KIND_WEIGHTS = {"main": {"ok": 70, "abandon": 15, "release": 15}, "edge": {"edge_confirm": 1, "edge_ps": 1}}   # [초안] 확정 70 · 이탈 15 · 해제 15(%)
+KIND_WEIGHTS = {"main": {"ok": 70, "abandon": 15, "release": 15}, "edge": {"edge_confirm": 1, "edge_ps": 1}}   # 고정 · 확정 70 · 이탈 15 · 해제 15(%)
 T_RANGE = (30.0, 240.0)       # 생각 시간 T(선점 → 결제 시작) ~ U — ADR-017 ok 세션 분포 그대로
 PAY_MEDIAN_S, PAY_SIGMA, PAY_MAX_S = 45.0, 0.94, 300.0   # 결제 시간 P(결제 시작 응답 → PG pay) ~ 로그정규 · 상한(ADR-017 그대로)
 CONF_GAP_RANGE = (0.0, 2.0)   # PG 응답 → 확정 ~ U초(ADR-017 그대로)
-REL_RANGE = (2.0, 5.0)        # [초안] release 세션: 선점 응답 → 해제 ~ U초
-H_FACTOR = {"low": 3.0, "mid": 0.5, "high": 0.1}   # [초안] 인기 구역 크기 H = ⌈세션 수 × 배수⌉ = 시작 위치 수(seat_of — 줄 매핑: i = ⌊U × H⌋ · s = ⌊i ÷ 49⌋ × 50 + i mod 49 + 1 · 좌석 (s, s+1) 같은 줄)
+REL_RANGE = (2.0, 5.0)        # 고정 · release 세션: 선점 응답 → 해제 ~ U초
+H_FACTOR = {"low": 3.0, "mid": 0.5, "high": 0.2}   # 고정(high 0.1 → 0.2 — .164 스모크에서 0.1은 재고가 3.5초 만에 소진) · 인기 구역 크기 H = ⌈세션 수 × 배수⌉ = 시작 위치 수(seat_of — 줄 매핑: i = ⌊U × H⌋ · s = ⌊i ÷ 49⌋ × 50 + i mod 49 + 1 · 좌석 (s, s+1) 같은 줄)
 EDGE_H_CELL = "low"           # 경계 셀의 겹침(설계 §4 — 교착은 겹침이 아니라 만료 배치와의 경쟁)
 SEAT_PAD = 50                 # 좌석 = 줄 수 × 50 + 여유(줄 수 = ⌈H ÷ 49⌉ · burst ⌈묶음 수 ÷ 12⌉ — seed_of · 여유는 아무도 노리지 않는 좌석 · 정합 검사 대상에는 포함)
-EDGE_EPS_S = 0.5              # [초안] 경계 송신 = E + X · X ~ U[−0.5, +0.5]초
-EDGE_PS_CENTER_S = 0.0        # [초안] edge_ps 결제 시작 = 선점 만료 E + 0 ± 0.5초(EDGE_EPS_S) — 경계 셀 θ = 0이라 E 앞이면 연장 문장 · 뒤면 만료 거부 · 그 사이 만료 배치와 경합
-P99_LIMIT_MS = {"hold": 9.80, "pay_start": 18.88, "confirm": 10.97}   # [초안] ADR-017 R/base p99 중앙값 × 1.1(hold 8.91 · pay_start 17.16 · confirm 9.98ms — campaign17-20261118)
-DRAIN_CAP_S = {"main": 240.0, "edge": 120.0}   # [초안] 본 · 동시 경합 셀 240초(메인 판단 2026-11-20 — 48회차 최악 ≤ 12시간 · 실측 배수 = summary18 drain.len_s)   # 배수 창 상한(닿으면 덤프 · 판정 — 남은 일은 G1)
+EDGE_EPS_S = 0.5              # 고정 · 경계 송신 = E + X · X ~ U[−0.5, +0.5]초
+EDGE_PS_CENTER_S = 0.0        # 고정 · edge_ps 결제 시작 = 선점 만료 E + 0 ± 0.5초(EDGE_EPS_S) — 경계 셀 θ = 0이라 E 앞이면 연장 문장 · 뒤면 만료 거부 · 그 사이 만료 배치와 경합
+P99_LIMIT_MS = {"hold": 40.0, "pay_start": 40.0, "confirm": 50.0}   # 고정(.164 smoke18-164a — 첫 5초 차가운 표본을 뺀 관측 최대 p99 선점 24.4 · 결제 시작 25.0 · 확정 31.5ms × 약 1.5)
+WARMUP_EXCLUDE_S = 5.0        # 고정 — k6 시작부터 이 시간 안에 보낸 요청은 단계별 p50 · p99 판정 표본에서 뺀다(회차 첫 PG 등록 · JIT 차가운 지연 130~180ms · 뺀 수는 warmup_excluded로 보고)
+DRAIN_CAP_S = {"main": 240.0, "edge": 120.0}   # 고정 · 본 · 동시 경합 셀 240초(메인 판단 2026-11-20 — 48회차 최악 ≤ 12시간 · 실측 배수 = summary18 drain.len_s)   # 배수 창 상한(닿으면 덤프 · 판정 — 남은 일은 G1)
 DRAIN_EST_S = {"main": 30.0, "edge": 20.0}     # dry-run 손셈용 예상 배수 시간
 DRAIN_POLL_S = 5.0
-SEND_LAG_MAX_MS = {"main": 2000, "edge": 250}  # [초안] 예정 송신(at) ↔ 실제 송신(ts) 허용 지연 — 넘는 요청이 있으면 env-send-lag
+SEND_LAG_MAX_MS = {"main": 2000, "edge": 250}  # 고정 · 예정 송신(at) ↔ 실제 송신(ts) 허용 지연 — 넘는 요청이 있으면 env-send-lag
 PC_MEM_RUN_MIN_KB = 4 * 1024 * 1024            # ADR-014 plan14 복사(ADR-017과 같다)
 PC_MEM_GAP_MAX_S = 30.0
 
@@ -300,7 +301,7 @@ def values():
             "edge_n_sessions": EDGE_N_SESSIONS, "burst_size": list(BURST_SIZE), "burst_block": BURST_BLOCK, "burst_lead_s": BURST_LEAD_S,
             "burst_spread_max_ms": BURST_SPREAD_MAX_MS, "burst_spread_bad_frac": BURST_SPREAD_BAD_FRAC, "seats_per_row": SEATS_PER_ROW,
             "hold_sample_s": HOLD_SAMPLE_S, "hold_sample_gap_factor": HOLD_SAMPLE_GAP_FACTOR, "hold_sample_fail_max": HOLD_SAMPLE_FAIL_MAX,
-            "app_log_match_tol_ms": APP_LOG_MATCH_TOL_MS}
+            "app_log_match_tol_ms": APP_LOG_MATCH_TOL_MS, "warmup_exclude_s": WARMUP_EXCLUDE_S}
 
 
 _RENDER_CACHE = {}

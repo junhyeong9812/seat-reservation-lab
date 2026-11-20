@@ -4,7 +4,7 @@
 > - 쓰는 쪽: `scenarios/flow18.js`(세션 로그) · `scripts/run18.sh`(회차 폴더 · 덤프 · PG 리셋 · 배수).
 > - 읽는 쪽: `scripts/outcome18.py`(세션 분류) · `scripts/summarize18.py`(회차 무효 · 정합 판정 · 캠페인 표) · `scripts/selftest18.py`.
 > - 구현은 이 문서를 따른다. 구현과 이 문서가 다르면 구현의 결함이다(바꾸려면 이 문서를 먼저 고친다).
-> - 숫자(비율 · 겹침 단계 · 경계 셀 눈금 · 상한)의 출처는 `scripts/plan18.py` 한 곳이다. **지금 값은 [초안]이다(`FIXED = False`)** — 측정 전 고정 커밋(task 03)에서 메인이 확정하고 이 표시를 뗀다.
+> - 숫자(비율 · 겹침 단계 · 경계 셀 눈금 · 상한)의 출처는 `scripts/plan18.py` 한 곳이다. **측정 전 고정 값이다(`FIXED = True` — 2026-11-20 · .164 스모크 smoke18-164a 뒤 · 사용자 승인 · §11).**
 > - 구조 · 무효 규칙 · 회차 격리 · 시각 규약 · PC 링크 검사 · 표본기는 ADR-017 하네스(`k6/ADR-017/INTERFACE.md`)를 그대로 따른다. 이 문서는 **바뀌는 것**을 적고, 같은 것은 "ADR-017 §n과 같다"로 가리킨다.
 
 ## 0. 용어 · 단위
@@ -282,7 +282,7 @@ ADR-017 §6.5와 같다. 다만:
 
 - 조회에 `holds`(남은 `seat_hold` 행 수)를 더한다: `polls: [{t_ms, pending, open, open_unheld, holds}]`.
 - **empty** = `pending = 0` · `open = 0` · `holds = 0`인 조회가 연달아 둘이고, 그 사이 ≥ 안전망 + 워커 주기(5초 + 1초).
-- **cap**(상한 `drain.cap_s` — 본 · 동시 경합 셀 240초 · 경계 셀 120초 [초안])은 무효가 아니다. 남은 일은 G1(`open_after_drain` · `unfinished_tasks`)에 들어간다. 성공한 조회가 0인 cap만 `drain-poll-failed`.
+- **cap**(상한 `drain.cap_s` — 본 · 동시 경합 셀 240초 · 경계 셀 120초)은 무효가 아니다. 남은 일은 G1(`open_after_drain` · `unfinished_tasks`)에 들어간다. 성공한 조회가 0인 cap만 `drain-poll-failed`.
 - 덤프 반복(`dump: {attempts, max, stable}` · `dump-race` · `dump-unstable` · `ledger-recheck-failed`)은 ADR-017과 같다.
 
 ### 6.6 `inject.json`
@@ -358,7 +358,7 @@ ADR-017 §6.10과 같은 모양이다. configprops 접두어에 **`seat.hold-gro
 | `reject-header-mismatch` | **지표 대조**(하네스 설계 §5): k6 선점 409의 헤더 합 ≠ 증분. 1석 `hold` 409의 `rj`(nowait · rule — 그 밖 값 · 없음은 `bad:<값>`으로 세어 늘 어긋난다) 합 = Δ`hold_rejected`, `hold_group` 409의 `group-<cause>` 합(키 `<metric_mode>:<cause>`) = Δ`group_rejected`. 묶음 409는 Δ`hold_rejected`를 올리지 않아야 한다 |
 | `group-request-mismatch` | k6 묶음 · 해제 요청의 `<op>:<outcome>`(§5 `metric_outcome`) 수 ≠ Δ`group_request`(키마다) |
 
-| `burst-spread` | (동시 경합 셀) 묶음 안 선점 송신 폭(`max ts − min ts`)이 `values.burst_spread_max_ms`([초안] 5ms)를 넘거나, 잴 수 없거나(구성원 행 · ts 결측), 구성원 선점의 `cn`이 0이 아니거나 없는(새 연결 — 리뷰 H1-8) 묶음의 비율 > `values.burst_spread_bad_frac`([초안] 0.1) — 동시성이 성립하지 않음(하네스 설계 §8) |
+| `burst-spread` | (동시 경합 셀) 묶음 안 선점 송신 폭(`max ts − min ts`)이 `values.burst_spread_max_ms`(5ms)를 넘거나, 잴 수 없거나(구성원 행 · ts 결측), 구성원 선점의 `cn`이 0이 아니거나 없는(새 연결 — 리뷰 H1-8) 묶음의 비율 > `values.burst_spread_bad_frac`(0.1) — 동시성이 성립하지 않음(하네스 설계 §8) |
 | `edge-not-sent` | (경계 셀) 흐름마다(edge_confirm 확정 · edge_ps 결제 시작) 예약 창 안(`|ts − 중심| ≤ eps + 1ms`)에 보낸 요청 수가 하나라도 0 — 송신 실패(가정 2의 하네스 쪽 조건). 진입 · straddle은 유효성 조건이 아니다(§8.2 노출량 · 리뷰 H2-3) |
 | `app-log-missing` | run18 `logs18`: 앱 로그 파이프 실패 · 압축 검사(`gzip -t`) 실패 · 기동 머리 줄 수(`zcat … | grep -c` — 스트림을 끝까지 읽는다 · pipefail 아래 `grep -q`의 SIGPIPE 오판을 피함 · 리뷰 H3-R3) 0(하네스 사유 · 모든 셀). 요약기: 경계 셀에서 `app.log.gz`가 없거나 비었거나 깨졌거나 기동 머리 줄이 없음(리뷰 H3-3) |
 | (`k6-plan-mismatch` 보강) | `adr018.rate` · `d_arr_s`도 plan `rate` · `d_arr_s`와 같아야 한다(리뷰 H3-5) |
@@ -366,7 +366,7 @@ ADR-017 §6.10과 같은 모양이다. configprops 접두어에 **`seat.hold-gro
 | `k6-exit-<n>` · `k6-exit-unknown` · `k6-plan-mismatch` · `clock-offset-bad` | ADR-017 §7 · §6.8 |
 | `k6-csv-missing` · `dropped-iterations` · `latency-missing` | §6.11 |
 | `pc-link-missing` · `pc-link-down` · `pc-mem-missing` · `pc-mem-low` | ADR-017 §6.11 — `pc-link-down` · `pc-mem-low`는 **환경 사유** |
-| `env-send-lag` | 예정 송신(`at`이 있는 선점(동시 경합 셀) · 결제 시작 · 확정)의 `ts − at`이 `plan.send_lag_max_ms`(본 2000 · 경계 250 [초안])를 넘는 요청 ≥ 1, 또는 허용치 없음 — **환경 사유(단독일 때)** |
+| `env-send-lag` | 예정 송신(`at`이 있는 선점(동시 경합 셀) · 결제 시작 · 확정)의 `ts − at`이 `plan.send_lag_max_ms`(본 2000 · 경계 250)를 넘는 요청 ≥ 1, 또는 허용치 없음 — **환경 사유(단독일 때)** |
 
 - **환경 사유 판별**(campaign18 `kind_of` · summarize18 `env_kind`): `pc-link-down` · `pc-mem-low` · `k6-conn-error`가 하나라도 있으면 env(다른 사유와 섞여도 — 연결 오류는 지표 대조도 함께 깨뜨린다), 사유가 전부 `env-send-lag`면 env, 그 밖 무효 · status 없음은 harness, `ok`는 valid. 재측정 상한은 env · harness 따로 자리마다 2번이다(ADR-017과 같다).
 
@@ -473,11 +473,11 @@ CLI: `outcome18.py <회차 폴더>` → 표준 출력 JSON 한 줄 `{"sessions":
 5. **5xx와 40P01**(리뷰 H2-3 — 설계 되돌림): 경계 셀 5xx의 원인은 앱 로그로 응답마다 잇는다(§6.13). 40P01과 이어진 5xx만 측정값이고, 그 밖 · 연결 불가는 G1 실패다. `deadlock{group_confirm}`에는 거부 기록 트랜잭션의 40P01(응답 409 — 지표 계약 §1.3)도 들어가므로 deadlock 지표와 5xx 수는 같을 필요가 없다 — 둘을 나란히 보고만 한다.
 6. **지표 대조의 전제**: 연결 오류(상태 0) 요청은 서버가 셌는지 모른다 — 그런 회차는 `k6-conn-error`로 이미 무효이고 `group-request-mismatch`가 함께 붙을 수 있다(환경 사유가 우선).
 
-## 11. [초안] 값(`plan18.py FIXED = False`)
+## 11. 고정 값(`plan18.py FIXED = True` — 2026-11-20 · .164 스모크 smoke18-164a 뒤 · 사용자 승인)
 
-아래는 하네스 설계 문서의 [초안]이다. 측정 전 고정 커밋(task 03)에서 메인이 확정하고 이 절을 '고정 값'으로 바꾼다. 출처는 모두 `plan18.py` 한 곳이고, 회차 폴더의 `plan.json values`로 남는다.
+아래 값은 .164 스모크(smoke18-164a — 9회차 모두 ok) 뒤 측정 전 고정 커밋에서 정했다(사용자 승인 2026-11-20 · M18-7 — 이 뒤 바꾸면 캠페인 무효). 출처는 모두 `plan18.py` 한 곳이고, 회차 폴더의 `plan.json values`로 남는다.
 
-| 값 | [초안] | plan18 이름 |
+| 값 | 고정 값 | plan18 이름 |
 |---|---|---|
 | 세션 수 · 도착률 | 1,100 · 20/s(도착 55초) · 경계 셀 1,000(도착 50초 — 명세 Q18) | `N_SESSIONS` · `EDGE_N_SESSIONS` · `RATE` |
 | 동시 경합 묶음 | 크기 2~4(정수 균등) · 칸 4석 · 송신 여유 0.2초 · 송신 폭 문턱 5ms · 넘는 묶음 비율 상한 0.1 | `BURST_SIZE` · `BURST_BLOCK` · `BURST_LEAD_S` · `BURST_SPREAD_MAX_MS` · `BURST_SPREAD_BAD_FRAC` |
@@ -485,12 +485,13 @@ CLI: `outcome18.py <회차 폴더>` → 표준 출력 JSON 한 줄 `{"sessions":
 | 세션 종류(경계 셀) | edge_confirm 1 · edge_ps 1 | `KIND_WEIGHTS["edge"]` |
 | 생각 시간 T · 결제 시간 P · 확정 간격 G | ADR-017 ok 분포 그대로: U[30, 240]초 · 로그정규(m 45초 · σ 0.94 · 상한 300초) · U[0, 2]초 | `T_RANGE` · `PAY_*` · `CONF_GAP_RANGE` |
 | 해제 지연 D | U[2, 5]초 | `REL_RANGE` |
-| 겹침 H(시작 위치 범위) | low = 세션 × 3 · mid × 0.5 · high × 0.1(→ 3,300 · 550 · 110) · 좌석 = 줄 수 × 50 + 50(줄 수 = ⌈H ÷ 49⌉ — §2 `seed`) | `H_FACTOR` · `SEAT_PAD` |
+| 겹침 H(시작 위치 범위) | low = 세션 × 3 · mid × 0.5 · **high × 0.2**(→ 3,300 · 550 · 220 — high는 0.1에서 바꿈: .164 스모크에서 0.1은 재고가 3.5초 만에 소진) · 좌석 = 줄 수 × 50 + 50(줄 수 = ⌈H ÷ 49⌉ — §2 `seed`) | `H_FACTOR` · `SEAT_PAD` |
 | 경계 셀 앱 눈금 | TTL 8초 · 배치 0.2초(`200ms` — 명세 Q18) · W 6초 · θ 0초 · M 0초(기동 검사 M ≤ θ · θ < TTL · θ < W 통과 — §10-1) | `APP["edge"]` |
 | 경계 송신 | X ~ U[−0.5, +0.5]초 · edge_ps = 선점 만료 E + 0 ± 0.5초(§10-1) | `EDGE_EPS_S` · `EDGE_PS_CENTER_S` |
-| p99 허용 상한 | ADR-017 R/base p99 중앙값 × 1.1: hold 9.80 · pay_start 18.88 · confirm 10.97ms | `P99_LIMIT_MS` |
+| p99 허용 상한 | 선점 40 · 결제 시작 40 · 확정 50ms(.164 smoke18-164a — 첫 5초 표본을 뺀 관측 최대 p99 선점 24.4 · 결제 시작 25.0 · 확정 31.5ms × 약 1.5 · ADR-017 기반 초안은 지움) | `P99_LIMIT_MS` |
+| 첫 5초 지연 표본 제외 | k6 시작부터 5초 안에 보낸 요청(CSV 끝 시각 − 지연 · 초 단위)은 단계별 p50 · p99 판정 표본에서 뺀다 · 뺀 수 = `latency.<stage>.warmup_excluded`(회차) · 캠페인 표 `latency.<stage>.warmup_excluded[]` — 회차 첫 PG 등록 · JIT 차가운 지연 130~180ms(.164 실측) | `WARMUP_EXCLUDE_S` |
 | 배수 창 상한 | 본 · 동시 경합 240초(메인 판단 2026-11-20 — 48회차 최악 11.85시간 · 고정 때 사용자 확인 · 실측 배수 = summary18 `drain.len_s` · campaign18 `runs.<자리>.drain`) · 경계 120초 | `DRAIN_CAP_S` |
 | 예정 송신 허용 지연 | 본 2,000ms · 경계 250ms | `SEND_LAG_MAX_MS` |
 | PC 메모리 하한 · 표본 공백 | 4 GiB · 30초(ADR-017 값) | `PC_MEM_RUN_MIN_KB` · `PC_MEM_GAP_MAX_S` |
-| 시간 예산 | 12시간 = 최악 기준(배수 상한을 매 회차 다 씀). 48회차 [초안] 값으로 최악 11.85시간 · 예상 9.23시간 | `BUDGET_HOURS` |
+| 시간 예산 | 12시간 = 최악 기준(배수 상한을 매 회차 다 씀). 48회차 고정 값으로 최악 11.85시간 · 예상 9.23시간 | `BUDGET_HOURS` |
 | 재측정 상한 | 자리마다 환경 2 · 하네스 2(ADR-017과 같다) | campaign18.sh |

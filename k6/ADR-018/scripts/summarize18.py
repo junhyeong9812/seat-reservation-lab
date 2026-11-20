@@ -120,7 +120,7 @@ def k6_csv(path):
                 if len(r) != len(head):
                     return None
                 if r[im] == "http_req_duration" and r[ist][:1] == "2" and r[iname] in vals:
-                    vals[r[iname]].append(float(r[iv]))
+                    vals[r[iname]].append((float(r[iv]), float(r[its])))   # (지연 ms, 끝 시각 PC 초 — CSV timestamp는 초 단위)
                 elif r[im] == "http_req_duration" and r[ist][:1] == "5" and r[iname] in O.APP_OPS:
                     x5.append((r[iname], float(r[its]), float(r[iv]), int(r[ist])))
                 elif r[im] == "dropped_iterations":
@@ -128,6 +128,18 @@ def k6_csv(path):
     except (OSError, ValueError, StopIteration, EOFError, csv.Error):
         return None
     return {"ms": vals, "dropped": dropped, "x5": x5}
+
+
+def latency_of(ms_ts, k6t0_s, warm_s):
+    """단계 지연 표본(ms, 끝 시각 초) → p50 · p99 · 뺀 수. 송신 시각(끝 시각 − 지연)이 k6 시작 + warm_s 안이면 판정 표본에서 뺀다(첫 5초 차가운 지연 —
+    CSV 시각이 초 단위라 경계에서 1초 안팎 어긋날 수 있다). k6 시작을 모르면 빼지 않는다."""
+    keep, excl = [], 0
+    for ms, t in ms_ts:
+        if num(k6t0_s) and num(warm_s) and t * 1000 - ms < (k6t0_s + warm_s) * 1000:
+            excl += 1
+        else:
+            keep.append(ms)
+    return {"n": len(keep), "p50_ms": pct(keep, 0.5), "p99_ms": pct(keep, 0.99), "warmup_excluded": excl}
 
 
 def env_kind(status):
@@ -667,7 +679,7 @@ def rep_summary(d):
             pc_mem = {"min_kb": min(m for _, m in mrows), "n": len(mrows), "gap_max_s": gap}
             if pc_mem["min_kb"] < vals["pc_mem_run_min_kb"]:
                 reasons.add("pc-mem-low")
-    latency = {s: {"n": 0, "p50_ms": None, "p99_ms": None} for s in STAGES}
+    latency = {s: {"n": 0, "p50_ms": None, "p99_ms": None, "warmup_excluded": None} for s in STAGES}
     if csvd is None:
         reasons.add("k6-csv-missing")
     else:
@@ -679,9 +691,9 @@ def rep_summary(d):
                 want[o["op"]] += 1
         if any(len(csvd["ms"][n]) != want[n] for n in CSV_NAMES):
             reasons.add("latency-missing")   # CSV 2xx 수 ≠ 세션 로그 2xx 수(요청 종류마다)
-        for s, names in STAGES.items():
-            xs = [x for n in names for x in csvd["ms"][n]]
-            latency[s] = {"n": len(xs), "p50_ms": pct(xs, 0.5), "p99_ms": pct(xs, 0.99)}
+        k6t0_s = kw.get("k6_t0_epoch") if isinstance(kw, dict) else None
+        for s, names in STAGES.items():   # 첫 5초 안에 보낸 요청은 판정 표본에서 뺀다(고정 값 2026-11-20 · 뺀 수 = warmup_excluded)
+            latency[s] = latency_of([x for n in names for x in csvd["ms"][n]], k6t0_s, vals.get("warmup_exclude_s"))
     lag_max = plan.get("send_lag_max_ms")
     lags = []
     for r in rows:
@@ -867,6 +879,7 @@ def campaign(cdir):
                 p99s = [s["latency"][st]["p99_ms"] for s in ss]
                 lim = (limits or {}).get(st)
                 lat[st] = {"p50_ms": [s["latency"][st]["p50_ms"] for s in ss], "p99_ms": p99s,
+                           "warmup_excluded": [s["latency"][st].get("warmup_excluded") for s in ss],
                            "median_p99_ms": statistics.median([x for x in p99s if num(x)]) if any(num(x) for x in p99s) else None,
                            "limit_ms": lim, "over": num(lim) and any(num(x) and x > lim for x in p99s),
                            "ok": num(lim) and len(p99s) == plan18.REPS and all(num(x) and x <= lim for x in p99s)}
@@ -935,7 +948,7 @@ def campaign(cdir):
         agg["latency"] = {}
         for st in STAGES:   # p99 상한 판정에 동시 경합 셀도 넣는다(리뷰 H2-2 — 경계 셀은 TTL · W를 바꾼 눈금이라 보고만)
             p99s = [x["latency"][st]["p99_ms"] for x in ss]
-            agg["latency"][st] = {"p99_ms": p99s, "limit_ms": lim.get(st), "over": num(lim.get(st)) and any(num(x) and x > lim[st] for x in p99s),
+            agg["latency"][st] = {"p99_ms": p99s, "warmup_excluded": [x["latency"][st].get("warmup_excluded") for x in ss], "limit_ms": lim.get(st), "over": num(lim.get(st)) and any(num(x) and x > lim[st] for x in p99s),
                                   "ok": num(lim.get(st)) and len(p99s) == plan18.REPS and all(num(x) and x <= lim[st] for x in p99s)}
         agg["all_fail_ratio"] = agg["all_fail"] / agg["bursts"] if agg["bursts"] else None
         agg["rate"] = agg["both"] / agg["sessions"] if agg["sessions"] else None
