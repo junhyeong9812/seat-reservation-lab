@@ -1,0 +1,23 @@
+# ADR-018 측정 오버레이(연석 묶음 선점 — 측정 명세 docs/plans/2026-11-20/adr-018-measurement) — ADR-009 compose.yml + compose.tmpfs.yml + ADR-015 compose.confirm.yml +
+#   ADR-017 compose.pay17.yml(흉내 PG 서비스 · app depends_on) 위에 얹는다(lib18.sh가 lib17.sh의 COMPOSE_EXTRA 뒤에 더한다):
+#   docker compose -p seatlab -f k6/ADR-009/compose.yml -f k6/ADR-009/compose.tmpfs.yml -f k6/ADR-015/compose.confirm.yml -f k6/ADR-017/compose.pay17.yml -f k6/ADR-018/compose.pay18.yml …
+#   경로는 첫 파일(k6/ADR-009)의 폴더 기준 — 이 파일은 경로를 쓰지 않는다.
+# 앱(app): SPRING_APPLICATION_JSON을 통째로 바꾼다(compose.pay17.yml 값 + ADR-018 키):
+#   seat.hold-group.enabled = HOLD_GROUP_ENABLED(split · one-shot = true · B0 · B1 = false — 앱 기본값 그대로 · 1석 해제 API는 이 키와 무관하게 열린다)
+#   seat.hold-group.mode    = HOLD_GROUP_MODE(split | one-shot)
+#   경계 셀은 HOLD_TTL · EXPIRY_INTERVAL · PAYMENT_WINDOW · PAYMENT_MIN_REMAINING · PAY_BY_MARGIN을 짧게(기존 키만 — plan18.py APP · 기동 검사 M ≤ θ · θ < TTL · θ < W).
+#   seat.hold.max-per-user는 넣지 않는다(앱 기본값 2 — configprops로 대조). 변수 기본값은 실패하지 않는 값이다(잘못 뜬 값은 plan18.py --config-check가 잡는다).
+services:
+  app:
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"seat":{"confirm":{"mode":"${CONFIRM_MODE:-conditional-extend}","payment-window":"${PAYMENT_WINDOW:-611s}","payment-min-remaining":"${PAYMENT_MIN_REMAINING:-1s}",
+                            "pay-by-margin":"${PAY_BY_MARGIN:-1s}","loadtest":{"delay":"${CONFIRM_DELAY:-0ms}"}},
+                 "hold":{"expiry-mode":"sweep","ttl":"${HOLD_TTL:-300s}","expiry-interval":"${EXPIRY_INTERVAL:-10s}","strategy":"pessimistic-nowait","critical-section-delay":"0s"},
+                 "hold-group":{"enabled":${HOLD_GROUP_ENABLED:-false},"mode":"${HOLD_GROUP_MODE:-split}"},
+                 "payment":{${PG_BASE_URL:+"pg":{"base-url":"${PG_BASE_URL}"}}},
+                 "compensation":{"mode":"${COMPENSATION_MODE:-none}"}},
+         "spring":{"datasource":{"hikari":{"maximum-pool-size":${POOL_SIZE:-10}}},
+                   "flyway":{"locations":"${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental}"},
+                   "data":{"redis":{"host":"redis","port":6379}}},
+         "server":{"tomcat":{"max-connections":${TOMCAT_MAX_CONNECTIONS:-20000}}}}

@@ -1,0 +1,5 @@
+# ADR-018 로컬 검증 전용 오버레이(run18.sh --local만 붙인다 — .164 측정에는 쓰지 않는다): ADR-017 compose.local17.yml과 같다 —
+# 로컬 PC의 15432는 다른 프로젝트 DB가 쓸 수 있어 db 포트 공개를 뺀다(하네스의 DB 조회는 모두 docker exec — 포트를 쓰지 않는다).
+services:
+  db:
+    ports: !reset []
