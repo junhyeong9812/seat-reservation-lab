@@ -130,12 +130,16 @@ def k6_csv(path):
     return {"ms": vals, "dropped": dropped, "x5": x5}
 
 
-def latency_of(ms_ts, k6t0_s, warm_s):
-    """단계 지연 표본(ms, 끝 시각 초) → p50 · p99 · 뺀 수. 송신 시각(끝 시각 − 지연)이 k6 시작 + warm_s 안이면 판정 표본에서 뺀다(첫 5초 차가운 지연 —
-    CSV 시각이 초 단위라 경계에서 1초 안팎 어긋날 수 있다). k6 시작을 모르면 빼지 않는다."""
+def latency_of(ms_ts, warm_s):
+    """단계 지연 표본(ms, 끝 시각 초) → p50 · p99 · 뺀 수. 그 회차에서 그 단계의 첫 요청 송신 시각(끝 시각 − 지연의 최솟값)부터 warm_s 안에 보낸 요청은
+    판정 표본에서 뺀다(단계별 첫 요청의 차가운 지연 — 첫 PG 등록 · JIT · 사용자 결정 2026-11-20). CSV 시각이 초 단위라 경계에서 1초 안팎 어긋날 수 있다."""
+    if not ms_ts:
+        return {"n": 0, "p50_ms": None, "p99_ms": None, "warmup_excluded": 0}
+    sends = [t * 1000 - ms for ms, t in ms_ts]
+    first = min(sends)
     keep, excl = [], 0
-    for ms, t in ms_ts:
-        if num(k6t0_s) and num(warm_s) and t * 1000 - ms < (k6t0_s + warm_s) * 1000:
+    for (ms, _), sent in zip(ms_ts, sends):
+        if num(warm_s) and sent < first + warm_s * 1000:
             excl += 1
         else:
             keep.append(ms)
@@ -691,9 +695,9 @@ def rep_summary(d):
                 want[o["op"]] += 1
         if any(len(csvd["ms"][n]) != want[n] for n in CSV_NAMES):
             reasons.add("latency-missing")   # CSV 2xx 수 ≠ 세션 로그 2xx 수(요청 종류마다)
-        k6t0_s = kw.get("k6_t0_epoch") if isinstance(kw, dict) else None
-        for s, names in STAGES.items():   # 첫 5초 안에 보낸 요청은 판정 표본에서 뺀다(고정 값 2026-11-20 · 뺀 수 = warmup_excluded)
-            latency[s] = latency_of([x for n in names for x in csvd["ms"][n]], k6t0_s, vals.get("warmup_exclude_s"))
+        for s, names in STAGES.items():   # 단계마다 그 단계 첫 요청 송신부터 5초 안에 보낸 요청은 판정 표본에서 뺀다(사용자 결정 2026-11-20 · 뺀 수 = warmup_excluded)
+            warm = vals.get("warmup_exclude_s") if s in (vals.get("warmup_stages") or []) else None   # 선점은 전체 표본(warmup_excluded 0 — 메인 판단 2026-11-20)
+            latency[s] = latency_of([x for n in names for x in csvd["ms"][n]], warm)
     lag_max = plan.get("send_lag_max_ms")
     lags = []
     for r in rows:

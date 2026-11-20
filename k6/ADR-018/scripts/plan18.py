@@ -13,7 +13,7 @@ run18.sh · campaign18.sh · outcome18.py · summarize18.py · selftest18.py가 
     plan18.py --session <method> <cell> <rep> <sid>                               → 그 세션의 종류 · 시드 속성 · 좌석 JSON(flow18.js와 같은 값 — 대조용)
 
 **FIXED = True — 측정 전 고정 값(2026-11-20 · .164 스모크 smoke18-164a 뒤 · 사용자 승인).** 세션 비율 · 겹침 단계(H) · 경계 셀 앱 눈금 · p99 허용 상한 ·
-배수 상한 · 첫 5초 지연 표본 제외를 이 파일 한 곳에서 고정했다(이 뒤 바꾸면 캠페인 무효 — M18-7).
+배수 상한 · 단계별 첫 5초 지연 표본 제외를 이 파일 한 곳에서 고정했다(이 뒤 바꾸면 캠페인 무효 — M18-7).
 본 셀 앱 눈금(TTL · W · θ · M · 배치 · 워커 · 안전망)은 앱 기본값 그대로다(ADR-017과 같다)."""
 import json
 import math
@@ -99,7 +99,8 @@ SEAT_PAD = 50                 # 좌석 = 줄 수 × 50 + 여유(줄 수 = ⌈H �
 EDGE_EPS_S = 0.5              # 고정 · 경계 송신 = E + X · X ~ U[−0.5, +0.5]초
 EDGE_PS_CENTER_S = 0.0        # 고정 · edge_ps 결제 시작 = 선점 만료 E + 0 ± 0.5초(EDGE_EPS_S) — 경계 셀 θ = 0이라 E 앞이면 연장 문장 · 뒤면 만료 거부 · 그 사이 만료 배치와 경합
 P99_LIMIT_MS = {"hold": 40.0, "pay_start": 40.0, "confirm": 50.0}   # 고정(.164 smoke18-164a — 첫 5초 차가운 표본을 뺀 관측 최대 p99 선점 24.4 · 결제 시작 25.0 · 확정 31.5ms × 약 1.5)
-WARMUP_EXCLUDE_S = 5.0        # 고정 — k6 시작부터 이 시간 안에 보낸 요청은 단계별 p50 · p99 판정 표본에서 뺀다(회차 첫 PG 등록 · JIT 차가운 지연 130~180ms · 뺀 수는 warmup_excluded로 보고)
+WARMUP_EXCLUDE_S = 5.0        # 고정 — 단계(선점 · 결제 시작 · 확정)마다 그 회차에서 그 단계의 첫 요청 송신부터 이 시간 안에 보낸 요청은 p50 · p99 판정 표본에서 뺀다(첫 PG 등록 · JIT 차가운 지연 130~180ms · 뺀 수는 warmup_excluded · 사용자 결정 2026-11-20)
+WARMUP_STAGES = ("pay_start", "confirm")   # 고정 — 제외를 적용하는 단계(메인 판단 2026-11-20: 차가운 지연은 PG 등록이 끼는 결제 시작에서만 관측 · 선점은 제외 없이도 상한 아래이고 high 셀은 성공 선점이 첫 몇 초에 몰려 제외하면 표본이 사라진다 — 선점은 전체 표본)
 DRAIN_CAP_S = {"main": 240.0, "edge": 120.0}   # 고정 · 본 · 동시 경합 셀 240초(메인 판단 2026-11-20 — 48회차 최악 ≤ 12시간 · 실측 배수 = summary18 drain.len_s)   # 배수 창 상한(닿으면 덤프 · 판정 — 남은 일은 G1)
 DRAIN_EST_S = {"main": 30.0, "edge": 20.0}     # dry-run 손셈용 예상 배수 시간
 DRAIN_POLL_S = 5.0
@@ -301,7 +302,7 @@ def values():
             "edge_n_sessions": EDGE_N_SESSIONS, "burst_size": list(BURST_SIZE), "burst_block": BURST_BLOCK, "burst_lead_s": BURST_LEAD_S,
             "burst_spread_max_ms": BURST_SPREAD_MAX_MS, "burst_spread_bad_frac": BURST_SPREAD_BAD_FRAC, "seats_per_row": SEATS_PER_ROW,
             "hold_sample_s": HOLD_SAMPLE_S, "hold_sample_gap_factor": HOLD_SAMPLE_GAP_FACTOR, "hold_sample_fail_max": HOLD_SAMPLE_FAIL_MAX,
-            "app_log_match_tol_ms": APP_LOG_MATCH_TOL_MS, "warmup_exclude_s": WARMUP_EXCLUDE_S}
+            "app_log_match_tol_ms": APP_LOG_MATCH_TOL_MS, "warmup_exclude_s": WARMUP_EXCLUDE_S, "warmup_stages": list(WARMUP_STAGES)}
 
 
 _RENDER_CACHE = {}

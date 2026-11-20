@@ -35,7 +35,7 @@ def check(name, cond, detail=""):
         FAILS.append(f"{name}: {detail}")
 
 
-OVER = {"n": 60, "rate": 20, "tMin": 2, "tMax": 5, "payMedian": 2, "payMax": 5, "dMin": 1, "dMax": 2}
+OVER = {"n": 60, "rate": 20, "tMin": 2, "tMax": 30, "payMedian": 2, "payMax": 5, "dMin": 1, "dMax": 2}
 T0_PC = 1_794_000_000.0   # 가짜 k6 시작(PC 초) · 시계 차 0
 T0 = T0_PC * 1000
 AMOUNT = plan18.AMOUNT
@@ -140,11 +140,11 @@ class World:
             a = plan18.session_attrs(self.rep, sid, p["params"])
             seats = plan18.seats_for(self.cell, self.rep, p["n_total"], sid, a["U"], H)
             user = plan18.USER_BASE + sid
-            t = T0 + SESSION_START_MS + sid * 50   # 첫 세션 = k6 시작 + 6초(첫 5초 지연 표본 제외 규칙 밖 — 고정 값 2026-11-20)
+            t = T0 + SESSION_START_MS + sid * 500   # 첫 세션 = k6 시작 + 6초 · 세션 간격 0.5초(60세션 30초 — 단계별 첫 5초 제외 뒤에도 표본이 남게)
             hat = {"at": t}   # 첫 선점 예정 송신(본 · 경계 셀 = 스크립트 시작 + sid ÷ 도착률 — 리뷰 H3-5 · R5)
             if self.cell == "burst":   # 묶음 예정 송신 + 구성원마다 0~2ms 어긋남(실측 폭 흉내)
                 bk, _, last = plan18.burst_of(self.rep, p["n_total"], sid)
-                at_ms = T0 + SESSION_START_MS + (last / p["rate"] + plan18.BURST_LEAD_S) * 1000
+                at_ms = T0 + SESSION_START_MS + last * 500 + plan18.BURST_LEAD_S * 1000   # 세션 간격 0.5초(모의 세계 — 단계별 첫 5초 제외 뒤에도 표본이 남게)
                 t = at_ms + sid % 3
                 hat = {"at": at_ms}
             row = {"k": "s", "v": 1, "sid": sid, "kind": kind, "rep": self.rep, "method": self.method, "cell": self.cell, "user": user, "seats": seats,
@@ -599,23 +599,40 @@ def test_runs(tmp):
             if cell == "edge":
                 check(f"run-edge/{method}", s["edge"] and s["edge"]["in_window"] > 0 and s["edge"]["http_5xx_link"] == {"40p01": 0, "other": 0, "unlinked": 0, "csv_only": 0}
                       and all(x["sent"] > 0 for x in s["edge"]["exposure"].values()), json.dumps(s["edge"])[:300])
-    # 첫 5초 지연 표본 제외(고정 값 2026-11-20): k6 시작 4초에 끝난 느린 선점 2건 → p99 판정 표본에서 빠지고 warmup_excluded로 보고
-    def warm_slow(d, w):
-        _csv_add(d, ["http_req_duration", str(int(T0_PC + 4)), "900.0", "", "", "", "true", "", "POST", "hold_group", "HTTP/1.1", "main", "", "201", "", "", "", "", ""])
-    def late_slow(d, w):
-        _csv_add(d, ["http_req_duration", str(int(T0_PC + 30)), "900.0", "", "", "", "true", "", "POST", "hold_group", "HTTP/1.1", "main", "", "201", "", "", "", "", ""])
+    # 단계별 첫 5초 지연 표본 제외(사용자 결정 2026-11-20): 그 단계의 첫 요청 송신부터 5초 안에 보낸 요청은 판정 표본에서 뺀다
+    def ps_row(send_ms, dur=900.0):   # 결제 시작(묶음) 한 줄 — CSV 끝 시각(초) = 송신 + 지연
+        return ["http_req_duration", str(int((send_ms + dur) // 1000)), f"{dur}", "", "", "", "true", "", "POST", "pay_start_group", "HTTP/1.1", "main", "", "200",
+                "", "", "", "", ""]
     wv = World("split", "low", 2)
     dw = wv.write(tmp / "warm-early")
-    warm_slow(dw, wv)
-    lat_early = SM.latency_of(SM.k6_csv(dw / "k6-requests.csv.gz")["ms"]["hold_group"], T0_PC, plan18.WARMUP_EXCLUDE_S)
-    check("warmup/excluded", lat_early["warmup_excluded"] == 1 and lat_early["p99_ms"] == LAT_MS, lat_early)
+    base = SM.k6_csv(dw / "k6-requests.csv.gz")["ms"]["pay_start_group"]
+    first_ps = min(t * 1000 - ms for ms, t in base)
+    check("warmup/world-ps-after-7s", first_ps > T0 + 7000, first_ps - T0)
+    _csv_add(dw, ps_row(T0 + 7000))   # 회차 시작 7초 뒤의 느린 결제 시작 = 그 단계의 첫 요청 → 빠진다
+    lat_early = SM.latency_of(SM.k6_csv(dw / "k6-requests.csv.gz")["ms"]["pay_start_group"], plan18.WARMUP_EXCLUDE_S)
+    check("warmup/ps-first-slow-excluded", lat_early["p99_ms"] == LAT_MS and lat_early["warmup_excluded"] >= 1, lat_early)
+    s_e, _ = summ(dw)
+    check("warmup/ps-summary", s_e["latency"]["pay_start"]["p99_ms"] == LAT_MS and s_e["latency"]["pay_start"]["warmup_excluded"] >= 1, json.dumps(s_e["latency"]))
     dl_ = wv.write(tmp / "warm-late")
-    late_slow(dl_, wv)
-    lat_late = SM.latency_of(SM.k6_csv(dl_ / "k6-requests.csv.gz")["ms"]["hold_group"], T0_PC, plan18.WARMUP_EXCLUDE_S)
-    check("warmup/not-excluded-after-5s", lat_late["warmup_excluded"] == 0 and lat_late["p99_ms"] == 900.0, lat_late)
+    _csv_add(dl_, ps_row(T0 + 7000, 4.0))   # 그 단계의 첫 요청(빠름)
+    _csv_add(dl_, ps_row(T0 + 7000 + 6000))   # 첫 요청 + 6초의 느린 요청 → 남는다
+    lat_late = SM.latency_of(SM.k6_csv(dl_ / "k6-requests.csv.gz")["ms"]["pay_start_group"], plan18.WARMUP_EXCLUDE_S)
+    check("warmup/ps-after-6s-kept", lat_late["p99_ms"] == 900.0, lat_late)
     s_ok, _ = summ(tmp / "ok-split-low")
-    check("warmup/reported", all(s_ok["latency"][st]["warmup_excluded"] == 0 for st in ("hold", "pay_start", "confirm")), json.dumps(s_ok["latency"]))
-    check("warmup/unknown-start", SM.latency_of([(900.0, T0_PC + 1)], None, 5.0)["warmup_excluded"] == 0)
+    hold_first = min(t * 1000 - ms for ms, t in SM.k6_csv(tmp / "ok-split-low" / "k6-requests.csv.gz")["ms"]["hold_group"])
+    check("warmup/hold-first-near-k6-start", abs(hold_first - (T0 + SESSION_START_MS)) <= 1000, hold_first - T0)   # 선점은 기존과 같다(첫 선점 ≈ 세션 시작)
+    n_hold = len(SM.k6_csv(tmp / "ok-split-low" / "k6-requests.csv.gz")["ms"]["hold_group"])
+    check("warmup/reported", all(isinstance(s_ok["latency"][st]["warmup_excluded"], int) and s_ok["latency"][st]["warmup_excluded"] > 0 for st in ("pay_start", "confirm"))
+          and s_ok["latency"]["hold"]["warmup_excluded"] == 0 and s_ok["latency"]["hold"]["n"] == n_hold and s_ok["latency"]["hold"]["p99_ms"] == LAT_MS,
+          json.dumps(s_ok["latency"]))   # 선점은 전체 표본(메인 판단 2026-11-20 — 제외는 결제 시작 · 확정만)
+    dh = wv.write(tmp / "warm-hold")
+    _csv_add(dh, ["http_req_duration", str(int((T0 + SESSION_START_MS + 900) // 1000)), "900.0", "", "", "", "true", "", "POST", "hold_group", "HTTP/1.1", "main", "", "201",
+                  "", "", "", "", ""])   # 첫 선점 시각의 느린 선점 — 선점은 빼지 않으므로 p99에 남는다
+    _csv_add(dh, ["http_req_duration", str(int((T0 + SESSION_START_MS + 900) // 1000)), "900.0", "", "", "", "true", "", "POST", "hold_group", "HTTP/1.1", "main", "", "201",
+                  "", "", "", "", ""])
+    sh_, _ = summ(dh)
+    check("warmup/hold-not-excluded", sh_["latency"]["hold"]["warmup_excluded"] == 0 and sh_["latency"]["hold"]["p99_ms"] == 900.0, json.dumps(sh_["latency"]["hold"]))
+    check("warmup/empty", SM.latency_of([], 5.0) == {"n": 0, "p50_ms": None, "p99_ms": None, "warmup_excluded": 0})
     # B0 · B1 비교 지표가 실제로 갈린다(가짜 세계 high — B0은 첫 석을 쥐고 B1은 놓는다)
     b0, _ = summ(tmp / "ok-B0-high")
     b1, _ = summ(tmp / "ok-B1-high")
@@ -1072,7 +1089,7 @@ def test_plan():
     check("plan/H", (plan18.render("split", "low", 1)["seed"]["H"], plan18.render("split", "mid", 1)["seed"]["H"],
                      plan18.render("split", "high", 1)["seed"]["H"], p["seed"]["H"]) == (3300, 550, 220, 3000))   # high 0.2(고정 2026-11-20)
     check("plan/fixed-values", plan18.FIXED is True and plan18.P99_LIMIT_MS == {"hold": 40.0, "pay_start": 40.0, "confirm": 50.0}
-          and plan18.WARMUP_EXCLUDE_S == 5.0 and plan18.H_FACTOR == {"low": 3.0, "mid": 0.5, "high": 0.2}
+          and plan18.WARMUP_EXCLUDE_S == 5.0 and plan18.WARMUP_STAGES == ("pay_start", "confirm") and plan18.H_FACTOR == {"low": 3.0, "mid": 0.5, "high": 0.2}
           and plan18.KIND_WEIGHTS["main"] == {"ok": 70, "abandon": 15, "release": 15} and plan18.DRAIN_CAP_S == {"main": 240.0, "edge": 120.0})
     check("plan/edge-1000-200ms", p["n_total"] == 1000 and p["app_env"]["EXPIRY_INTERVAL"] == "200ms" and p["app"]["batch_s"] == 0.2
           and plan18.expected_config("split", "edge")["seat.hold"]["expiryInterval"] == "PT0.2S", (p["n_total"], p["app_env"]["EXPIRY_INTERVAL"]))
@@ -1342,9 +1359,8 @@ def test_shell(tmp):
     r = subprocess.run(["bash", str(HERE / "campaign18.sh"), "--check", str(root)], capture_output=True, text=True)
     check("shell/check-missing", r.returncode == 6, r.returncode)
     r = subprocess.run(["bash", str(HERE / "campaign18.sh"), "--sha", "HEAD", "--images", "/dev/null", "--start-conditions", "/dev/null"], capture_output=True, text=True)
-    if plan18.FIXED:   # 고정 뒤: 시작 조건(/dev/null)이 없어 시작하지 않는다. 하네스가 커밋 전(작업트리 ≠ HEAD)이면 동결본(git archive HEAD)의 FIXED 관문이 먼저 막는다 — 둘 다 거부
-        dirty = subprocess.run(["git", "-C", str(HERE.parent.parent.parent), "diff", "--quiet", "HEAD", "--", "k6/ADR-018"]).returncode != 0
-        check("shell/campaign-fixed-gate", r.returncode != 0 and ("FIXED = False" in r.stderr) == dirty, (dirty, r.returncode, r.stderr[-300:]))
+    if plan18.FIXED:   # 고정 뒤: 시작 조건(/dev/null)이 없어 시작하지 않는다(동결본 = HEAD — 고정 커밋 뒤라 FIXED 관문은 통과하고 시작 조건이 막는다)
+        check("shell/campaign-fixed-gate", r.returncode != 0 and "시작하지 않는다" in r.stderr, (r.returncode, r.stderr[-300:]))
     else:
         check("shell/campaign-not-fixed", r.returncode == 2 and "FIXED = False" in r.stderr, r.stderr[-300:])
 
