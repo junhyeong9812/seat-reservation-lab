@@ -24,6 +24,12 @@
 | 2026-11-21 20:0x | 리뷰 루프 3(상한) 회수: codex high 코드 finding 0(NEXT 기록 1 — C2-F2와 같아 기각) ∥ Opus(168,653 토큰) F2(중간 1 · 낮음 1) + OQ 4 → 채택 2(O3-F1 · O3-F2) · 종료 조건 불충족(신규 채택 2) → review unresolved · 수정(테스트 1 · README 1구절 — 코드 무변경) · adr018default 13 + Adr017DefaultModeBootTest 4 통과 · post-fix 재점검(codex medium — OUT=/tmp/claude-1000/-home-jun-project-lab-backend-labs-commerce/0961cd42-5c49-4146-8c52-81561cdbcc92/scratchpad/ds-pf) 'clean' · 커밋 11f38fb82 | 리뷰 상한 · 병합 판단 사용자 |
 | 2026-11-21 20:1x | 최종 코드(6a7635f9d · 11f38fb82는 시험만) 로컬 스모크 재실행(postgres:16 임시 25438): ② 키 없음 + current(보상 기본 refund) → exit 1 · 한 메시지에 '묶음 없이 띄우려면 seat.hold-group.enabled=false · 결제 시작이 없는 확정 모드는 seat.compensation.mode=none도' · 표 0 ③ current + none + enabled=false → Started 17.9초 · hold-groups 404 ① 키 없음 + PG 주소 → Started 18.0초 · 묶음 선점 201 · 정리(앱 0 · 컨테이너 삭제) | 스모크 통과 |
 | 2026-11-21 20:2x | docs: README(진행 상황 · 질문 표 · 적용 방식 행 · ADR 표 · 옛 하네스 안내) · NEXT N00d(기본값 교체 · 되돌림 · 옛 하네스 · 측정 기준선 변경 · 이월 B) · 측정 로그 1행 · 이 완료 요약 | 문서 |
+| 2026-11-21 20:4x | 사용자 질문 '리뷰 문제가 정말 발생하나' → 수정 전 코드(4a7a9cf24 임시 worktree)에 지금 수정 검증 테스트 5개를 돌림: ① 404 · ③ · ④ 실패(재현됨) · ② · ⑤ 통과(수정 전에도 성립 — ②는 4a7a9cf24에 이미 있던 분기, ⑤는 순서 변경 전이라 원래 경로) · worktree 삭제 | 재현 확인 |
+| 2026-11-21 20:5x | 사용자 '다 수정해야되는 이슈들이잖아 — 동작이나 계약에 문제' → 재합의 6(남은 계약 결함 3개를 이 PR에서 · 명세 D7 · D8 · 범위에 CompensationScheduling · ADR-015 메시지 · 컨트롤러 조건) | 재합의 |
+| 2026-11-21 21:0x | 재현 테스트 먼저(Adr018ContractGapTest — 수정 전 코드): ⑦ ADR-015 규칙 1 거부(기본 CE + lazy)에 끄기 안내 없음 → 실패(재현) · ⑧ enabled=on → 404 실패(재현) · ⑥ Flyway 끔 + current + refund → 처음엔 빈 DB라 Hibernate 검증이 먼저 실패(테스트 준비 오류 — V16까지 적용한 DB로 고침) → 통과(**재현 안 됨** — 지금 빈 생성 순서에서는 묶음 검사가 먼저 돈다 · 순서 보장 없음, 잠재) | 재현 2 · 잠재 1 |
+| 2026-11-21 21:1x | 수정: CURRENT_HINT(ADR-015 current 안내 4곳 · V15 계획 안내 · ADR-017 보상 current 안내에 'conditional-extend 밖 확정 모드는 seat.hold-group.enabled=false도') · HoldGroupEnabledCondition(Binder Boolean 바인딩 · 기본 true — 컨트롤러 @Conditional) · @DependsOn(보상 → 묶음 검사) → adr018default 16 + HoldGroupDisabledTest 3 통과 · post-fix 재점검(codex high — OUT=/tmp/claude-1000/-home-jun-project-lab-backend-labs-commerce/0961cd42-5c49-4146-8c52-81561cdbcc92/scratchpad/ds-pf2): P2 1 '⑥은 보상 메시지의 CURRENT_HINT로도 통과해 @DependsOn을 검증하지 못함' → 메인 판단: 맞음 · 그러면 D7은 순서와 무관하게 CURRENT_HINT로 충족 → @DependsOn 삭제(빈 의존 추가 없이) · ⑥은 D7 계약(어느 쪽이 먼저 거부해도 안내) 테스트로 유지 → 전체 cleanTest test(중간에 멈춘 실행 1회 — pkill -f가 자기 셸을 맞혀 끊김, 다시 실행) | 시험 중 |
+| 2026-11-21 21:5x | 전체 cleanTest test(33분 36초): main-app 1425/0(건너뜀 24) · mock-pg 24/0 · reconciler 6/0 → 코드 커밋 a80c97603 · 스모크(postgres:16 임시 25439): 기본 확정 + lazy → exit 1 · 한 메시지에 'current로 띄워라 · … seat.hold-group.enabled=false도' · 표 0 / enabled=on → Started 31.4초 · 묶음 선점 201 · 정리 | 통과 |
+| 2026-11-21 22:0x | 사용자 결정(순서): ① PR #19 병합 → ② 하네스 리뷰 규칙(원본) → ③ 기동 검사 구조(ADR 또는 설계 문서 — 인터뷰에서) → ④ ADR-019 · NEXT N00e · 교훈: 명세 D2 범위(묶음 검사 자신의 거부만인가 · 모든 기동 경로의 첫 거부인가)를 인터뷰에서 정했어야 했다 | 결정 |
 
 ## 리뷰 ledger
 
@@ -52,8 +58,9 @@
 - 범위: `seat.hold-group.enabled` 기본 false → true(코드 · yml · 컨트롤러 matchIfMissing) · 맞지 않는 구성(확정 ≠ conditional-extend · 보상 auth-capture · substitute · V16 앞)은 거부하고 `seat.hold-group.enabled=false` 안내 · Flyway 앞 관문 맨 앞에서 묶음 설정 · V16 계획 검사(거부된 기동은 스키마 무변경) · V16 표 검사(이력 있음 · 표 없음)도 migrate 앞 · test 프로필 false · README · NEXT.
 - 커밋(code): 4a7a9cf24(기본값 · 검사 · blind 8) · 8f4acf614(matchIfMissing · 순서 · 수정 검증 3) · 6a7635f9d(관문 맨 앞 · yml 주석 · 수정 검증 1) · 11f38fb82(ADR-017 경로 시험) / docs는 따로.
 - 검증: blind 계약 8(기준 SHA 7 실패 · 구현 8 통과) · 수정 검증 5(① 수정 전 코드 404로 실패 확인) · 전체 cleanTest test 3회(마지막 main-app 1421/0/24 · mock-pg 24/0 · reconciler 6/0 — 11f38fb82는 시험 1개 추가 뒤 adr018default · Adr017DefaultModeBootTest 17/0) · 로컬 스모크 3종 2회 · 듀얼 리뷰 3루프(상한) + 종합 감사 + post-fix clean · 정지 규칙 1회(첫 거부 안내 결함 4번째 → 사용자 결정 '묶음 검사를 맨 앞에').
-- 리뷰 상태: 루프 3에서 신규 채택 2(테스트 · README — 코드 무변경)를 고치고 post-fix clean. 종료 조건(신규 채택 0)은 루프 3에서 충족하지 못해 **review unresolved** — 병합 판단은 사용자.
-- 남은 것(이월 B): Flyway 꺼짐 구성의 검사 순서 · ADR-015 규칙 1 거부의 안내 · enabled=on/yes/1 조건 불일치(기존부터).
+- 리뷰 상태: 재합의 6 수정분은 codex post-fix 1회(지적 1 반영 — @DependsOn 삭제). 루프 3에서 신규 채택 2(테스트 · README — 코드 무변경)를 고치고 post-fix clean. 종료 조건(신규 채택 0)은 루프 3에서 충족하지 못해 **review unresolved** — 병합 판단은 사용자.
+- 재합의 6(사용자 — '동작이나 계약에 문제'): 남은 계약 결함 3개를 이 PR에서 고침(a80c97603) — ADR-015 · V15 · 보상 current 안내에 묶음 끄기(재현됨) · 컨트롤러 조건 = 바인딩(enabled=on 404 재현됨) · Flyway 꺼짐 순서(재현 안 됨 · 잠재 — 안내를 모든 current 메시지에 넣어 순서와 무관하게 충족, @DependsOn은 넣었다 뺌).
+- 남은 것: 기동 검사가 먼저 걸린 하나만 보고하는 구조(NEXT N00e ③).
 - CS 이슈 아카이브: study-note 쓰기 금지 → 보류(후보: '기본값을 바꿀 때 기동 검사가 여럿이면 먼저 걸린 검사의 안내만 나간다 — 바뀐 기본값의 검사를 관문 맨 앞에').
 
 핵심 diff (실파일 복사):

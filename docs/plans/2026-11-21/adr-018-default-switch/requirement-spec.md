@@ -12,6 +12,13 @@
   2. 기존 테스트 = **테스트 프로필에서 끔** — `application-test.yml`에 `seat.hold-group.enabled: false` 한 줄(ADR-017 보상 none과 같은 방식). 켠 경로는 adr018 · adr018impl · adr018metrics · adr018metricsimpl과 새 기본값 계약 테스트가 본다.
   3. 기록 위치 = **README · NEXT · 이 작업 폴더** — ADR-018은 #18로 병합돼 닫혔으므로 본문을 고치지 않는다.
   4. stakes · 자율성 · 발행 = **높음 · auto · PR까지**(결과 보고 뒤 push · PR 생성까지 허가 · 병합은 따로 묻는다).
+- 재합의(2026-11-21 · 리뷰 3루프 뒤 · AskUserQuestion 2회):
+  5. 루프 2 정지 규칙 → **묶음 검사를 관문 맨 앞에**(묶음 설정 · V16 계획 검사를 Flyway 앞 관문의 다른 검사보다 먼저).
+  6. PR #19 병합 전 남은 계약 결함 3개를 **이 PR에서 수정**(사용자: "다 수정해야되는 이슈들이잖아 이건 동작이나 계약에 문제가 있다는거 아니야?"):
+     - ① Flyway를 끈 구성: 묶음 기동 검사(@PostConstruct)가 보상 기동 검사(@PostConstruct)보다 먼저 돈다(빈 순서를 정함) — 계획 밖 파일 `CompensationScheduling.kt`.
+     - ② ADR-015 확정 모드 거부 메시지의 'seat.confirm.mode=current로 띄워라'와 ADR-017 보상 거부의 'current 등 … none도'에 `seat.hold-group.enabled=false`도 함께 안내 — 계획 밖 파일 `HoldStrategyStartupCheck.kt`(메시지) · `CompensationScheduling.kt`(메시지).
+     - ③ 묶음 API 컨트롤러 등록 조건을 설정 바인딩과 같은 규칙으로(Boolean 바인딩 — on · yes · 1 포함 · 키 없으면 true).
+     - 검증: 수정마다 재현 테스트(수정 전 실패 확인) · 전체 테스트 · 스모크 · 리뷰는 고친 부분만 재점검.
 - 메인 제안(합의 때 확인): V16 계획 검사를 Flyway 앞에 둔다 — 기본값이 켬이 되면 `spring.flyway.target` < 16 구성이 V16 앞까지 마이그레이션한 뒤 거부된다(지금 검사는 마이그레이션 뒤 `run`). ADR-015 · 017의 '거부된 기동은 스키마를 바꾸지 않는다' 관례(`checkPaymentIntentPlan` 선례)를 따른다.
 
 ---
@@ -27,6 +34,8 @@ seat-reservation-lab `main-app`에서 `seat.hold-group.enabled`의 기본값이 
 - D3 V16 앞 스키마(`spring.flyway.target` < 16 · V16 위치 밖)에서 켠 기동은 Flyway migrate 앞에서 거부한다 — 거부된 기동은 스키마를 바꾸지 않는다. 이미 적용된 DB에 표가 없는 경우(Flyway 꺼짐 등)는 지금처럼 `run`이 거부한다.
 - D4 기존 테스트의 단언은 바꾸지 않는다 — 테스트 프로필의 `enabled: false` 한 줄로 지금과 같은 구성에서 돈다. 이미 `seat.hold-group.enabled`를 명시한 테스트(5파일)는 그대로.
 - D5 묶음 · 1석 경로의 동작(잠금 · 상태 전이 · 응답)은 바꾸지 않는다 — 설정 기본값 · 거부 메시지 · V16 계획 검사만 바뀐다. 1석 결제 시작 · 확정의 HOLD_IN_GROUP 검사가 기본으로 돈다는 것은 설계-8대로의 결과다.
+- D7 (재합의 6) 키 없이 띄운 기동이 맞지 않는 구성으로 거부될 때, 어느 기동 경로(Flyway 켬 · 끔)든 첫 거부 메시지에 `seat.hold-group.enabled=false` 안내가 있다. current를 안내하는 기존 거부 메시지도 묶음 끄기를 함께 안내한다.
+- D8 (재합의 6) 묶음 API 컨트롤러가 등록되는 조건 = `HoldGroupProperties.enabled` 바인딩 값(같은 변환 규칙 · 같은 기본값). 둘이 갈리는 값이 없다.
 - D6 `reconciler` 프로필은 영향 밖(기동 검사가 보지 않는다). 측정 이미지(옛 SHA 태그)를 쓰는 옛 하네스는 영향 밖 — 새 이미지로 확정 모드 current인 옛 하네스를 돌리면 거부되므로 README · NEXT에 적는다.
 
 ## 3. 기준소스 (필수)
@@ -38,6 +47,7 @@ seat-reservation-lab `main-app`에서 `seat.hold-group.enabled`의 기본값이 
 ## 4. 금지영역 (필수)
 
 - 닫힌 ADR(ADR-018 포함) · V1~V16 마이그레이션 · mock-pg · reconciler · k6 하네스(k6/**) · 측정 결과 폴더.
+- 재합의 6으로 더한 범위: `CompensationScheduling.kt`(빈 순서 · 거부 메시지 안내) · `HoldStrategyStartupCheck.kt`의 current 안내 메시지 · 컨트롤러 등록 조건. 판정 조건 · 응답 · 상태 전이는 바꾸지 않는다.
 - 묶음 · 1석 동작 코드(HoldGroupService · 결제 시작 · 확정 · 해제 · Guard 판정) — 설정 기본값 · 기동 검사 메시지 · V16 계획 검사 밖은 바꾸지 않는다.
 - `config/application.properties`에 키를 더하지 않는다.
 - 기존 테스트 단언 변경 금지(필요해지면 멈추고 보고).
