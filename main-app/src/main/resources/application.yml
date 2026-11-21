@@ -39,6 +39,7 @@ seat:
   #   optimistic은 classpath:db/migration-confirm-version(V14) 위치 필요 — 기동 검사가 거부한다.
   #   current(옛 JPA 확정 · JPA 배치)는 되돌림 · 비교용 손잡이 — B·C·D 만료 방식 · 기본 밖 전략 조합 · V12 앞 기준선은 seat.confirm.mode=current를 명시해야 기동한다(자동 후퇴 없음)
   #   current는 결제 시작(payment-start)이 없어 보상 기본값 refund와 함께 뜨지 않는다 — current로 띄울 때는 seat.compensation.mode: none도 명시한다(ADR-017 §결정)
+  #   묶음 홀드(기본 켬 · ADR-018)도 conditional-extend에서만 뜬다 — current로 띄울 때는 seat.hold-group.enabled: false도 명시한다
   confirm:
     mode: conditional-extend
     payment-window: 611s

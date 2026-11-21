@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
  * ① 설정 파일에 seat.hold-group 키가 아예 없는 기동(설정 위치 대체)도 코드 기본값(켬)대로 묶음 API가 열린다 — 검사 · Guard와 엔드포인트가 갈리지 않는다.
  * ② V16이 이미 이력에 있는데 hold_group 표가 없는 DB(이번 migrate가 V16을 적용하지 않음)는 migrate 앞에서 거부한다 — 이력 행 수 그대로.
  * ③ 키 없음 + 확정 current + 기본 보상 refund + PG 주소 — 첫 거부에 묶음 끄기 안내와 보상 none 안내가 함께 나온다 · 스키마 무변경.
+ * ④ 키 없음 + target 14(V15 · V16 앞) — 묶음 계획 검사가 관문 맨 앞이라 V15 계획 검사보다 먼저, 첫 거부에 끄기 안내 · 스키마 무변경.
  */
 class Adr018DefaultFixTest : BootTestBase() {
 
@@ -85,6 +86,17 @@ class Adr018DefaultFixTest : BootTestBase() {
         val err = bootFailure(url, props)
         assertStartupFailure(err, "키 없음 + current + refund", listOf("seat.hold-group.enabled=false", "seat.compensation.mode=none"))
         assertOneMessageHasAll(err, "seat.hold-group.enabled=false", "seat.compensation.mode=none")
+        val jdbc = jdbcFor(url)
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'", Long::class.java), "거부된 기동은 스키마를 바꾸지 않는다")
+    }
+
+    @Test
+    fun `④ 키 없음 + target 14 — 첫 거부에 끄기 안내 · 스키마 무변경`() {
+        val url = freshDbUrl()
+        val props = mapOf("spring.config.location" to "classpath:/application.yml", pg, sched, "spring.flyway.target" to "14")
+        val err = bootFailure(url, props)
+        assertStartupFailure(err, "키 없음 + target 14", listOf("seat.hold-group.enabled=false"))
+        assertOneMessageHasAll(err, "spring.flyway.target", "seat.hold-group.enabled=false")
         val jdbc = jdbcFor(url)
         assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'", Long::class.java), "거부된 기동은 스키마를 바꾸지 않는다")
     }
