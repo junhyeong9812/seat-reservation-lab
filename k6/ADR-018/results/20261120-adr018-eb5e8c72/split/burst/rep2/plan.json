@@ -1,0 +1,289 @@
+{
+  "adr": "018",
+  "method": "split",
+  "cell": "burst",
+  "overlap": null,
+  "scale": "main",
+  "group": true,
+  "metric_mode": "split",
+  "rep": 2,
+  "fixed": true,
+  "values": {
+    "fixed": true,
+    "n_sessions": 1100,
+    "rate": 20,
+    "kind_weights": {
+      "main": {
+        "ok": 70,
+        "abandon": 15,
+        "release": 15
+      },
+      "edge": {
+        "edge_confirm": 1,
+        "edge_ps": 1
+      }
+    },
+    "t_range": [
+      30,
+      240
+    ],
+    "pay_median_s": 45,
+    "pay_sigma": 0.94,
+    "pay_max_s": 300,
+    "conf_gap_range": [
+      0,
+      2
+    ],
+    "rel_range": [
+      2,
+      5
+    ],
+    "h_factor": {
+      "low": 3,
+      "mid": 0.5,
+      "high": 0.2
+    },
+    "edge_h_cell": "low",
+    "seat_pad": 50,
+    "edge_eps_s": 0.5,
+    "edge_ps_center_s": 0,
+    "p99_limit_ms": {
+      "hold": 40,
+      "pay_start": 40,
+      "confirm": 50
+    },
+    "drain_cap_s": {
+      "main": 240,
+      "edge": 120
+    },
+    "send_lag_max_ms": {
+      "main": 2000,
+      "edge": 250
+    },
+    "pc_mem_run_min_kb": 4194304,
+    "pc_mem_gap_max_s": 30,
+    "app": {
+      "main": {
+        "ttl_s": 300,
+        "batch_s": 10,
+        "W_s": 611,
+        "theta_s": 1,
+        "M_s": 1
+      },
+      "edge": {
+        "ttl_s": 8,
+        "batch_s": 0.2,
+        "W_s": 6,
+        "theta_s": 0,
+        "M_s": 0
+      }
+    },
+    "compensation": {
+      "worker": {
+        "interval_s": 1,
+        "batch": 50,
+        "lease_s": 30,
+        "max_attempts": 10,
+        "backoff_initial_s": 1,
+        "backoff_max_s": 60
+      },
+      "sweep": {
+        "interval_s": 5,
+        "batch": 200
+      }
+    },
+    "compensation_mode": "refund",
+    "amount": 10000,
+    "max_per_user": 2,
+    "consistency_grace_s": {
+      "main": 20,
+      "edge": 3
+    },
+    "pg_read_timeout_s": 3,
+    "mockpg_auth_ttl": "30m",
+    "edge_n_sessions": 1000,
+    "burst_size": [
+      2,
+      4
+    ],
+    "burst_block": 4,
+    "burst_lead_s": 0.2,
+    "burst_spread_max_ms": 5,
+    "burst_spread_bad_frac": 0.1,
+    "seats_per_row": 50,
+    "hold_sample_s": {
+      "main": 2,
+      "edge": 1
+    },
+    "hold_sample_gap_factor": {
+      "main": 3,
+      "edge": 5
+    },
+    "hold_sample_fail_max": 0.1,
+    "app_log_match_tol_ms": 200,
+    "warmup_exclude_s": 5,
+    "warmup_stages": [
+      "pay_start",
+      "confirm"
+    ]
+  },
+  "n_total": 1100,
+  "rate": 20,
+  "d_arr_s": 55,
+  "kind_cycle": [
+    "ok",
+    "ok",
+    "abandon",
+    "ok",
+    "release",
+    "ok",
+    "ok",
+    "ok",
+    "abandon",
+    "ok",
+    "ok",
+    "release",
+    "ok",
+    "ok",
+    "ok",
+    "abandon",
+    "ok",
+    "release",
+    "ok",
+    "ok"
+  ],
+  "planned": {
+    "abandon": 165,
+    "ok": 770,
+    "release": 165
+  },
+  "params": {
+    "tMin": 30,
+    "tMax": 240,
+    "payMedian": 45,
+    "paySigma": 0.94,
+    "payMax": 300,
+    "gMin": 0,
+    "gMax": 2,
+    "dMin": 2,
+    "dMax": 5,
+    "eps": 0.5,
+    "psCenter": 0
+  },
+  "seed": {
+    "schedules": 1,
+    "seats": 1600,
+    "H": 361,
+    "rows": 31,
+    "pad": 50,
+    "section": "A",
+    "pair_max_start": 1502,
+    "pair_kind": "burst"
+  },
+  "app": {
+    "ttl_s": 300,
+    "batch_s": 10,
+    "W_s": 611,
+    "theta_s": 1,
+    "M_s": 1
+  },
+  "app_env": {
+    "CONFIRM_MODE": "conditional-extend",
+    "CONFIRM_DELAY": "0ms",
+    "PAYMENT_WINDOW": "611s",
+    "PAYMENT_MIN_REMAINING": "1s",
+    "PAY_BY_MARGIN": "1s",
+    "HOLD_TTL": "300s",
+    "EXPIRY_INTERVAL": "10s",
+    "COMPENSATION_MODE": "refund",
+    "PG_BASE_URL": "http://mock-pg:8104",
+    "MOCKPG_AUTH_TTL": "30m",
+    "FLYWAY_LOCATIONS": "classpath:db/migration,classpath:db/migration-updated-at-trigger,classpath:db/migration-incremental",
+    "POOL_SIZE": "10",
+    "TOMCAT_MAX_CONNECTIONS": "20000",
+    "APP_NOFILE": "65536",
+    "PG_PRELOAD": "pg_stat_statements",
+    "HOLD_GROUP_ENABLED": "true",
+    "HOLD_GROUP_MODE": "split"
+  },
+  "grace_s": 573,
+  "life": {
+    "mean_s": 140.6,
+    "max_s": 536.7
+  },
+  "peak_concurrency": 782,
+  "k6": {
+    "script": "k6/ADR-018/scenarios/flow18.js",
+    "duration_s": 628,
+    "est_s": 570,
+    "pre_vus": 920,
+    "max_vus": 1380,
+    "lead_s": 0.49,
+    "env": {
+      "REP": "2",
+      "METHOD": "split",
+      "CELL": "burst",
+      "RATE": "20",
+      "D_ARR_S": "55",
+      "N_TOTAL": "1100",
+      "GRACE_S": "573",
+      "KIND_CYCLE": "ok,ok,abandon,ok,release,ok,ok,ok,abandon,ok,ok,release,ok,ok,ok,abandon,ok,release,ok,ok",
+      "T_MIN_S": "30",
+      "T_MAX_S": "240",
+      "PAY_MEDIAN_S": "45",
+      "PAY_SIGMA": "0.94",
+      "PAY_MAX_S": "300",
+      "GAP_MIN_S": "0",
+      "GAP_MAX_S": "2",
+      "REL_MIN_S": "2",
+      "REL_MAX_S": "5",
+      "EDGE_EPS_S": "0.5",
+      "EDGE_PS_CENTER_S": "0",
+      "BURST": "1",
+      "BURST_MIN": "2",
+      "BURST_MAX": "4",
+      "BURST_BLOCK": "4",
+      "BURST_LEAD_S": "0.2",
+      "H": "361",
+      "SCHEDULE": "1",
+      "USER_BASE": "1000000",
+      "PRE_VUS": "920",
+      "MAX_VUS": "1380"
+    }
+  },
+  "pg": {
+    "base_url_app": "http://mock-pg:8104",
+    "faults": {
+      "seed": 1378523821,
+      "rules": {}
+    },
+    "op": "pay",
+    "auth_ttl": "30m"
+  },
+  "order": {
+    "seq": 31,
+    "rep_cells": [
+      "mid",
+      "high",
+      "low",
+      "edge",
+      "burst"
+    ]
+  },
+  "hold_sample_s": 2,
+  "hold_sample_gap_factor": 3,
+  "send_lag_max_ms": 2000,
+  "p99_limit_ms": {
+    "hold": 40,
+    "pay_start": 40,
+    "confirm": 50
+  },
+  "consistency_grace_s": 20,
+  "drain": {
+    "cap_s": 240,
+    "poll_s": 5,
+    "est_s": 30
+  },
+  "est_s": 760,
+  "est_max_s": 970
+}
