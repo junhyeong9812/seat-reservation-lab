@@ -90,6 +90,14 @@ class HoldStrategyMigrationGate {
         if (HoldStrategyStartupCheck.PAYMENT_INTENT_VERSION !in pending) {
             HoldStrategyStartupCheck.checkPaymentIntentTable(confirm, HoldStrategyStartupCheck.paymentIntentTableExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
         }
+        // ADR-018 기본 켬(§결정 2026-11-21): 묶음 홀드는 hold_group(V16)이 있어야 한다 — target으로 V16 앞에서 멈추거나(계획) 이미 적용된 DB에 표가 없으면(이력) 거부.
+        // reconciler 프로필은 HoldGroupStartupCheck가 없으니(업무 요청을 받지 않음) 여기서도 건너뛴다
+        if (RECONCILER_PROFILE !in environment.activeProfiles) {
+            HoldGroupStartupCheck.checkPlan(holdGroup, reachesV16 = reaches(HoldGroupStartupCheck.HOLD_GROUP_VERSION))
+            if (HoldGroupStartupCheck.HOLD_GROUP_VERSION !in pending) {
+                HoldGroupStartupCheck.checkTable(holdGroup, HoldGroupStartupCheck.tableExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
+            }
+        }
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
         val flywayRejects = config.isValidateOnMigrate && flyway.validateWithResult().invalidMigrations.orEmpty().any { it.errorDetails?.errorCode !in PENDING }

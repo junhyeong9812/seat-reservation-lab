@@ -5,3 +5,7 @@
 seat:
   compensation:
     mode: none
+# 묶음 홀드 기본값은 켬(ADR-018 §결정 2026-11-21)이고 확정 모드 conditional-extend · 보상 none/refund · V16 스키마에서만 기동한다 —
+# 확정 모드 current · flyway.target 등을 주는 기존 테스트가 지금처럼 돌게 끈다. 묶음을 쓰는 테스트(adr018*)는 seat.hold-group.enabled=true를 직접 준다(이 값보다 우선).
+  hold-group:
+    enabled: false
