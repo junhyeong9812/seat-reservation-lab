@@ -39,6 +39,7 @@ seat:
   #   optimistic은 classpath:db/migration-confirm-version(V14) 위치 필요 — 기동 검사가 거부한다.
   #   current(옛 JPA 확정 · JPA 배치)는 되돌림 · 비교용 손잡이 — B·C·D 만료 방식 · 기본 밖 전략 조합 · V12 앞 기준선은 seat.confirm.mode=current를 명시해야 기동한다(자동 후퇴 없음)
   #   current는 결제 시작(payment-start)이 없어 보상 기본값 refund와 함께 뜨지 않는다 — current로 띄울 때는 seat.compensation.mode: none도 명시한다(ADR-017 §결정)
+  #   묶음 홀드(기본 켬 · ADR-018)도 conditional-extend에서만 뜬다 — current로 띄울 때는 seat.hold-group.enabled: false도 명시한다
   confirm:
     mode: conditional-extend
     payment-window: 611s
@@ -51,10 +52,11 @@ seat:
   #   auth-capture(D) · substitute(S)는 측정 · 비교용 손잡이다(ADR-017 결과-4 — 기본 아님).
   compensation:
     mode: refund
-  # 묶음 홀드 · 다석 선점(ADR-018 — HoldGroupProperties). 기본 끔 — 켜야 묶음 API(선점 · 해제 · 결제 시작 · 확정)가 열린다(1석 해제 DELETE /api/holds/{id}는 이 옵션과 무관 — 단 해제 2개는 기본 조합에서만, 그 밖은 404).
-  #   켜면 확정 모드 conditional-extend · 보상 모드 none · refund만 허용한다(기동 검사). mode = split(분리형) | one-shot(단일 쿼리) — 기본으로 무엇을 쓸지는 측정 뒤에 정한다.
+  # 묶음 홀드 · 다석 선점(ADR-018 — HoldGroupProperties). 기본 켬(ADR-018 §결정 2026-11-21) — 묶음 API(선점 · 해제 · 결제 시작 · 확정)가 열린다(1석 해제 DELETE /api/holds/{id}는 이 옵션과 무관 — 단 해제 2개는 기본 조합에서만, 그 밖은 404).
+  #   켜면 확정 모드 conditional-extend · 보상 모드 none · refund · V16 스키마만 허용한다(기동 검사 — 자동으로 끄지 않고 거부). 확정 모드 current 등으로 띄우거나 되돌리려면 enabled: false.
+  #   mode = split(분리형 — 기본) | one-shot(단일 쿼리 — 비교용).
   hold-group:
-    enabled: false
+    enabled: true
     mode: split
   hold:
     ttl: 5m

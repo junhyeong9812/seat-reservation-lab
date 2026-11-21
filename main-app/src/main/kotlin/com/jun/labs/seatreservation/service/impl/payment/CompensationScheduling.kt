@@ -7,6 +7,7 @@ import com.jun.labs.seatreservation.service.UserLimitStrategyType
 import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.PaymentProperties
 import com.jun.labs.seatreservation.service.SeatConfirmProperties
+import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupStartupCheck
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import jakarta.annotation.PostConstruct
@@ -96,7 +97,7 @@ class CompensationScheduling(
             }
             check(confirm.mode.paymentStartEnabled) {
                 "seat.compensation.mode=${props.mode.name.lowercase().replace('_', '-')}는 결제 시작이 있는 확정 모드(conditional · conditional-extend)여야 한다 — 지금 ${confirm.mode} " +
-                    "(intent는 payment-start가 만든다 · ADR-017 설계-4.2) — current 등 다른 확정 모드로 띄우려면 seat.compensation.mode=none도 함께 명시하라(기본 refund — ADR-017 §결정)"
+                    "(intent는 payment-start가 만든다 · ADR-017 설계-4.2) — current 등 다른 확정 모드로 띄우려면 seat.compensation.mode=none도 함께 명시하라(기본 refund — ADR-017 §결정)${HoldGroupStartupCheck.CURRENT_HINT}"
             }
             // S는 카운터를 앱 문장으로 맞춘다(홀드 → 대체 예약 옮김 · 없으면 upsert) — 카운터를 그렇게 다루는 매수 방식만(설계-5 · N17-9)
             // S는 판매 마감이면 대체하지 않는다(N17-9) — 마감 판정(회차 FOR SHARE)을 끈 구성에서는 그 판정을 할 수 없다

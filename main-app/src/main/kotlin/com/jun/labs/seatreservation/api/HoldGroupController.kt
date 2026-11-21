@@ -13,7 +13,7 @@ import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupPaymentStart
 import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupService
 import com.jun.labs.seatreservation.service.impl.holdgroup.HoldReleaseService
 import com.jun.labs.seatreservation.service.impl.payment.PgRegistration
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Conditional
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -27,11 +27,12 @@ import java.time.Instant
 
 /**
  * ADR-018 묶음 홀드 API(설계-2 · 3 · 4 · 5) — `seat.hold-group.enabled=true`일 때만 등록한다(끄면 네 경로 모두 404 — 설계-7).
+ * 등록 조건은 [HoldGroupEnabledCondition] — 설정 바인딩과 같은 규칙 · 같은 기본값(키 없으면 등록 · ADR-018 §결정 기본 켬).
  * 1석 해제(`DELETE /api/holds/{holdId}`)는 [HoldReleaseController](언제나 열림).
  */
 @RestController
 @Profile("!reconciler")
-@ConditionalOnProperty(name = ["seat.hold-group.enabled"], havingValue = "true")
+@Conditional(HoldGroupEnabledCondition::class)
 class HoldGroupController(
     private val holdGroups: HoldGroupService,
     private val release: HoldReleaseService,

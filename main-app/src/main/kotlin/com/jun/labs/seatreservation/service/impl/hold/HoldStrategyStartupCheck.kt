@@ -60,16 +60,22 @@ class HoldStrategyMigrationGate {
         holdGroup: HoldGroupProperties,
         environment: Environment,
     ) = FlywayMigrationStrategy { flyway ->
-        HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
-        // ADR-017 §결정(기본 refund): 보상 설정 검사(PG 주소 · 확정 모드 — 설정만 본다)도 migrate 앞 — PG 주소 없는 기본 기동이 V15 등을 적용한 뒤 거부되지 않게.
-        // 같은 검사를 CompensationScheduling(@PostConstruct)이 한 번 더 한다(Flyway가 꺼진 구성). reconciler 프로필은 그 빈이 없으니 여기서도 건너뛴다
-        if (RECONCILER_PROFILE !in environment.activeProfiles) CompensationScheduling.checkConfig(compensation, payment, confirm, properties)
-        // ADR-018 설계-7: 묶음 홀드를 켠 조합(확정 · 보상 모드)도 migrate 앞 — HoldGroupStartupCheck가 같은 검사를 한 번 더 한다(Flyway가 꺼진 구성)
-        if (RECONCILER_PROFILE !in environment.activeProfiles) HoldGroupStartupCheck.checkConfig(holdGroup, confirm, compensation)
         val config = flyway.configuration
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')
         fun reaches(version: String) = target == null || target == MigrationVersion.LATEST || (target.version != null && target.isAtLeast(version))
+        // ADR-018 설계-7 · 기본 켬(§결정 2026-11-21): 묶음 설정 검사(확정 · 보상 모드)와 V16 계획 검사(target)를 관문 맨 앞에서 — 키 없이 띄운 기동이
+        // 다른 검사(보상 · ADR-015 확정 · V15 계획)에 먼저 걸려 seat.hold-group.enabled=false 안내 없이 거부되지 않게(첫 거부에 끄기 안내 — 보상 none 안내도 그 메시지에 함께).
+        // 같은 검사를 HoldGroupStartupCheck(@PostConstruct · run)가 한 번 더 한다(Flyway가 꺼진 구성 — 그 경로는 다른 @PostConstruct 검사와의 순서를 정하지 않는다).
+        // reconciler 프로필은 HoldGroupStartupCheck가 없으니(업무 요청을 받지 않음) 여기서도 건너뛴다
+        if (RECONCILER_PROFILE !in environment.activeProfiles) {
+            HoldGroupStartupCheck.checkConfig(holdGroup, confirm, compensation)
+            HoldGroupStartupCheck.checkPlan(holdGroup, reachesV16 = reaches(HoldGroupStartupCheck.HOLD_GROUP_VERSION))
+        }
+        HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
+        // ADR-017 §결정(기본 refund): 보상 설정 검사(PG 주소 · 확정 모드 — 설정만 본다)도 migrate 앞 — PG 주소 없는 기본 기동이 V15 등을 적용한 뒤 거부되지 않게.
+        // 같은 검사를 CompensationScheduling(@PostConstruct)이 한 번 더 한다(Flyway가 꺼진 구성). reconciler 프로필은 그 빈이 없으니 여기서도 건너뛴다
+        if (RECONCILER_PROFILE !in environment.activeProfiles) CompensationScheduling.checkConfig(compensation, payment, confirm, properties)
         // ADR-015 §설계-5 규칙 6(③ V14 짝 — 내다본 스키마: 이미 적용된 트리거 + 위치가 더할 트리거) · 규칙 7(T2 — 새 모드는 V13까지 닿아야 한다). Flyway 검증·migrate 앞
         val v14Predicted = HoldStrategyStartupCheck.confirmVersionTriggerExists(JdbcTemplate(config.dataSource)) ||
             (config.locations.any { it.path == HoldStrategyStartupCheck.LOCATION_V14 } && reaches("14"))
@@ -89,6 +95,10 @@ class HoldStrategyMigrationGate {
         HoldStrategyStartupCheck.checkPaymentIntentPlan(confirm, reachesV15 = reaches(HoldStrategyStartupCheck.PAYMENT_INTENT_VERSION))
         if (HoldStrategyStartupCheck.PAYMENT_INTENT_VERSION !in pending) {
             HoldStrategyStartupCheck.checkPaymentIntentTable(confirm, HoldStrategyStartupCheck.paymentIntentTableExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
+        }
+        // ADR-018: 이번 migrate가 V16을 적용하지 않으면(이미 이력에 있음 · 위치 밖) 지금 DB의 hold_group 표가 곧 마이그레이션 뒤 사실이다 — 켰는데 없으면 여기서 거부(계획 검사는 맨 앞)
+        if (RECONCILER_PROFILE !in environment.activeProfiles && HoldGroupStartupCheck.HOLD_GROUP_VERSION !in pending) {
+            HoldGroupStartupCheck.checkTable(holdGroup, HoldGroupStartupCheck.tableExists(JdbcTemplate(config.dataSource)), "마이그레이션 앞 DB")
         }
         // Flyway가 스스로 마이그레이션 전에 막는 조합(같은 버전 둘 — 해석 단계에서 FlywayException · 체크섬·설명 불일치 · 적용됐는데 위치에 없는 버전)은
         // Flyway의 거부로 둔다(조합표 'Flyway 검증' 행 — 다른 V9로 다시 기동 등). 검증은 읽기만 한다. 아직 적용하지 않은 버전(pending)은 migrate가 적용할 몫이라 거부가 아니다
@@ -315,12 +325,12 @@ class HoldStrategyStartupCheck(
             // 규칙 1: B·C·D는 확정 첫머리에서 LazyConfirmProcess로 가므로 손잡이가 조용히 무시된다
             check(properties.expiryMode == ExpiryMode.SWEEP) {
                 "$key 는 seat.hold.expiry-mode=sweep(A)에서만 쓴다 — 현재 ${properties.expiryMode}(B·C·D 확정은 ADR-014 최소 가드 그대로). " +
-                    "seat.hold.expiry-mode=sweep으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 1)"
+                    "seat.hold.expiry-mode=sweep으로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 1)"
             }
             // 규칙 2: 새 모드의 정합 논리는 좌석 3b(선점 NOWAIT) · 매수 counter-upsert-precheck(쿼터 행 → 홀드 → 좌석 잠금 순서) 위에 선다
             check(properties.strategy == HoldStrategyType.PESSIMISTIC_NOWAIT && properties.limitStrategy == COUNTER_UPSERT_PRECHECK) {
                 "$key 는 seat.hold.strategy=pessimistic-nowait + seat.hold.limit-strategy=counter-upsert-precheck(기본 조합)에서만 쓴다 " +
-                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. 기본 조합으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 2)"
+                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. 기본 조합으로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 2)"
             }
             // 규칙 4: ④ 연장 창
             if (mode == ConfirmMode.CONDITIONAL_EXTEND) {
@@ -333,7 +343,7 @@ class HoldStrategyStartupCheck(
             // 규칙 5: 주입 이음새(afterExpiryDecrement)는 JPA 배치의 가드 감소에만 있다 — A′와 함께 켜면 주입이 조용히 빠진다
             check(!properties.loadtest.injectApp.enabled) {
                 "$key 와 측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 함께 쓰지 않는다 — 주입 expiry 경로는 JPA 배치(current)의 감소 안에만 있다. " +
-                    "inject-app.enabled=false로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 5)"
+                    "inject-app.enabled=false로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 5)"
             }
         }
 
@@ -345,7 +355,7 @@ class HoldStrategyStartupCheck(
             val mode = confirm.mode
             check(mode == ConfirmMode.CURRENT || reachesV13) {
                 "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 13 이상이어야 한다(V12 유니크 인덱스 · V13 extended_at 열) — target 12 이하는 current 기준선 재현 전용이다. " +
-                    "target을 풀거나 seat.confirm.mode=current로 띄워라" +
+                    "target을 풀거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}" +
                     "(ADR-015 §설계-5 규칙 7 · §설계-10 T2)"
             }
             checkConfirmVersionTrigger(properties, confirm, v14Trigger, "내다본 스키마")
@@ -439,7 +449,7 @@ class HoldStrategyStartupCheck(
             val mode = confirm.mode
             check(!mode.paymentStartEnabled || reachesV15) {
                 "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 $PAYMENT_INTENT_VERSION 이상이어야 한다(payment_intent — payment-start가 결제 uid를 발급한다 · ADR-017 설계-4.2). " +
-                    "target을 풀거나, 앞 버전 스키마 재현이면 결제 시작이 없는 모드(current · pessimistic · optimistic)로 띄워라"
+                    "target을 풀거나, 앞 버전 스키마 재현이면 결제 시작이 없는 모드(current · pessimistic · optimistic)로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}"
             }
         }
 

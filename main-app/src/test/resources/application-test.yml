@@ -1,7 +1,12 @@
 # 'test' 프로필(config/application.properties가 모든 테스트 기동에 include) 전용 값.
 # 보상 기본값은 refund(ADR-017 §결정 2026-11-18)이고 refund는 PG 주소가 있어야 기동한다 — PG 없이 띄우는 테스트는 none으로 돈다.
 # bootTestRun(TestSeatReservationApplication — 테스트 클래스패스)도 이 프로필이라 none으로 뜬다 — PG 주소만 주면 refund가 아니다(mode: refund도 함께 줘라).
+# 같은 이유로 bootTestRun은 묶음 홀드도 꺼진 채 뜬다(아래 hold-group) — 새 기본값(켬)을 보려면 seat.hold-group.enabled=true를 함께 줘라.
 # PG를 쓰는 테스트(adr017)는 seat.compensation.mode · seat.payment.pg.base-url을 직접 준다(이 값보다 우선).
 seat:
   compensation:
     mode: none
+# 묶음 홀드 기본값은 켬(ADR-018 §결정 2026-11-21)이고 확정 모드 conditional-extend · 보상 none/refund · V16 스키마에서만 기동한다 —
+# 확정 모드 current · flyway.target 등을 주는 기존 테스트가 지금처럼 돌게 끈다. 묶음을 쓰는 테스트(adr018*)는 seat.hold-group.enabled=true를 직접 준다(이 값보다 우선).
+  hold-group:
+    enabled: false
