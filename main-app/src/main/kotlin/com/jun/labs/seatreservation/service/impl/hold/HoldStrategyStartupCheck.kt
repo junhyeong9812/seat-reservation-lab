@@ -325,12 +325,12 @@ class HoldStrategyStartupCheck(
             // 규칙 1: B·C·D는 확정 첫머리에서 LazyConfirmProcess로 가므로 손잡이가 조용히 무시된다
             check(properties.expiryMode == ExpiryMode.SWEEP) {
                 "$key 는 seat.hold.expiry-mode=sweep(A)에서만 쓴다 — 현재 ${properties.expiryMode}(B·C·D 확정은 ADR-014 최소 가드 그대로). " +
-                    "seat.hold.expiry-mode=sweep으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 1)"
+                    "seat.hold.expiry-mode=sweep으로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 1)"
             }
             // 규칙 2: 새 모드의 정합 논리는 좌석 3b(선점 NOWAIT) · 매수 counter-upsert-precheck(쿼터 행 → 홀드 → 좌석 잠금 순서) 위에 선다
             check(properties.strategy == HoldStrategyType.PESSIMISTIC_NOWAIT && properties.limitStrategy == COUNTER_UPSERT_PRECHECK) {
                 "$key 는 seat.hold.strategy=pessimistic-nowait + seat.hold.limit-strategy=counter-upsert-precheck(기본 조합)에서만 쓴다 " +
-                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. 기본 조합으로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 2)"
+                    "— 현재 ${properties.strategy} + ${properties.limitStrategy}. 기본 조합으로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 2)"
             }
             // 규칙 4: ④ 연장 창
             if (mode == ConfirmMode.CONDITIONAL_EXTEND) {
@@ -343,7 +343,7 @@ class HoldStrategyStartupCheck(
             // 규칙 5: 주입 이음새(afterExpiryDecrement)는 JPA 배치의 가드 감소에만 있다 — A′와 함께 켜면 주입이 조용히 빠진다
             check(!properties.loadtest.injectApp.enabled) {
                 "$key 와 측정 전용 앱 경로 주입(seat.hold.loadtest.inject-app.enabled=true)은 함께 쓰지 않는다 — 주입 expiry 경로는 JPA 배치(current)의 감소 안에만 있다. " +
-                    "inject-app.enabled=false로 두거나 seat.confirm.mode=current로 띄워라(ADR-015 §설계-5 규칙 5)"
+                    "inject-app.enabled=false로 두거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}(ADR-015 §설계-5 규칙 5)"
             }
         }
 
@@ -355,7 +355,7 @@ class HoldStrategyStartupCheck(
             val mode = confirm.mode
             check(mode == ConfirmMode.CURRENT || reachesV13) {
                 "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 13 이상이어야 한다(V12 유니크 인덱스 · V13 extended_at 열) — target 12 이하는 current 기준선 재현 전용이다. " +
-                    "target을 풀거나 seat.confirm.mode=current로 띄워라" +
+                    "target을 풀거나 seat.confirm.mode=current로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}" +
                     "(ADR-015 §설계-5 규칙 7 · §설계-10 T2)"
             }
             checkConfirmVersionTrigger(properties, confirm, v14Trigger, "내다본 스키마")
@@ -449,7 +449,7 @@ class HoldStrategyStartupCheck(
             val mode = confirm.mode
             check(!mode.paymentStartEnabled || reachesV15) {
                 "seat.confirm.mode=${mode.key()}는 spring.flyway.target이 $PAYMENT_INTENT_VERSION 이상이어야 한다(payment_intent — payment-start가 결제 uid를 발급한다 · ADR-017 설계-4.2). " +
-                    "target을 풀거나, 앞 버전 스키마 재현이면 결제 시작이 없는 모드(current · pessimistic · optimistic)로 띄워라"
+                    "target을 풀거나, 앞 버전 스키마 재현이면 결제 시작이 없는 모드(current · pessimistic · optimistic)로 띄워라${HoldGroupStartupCheck.CURRENT_HINT}"
             }
         }
 

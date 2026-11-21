@@ -51,6 +51,8 @@ class HoldGroupStartupCheck(
         const val HOLD_GROUP_VERSION = "16"
         /** 기본 켬이라 맞지 않는 구성을 띄우는 길 — 거부 메시지마다 붙인다 */
         const val DISABLE_HINT = "묶음 없이 띄우려면 $ENABLED_KEY=false"
+        /** current 등 결제 시작 · ④가 아닌 확정 모드를 안내하는 다른 기동 검사 메시지에 붙인다 — 묶음 기본 켬이라 그 모드로 띄우려면 묶음도 꺼야 한다(명세 D7) */
+        const val CURRENT_HINT = " · 묶음 홀드는 기본 켬이라 conditional-extend 밖의 확정 모드로 띄울 때는 $ENABLED_KEY=false도 함께 준다(ADR-018)"
         private val COMPENSATION_MODES = setOf(CompensationMode.NONE, CompensationMode.REFUND)
 
         fun checkConfig(properties: HoldGroupProperties, confirm: SeatConfirmProperties, compensation: CompensationProperties) {
