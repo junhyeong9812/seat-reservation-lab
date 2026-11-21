@@ -57,7 +57,9 @@ class HoldGroupStartupCheck(
             if (!properties.enabled) return
             check(confirm.mode == ConfirmMode.CONDITIONAL_EXTEND) {
                 "$ENABLED_KEY=true는 seat.confirm.mode=conditional-extend에서만 쓴다 — 현재 ${confirm.mode.name.lowercase().replace('_', '-')} " +
-                    "(묶음 결제 시작 · 확정은 ④ 연장 + 조건부 확정 위에 선다 · ADR-018 설계-7) · $DISABLE_HINT"
+                    "(묶음 결제 시작 · 확정은 ④ 연장 + 조건부 확정 위에 선다 · ADR-018 설계-7) · $DISABLE_HINT" +
+                    // 관문은 이 검사를 보상 검사보다 먼저 돈다 — 결제 시작이 없는 확정 모드는 보상 refund 등과도 함께 뜨지 않으니(ADR-017 설계-5) 그 안내도 함께 낸다
+                    if (!confirm.mode.paymentStartEnabled && compensation.mode != CompensationMode.NONE) " · 결제 시작이 없는 확정 모드는 seat.compensation.mode=none도 함께 준다" else ""
             }
             check(compensation.mode in COMPENSATION_MODES) {
                 "$ENABLED_KEY=true는 seat.compensation.mode=none · refund에서만 쓴다 — 현재 ${compensation.mode.name.lowercase().replace('_', '-')} " +

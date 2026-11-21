@@ -21,7 +21,7 @@ import org.springframework.data.redis.core.StringRedisTemplate
 import java.sql.Timestamp
 import kotlin.test.assertEquals
 
-/** 기본(seat.hold-group.enabled=false): 묶음 API 4개 404 · 1석 해제는 열림 · 부하 초기화가 V16 뒤에도 돈다 · 정합성 항목 4개 */
+/** 끔(seat.hold-group.enabled=false — 기본값은 켬이고 이 값은 test 프로필이 준다): 묶음 API 4개 404 · 1석 해제는 열림 · 부하 초기화가 V16 뒤에도 돈다 · 정합성 항목 4개 */
 @SpringBootTest(
     webEnvironment = RANDOM_PORT,
     properties = [G_SCHED_OFF, G_COMP_SCHED_OFF, PIN_A_OFF, PIN_C_OFF, PIN_CLEANUP_OFF, PIN_INC_OFF, PIN_METHOD_NONE, PIN_SAFETY_OFF, PIN_SHAPE_ONE_SHOT, PIN_FLYWAY_BASE],

@@ -61,11 +61,12 @@ class HoldStrategyMigrationGate {
         environment: Environment,
     ) = FlywayMigrationStrategy { flyway ->
         HoldStrategyStartupCheck.checkConfig(properties, environment, confirm)
+        // ADR-018 설계-7: 묶음 홀드를 켠 조합(확정 · 보상 모드)도 migrate 앞 — HoldGroupStartupCheck가 같은 검사를 한 번 더 한다(Flyway가 꺼진 구성).
+        // 묶음은 기본 켬(§결정 2026-11-21)이라 보상 검사보다 먼저 — current 등으로 띄운 기동이 첫 거부에서 seat.hold-group.enabled=false 안내를 받게(보상 안내도 그 메시지에 함께)
+        if (RECONCILER_PROFILE !in environment.activeProfiles) HoldGroupStartupCheck.checkConfig(holdGroup, confirm, compensation)
         // ADR-017 §결정(기본 refund): 보상 설정 검사(PG 주소 · 확정 모드 — 설정만 본다)도 migrate 앞 — PG 주소 없는 기본 기동이 V15 등을 적용한 뒤 거부되지 않게.
         // 같은 검사를 CompensationScheduling(@PostConstruct)이 한 번 더 한다(Flyway가 꺼진 구성). reconciler 프로필은 그 빈이 없으니 여기서도 건너뛴다
         if (RECONCILER_PROFILE !in environment.activeProfiles) CompensationScheduling.checkConfig(compensation, payment, confirm, properties)
-        // ADR-018 설계-7: 묶음 홀드를 켠 조합(확정 · 보상 모드)도 migrate 앞 — HoldGroupStartupCheck가 같은 검사를 한 번 더 한다(Flyway가 꺼진 구성)
-        if (RECONCILER_PROFILE !in environment.activeProfiles) HoldGroupStartupCheck.checkConfig(holdGroup, confirm, compensation)
         val config = flyway.configuration
         val target = config.target
         // target 앞 버전에서 멈추면 그 위치는 객체를 더하지 않는다(LATEST·null = 끝까지 · current·next 등 버전 없는 특수값은 보수적으로 '더하지 않음')

@@ -27,11 +27,12 @@ import java.time.Instant
 
 /**
  * ADR-018 묶음 홀드 API(설계-2 · 3 · 4 · 5) — `seat.hold-group.enabled=true`일 때만 등록한다(끄면 네 경로 모두 404 — 설계-7).
+ * 키가 없으면 등록한다(matchIfMissing — 코드 기본값 [com.jun.labs.seatreservation.service.HoldGroupProperties.enabled] = true와 같게. ADR-018 §결정 기본 켬).
  * 1석 해제(`DELETE /api/holds/{holdId}`)는 [HoldReleaseController](언제나 열림).
  */
 @RestController
 @Profile("!reconciler")
-@ConditionalOnProperty(name = ["seat.hold-group.enabled"], havingValue = "true")
+@ConditionalOnProperty(name = ["seat.hold-group.enabled"], havingValue = "true", matchIfMissing = true)
 class HoldGroupController(
     private val holdGroups: HoldGroupService,
     private val release: HoldReleaseService,
