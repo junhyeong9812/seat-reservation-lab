@@ -51,6 +51,11 @@ seat:
   #   auth-capture(D) · substitute(S)는 측정 · 비교용 손잡이다(ADR-017 결과-4 — 기본 아님).
   compensation:
     mode: refund
+  # 묶음 홀드 · 다석 선점(ADR-018 — HoldGroupProperties). 기본 끔 — 켜야 묶음 API(선점 · 해제 · 결제 시작 · 확정)가 열린다(1석 해제 DELETE /api/holds/{id}는 이 옵션과 무관 — 단 해제 2개는 기본 조합에서만, 그 밖은 404).
+  #   켜면 확정 모드 conditional-extend · 보상 모드 none · refund만 허용한다(기동 검사). mode = split(분리형) | one-shot(단일 쿼리) — 기본으로 무엇을 쓸지는 측정 뒤에 정한다.
+  hold-group:
+    enabled: false
+    mode: split
   hold:
     ttl: 5m
     max-per-user: 2

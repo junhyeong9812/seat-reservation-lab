@@ -7,6 +7,8 @@ package com.jun.labs.seatreservation.domain
 class SeatReservationException(
     val errorCode: ErrorCode,
     val lockNotAvailable: Boolean = false,
+    /** ADR-018 2단계 — 묶음 선점 one-shot의 바뀐 행 수 < N(같은 409 SEAT_NOT_AVAILABLE · 측정 프로필 거절 원인 표지 `group-short`만 다르다) */
+    val groupShort: Boolean = false,
     /** ADR-017 — intent 경로 확정 거부의 보상 작업(오류 본문 `compensation`) · 그 밖은 null */
     val compensation: CompensationView? = null,
 ) : RuntimeException(errorCode.message)

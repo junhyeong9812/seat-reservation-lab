@@ -48,9 +48,12 @@ class LoadtestDataService(
         require(backgroundRows == 0 || properties.limitStrategy !in COUNTER_STRATEGIES) { "counter 매수 방식에서는 배경 행을 시드하지 않는다" }
         // ADR-017 V15 표는 회차 · 좌석 · 예약과 FK로 묶여 함께 비운다(RD17-12 — 회차마다 섞이지 않게). V15 앞 스키마(target 7 등)에는 없다
         val v15 = jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) == true
+        // ADR-018 V16 묶음 행은 회차를 참조한다 — 목록에 없으면 묶음 API를 쓰지 않아도 V16 뒤의 초기화가 외래키로 실패한다
+        val v16 = hasHoldGroup()
         jdbcTemplate.execute(
             "TRUNCATE reservation, seat_hold, product_seat, product_schedule, product, user_hold_quota" +
-                (if (v15) ", payment_intent, confirm_rejection, compensation_task" else "") + " RESTART IDENTITY",
+                (if (v15) ", payment_intent, confirm_rejection, compensation_task" else "") +
+                (if (v16) ", hold_group" else "") + " RESTART IDENTITY",
         )
         // ADR-012 rv44 RG-1: 초기화 앞(예열)의 앱 경로 주입 기록·상태를 비운다 — 측정의 max-pairs·effect.json에 예열 주입이 섞이지 않게.
         // counter_app_inject는 V10(선택 위치 migration-incremental)에만 있다
@@ -226,6 +229,14 @@ class LoadtestDataService(
     private fun paymentStates(): Map<String, Any?> {
         if (jdbcTemplate.queryForObject("SELECT to_regclass('payment_intent') IS NOT NULL", Boolean::class.java) != true) return emptyMap()
         val mode = compensation?.mode
+        // ADR-018 V16 뒤 pay_multi_reservation_intents = 결제 의도당 예약 수 > seat_count(1석은 seat_count 1이라 V15 정의와 같은 뜻). 키 자리는 그대로 둔다
+        val v16 = hasHoldGroup()
+        val multiReservationIntents = if (v16) {
+            "(SELECT count(*) FROM (SELECT intent_id, count(*) AS n FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id) r " +
+                "JOIN payment_intent i ON i.uid = r.intent_id WHERE r.n > i.seat_count)"
+        } else {
+            "(SELECT count(*) FROM (SELECT intent_id FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id HAVING count(*) > 1) x)"
+        }
         val states = jdbcTemplate.queryForMap(
             """
             SELECT
@@ -233,7 +244,7 @@ class LoadtestDataService(
               (SELECT count(*) FROM payment_intent WHERE state = 'OPEN')                                                       AS pay_open_intents,
               (SELECT count(*) FROM payment_intent i WHERE i.state = 'OPEN'
                  AND NOT EXISTS (SELECT 1 FROM seat_hold h WHERE h.id = i.hold_id AND h.expires_at > now()))                  AS pay_open_unheld_intents,
-              (SELECT count(*) FROM (SELECT intent_id FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id HAVING count(*) > 1) x) AS pay_multi_reservation_intents,
+              $multiReservationIntents AS pay_multi_reservation_intents,
               (SELECT count(*) FROM payment_intent i WHERE (i.state IN ('REJECTED', 'SUBSTITUTED')) <>
                  EXISTS (SELECT 1 FROM confirm_rejection r WHERE r.uid = i.uid))                                               AS pay_rejection_state_mismatch,
               (SELECT count(*) FROM payment_intent i WHERE EXISTS (SELECT 1 FROM reservation r WHERE r.intent_id = i.uid)
@@ -249,8 +260,29 @@ class LoadtestDataService(
             """.trimIndent(),
         )
         if (mode == CompensationMode.NONE) states.remove("pay_rejected_without_task")
+        if (v16) states += holdGroupStates()
         return linkedMapOf<String, Any?>("pay_compensation_mode" to (mode?.name?.lowercase()?.replace('_', '-') ?: "unknown")) + states
     }
+
+    private fun hasHoldGroup(): Boolean =
+        jdbcTemplate.queryForObject("SELECT to_regclass('hold_group') IS NOT NULL", Boolean::class.java) == true
+
+    /**
+     * ADR-018 설계-7 묶음 항목(V16 뒤 — 기대 0 · pay_multi_reservation_intents의 V16 정의는 [paymentStates]가 낸다).
+     * group_partial_holds = 남은 홀드 수가 0도 seat_count도 아닌 묶음 · group_expiry_split = 남은 홀드의 expires_at이 둘 이상인 묶음 ·
+     * group_partial_reservations = 결제 의도의 예약 수가 0도 seat_count도 아닌 묶음.
+     */
+    private fun holdGroupStates(): Map<String, Any?> = jdbcTemplate.queryForMap(
+        """
+        WITH per_intent AS (SELECT intent_id, count(*) AS n FROM reservation WHERE intent_id IS NOT NULL GROUP BY intent_id),
+        per_group AS (SELECT group_id, count(*) AS n, count(DISTINCT expires_at) AS e FROM seat_hold WHERE group_id IS NOT NULL GROUP BY group_id)
+        SELECT
+          (SELECT count(*) FROM per_group h JOIN hold_group g ON g.id = h.group_id WHERE h.n <> g.seat_count)                AS group_partial_holds,
+          (SELECT count(*) FROM per_group WHERE e > 1)                                                                     AS group_expiry_split,
+          (SELECT count(*) FROM per_intent r JOIN payment_intent i ON i.uid = r.intent_id
+             WHERE i.group_id IS NOT NULL AND r.n <> i.seat_count)                                                         AS group_partial_reservations
+        """.trimIndent(),
+    )
 
     /**
      * ADR-014 §설계-8.3 방식별 상태 항목 — 활성 = `expires_at > DB now()`(B·C·D의 만료 판정 단일 규칙 · 측정-5 상태 표본과 같은 정의).

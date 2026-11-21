@@ -10,6 +10,7 @@ import com.jun.labs.seatreservation.service.CompensationProperties
 import com.jun.labs.seatreservation.service.ConfirmReservationCommand
 import com.jun.labs.seatreservation.service.ConfirmReservationResult
 import com.jun.labs.seatreservation.service.ConfirmReservationUseCase
+import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupGuard
 import com.jun.labs.seatreservation.service.impl.payment.PaymentIntents.State
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
@@ -41,8 +42,10 @@ class PaymentConfirmService(
     private val tx: TransactionTemplate,
     private val clock: Clock,
     private val meters: MeterRegistry,
+    private val holdGroups: HoldGroupGuard,
 ) {
     fun confirm(command: ConfirmReservationCommand): ConfirmResponse {
+        holdGroups.rejectIfGrouped(command.holdId, command.userId) // ADR-018 — 묶음 홀드는 묶음 확정으로만(409 HOLD_IN_GROUP · 묶음을 켰을 때만 문장을 보낸다)
         if (intents.find(command.paymentUid) == null) {
             // 남의 홀드면 옛 경로가 지금처럼 403으로 거부한다(진단 그대로) — 내 홀드에 intent가 있을 때만 막는다
             if (intents.findByHold(command.holdId)?.userId == command.userId) {

@@ -3,6 +3,7 @@ package com.jun.labs.seatreservation.api
 import com.jun.labs.seatreservation.service.ConfirmMode
 import com.jun.labs.seatreservation.service.SeatConfirmProperties
 import com.jun.labs.seatreservation.service.impl.PaymentStartService
+import com.jun.labs.seatreservation.service.impl.holdgroup.HoldGroupGuard
 import com.jun.labs.seatreservation.service.impl.payment.PgRegistration
 import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.context.annotation.Condition
@@ -32,6 +33,7 @@ class PaymentStartController(
     private val confirmProperties: SeatConfirmProperties,
     private val payBy: PayBy,
     private val pgRegistration: PgRegistration,
+    private val holdGroups: HoldGroupGuard,
 ) {
 
     @PostMapping("/api/holds/{holdId}/payment-start")
@@ -39,13 +41,14 @@ class PaymentStartController(
         @PathVariable holdId: Long,
         @RequestHeader(USER_ID_HEADER) userId: Long,
     ): PaymentStartResponse {
+        holdGroups.rejectIfGrouped(holdId, userId) // ADR-018 — 묶음 홀드는 묶음 결제 시작으로만(409 HOLD_IN_GROUP · 묶음을 켰을 때만 문장을 보낸다)
         val result = when (confirmProperties.mode) {
             ConfirmMode.CONDITIONAL_EXTEND -> paymentStartService.paymentStart(holdId, userId)
             ConfirmMode.CONDITIONAL -> paymentStartService.check(holdId, userId)
             else -> error("payment-start는 ${ConfirmMode::paymentStartEnabled.name} 모드에서만 등록된다 — 현재 ${confirmProperties.mode}")
         }
         // ADR-017 명세 부록 A — 커밋 뒤(서비스 트랜잭션이 끝난 뒤) PG에 uid · deadline 등록. 매 호출 다시 등록한다(멱등 — 앞 등록이 실패했어도 재호출이 메운다)
-        pgRegistration.register(result.paymentUid, userId, result.payBy)
+        pgRegistration.register(result.paymentUid, userId, result.payBy, pgRegistration.amountFor(1))
         return PaymentStartResponse(
             holdId = result.holdId, expiresAt = result.expiresAt,
             payBy = result.payBy, payWithinSeconds = payBy.remaining(result.payBy), extended = result.extended,

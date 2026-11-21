@@ -21,14 +21,26 @@ class PgRegistration(
     private val pg: PgClient,
     private val meters: MeterRegistry,
 ) {
-    fun register(uid: String, userId: Long, deadline: Instant) {
+    /** 좌석 [seatCount]석의 결제 금액 — `seat.payment.amount` × 좌석 수(1석 = 지금 금액 그대로 · 묶음 = N석의 합 — ADR-018 설계-4) */
+    fun amountFor(seatCount: Int): Long = Math.multiplyExact(payment.amount, seatCount.toLong())
+
+    /**
+     * [amount]를 등록한다(ADR-018 설계-4 — 금액은 호출자가 결제 의도의 좌석 수로 정한다). 흉내 PG는 같은 uid의 재등록에서 처음 금액을 그대로 두므로
+     * 응답의 금액이 [amount]와 다르면 503으로 거부하고 ERROR 로그를 남긴다(응답에 금액이 없으면 확인하지 않는다).
+     */
+    fun register(uid: String, userId: Long, deadline: Instant, amount: Long) {
         if (!payment.pgEnabled) return
-        when (val call = pg.register(uid, userId, payment.amount, deadline)) {
+        when (val call = pg.register(uid, userId, amount, deadline)) {
             is PgClient.Call.Ok -> {
                 // 이미 닫힌 uid(환불 · 승인 취소 — 거부 뒤 워커가 끝냄)는 멱등 200으로 온다 — 결제할 수 없으므로 409 CLOSED와 같게(RD17-P1)
                 if (call.state in CompensationWorker.CLOSED_STATES) {
                     meters.counter(METRIC, "result", "rejected").increment()
                     throw SeatReservationException(ErrorCode.HOLD_EXPIRED)
+                }
+                if (call.amount != null && call.amount != amount) {
+                    meters.counter(METRIC, "result", "amount_mismatch").increment()
+                    log.error("PG 등록 금액이 요청 금액과 다르다(같은 uid의 앞 등록 금액이 남았다) uid={} requested={} registered={}", uid, amount, call.amount)
+                    throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "PG 등록 금액 불일치")
                 }
                 meters.counter(METRIC, "result", "ok").increment()
             }

@@ -19,7 +19,7 @@ class IndexMigrationTest : IntegrationTest() {
 
     @Test
     fun `기본 실행은 V2 일반 인덱스 5개 + V12 확정 예약 부분 유니크 인덱스가 있다`() {
-        assertEquals(EXPECTED + (V12_INDEX to true) + (V15_INDEX to true), indexes(jdbcTemplate))
+        assertEquals(EXPECTED + (V12_INDEX to true) + (V16_INDEX to true) + (V16_GROUP_INDEX to false), indexes(jdbcTemplate))
     }
 
     @Nested
@@ -64,6 +64,10 @@ class IndexMigrationTest : IntegrationTest() {
         const val V12_INDEX = "uq_reservation_confirmed_seat"
         /** V15 — intent당 예약 ≤ 1(reservation.intent_id UNIQUE) */
         const val V15_INDEX = "reservation_intent_uk"
+        /** V16 — V15_INDEX를 (intent_id, seat_id) 유니크로 바꾼다(ADR-018 묶음 결제 의도 — 결제 의도당 예약 수 ≤ seat_count는 정합성 검증기가 센다) */
+        const val V16_INDEX = "reservation_intent_seat_uk"
+        /** V16 — seat_hold(group_id) 부분 인덱스(묶음 홀드) */
+        const val V16_GROUP_INDEX = "idx_seat_hold_group"
         val EXPECTED = mapOf(
             "idx_seat_hold_seat_id" to false,
             "idx_seat_hold_user_id" to false,
